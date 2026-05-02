@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Rider / Resharper
+.idea/
+*.DotSettings.user
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Trace artifacts (kept out of git unless explicitly added under tests/fixtures/)
+*.etlx
+*.etl
+!tests/**/fixtures/*.etl
+
+# Symbol cache
+Symbols/
