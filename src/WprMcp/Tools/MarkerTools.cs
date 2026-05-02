@@ -3,6 +3,7 @@ using ModelContextProtocol.Server;
 using WprMcp.Analyzers;
 using WprMcp.Core;
 using WprMcp.Output;
+using static WprMcp.Analyzers.MarkerSearch;
 
 namespace WprMcp.Tools;
 
@@ -20,10 +21,10 @@ public sealed class MarkerTools
         [Description("Absolute path to .etl file")] string path,
         [Description("Substring to match against event/task names")] string nameSubstring,
         [Description("Top N rows (counts: top buckets; rows: max events) (default 50, max 1000)")] int top = 50,
-        [Description("'count_by_event' (default), 'count_by_process', or 'rows'")] string mode = "count_by_event",
+        [Description("'count_by_event' (default), 'count_by_process', or 'rows'")] string mode = ModeCountByEvent,
         [Description("In rows mode, max chars per Fields value (default 256)")] int fieldMaxChars = 256)
     {
-        if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
+        Validation.RequireTop(top);
         // Empty-substring check fires BEFORE _cache.Get so callers get an
         // ArgumentException for invalid input rather than FileNotFoundException
         // when the path also happens to be missing. The analyzer re-validates

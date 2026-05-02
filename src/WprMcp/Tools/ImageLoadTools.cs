@@ -21,7 +21,7 @@ public sealed class ImageLoadTools
         [Description("Process ID")] int pid,
         [Description("Top N loads (default 100, max 1000)")] int top = 100)
     {
-        if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
+        Validation.RequireTop(top);
         var trace = _cache.Get(path);
         return ImageLoadAnalysis.PerProcess(trace, pid, top);
     }

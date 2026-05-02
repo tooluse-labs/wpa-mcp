@@ -35,58 +35,41 @@ public sealed class FileObjectResolver
     public static FileObjectResolver Build(TraceLog trace)
     {
         var resolver = new FileObjectResolver();
-        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
 
-        // FileIOCreate fires when a kernel handle (FileObject) is allocated for a file.
-        kernel.FileIOCreate += data =>
+        // FileIOCreate is the handle-allocating event; the operational events (Read/Write/
+        // Close/Cleanup/Flush/QueryInfo/SetInfo) all carry FileName + FileObject and let us
+        // catch files opened before the trace started, the moment they first see I/O.
+        void Capture(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIOReadWriteTraceData d)
         {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
+            if (!string.IsNullOrEmpty(d.FileName))
+                resolver._names[d.FileObject] = d.FileName;
+        }
+        void CaptureSimple(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIOSimpleOpTraceData d)
+        {
+            if (!string.IsNullOrEmpty(d.FileName))
+                resolver._names[d.FileObject] = d.FileName;
+        }
+        void CaptureInfo(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIOInfoTraceData d)
+        {
+            if (!string.IsNullOrEmpty(d.FileName))
+                resolver._names[d.FileObject] = d.FileName;
+        }
 
-        // Operational events observe an existing FileObject and re-emit its filename.
-        // Subscribing here catches files opened before the trace started, the moment
-        // they see their first I/O.
-        kernel.FileIORead += data =>
+        KernelEventWalker.Walk(trace, kernel =>
         {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOWrite += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOClose += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOCleanup += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOFlush += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOQueryInfo += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-        kernel.FileIOSetInfo += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName))
-                resolver._names[data.FileObject] = data.FileName;
-        };
-
-        // Walk the entire trace once to populate the map.
-        source.Process();
+            kernel.FileIOCreate += d =>
+            {
+                if (!string.IsNullOrEmpty(d.FileName))
+                    resolver._names[d.FileObject] = d.FileName;
+            };
+            kernel.FileIORead += Capture;
+            kernel.FileIOWrite += Capture;
+            kernel.FileIOClose += CaptureSimple;
+            kernel.FileIOCleanup += CaptureSimple;
+            kernel.FileIOFlush += CaptureSimple;
+            kernel.FileIOQueryInfo += CaptureInfo;
+            kernel.FileIOSetInfo += CaptureInfo;
+        });
         return resolver;
     }
 

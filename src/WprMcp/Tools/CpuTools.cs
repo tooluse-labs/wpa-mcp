@@ -22,7 +22,7 @@ public sealed class CpuTools
         [Description("Fold known ETW-overhead frames (EtwpLogKernelEvent, RtlpWalkFrameChain, etc.) into a single [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false)
     {
-        if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
+        Validation.RequireTop(top);
         var trace = _cache.Get(path);
         return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead);
     }
@@ -42,7 +42,7 @@ public sealed class CpuTools
     {
         if (pids is null || pids.Length == 0)
             throw new ArgumentException("pids required and must be non-empty", nameof(pids));
-        if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
+        Validation.RequireTop(top);
 
         var trace = _cache.Get(path);
         var result = new Dictionary<int, CpuTopFunctionsResponse>();

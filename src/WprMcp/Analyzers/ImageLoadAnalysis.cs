@@ -18,6 +18,42 @@ namespace WprMcp.Analyzers;
 // the offset from ProcessStart.
 public static class ImageLoadAnalysis
 {
+    /// <summary>
+    /// Bucket ImageLoad events by process for the given PIDs in a single trace pass.
+    /// Returns ordered (chronological) lists per requested PID; PIDs not present in the
+    /// trace map to an empty list. Use this from composite analyzers (DiagnoseTools) to
+    /// avoid running one full event-source pass per candidate.
+    /// </summary>
+    public static Dictionary<int, List<ImageLoadRow>> ForPids(TraceLog trace, IReadOnlyCollection<int> pids)
+    {
+        var processStart = pids
+            .Distinct()
+            .Select(pid => (pid, proc: trace.Processes.FirstOrDefault(p => p.ProcessID == pid)))
+            .ToDictionary(
+                t => t.pid,
+                t => t.proc is null ? 0L : (long)(t.proc.StartTimeRelativeMsec * 1000));
+        var pidSet = new HashSet<int>(processStart.Keys);
+        var buckets = pidSet.ToDictionary(p => p, _ => new List<ImageLoadRow>());
+
+        KernelEventWalker.Walk(trace, kernel =>
+        {
+            kernel.ImageLoad += data =>
+            {
+                if (!pidSet.Contains(data.ProcessID)) return;
+                var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
+                buckets[data.ProcessID].Add(new ImageLoadRow(
+                    TimeUs: tsUs,
+                    TimeFromProcessStartUs: tsUs - processStart[data.ProcessID],
+                    FileName: data.FileName ?? "<unknown>",
+                    ImageSize: data.ImageSize));
+            };
+        });
+
+        foreach (var pid in pidSet)
+            buckets[pid].Sort((a, b) => a.TimeUs.CompareTo(b.TimeUs));
+        return buckets;
+    }
+
     public static ImageLoadTimingResponse PerProcess(TraceLog trace, int pid, int top)
     {
         if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
@@ -28,22 +64,19 @@ public static class ImageLoadAnalysis
         var processStartUs = (long)(process.StartTimeRelativeMsec * 1000);
         var loads = new List<ImageLoadRow>();
 
-        // Attach to the source returned by GetSource(), not the TraceLog. See WaitAnalysis.cs
-        // for the rationale: TraceLog refuses ITraceParserServices registration for ImageLoad.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
-        kernel.ImageLoad += data =>
+        KernelEventWalker.Walk(trace, kernel =>
         {
-            if (data.ProcessID != pid) return;
-            var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-            loads.Add(new ImageLoadRow(
-                TimeUs: tsUs,
-                TimeFromProcessStartUs: tsUs - processStartUs,
-                FileName: data.FileName ?? "<unknown>",
-                ImageSize: data.ImageSize));
-        };
-
-        source.Process();
+            kernel.ImageLoad += data =>
+            {
+                if (data.ProcessID != pid) return;
+                var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
+                loads.Add(new ImageLoadRow(
+                    TimeUs: tsUs,
+                    TimeFromProcessStartUs: tsUs - processStartUs,
+                    FileName: data.FileName ?? "<unknown>",
+                    ImageSize: data.ImageSize));
+            };
+        });
 
         var ordered = loads.OrderBy(l => l.TimeUs).ToList();
         var totalLoads = ordered.Count;

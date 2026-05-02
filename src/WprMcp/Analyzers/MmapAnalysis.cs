@@ -37,25 +37,24 @@ public static class MmapAnalysis
 
         // Pass 2: aggregate MemoryHardFault events.
         var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs)>();
-        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
-        kernel.MemoryHardFault += data =>
+        KernelEventWalker.Walk(trace, kernel =>
         {
-            if (pid is { } p && data.ProcessID != p) return;
+            kernel.MemoryHardFault += data =>
+            {
+                if (pid is { } p && data.ProcessID != p) return;
 
-            // Prefer the FileName the event carries; otherwise fall back to the FileKey map.
-            var name = !string.IsNullOrEmpty(data.FileName)
-                ? data.FileName
-                : fileNames.TryGetValue(data.FileKey, out var mapped) ? mapped : $"<unmapped:0x{data.FileKey:X}>";
+                // Prefer the FileName the event carries; otherwise fall back to the FileKey map.
+                var name = !string.IsNullOrEmpty(data.FileName)
+                    ? data.FileName
+                    : fileNames.TryGetValue(data.FileKey, out var mapped) ? mapped : $"<unmapped:0x{data.FileKey:X}>";
 
-            var cur = agg.GetValueOrDefault(name);
-            var latencyUs = (long)(data.ElapsedTimeMSec * 1000);
-            agg[name] = (cur.bytes + data.ByteCount,
-                         cur.count + 1,
-                         Math.Max(cur.maxLatencyUs, latencyUs));
-        };
-        source.Process();
+                var cur = agg.GetValueOrDefault(name);
+                var latencyUs = (long)(data.ElapsedTimeMSec * 1000);
+                agg[name] = (cur.bytes + data.ByteCount,
+                             cur.count + 1,
+                             Math.Max(cur.maxLatencyUs, latencyUs));
+            };
+        });
 
         var rows = agg
             .Select(kv => new MmapHotFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
@@ -70,31 +69,20 @@ public static class MmapAnalysis
     private static Dictionary<ulong, string> BuildFileKeyMap(TraceLog trace)
     {
         var map = new Dictionary<ulong, string>();
-        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
-
-        // FileIONameTraceData events — confirmed in Task 11 to be the only events that
-        // expose FileKey + FileName together. Subscribing to all four catches files named
-        // at any point in the trace lifecycle (open, rundown at start, delete, etc.).
-        kernel.FileIOName += data =>
+        // FileIONameTraceData events expose FileKey + FileName together. Subscribing to all
+        // four catches files named at any point in the trace lifecycle (open, rundown at
+        // start, delete, etc.).
+        void Capture(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIONameTraceData d)
         {
-            if (!string.IsNullOrEmpty(data.FileName)) map[data.FileKey] = data.FileName;
-        };
-        kernel.FileIOFileCreate += data =>
+            if (!string.IsNullOrEmpty(d.FileName)) map[d.FileKey] = d.FileName;
+        }
+        KernelEventWalker.Walk(trace, kernel =>
         {
-            if (!string.IsNullOrEmpty(data.FileName)) map[data.FileKey] = data.FileName;
-        };
-        kernel.FileIOFileDelete += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName)) map[data.FileKey] = data.FileName;
-        };
-        kernel.FileIOFileRundown += data =>
-        {
-            if (!string.IsNullOrEmpty(data.FileName)) map[data.FileKey] = data.FileName;
-        };
-
-        source.Process();
+            kernel.FileIOName += Capture;
+            kernel.FileIOFileCreate += Capture;
+            kernel.FileIOFileDelete += Capture;
+            kernel.FileIOFileRundown += Capture;
+        });
         return map;
     }
 }

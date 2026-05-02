@@ -18,25 +18,28 @@ namespace WprMcp.Cli;
 // the MCP layer instead.
 public static class CliRunner
 {
+    private static readonly Dictionary<string, Func<string[], int>> Verbs = new(StringComparer.Ordinal)
+    {
+        ["--help"] = _ => PrintHelp(toError: false),
+        ["-h"] = _ => PrintHelp(toError: false),
+        ["--list-processes"] = RunListProcesses,
+        ["--cpu-top"] = RunCpuTop,
+        ["--wait-analysis"] = RunWaitAnalysis,
+        ["--image-load-timing"] = RunImageLoadTiming,
+        ["--diagnose-slow-startup"] = RunDiagnoseSlowStartup,
+        ["--find-marker"] = RunFindMarker,
+    };
+
     public static int Run(string[] args)
     {
         if (args.Length == 0) return PrintHelp(toError: false);
 
-        var verb = args[0];
+        if (!Verbs.TryGetValue(args[0], out var handler))
+            return PrintHelp(toError: true);
 
         try
         {
-            return verb switch
-            {
-                "--help" or "-h" => PrintHelp(toError: false),
-                "--list-processes" => RunListProcesses(args),
-                "--cpu-top" => RunCpuTop(args),
-                "--wait-analysis" => RunWaitAnalysis(args),
-                "--image-load-timing" => RunImageLoadTiming(args),
-                "--diagnose-slow-startup" => RunDiagnoseSlowStartup(args),
-                "--find-marker" => RunFindMarker(args),
-                _ => PrintHelp(toError: true),
-            };
+            return handler(args);
         }
         catch (Exception ex)
         {
@@ -150,15 +153,5 @@ public static class CliRunner
     /// Program.Main can dispatch to the CLI instead of starting the MCP stdio host.
     /// </summary>
     public static bool IsCliInvocation(string[] args)
-    {
-        if (args.Length == 0) return false;
-        var v = args[0];
-        return v == "--help" || v == "-h"
-            || v == "--list-processes"
-            || v == "--cpu-top"
-            || v == "--wait-analysis"
-            || v == "--image-load-timing"
-            || v == "--diagnose-slow-startup"
-            || v == "--find-marker";
-    }
+        => args.Length > 0 && Verbs.ContainsKey(args[0]);
 }

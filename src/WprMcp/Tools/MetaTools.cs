@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using WprMcp.Analyzers;
 using WprMcp.Core;
 using WprMcp.Output;
 
@@ -109,38 +110,12 @@ public sealed class MetaTools
         [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false)
     {
         var trace = _cache.Get(path);
-        var hidden = 0;
-        var rows = new List<ProcessRow>();
-        foreach (var p in trace.Processes)
-        {
-            if (!includeSystem && (p.ProcessID == 0 || p.ProcessID == 4))
-            {
-                hidden++;
-                continue;
-            }
+        var rows = ProcessProjection.Rows(trace, includeSystem).ToList();
+        var hidden = includeSystem
+            ? 0
+            : trace.Processes.Count(p => p.ProcessID == 0 || p.ProcessID == 4);
 
-            var startUs = (long)(p.StartTimeRelativeMsec * 1000);
-            var endUs = (long)(p.EndTimeRelativeMsec * 1000);
-            var wallUs = Math.Max(0, endUs - startUs);
-            var cpuUs = (long)(p.CPUMSec * 1000);
-            // PerfView convention: ratio undefined for processes that never ran on CPU
-            // (data noise — short-lived processes whose threads were never scheduled
-            // during the trace window). Surface as null rather than +inf to keep JSON sane.
-            double? ratio = cpuUs > 0 ? (double)wallUs / cpuUs : (double?)null;
-
-            rows.Add(new ProcessRow(
-                Pid: p.ProcessID,
-                ParentPid: p.ParentID,
-                Name: p.Name ?? string.Empty,
-                StartUs: startUs,
-                EndUs: endUs,
-                WallUs: wallUs,
-                CpuUs: cpuUs,
-                WaitRatio: ratio,
-                ImageLoadCount: p.LoadedModules.Count()));
-        }
-
-        rows = (orderBy?.ToLowerInvariant()) switch
+        rows = orderBy.ToLowerInvariant() switch
         {
             "wall" => rows.OrderByDescending(r => r.WallUs).ToList(),
             "wait_ratio" => rows

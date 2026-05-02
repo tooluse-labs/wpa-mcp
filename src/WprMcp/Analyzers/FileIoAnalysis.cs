@@ -18,25 +18,23 @@ public static class FileIoAnalysis
         var resolver = FileObjectResolver.Build(trace);
         var agg = new Dictionary<string, (long ReadBytes, long ReadCount, long WriteBytes, long WriteCount)>();
 
-        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
-        kernel.FileIORead += data =>
+        KernelEventWalker.Walk(trace, kernel =>
         {
-            if (pid is { } p && data.ProcessID != p) return;
-            var name = resolver.Resolve(data.FileObject);
-            var cur = agg.GetValueOrDefault(name);
-            agg[name] = (cur.ReadBytes + data.IoSize, cur.ReadCount + 1, cur.WriteBytes, cur.WriteCount);
-        };
-        kernel.FileIOWrite += data =>
-        {
-            if (pid is { } p && data.ProcessID != p) return;
-            var name = resolver.Resolve(data.FileObject);
-            var cur = agg.GetValueOrDefault(name);
-            agg[name] = (cur.ReadBytes, cur.ReadCount, cur.WriteBytes + data.IoSize, cur.WriteCount + 1);
-        };
-
-        source.Process();
+            kernel.FileIORead += data =>
+            {
+                if (pid is { } p && data.ProcessID != p) return;
+                var name = resolver.Resolve(data.FileObject);
+                var cur = agg.GetValueOrDefault(name);
+                agg[name] = (cur.ReadBytes + data.IoSize, cur.ReadCount + 1, cur.WriteBytes, cur.WriteCount);
+            };
+            kernel.FileIOWrite += data =>
+            {
+                if (pid is { } p && data.ProcessID != p) return;
+                var name = resolver.Resolve(data.FileObject);
+                var cur = agg.GetValueOrDefault(name);
+                agg[name] = (cur.ReadBytes, cur.ReadCount, cur.WriteBytes + data.IoSize, cur.WriteCount + 1);
+            };
+        });
 
         var rows = agg
             .Select(kv => new FileIoRow(kv.Key, kv.Value.ReadBytes, kv.Value.ReadCount, kv.Value.WriteBytes, kv.Value.WriteCount))

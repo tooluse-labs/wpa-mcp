@@ -24,7 +24,7 @@ public sealed class WaitTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start")] long? endUs = null)
     {
-        if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
+        Validation.RequireTop(top);
         var trace = _cache.Get(path);
         return Analyzers.WaitAnalysis.Analyze(trace, top, pid, startUs, endUs);
     }

@@ -120,13 +120,9 @@ public static class WaitAnalysis
 
         long totalCSwitches = 0;
 
-        // Attach the parser to the source returned by GetSource(), NOT to the TraceLog directly.
-        // CSwitch is among the events TraceLog refuses to expose via its own ITraceParserServices —
-        // it throws "You may not register callbacks in TraceEventParsers that you attach directly to
-        // a TraceLog" at subscription time. The source-based pattern works for all kernel events.
-        var source = trace.Events.GetSource();
-        var kernel = new KernelTraceEventParser(source);
-        kernel.ThreadCSwitch += data =>
+        KernelEventWalker.Walk(trace, kernel =>
+        {
+            kernel.ThreadCSwitch += data =>
         {
             var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (startUs is { } s && tsUs < s) return;
@@ -180,8 +176,7 @@ public static class WaitAnalysis
                 threadCSwitchCount[newTid] = threadCSwitchCount.GetValueOrDefault(newTid) + 1;
             }
         };
-
-        source.Process();
+        });
 
         // Build candidate set, then filter+sort.
         var allTids = new HashSet<int>(threadBlocked.Keys);

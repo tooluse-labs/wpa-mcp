@@ -42,41 +42,16 @@ public sealed class DiagnoseTools
         var trace = _cache.Get(path);
         var warnings = new List<string>();
 
-        // 1. Pick candidates from list_processes.
-        var processes = trace.Processes
-            .Where(p => p.ProcessID != 0 && p.ProcessID != 4)
-            .Select(p =>
-            {
-                var startUs = (long)(p.StartTimeRelativeMsec * 1000);
-                var endUs = (long)(p.EndTimeRelativeMsec * 1000);
-                var wallUs = Math.Max(0, endUs - startUs);
-                var cpuUs = (long)(p.CPUMSec * 1000);
-                double? ratio = cpuUs > 0 ? (double)wallUs / cpuUs : (double?)null;
-                return new
-                {
-                    Pid = p.ProcessID,
-                    ParentPid = p.ParentID,
-                    Name = p.Name ?? string.Empty,
-                    StartUs = startUs,
-                    EndUs = endUs,
-                    WallUs = wallUs,
-                    CpuUs = cpuUs,
-                    Ratio = ratio,
-                    ImageLoadCount = p.LoadedModules.Count(),
-                };
-            })
-            .Where(x => x.WallUs > 0); // can't analyze processes without measurable lifetime
-
+        // 1. Pick candidates via the shared ProcessProjection.
+        IEnumerable<ProcessRow> rows = ProcessProjection.Rows(trace, includeSystem: false)
+            .Where(r => r.WallUs > 0);
         if (!string.IsNullOrEmpty(nameSubstring))
-        {
-            processes = processes.Where(x =>
-                x.Name.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase));
-        }
+            rows = rows.Where(r => r.Name.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase));
 
-        var ranked = processes
-            .Where(x => x.Ratio is { } r && r >= minWaitRatio)
-            .OrderByDescending(x => x.Ratio ?? 0)
-            .ThenByDescending(x => x.WallUs)
+        var ranked = rows
+            .Where(r => r.WaitRatio is { } w && w >= minWaitRatio)
+            .OrderByDescending(r => r.WaitRatio ?? 0)
+            .ThenByDescending(r => r.WallUs)
             .Take(maxCandidates)
             .ToList();
 
@@ -91,33 +66,39 @@ public sealed class DiagnoseTools
                 Warnings: warnings);
         }
 
-        // 2. For each candidate, gather wait reasons + image loads + top CPU functions.
+        var candidatePids = new HashSet<int>(ranked.Select(r => r.Pid));
+
+        // 2. ONE wait_analysis pass for the whole trace (CSwitch ~M-events; we'd otherwise
+        //    re-walk it once per candidate). top=int.MaxValue is intentional: WaitAnalysis
+        //    truncates AFTER the per-thread aggregation, and a global top-N would silently
+        //    drop threads belonging to a candidate PID whose global rank doesn't make the
+        //    cut, distorting per-PID reason histograms.
+        var waitResp = WaitAnalysis.Analyze(trace, top: int.MaxValue, pid: null, startUs: null, endUs: null);
+        var waitByPid = waitResp.Rows
+            .Where(r => candidatePids.Contains(r.Pid))
+            .GroupBy(r => r.Pid)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<WaitAnalysisRow>)g.ToList());
+
+        // 3. ONE image-load pass for all candidates.
+        var imageLoadsByPid = ImageLoadAnalysis.ForPids(trace, candidatePids);
+
+        // 4. CPU is per-pid (one CallTree per pid, so no shared-pass shortcut). We accept N passes here.
         var candidates = new List<SlowStartupCandidate>();
         foreach (var c in ranked)
         {
-            // Wait reasons (per-process, all threads collapsed into top buckets).
-            var waitResp = WaitAnalysis.Analyze(trace, top: 200, pid: c.Pid, startUs: null, endUs: null);
-            var collapsedReasons = waitResp.Rows
-                .SelectMany(r => r.TopWaitReasons)
-                .GroupBy(b => b.Reason)
-                .Select(g => new WaitReasonBucket(
-                    g.Key,
-                    g.Sum(b => b.BlockedUs),
-                    g.Sum(b => b.Count)))
-                .OrderByDescending(b => b.BlockedUs)
-                .Take(5)
-                .ToList();
+            var collapsedReasons = waitByPid.TryGetValue(c.Pid, out var rowsForPid)
+                ? rowsForPid
+                    .SelectMany(r => r.TopWaitReasons)
+                    .GroupBy(b => b.Reason)
+                    .Select(g => new WaitReasonBucket(g.Key, g.Sum(b => b.BlockedUs), g.Sum(b => b.Count)))
+                    .OrderByDescending(b => b.BlockedUs)
+                    .Take(5)
+                    .ToList()
+                : new List<WaitReasonBucket>();
 
-            IReadOnlyList<ImageLoadRow>? firstLoads = null;
-            try
-            {
-                var ilResp = ImageLoadAnalysis.PerProcess(trace, c.Pid, topImageLoads);
-                firstLoads = ilResp.Loads;
-            }
-            catch (Exception ex)
-            {
-                warnings.Add($"image_load_timing for pid {c.Pid}: {ex.Message}");
-            }
+            var firstLoads = imageLoadsByPid.TryGetValue(c.Pid, out var loads)
+                ? (IReadOnlyList<ImageLoadRow>)loads.Take(topImageLoads).ToList()
+                : null;
 
             IReadOnlyList<CpuFunctionRow>? topCpuRows = null;
             try
@@ -140,7 +121,7 @@ public sealed class DiagnoseTools
                 Name: c.Name,
                 WallUs: c.WallUs,
                 CpuUs: c.CpuUs,
-                WaitRatio: c.Ratio,
+                WaitRatio: c.WaitRatio,
                 ImageLoadCount: c.ImageLoadCount,
                 TopWaitReasons: collapsedReasons,
                 FirstImageLoads: firstLoads,
