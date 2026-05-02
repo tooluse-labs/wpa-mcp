@@ -20,6 +20,7 @@ public static class Program
         builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
 
         builder.Services.AddSingleton<WprMcp.Core.TraceCache>(_ => new WprMcp.Core.TraceCache());
+        builder.Services.AddSingleton<WprMcp.Core.SymbolService>();
 
         builder.Services
             .AddMcpServer()
