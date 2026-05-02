@@ -35,7 +35,9 @@ public sealed class FileObjectResolver
     public static FileObjectResolver Build(TraceLog trace)
     {
         var resolver = new FileObjectResolver();
-        var kernel = new KernelTraceEventParser(trace);
+        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
+        var source = trace.Events.GetSource();
+        var kernel = new KernelTraceEventParser(source);
 
         // FileIOCreate fires when a kernel handle (FileObject) is allocated for a file.
         kernel.FileIOCreate += data =>
@@ -84,7 +86,7 @@ public sealed class FileObjectResolver
         };
 
         // Walk the entire trace once to populate the map.
-        trace.Events.GetSource().Process();
+        source.Process();
         return resolver;
     }
 

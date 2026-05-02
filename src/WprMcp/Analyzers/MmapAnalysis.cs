@@ -37,7 +37,9 @@ public static class MmapAnalysis
 
         // Pass 2: aggregate MemoryHardFault events.
         var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs)>();
-        var kernel = new KernelTraceEventParser(trace);
+        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
+        var source = trace.Events.GetSource();
+        var kernel = new KernelTraceEventParser(source);
         kernel.MemoryHardFault += data =>
         {
             if (pid is { } p && data.ProcessID != p) return;
@@ -53,7 +55,7 @@ public static class MmapAnalysis
                          cur.count + 1,
                          Math.Max(cur.maxLatencyUs, latencyUs));
         };
-        trace.Events.GetSource().Process();
+        source.Process();
 
         var rows = agg
             .Select(kv => new MmapHotFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
@@ -68,7 +70,9 @@ public static class MmapAnalysis
     private static Dictionary<ulong, string> BuildFileKeyMap(TraceLog trace)
     {
         var map = new Dictionary<ulong, string>();
-        var kernel = new KernelTraceEventParser(trace);
+        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
+        var source = trace.Events.GetSource();
+        var kernel = new KernelTraceEventParser(source);
 
         // FileIONameTraceData events — confirmed in Task 11 to be the only events that
         // expose FileKey + FileName together. Subscribing to all four catches files named
@@ -90,7 +94,7 @@ public static class MmapAnalysis
             if (!string.IsNullOrEmpty(data.FileName)) map[data.FileKey] = data.FileName;
         };
 
-        trace.Events.GetSource().Process();
+        source.Process();
         return map;
     }
 }

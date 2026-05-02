@@ -18,7 +18,9 @@ public static class FileIoAnalysis
         var resolver = FileObjectResolver.Build(trace);
         var agg = new Dictionary<string, (long ReadBytes, long ReadCount, long WriteBytes, long WriteCount)>();
 
-        var kernel = new KernelTraceEventParser(trace);
+        // Attach to GetSource() — TraceLog rejects ITraceParserServices registration directly.
+        var source = trace.Events.GetSource();
+        var kernel = new KernelTraceEventParser(source);
         kernel.FileIORead += data =>
         {
             if (pid is { } p && data.ProcessID != p) return;
@@ -34,7 +36,7 @@ public static class FileIoAnalysis
             agg[name] = (cur.ReadBytes, cur.ReadCount, cur.WriteBytes + data.IoSize, cur.WriteCount + 1);
         };
 
-        trace.Events.GetSource().Process();
+        source.Process();
 
         var rows = agg
             .Select(kv => new FileIoRow(kv.Key, kv.Value.ReadBytes, kv.Value.ReadCount, kv.Value.WriteBytes, kv.Value.WriteCount))
