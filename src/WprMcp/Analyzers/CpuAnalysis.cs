@@ -8,15 +8,40 @@ namespace WprMcp.Analyzers;
 
 public static class CpuAnalysis
 {
+    // ETW self-overhead frame patterns. Borrowed from PerfView's default GroupPats:
+    // any frame whose symbol matches these is the kernel synthesizing the very stack
+    // we're analyzing — counting it inflates "ntoskrnl" / "ntdll" inclusive % by 5-30%
+    // depending on stackwalk frequency. PerfView's "Just My App" preset folds all of
+    // them into one bucket; we mirror that.
+    private static readonly string[] EtwOverheadSymbolFragments = new[]
+    {
+        "EtwpLogKernelEvent",
+        "EtwpTraceStackWalk",
+        "EtwTraceStackWalk",
+        "RtlpWalkFrameChain",
+    };
+
     public static CpuTopFunctionsResponse TopFunctions(
         TraceLog trace,
         int top,
         int? pid,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        bool excludeEtwSelfOverhead = false)
     {
         // 1. Filter to CPU sample events (SampledProfileTraceData) with optional pid/time filters.
+        // Also count the unfiltered total so we can report ExclusivePctOfTrace alongside the
+        // ExclusivePct (which is normalized over the filtered subset). When no pid filter is
+        // applied, the two would be identical — leave OfTrace null in that case.
+        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
+        long traceTotalSamples = 0;
+        if (hasFilter)
+        {
+            foreach (var e in trace.Events)
+                if (e is SampledProfileTraceData) traceTotalSamples++;
+        }
+
         var sampleEvents = trace.Events.Filter(e =>
         {
             if (e is not SampledProfileTraceData) return false;
@@ -99,7 +124,7 @@ public static class CpuAnalysis
         {
             var src = rawSource.GetSampleByIndex((StackSourceSampleIndex)s);
             normalizedSample.StackIndex = NormalizeStack(rawSource, normalizedSource, src.StackIndex,
-                stackCache, frameNameCache);
+                stackCache, frameNameCache, excludeEtwSelfOverhead);
             normalizedSample.TimeRelativeMSec = src.TimeRelativeMSec;
             normalizedSample.Metric = src.Metric;
             normalizedSource.AddSample(normalizedSample);
@@ -118,7 +143,13 @@ public static class CpuAnalysis
                 ExclusiveSamples: (long)n.ExclusiveCount,
                 InclusiveSamples: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveCount / totalSamples,
-                InclusivePct: 100.0 * n.InclusiveCount / totalSamples))
+                InclusivePct: 100.0 * n.InclusiveCount / totalSamples,
+                ExclusivePctOfTrace: hasFilter && traceTotalSamples > 0
+                    ? 100.0 * n.ExclusiveCount / traceTotalSamples
+                    : (double?)null,
+                InclusivePctOfTrace: hasFilter && traceTotalSamples > 0
+                    ? 100.0 * n.InclusiveCount / traceTotalSamples
+                    : (double?)null))
             .ToList();
 
         var topUnresolved = unresolvedByModule
@@ -144,17 +175,19 @@ public static class CpuAnalysis
         MutableTraceEventStackSource dst,
         StackSourceCallStackIndex orig,
         Dictionary<StackSourceCallStackIndex, StackSourceCallStackIndex> stackCache,
-        Dictionary<StackSourceFrameIndex, StackSourceFrameIndex> frameCache)
+        Dictionary<StackSourceFrameIndex, StackSourceFrameIndex> frameCache,
+        bool excludeEtwSelfOverhead)
     {
         if (orig == StackSourceCallStackIndex.Invalid) return StackSourceCallStackIndex.Invalid;
         if (stackCache.TryGetValue(orig, out var cached)) return cached;
 
-        var callerIdx = NormalizeStack(src, dst, src.GetCallerIndex(orig), stackCache, frameCache);
+        var callerIdx = NormalizeStack(src, dst, src.GetCallerIndex(orig), stackCache, frameCache,
+            excludeEtwSelfOverhead);
         var srcFrameIdx = src.GetFrameIndex(orig);
         if (!frameCache.TryGetValue(srcFrameIdx, out var dstFrameIdx))
         {
             var name = src.GetFrameName(srcFrameIdx, fullModulePath: false);
-            var normalizedName = NormalizeName(name);
+            var normalizedName = NormalizeName(name, excludeEtwSelfOverhead);
             dstFrameIdx = dst.Interner.FrameIntern(normalizedName);
             frameCache[srcFrameIdx] = dstFrameIdx;
         }
@@ -168,8 +201,20 @@ public static class CpuAnalysis
     /// (e.g. "module!MyClass::Method+0x10") pass through unchanged. The synthetic "?!?" root
     /// from Fix #1 also passes through unchanged (its symbol part is "?", its module is "?").
     /// </summary>
-    private static string NormalizeName(string name)
+    private static string NormalizeName(string name, bool excludeEtwSelfOverhead)
     {
+        if (excludeEtwSelfOverhead)
+        {
+            // Match the symbol part against known ETW-overhead fragments. Substring rather
+            // than equality because PerfView's resolver sometimes appends "+0x10" offsets,
+            // and TraceEvent on certain Windows builds spells them as "EtwpLogKernelEvent_0".
+            foreach (var frag in EtwOverheadSymbolFragments)
+            {
+                if (name.Contains(frag, StringComparison.Ordinal))
+                    return "[ETW Overhead]!?";
+            }
+        }
+
         var bang = name.IndexOf('!');
         if (bang < 0) return name;
         var symPart = name.AsSpan(bang + 1);

@@ -12,11 +12,16 @@ public sealed class MarkerTools
     private readonly TraceCache _cache;
     public MarkerTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description("Searches all events for those whose name or task contains the given substring (case-insensitive).")]
+    [McpServerTool, Description(
+        "Searches all events whose name or task contains the given substring (case-insensitive). " +
+        "Default mode 'count_by_event' returns a histogram, which avoids dumping every matching row " +
+        "for broad queries like 'Process'. Switch to 'rows' for full event detail.")]
     public MarkerSearchResponse FindMarker(
         [Description("Absolute path to .etl file")] string path,
         [Description("Substring to match against event/task names")] string nameSubstring,
-        [Description("Max rows (default 100, max 1000)")] int top = 100)
+        [Description("Top N rows (counts: top buckets; rows: max events) (default 50, max 1000)")] int top = 50,
+        [Description("'count_by_event' (default), 'count_by_process', or 'rows'")] string mode = "count_by_event",
+        [Description("In rows mode, max chars per Fields value (default 256)")] int fieldMaxChars = 256)
     {
         if (top <= 0 || top > 1000) throw new ArgumentOutOfRangeException(nameof(top));
         // Empty-substring check fires BEFORE _cache.Get so callers get an
@@ -26,6 +31,6 @@ public sealed class MarkerTools
         if (string.IsNullOrEmpty(nameSubstring))
             throw new ArgumentException("nameSubstring required", nameof(nameSubstring));
         var trace = _cache.Get(path);
-        return MarkerSearch.Find(trace, nameSubstring, top);
+        return MarkerSearch.Find(trace, nameSubstring, top, mode, fieldMaxChars);
     }
 }
