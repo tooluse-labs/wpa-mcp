@@ -7,6 +7,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A204706D-9D1
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WprMcp", "src\WprMcp\WprMcp.csproj", "{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{AFE67C0A-E96A-447F-974B-89E1BA02AEAD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WprMcp.Tests", "tests\WprMcp.Tests\WprMcp.Tests.csproj", "{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +24,13 @@ Global
 		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD} = {A204706D-9D15-4972-AA01-898095A41348}
+		{86F9D4B9-80B7-49E9-A3FD-42C75163BBCC} = {AFE67C0A-E96A-447F-974B-89E1BA02AEAD}
 	EndGlobalSection
 EndGlobal
