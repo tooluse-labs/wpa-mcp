@@ -73,3 +73,15 @@ public sealed record MarkerRow(
     IReadOnlyDictionary<string, string> Fields);
 
 public sealed record MarkerSearchResponse(IReadOnlyList<MarkerRow> Rows);
+
+public sealed record ModuleSymbolStatus(
+    string Module,
+    long FrameCount,
+    bool Resolved,
+    string Suggestion);
+
+public sealed record DiagnoseSymbolsResponse(
+    string CurrentSymbolPath,
+    string CacheDir,
+    IReadOnlyList<ModuleSymbolStatus> Modules,
+    IReadOnlyList<string> Suggestions);

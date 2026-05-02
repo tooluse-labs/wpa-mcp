@@ -50,4 +50,14 @@ public class SymbolServiceTests
         }
         finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }
     }
+
+    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    public void DiagnoseSymbols_ReturnsAtLeastOneModule()
+    {
+        var svc = new SymbolService();
+        var cache = new TraceCache(capacity: 2);
+        var tools = new WprMcp.Tools.SymbolTools(svc, cache);
+        var resp = tools.DiagnoseSymbols("fixtures/small_cpu.etl");
+        Assert.NotEmpty(resp.Modules);
+    }
 }
