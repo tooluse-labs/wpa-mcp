@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="Moq" Version="4.20.*" />
     <PackageReference Include="xunit" Version="2.5.3" />
@@ -23,6 +24,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\WprMcp\WprMcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="fixtures/**/*.etl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
