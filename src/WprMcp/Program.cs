@@ -16,9 +16,10 @@ public static class Program
 
         var builder = Host.CreateApplicationBuilder(args);
 
-        // MCP must log to stderr — stdout is reserved for JSON-RPC framing.
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+
+        builder.Services.AddSingleton<WprMcp.Core.TraceCache>(_ => new WprMcp.Core.TraceCache());
 
         builder.Services
             .AddMcpServer()
