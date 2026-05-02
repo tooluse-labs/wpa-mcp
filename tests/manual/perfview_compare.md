@@ -146,3 +146,162 @@ dotnet src/WprMcp/bin/Release/net8.0/WprMcp.dll --cpu-top \
 
 If `cpu_top_functions` is changed in `CpuAnalysis.cs`: re-run the comparison and update this file. If overlap drops
 below 7/10 modules in identical order, treat as a regression.
+
+## Run 2 — real Quark trace with local PDBs
+
+### Capture details
+
+- **Trace:** `C:/Users/admin3/Documents/WPR Files/LAPTOP-NL4LGTQH.08-11-2025.15-40-35.etl` (2.0 GB)
+- **Sample population:** 366,449 (wpa-mcp denominator) / 458,218 (PerfView denominator); see Phase-4 below.
+- **Symbols:** local Quark PDBs only. `_NT_SYMBOL_PATH=C:\Users\admin3\Documents\WPR Files\all_symbols`
+  (4.9 GB, 28 PDBs, including `quark.dll.pdb` ~2.1 GB). The Microsoft public symbol server was
+  **intentionally omitted** — see methodology below.
+- **Capture date:** 2025-08-11 (re-analyzed 2026-05-02).
+
+### Methodology change vs Run 1
+
+- The first attempt at this run added the Microsoft public symbol server to `_NT_SYMBOL_PATH`.
+  The Quark third-party DLLs are not on the public server, so each module triggered 3-9 sequential
+  HTTP probes that all returned 404. The previous subagent timed out before producing output.
+- Mitigation (used in this run): drop the public symbol server entirely. Both PerfView and wpa-mcp see
+  identical symbol coverage:
+  - Quark/V8 frames in `quark.dll` resolve to real C++ method names.
+  - System modules (`ntoskrnl`, `ntdll`, `kernelbase`, `win32kfull.sys`, `netio.sys`, `mpengine`,
+    `igd10um64xe`, etc.) resolve to **raw return addresses** in wpa-mcp and are coalesced to
+    `module!?` in PerfView.
+- This is a documented limitation, not a bug: both tools see the same constraint, so the comparison
+  is fair.
+- The pre-built `.etlx` index (1.3 GB at `LAPTOP-NL4LGTQH.08-11-2025.15-40-35.etlx`) was used for
+  wpa-mcp; PerfView builds its own private `.etlx` under `%TEMP%\perfview\` (1.1 GB). Both runs
+  completed in well under a minute (wpa-mcp: 10 s; PerfView: ~26 s).
+
+### wpa-mcp top-10 (per-function / per-address)
+
+| # | Function (Module!Symbol) | Excl Samples | Excl % | Incl Samples | Incl % |
+|---|---|---:|---:|---:|---:|
+| 1 | `igd10um64xe!0x7ffccacad69b` | 12,184 | 3.32 | 12,257 | 3.34 |
+| 2 | `ntoskrnl!0xfffff802f129c435` | 3,999 | 1.09 | 4,094 | 1.12 |
+| 3 | `afd.sys!0xfffff80297e67a93` | 3,126 | 0.85 | 3,199 | 0.87 |
+| 4 | `ntoskrnl!0xfffff802f16b419c` | 2,434 | 0.66 | 2,487 | 0.68 |
+| 5 | `win32kfull.sys!0xfffff8029dd3ff93` | 1,798 | 0.49 | 1,945 | 0.53 |
+| 6 | `netio.sys!0xfffff80284b7990e` | 1,658 | 0.45 | 1,699 | 0.46 |
+| 7 | `mpengine!0x7ffc64882169` | 1,624 | 0.44 | 1,660 | 0.45 |
+| 8 | `quark!v8::internal::ConcurrentMarking::RunMajor` | 1,552 | 0.42 | 3,749 | 1.02 |
+| 9 | `netio.sys!0xfffff80284b12742` | 1,485 | 0.41 | 1,493 | 0.41 |
+| 10 | `ntoskrnl!0xfffff802f16b84b4` | 1,444 | 0.39 | 1,492 | 0.41 |
+
+Resolution stats: 96,880 frames resolved, 333,317 unresolved (22.5% resolution rate). Top
+unresolved-module buckets: `?` (52,307), `ntoskrnl` (38,830), `ntdll` (30,834), `rpcrt4` (14,471),
+`mpengine` (10,366), `kernelbase` (9,196), `ffmpeg` (8,258), `bradar_entry` (7,874).
+
+### PerfView top-10 (per-method/module from `SaveCPUStacksAsCsv`)
+
+| # | Name | Excl Samples | Excl % | Incl Samples | Incl % |
+|---|---|---:|---:|---:|---:|
+| 1 | `ntoskrnl!?` | 175,439 | 38.29 | 223,461 | 48.77 |
+| 2 | `?!?` | 33,606 | 7.33 | 50,378 | 10.99 |
+| 3 | `ffmpeg!?` | 30,125 | 6.57 | 43,288 | 9.45 |
+| 4 | `netio.sys!?` | 27,097 | 5.91 | 32,740 | 7.15 |
+| 5 | `ntdll!?` | 23,276 | 5.08 | 338,527 | 73.88 |
+| 6 | `mpengine!?` | 20,461 | 4.47 | 26,128 | 5.70 |
+| 7 | `igd10um64xe!?` | 13,256 | 2.89 | 14,880 | 3.25 |
+| 8 | `rpcrt4!?` | 10,688 | 2.33 | 47,969 | 10.47 |
+| 9 | `afd.sys!?` | 8,045 | 1.76 | 42,579 | 9.29 |
+| 10 | `bcryptprimitives!?` | 6,527 | 1.42 | 7,166 | 1.56 |
+
+(Total exclusive samples in CSV: 458,218.)
+
+### Structural difference (recap from Run 1)
+
+The same per-address vs per-module-bucket asymmetry observed in Run 1 dominates this trace:
+PerfView coalesces every unresolved frame in a module to a single `module!?` row, while
+wpa-mcp keeps each return address as a distinct row. With 22.5% frame-resolution coverage,
+9 of wpa-mcp's top-10 are individual hex offsets in 5 system modules; PerfView's top-10 is
+the 10 hottest module buckets.
+
+To compare honestly, re-aggregate wpa-mcp's full row set by module — but for the function-level
+top-10 comparison the only directly-named common entry is `quark!v8::internal::ConcurrentMarking::RunMajor`
+(which **both** tools name identically).
+
+### Function-name comparison: `quark!v8::internal::ConcurrentMarking::RunMajor`
+
+| Tool | Excl | Excl % | Incl | Incl % |
+|---|---:|---:|---:|---:|
+| wpa-mcp | 1,552 | 0.4235 | 3,749 | 1.0231 |
+| PerfView | 1,923 | 0.4197 | 4,120 | 0.8991 |
+| Diff (PV-mcp)/PV | 19.3% | -0.9% | 9.0% | -13.8% |
+
+- Sample-count diff (-19.3%) is consistent with the global denominator shortfall (see below).
+- Within-tool exclusive-percentage diff is 0.9 percentage-points — **percentages essentially agree**
+  because both tools share denominator-shortfall proportionally.
+
+### Module-level top-10 (PerfView coalesces; verified in CSV)
+
+| # | PerfView module | PV Excl | PV Excl % | In wpa-mcp top-10? |
+|---|---|---:|---:|:---:|
+| 1 | ntoskrnl | 175,439 | 38.29 | yes (entries #2, #4, #10) |
+| 2 | ? (unresolved root) | 33,606 | 7.33 | no (folded into Stats.TopUnresolvedModules `?` = 52,307 frames) |
+| 3 | ffmpeg | 30,125 | 6.57 | no (8,258 frames in unresolved-module list, no top-10 entry — addresses likely not contiguous-hot enough) |
+| 4 | netio.sys | 27,097 | 5.91 | yes (entries #6, #9) |
+| 5 | ntdll | 23,276 | 5.08 | no |
+| 6 | mpengine | 20,461 | 4.47 | yes (entry #7) |
+| 7 | igd10um64xe | 13,256 | 2.89 | yes (entry #1, single hot address) |
+| 8 | rpcrt4 | 10,688 | 2.33 | no |
+| 9 | afd.sys | 8,045 | 1.76 | yes (entry #3) |
+| 10 | bcryptprimitives | 6,527 | 1.42 | no |
+
+### Pass / fail per criterion
+
+#### Criterion 1: function-name overlap >= 7/10
+
+- **Direct function-name overlap on the two raw top-10s: 1/10** (`quark!v8::internal::ConcurrentMarking::RunMajor`).
+- **Module-name overlap on top-10s: 5/10** (`ntoskrnl`, `netio.sys`, `mpengine`, `igd10um64xe`, `afd.sys`).
+- **Verdict: FAIL as written.** This is the same root cause as Run 1: PerfView aggregates unresolved
+  frames per module while wpa-mcp keeps them per address. The comparison is structural, not numerical.
+
+#### Criterion 2: per-row exclusive sample count diff <= +/-10%
+
+- For the only directly-comparable named function (`ConcurrentMarking::RunMajor`): **19.3% diff — FAIL**.
+- The diff equals the global denominator shortfall (20%), confirming the cause is the same as Run 1.
+
+#### Criterion 3: per-row percentage diff <= +/-15%
+
+- For `ConcurrentMarking::RunMajor` exclusive %: **0.9% diff — PASS**.
+- For inclusive %: 13.8% diff — **PASS** (within margin).
+- Both tools agree on the *shape* of the distribution within their respective denominators.
+
+### Comparison vs Run 1: does the no-stack-sample shortfall persist?
+
+**Yes, the shortfall persists, but its magnitude is smaller in Run 2.**
+
+| Run | Trace | wpa-mcp samples | PerfView samples | Ratio | Shortfall |
+|---|---|---:|---:|---:|---:|
+| 1 | small_cpu.etl (954 MB, no symbols) | 160,226 | 226,071 | 70.9% | 29.1% |
+| 2 | LAPTOP-NL4...etl (2.0 GB, local Quark PDBs) | 366,449 | 458,218 | 80.0% | 20.0% |
+
+The mechanism is identical to Run 1: wpa-mcp's `CpuAnalysis.cs` drops samples whose
+`CallStackIndex == Invalid` (`continue`), while PerfView attributes them to a synthetic root and
+counts them in the grand total. The Run 2 shortfall (20% vs Run 1's 30%) is smaller, plausibly
+because the larger Quark trace has a higher fraction of stacks that successfully resolve.
+
+The implications stated in Run 1 still apply:
+- Within-tool exclusive percentages agree to within ~1 percentage point per row.
+- Cheap fix: include events without a stack under a synthetic `?` root in `CpuAnalysis.cs`.
+- Or document the criterion as comparing attributed-sample percentages, not raw counts.
+
+### Reproducing
+
+```bash
+export _NT_SYMBOL_PATH='C:\Users\admin3\Documents\WPR Files\all_symbols'
+
+# wpa-mcp (ad-hoc CLI; reverted before commit)
+dotnet src/WprMcp/bin/Release/net8.0/WprMcp.dll --cpu-top \
+  "C:/Users/admin3/Documents/WPR Files/LAPTOP-NL4LGTQH.08-11-2025.15-40-35.etl"
+
+# PerfView — must be invoked from PowerShell (or bash with MSYS_NO_PATHCONV=1) so that
+# /AcceptEula /NoGui /LogFile=... aren't mangled into Windows paths by Git Bash.
+& 'C:\Users\admin3\AppData\Local\Microsoft\WinGet\Links\perfview.exe' \
+  /AcceptEula /NoGui /LogFile=C:\Users\admin3\AppData\Local\Temp\perfview_run2.log \
+  UserCommand SaveCPUStacksAsCsv \
+  'C:\Users\admin3\Documents\WPR Files\LAPTOP-NL4LGTQH.08-11-2025.15-40-35.etl'
+```
