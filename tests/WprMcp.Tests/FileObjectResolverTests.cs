@@ -18,7 +18,7 @@ public class FileObjectResolverTests
         Assert.Contains("DEADBEEF", result);
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void Build_PopulatesAtLeastOneMapping()
     {
         using var trace = TraceLog.OpenOrConvert("fixtures/small_cpu.etl");

@@ -8,7 +8,7 @@ public class TraceEventSmokeTests
     private const string FixturePath =
         "fixtures/small_cpu.etl"; // captured in Task 17
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void CanOpenOrConvertSanityEtl()
     {
         Assert.True(File.Exists(FixturePath),

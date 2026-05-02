@@ -8,7 +8,7 @@ public class MmapAnalysisTests
 {
     private const string FixturePath = "fixtures/small_mmap.etl"; // captured in Task 17
 
-    [Fact(Skip = "Requires fixtures/small_mmap.etl from Task 17 capture")]
+    [Fact]
     public void MmapHotFiles_ReturnsAtLeastOneRow()
     {
         var tools = new MmapTools(new TraceCache(capacity: 2));
@@ -16,7 +16,7 @@ public class MmapAnalysisTests
         Assert.NotEmpty(resp.Rows);
     }
 
-    [Fact(Skip = "Requires fixtures/small_mmap.etl from Task 17 capture")]
+    [Fact]
     public void MmapHotFiles_AlwaysIncludesKeywordHint()
     {
         var tools = new MmapTools(new TraceCache(capacity: 2));

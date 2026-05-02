@@ -51,7 +51,7 @@ public class SymbolServiceTests
         finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void DiagnoseSymbols_ReturnsAtLeastOneModule()
     {
         var svc = new SymbolService();

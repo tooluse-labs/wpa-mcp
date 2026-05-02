@@ -8,7 +8,7 @@ public class TraceCacheTests
 {
     private const string FixturePath = "fixtures/small_cpu.etl"; // captured in Task 17
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void Get_ReturnsSameInstanceAcrossCalls()
     {
         var cache = new TraceCache(capacity: 2);
@@ -17,7 +17,7 @@ public class TraceCacheTests
         Assert.Same(t1, t2);
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void Get_EvictsAndReloadsAfterMtimeBump()
     {
         var tmp = Path.Combine(Path.GetTempPath(), $"wpa-mcp-mtime-{Guid.NewGuid():N}.etl");
@@ -40,7 +40,7 @@ public class TraceCacheTests
         }
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void Unload_RemovesEntryAndAllowsReload()
     {
         var cache = new TraceCache(capacity: 2);

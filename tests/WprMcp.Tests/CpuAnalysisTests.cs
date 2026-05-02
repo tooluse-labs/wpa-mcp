@@ -8,7 +8,7 @@ public class CpuAnalysisTests
 {
     private const string FixturePath = "fixtures/small_cpu.etl"; // captured in Task 17
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void CpuTopFunctions_ReturnsAtMostTopRows()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));
@@ -16,7 +16,7 @@ public class CpuAnalysisTests
         Assert.True(resp.Rows.Count <= 10);
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void CpuTopFunctions_RowsOrderedByExclusiveDescending()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));
@@ -25,7 +25,7 @@ public class CpuAnalysisTests
             Assert.True(resp.Rows[i - 1].ExclusiveSamples >= resp.Rows[i].ExclusiveSamples);
     }
 
-    [Fact(Skip = "Requires fixtures/small_cpu.etl from Task 17 capture")]
+    [Fact]
     public void CpuTopFunctions_EmitsResolutionStats()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));

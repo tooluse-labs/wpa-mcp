@@ -18,5 +18,12 @@ Thumbs.db
 *.etl
 !tests/**/fixtures/*.etl
 
+# Capture script logs (regenerated each run)
+tests/**/fixtures/capture_all.log
+
+# tests/manual/ outputs (regeneratable; the .md files are the durable record)
+tests/manual/*.json
+tests/manual/*.stderr.log
+
 # Symbol cache
 Symbols/

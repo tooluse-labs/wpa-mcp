@@ -2,8 +2,8 @@
 <WindowsPerformanceRecorder Version="1.0" Author="wpa-mcp">
   <Profiles>
     <SystemCollector Id="SC" Name="WpaMcpSC">
-      <BufferSize Value="1024"/>
-      <Buffers Value="64"/>
+      <BufferSize Value="256"/>
+      <Buffers Value="8"/>
     </SystemCollector>
     <SystemProvider Id="SP">
       <Keywords>
@@ -11,8 +11,6 @@
         <Keyword Value="Loader"/>
         <Keyword Value="HardFaults"/>
         <Keyword Value="MemoryInfo"/>
-        <Keyword Value="FileIO"/>
-        <Keyword Value="FileIOInit"/>
       </Keywords>
     </SystemProvider>
     <Profile Id="MmapMcp.Verbose.File" Name="MmapMcp" Description="Mmap fixture capture"

@@ -8,7 +8,7 @@ public class FileIoAnalysisTests
 {
     private const string FixturePath = "fixtures/small_fileio.etl"; // captured in Task 17
 
-    [Fact(Skip = "Requires fixtures/small_fileio.etl from Task 17 capture")]
+    [Fact]
     public void FileIoTopFiles_ReturnsRows()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));
@@ -16,7 +16,7 @@ public class FileIoAnalysisTests
         Assert.NotEmpty(resp.Rows);
     }
 
-    [Fact(Skip = "Requires fixtures/small_fileio.etl from Task 17 capture")]
+    [Fact]
     public void FileIoTopFiles_OrdersByTotalBytesDescending()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));
