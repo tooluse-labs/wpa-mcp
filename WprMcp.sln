@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A204706D-9D15-4972-AA01-898095A41348}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WprMcp", "src\WprMcp\WprMcp.csproj", "{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{8D6558A0-3CF9-4423-B429-CAEB8E9AF9CD} = {A204706D-9D15-4972-AA01-898095A41348}
+	EndGlobalSection
+EndGlobal
