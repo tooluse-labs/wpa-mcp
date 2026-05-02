@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using WprMcp.Cli;
 
 namespace WprMcp;
 
@@ -12,6 +13,13 @@ public static class Program
         {
             Console.WriteLine("WprMcp 0.1.0-poc");
             return 0;
+        }
+
+        // CLI mode: any recognized "--<verb>" first arg routes to CliRunner instead of
+        // starting the MCP stdio host. The CLI is a test/debug surface — see Cli/CliRunner.cs.
+        if (CliRunner.IsCliInvocation(args))
+        {
+            return CliRunner.Run(args);
         }
 
         var builder = Host.CreateApplicationBuilder(args);
