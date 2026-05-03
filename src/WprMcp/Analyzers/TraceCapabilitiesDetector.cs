@@ -27,6 +27,7 @@ internal static class TraceCapabilitiesDetector
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
         bool hasClrGc = false, hasClrJit = false;
         bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
+        bool hasNtHeap = false;
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -35,6 +36,7 @@ internal static class TraceCapabilitiesDetector
         var source = trace.Events.GetSource();
         var kernel = new KernelTraceEventParser(source);
         var clr = new ClrTraceEventParser(source);
+        var heap = new Microsoft.Diagnostics.Tracing.Parsers.Kernel.HeapTraceProviderTraceEventParser(source);
 
         // For every event group, multiple events fire iff the same kernel keyword is enabled
         // (e.g. Registry: Query/Open/SetValue all gated by the Registry keyword).  One
@@ -62,6 +64,8 @@ internal static class TraceCapabilitiesDetector
         clr.ExceptionStart += _ => hasClrException = true;
         clr.ContentionStart += _ => hasClrContention = true;
 
+        heap.HeapTraceAlloc += _ => hasNtHeap = true;
+
         source.Process();
 
         return new TraceCapabilities(
@@ -83,6 +87,7 @@ internal static class TraceCapabilitiesDetector
             HasClrJit: hasClrJit,
             HasClrAlloc: hasClrAlloc,
             HasClrException: hasClrException,
-            HasClrContention: hasClrContention);
+            HasClrContention: hasClrContention,
+            HasNtHeap: hasNtHeap);
     }
 }

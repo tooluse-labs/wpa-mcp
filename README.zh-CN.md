@@ -10,7 +10,7 @@
 
 一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——通过任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）暴露出来。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
-> **状态——PoC。** 47 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
+> **状态——PoC。** 51 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
 
 > **看一个真实案例：** [一次完整排查](docs/CASE_STUDIES.md)——进程创建慢到基线的 50 倍，通过 wpa-mcp 工具链根因定位到多套 EDR 在 `PsSetCreateProcessNotifyRoutineEx` 上串行回调。同一份 trace 被两个不同 LLM agent 独立复现得到同样结论。
 
@@ -197,7 +197,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## 工具
 
-47 个工具分 15 组。底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView，区别在**界面（stdio MCP + JSON 替代 Windows GUI）**和**几个把 PerfView 多步操作打包成一次调用的复合工具**。
+51 个工具分 15 组。底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView，区别在**界面（stdio MCP + JSON 替代 Windows GUI）**和**几个把 PerfView 多步操作打包成一次调用的复合工具**。
 
 ### wpa-mcp 相对 PerfView 加了什么
 
@@ -208,7 +208,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ### 调用 pattern
 
-**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`、`HasVirtualAlloc`、`HasNetIo`、`HasRegistry`、`HasReadyThread`、`HasInterrupt`、`HasAlpc`、`HasThreadEvents`、`HasClrGc`、`HasClrJit`、`HasClrAlloc`、`HasClrException`、`HasClrContention`）。其他每个工具的行为都依赖这些 keyword。
+**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`、`HasVirtualAlloc`、`HasNetIo`、`HasRegistry`、`HasReadyThread`、`HasInterrupt`、`HasAlpc`、`HasThreadEvents`、`HasClrGc`、`HasClrJit`、`HasClrAlloc`、`HasClrException`、`HasClrContention`、`HasNtHeap`）。其他每个工具的行为都依赖这些 keyword。
 
 大多数组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——和 PerfView 的 "Callers" / "Callees" tab 同形态。
 
@@ -269,6 +269,8 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 |---|---|---|
 | `virtual_alloc_top_stacks` | 按 `VirtualMemAlloc` + `VirtualMemFree` 字节加权的 top-N 栈。和物理驻留（`mmap_*`）不同——回答"谁在保留 4 GB 地址空间"/ "谁在泄漏 VirtualAllocs"。每行带 `Bytes` 和 `OpCount`。需要 `VirtualAlloc` 内核 keyword（**默认 WPR `CPU` profile 不带**）。 | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是虚拟内存字节。 | VirtualAlloc Stacks → Callers / Callees tab |
+| `heap_alloc_top_stacks` | 按 **NT 堆**分配字节（`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new`——任何走 user-mode heap 的分配）加权的 top-N 栈。Native 内存泄漏的标准工具。和 VirtualAlloc 不同：VirtualAlloc 预留页粒度的地址空间，堆分配器在其上做子分配。响应里拆出 `AllocBytes` / `ReallocBytes`。Free 事件不携带 size，不计入。需要 **per-process** 启用 `Heap` provider（默认 WPR profile 不带；用 PerfView `/HeapTrace` 或自定义 `.wprp` 的 `<Heap>` 元素）。 | HeapAllocStacks |
+| `heap_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是 NT 堆字节。 | HeapAllocStacks → Callers / Callees tab |
 
 ### 网络 I/O
 
@@ -325,6 +327,8 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | `find_marker` | 搜索所有名字 / task 包含给定 substring 的 ETW 事件。默认模式 `count_by_event` 返回直方图（避免 token 爆炸）；也支持 `count_by_process` 和 `rows`（完整事件细节）。挖一方 Defender / EDR provider 遥测最有效——比如 `Microsoft-Antimalware-AMFilter` provider 的 `AMFilter_FileScan` 行直接告诉你扫描器在干啥。 | Events 视图 |
+| `generic_event_top_stacks` | 对**任意** user-mode ETW provider 做 stack-rank 的 top-N 栈：AspNetCore、Kestrel、EFCore、Antimalware-AMFilter、Sense（Defender for Endpoint），或任何自定义 EventSource。先用 `find_marker` 找出 trace 里有哪些 provider，然后把 `ProviderName` 喂给该工具。可选 `eventNameSubstring` 缩到具体事件类。栈质量取决于 `.wprp` 是否对该 provider 开了 stack-walk。 | Any Stacks（单 provider） |
+| `generic_event_caller_callee` | 给定 focus frame 的钻取；metric 是事件计数。 | Any Stacks → Callers / Callees tab |
 
 ### 复合诊断
 

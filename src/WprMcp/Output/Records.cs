@@ -51,7 +51,8 @@ public sealed record TraceCapabilities(
     bool HasClrJit,
     bool HasClrAlloc,
     bool HasClrException,
-    bool HasClrContention);
+    bool HasClrContention,
+    bool HasNtHeap);
 
 public sealed record ProcessRow(
     int Pid,
@@ -650,6 +651,54 @@ public sealed record ClrContentionStacksResponse(
     IReadOnlyList<ClrContentionStackRow> Rows,
     long TotalBlockedUs,
     long TotalEventCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// One row of an NT-heap allocation stack view: bytes allocated through this frame from the
+// user-mode heap (RtlAllocateHeap / HeapAlloc / malloc / new / etc.).  Distinct from
+// VirtualAlloc, which is page-granular reservations the heap allocator sub-allocates from.
+public sealed record HeapAllocStackRow(
+    string Function,
+    long ExclusiveBytes,
+    long InclusiveBytes,
+    long ExclusiveEventCount,
+    long InclusiveEventCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record HeapAllocStacksResponse(
+    IReadOnlyList<HeapAllocStackRow> Rows,
+    long TotalBytes,
+    long TotalEventCount,
+    long AllocBytes,
+    long ReallocBytes,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// One row of a generic-provider stack view: count of events from a user-supplied provider
+// observed flowing through this frame.  Metric is event count.  Stack quality depends on
+// whether stack-walks were enabled for this provider+keyword in the capture profile.
+public sealed record GenericEventStackRow(
+    string Function,
+    long ExclusiveCount,
+    long InclusiveCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record GenericEventNameRow(string EventName, long Count);
+
+public sealed record GenericEventStacksResponse(
+    IReadOnlyList<GenericEventStackRow> Rows,
+    string ProviderName,
+    string? EventNameSubstring,
+    long TotalEventCount,
+    IReadOnlyList<GenericEventNameRow> TopEventNames,
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);

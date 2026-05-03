@@ -10,7 +10,7 @@
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** 47 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** 51 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
 > **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
 
@@ -199,7 +199,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## Tools
 
-47 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
+51 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
 
 ### What wpa-mcp adds vs PerfView
 
@@ -210,7 +210,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ### Pattern
 
-**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`, `HasVirtualAlloc`, `HasNetIo`, `HasRegistry`, `HasReadyThread`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`, `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`). Every other tool's behaviour depends on those keywords.
+**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`, `HasVirtualAlloc`, `HasNetIo`, `HasRegistry`, `HasReadyThread`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`, `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`, `HasNtHeap`). Every other tool's behaviour depends on those keywords.
 
 Most groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
 
@@ -271,6 +271,8 @@ The three layers cover different parts of the I/O stack — diff them to localis
 |---|---|---|
 | `virtual_alloc_top_stacks` | Top-N stacks by `VirtualMemAlloc` + `VirtualMemFree` bytes. Distinct from physical residence (`mmap_*`) — answers "who's reserving 4 GB of address space" / "who's leaking VirtualAllocs". Each row carries both `Bytes` and `OpCount`. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | Drill on a focus frame; metric is virtual-memory bytes. | VirtualAlloc Stacks → Callers / Callees tabs |
+| `heap_alloc_top_stacks` | Top-N stacks by **NT-heap** allocation bytes (`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new` — anything that lands in the user-mode heap). Native-leak finder. Distinct from VirtualAlloc: VirtualAlloc reserves page-granular address space, the heap allocator sub-allocates from it. Splits `AllocBytes` / `ReallocBytes`. Free events carry no size on the wire and are not counted. Requires the `Heap` provider enabled **per-process** (default WPR profiles do NOT enable it; use PerfView's `/HeapTrace` flag or a custom `.wprp` `<Heap>` element). | HeapAllocStacks |
+| `heap_alloc_caller_callee` | Drill on a focus frame; metric is NT-heap bytes. | HeapAllocStacks → Callers / Callees tabs |
 
 ### Network I/O
 
@@ -327,6 +329,8 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `find_marker` | Search all ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram (avoids token blow-up); also `count_by_process` and `rows` (full event detail). Useful for surfacing first-party Defender / EDR provider telemetry — e.g., the `Microsoft-Antimalware-AMFilter` provider's `AMFilter_FileScan` rows directly show what the scanner is doing. | Events view |
+| `generic_event_top_stacks` | Top-N stacks by event count for **any** user-mode ETW provider — AspNetCore, Kestrel, EFCore, Antimalware-AMFilter, Sense (Defender for Endpoint), or any custom EventSource. Use `find_marker` first to identify which providers are in the trace, then plug the exact `ProviderName` here. Optional `eventNameSubstring` narrows to a specific event class. Stack quality depends on whether stack-walks were enabled for the provider in the `.wprp`. | Any Stacks (single-provider) |
+| `generic_event_caller_callee` | Drill on a focus frame; metric is event count. | Any Stacks → Callers / Callees tabs |
 
 ### Composite diagnostics
 
