@@ -18,6 +18,12 @@ A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait,
 
 ## Quickstart
 
+<!-- Animated demo. Drop the recorded GIF at assets/quickstart-demo.gif and it
+     will render here. Recording recipe: assets/quickstart-demo-recording.md -->
+<p align="center">
+  <img src="assets/quickstart-demo.gif" alt="wpa-mcp Quickstart demo — load a trace, find slow processes, drill into a fork burst" width="800">
+</p>
+
 Once installed ([one-liner below](#install)), ask the agent in plain language and it picks the matching tools:
 
 ```

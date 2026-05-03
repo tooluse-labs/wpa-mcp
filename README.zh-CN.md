@@ -18,6 +18,12 @@
 
 ## 快速上手
 
+<!-- 动态演示。把录好的 GIF 放在 assets/quickstart-demo.gif 这里就会渲染出来。
+     录制食谱见 assets/quickstart-demo-recording.md（英文）。 -->
+<p align="center">
+  <img src="assets/quickstart-demo.gif" alt="wpa-mcp 快速上手演示——加载 trace、找出慢进程、钻进 fork burst" width="800">
+</p>
+
 装好之后（[一行命令在下面](#安装)），用自然语言问 agent，它会挑对应的工具：
 
 ```
