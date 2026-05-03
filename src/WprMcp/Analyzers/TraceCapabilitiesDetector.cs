@@ -22,6 +22,7 @@ internal static class TraceCapabilitiesDetector
         bool hasCpuSamples = false, hasCSwitch = false, hasFileIo = false;
         bool hasDiskIo = false, hasImageLoad = false, hasHardFaults = false;
         bool hasStackWalks = false;
+        bool hasVirtualAlloc = false, hasNetIo = false, hasRegistry = false;
 
         KernelEventWalker.Walk(trace, kernel =>
         {
@@ -34,6 +35,15 @@ internal static class TraceCapabilitiesDetector
             kernel.ImageLoad += _ => hasImageLoad = true;
             kernel.MemoryHardFault += _ => hasHardFaults = true;
             kernel.StackWalkStack += _ => hasStackWalks = true;
+            kernel.VirtualMemAlloc += _ => hasVirtualAlloc = true;
+            kernel.VirtualMemFree += _ => hasVirtualAlloc = true;
+            kernel.TcpIpSend += _ => hasNetIo = true;
+            kernel.TcpIpRecv += _ => hasNetIo = true;
+            kernel.UdpIpSend += _ => hasNetIo = true;
+            kernel.UdpIpRecv += _ => hasNetIo = true;
+            kernel.RegistryQueryValue += _ => hasRegistry = true;
+            kernel.RegistryOpen += _ => hasRegistry = true;
+            kernel.RegistrySetValue += _ => hasRegistry = true;
         });
 
         return new TraceCapabilities(
@@ -43,6 +53,9 @@ internal static class TraceCapabilitiesDetector
             HasDiskIo: hasDiskIo,
             HasImageLoad: hasImageLoad,
             HasHardFaults: hasHardFaults,
-            HasStackWalks: hasStackWalks);
+            HasStackWalks: hasStackWalks,
+            HasVirtualAlloc: hasVirtualAlloc,
+            HasNetIo: hasNetIo,
+            HasRegistry: hasRegistry);
     }
 }

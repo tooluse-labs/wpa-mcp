@@ -39,7 +39,10 @@ public sealed record TraceCapabilities(
     bool HasDiskIo,
     bool HasImageLoad,
     bool HasHardFaults,
-    bool HasStackWalks);
+    bool HasStackWalks,
+    bool HasVirtualAlloc,
+    bool HasNetIo,
+    bool HasRegistry);
 
 public sealed record ProcessRow(
     int Pid,
@@ -384,3 +387,67 @@ public sealed record DiagnoseSlowStartupResponse(
     IReadOnlyList<SlowStartupCandidate> Candidates,
     string Summary,
     IReadOnlyList<string> Warnings);
+
+// Top-N call-tree frames ranked by VirtualMemAlloc/Free byte count.  Useful for "who's
+// reserving address space" / "where do these committed pages come from".
+public sealed record VirtualAllocStackRow(
+    string Function,
+    long ExclusiveBytes,
+    long InclusiveBytes,
+    long ExclusiveOpCount,
+    long InclusiveOpCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record VirtualAllocStacksResponse(
+    IReadOnlyList<VirtualAllocStackRow> Rows,
+    long TotalBytes,
+    long TotalOpCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// Top-N call-tree frames ranked by TCP+UDP send/receive byte count.  Pairs IPv4 and IPv6
+// variants of each event family.  TcpBytes / UdpBytes break out the totals so consumers
+// can tell whether the workload is mostly TCP or UDP without re-aggregating.
+public sealed record NetIoStackRow(
+    string Function,
+    long ExclusiveBytes,
+    long InclusiveBytes,
+    long ExclusiveOpCount,
+    long InclusiveOpCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record NetIoStacksResponse(
+    IReadOnlyList<NetIoStackRow> Rows,
+    long TotalBytes,
+    long TotalOpCount,
+    long TcpBytes,
+    long UdpBytes,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// Top-N call-tree frames ranked by registry-operation count.  Different from byte-metric
+// stacks because registry operations don't have a natural byte cost — every Query / Open /
+// Set is one unit, and the volume on a hot path is what matters.
+public sealed record RegistryStackRow(
+    string Function,
+    long ExclusiveOps,
+    long InclusiveOps,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record RegistryStacksResponse(
+    IReadOnlyList<RegistryStackRow> Rows,
+    long TotalOps,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
