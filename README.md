@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/wpa-mcp-logo.svg" alt="wpa-mcp" width="720">
+  <img src="assets/wpa-mcp-logo.svg" alt="wpa-mcp">
 </p>
 
 # wpa-mcp
