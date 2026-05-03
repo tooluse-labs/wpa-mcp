@@ -702,3 +702,66 @@ public sealed record GenericEventStacksResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
+
+// One row of the GCHeapStats time series — a snapshot of the managed heap right after a GC.
+// Generations 0/1/2 are the classical heap; LOH = generation 3 (large object heap); POH =
+// generation 4 (pinned object heap, .NET 5+).
+public sealed record GcHeapStatsRow(
+    long TimeUs,
+    int Pid,
+    long TotalHeapBytes,
+    long Gen0Bytes,
+    long Gen1Bytes,
+    long Gen2Bytes,
+    long LohBytes,
+    long PohBytes,
+    int PinnedObjectCount,
+    int GcHandleCount,
+    long FinalizationPromotedBytes,
+    long FinalizationPromotedCount);
+
+public sealed record GcHeapStatsResponse(
+    int? Pid,
+    IReadOnlyList<GcHeapStatsRow> Rows,
+    IReadOnlyList<string> Warnings);
+
+// One run of the finalizer thread — bracketed by GCFinalizersStart→GCFinalizersStop.
+// `FinalizersRun` is the number of finalizers executed in this batch.
+public sealed record FinalizerBatchRow(
+    int Pid,
+    long StartUs,
+    long DurationUs,
+    int FinalizersRun);
+
+public sealed record FinalizedTypeRow(string TypeName, long Count);
+
+public sealed record FinalizerAnalysisResponse(
+    int? Pid,
+    long TotalObjectsFinalized,
+    long TotalBatchUs,
+    IReadOnlyList<FinalizerBatchRow> Batches,
+    IReadOnlyList<FinalizedTypeRow> TopTypes,
+    IReadOnlyList<string> Warnings);
+
+// One TCP connection paired Connect/Accept → Disconnect/Reconnect by `connid`.  CloseTimeUs
+// can equal trace-end (with TraceResidentEnd = true) for connections still open when capture
+// stopped.  Duration is CloseTimeUs − OpenTimeUs in microseconds.
+public sealed record NetConnectionRow(
+    int Pid,
+    ulong ConnId,
+    string Role,
+    bool IsIPv6,
+    string LocalAddress,
+    int LocalPort,
+    string RemoteAddress,
+    int RemotePort,
+    long OpenTimeUs,
+    long? CloseTimeUs,
+    long? DurationUs,
+    bool TraceResidentEnd);
+
+public sealed record NetConnectionsResponse(
+    int? Pid,
+    int TotalConnections,
+    IReadOnlyList<NetConnectionRow> Connections,
+    IReadOnlyList<string> Warnings);

@@ -57,4 +57,25 @@ public sealed class NetIoTools
         return NetIoStackAnalysis.CallerCallee(
             trace, function, top, pid, startUs, endUs, Console.Error);
     }
+
+    [McpServerTool, Description(
+        "Per-connection TCP lifecycle list — Connect/Accept paired with Disconnect/Reconnect " +
+        "by `connid` to give 'connection X opened at T1, closed at T2, lasted T2−T1'.  " +
+        "Useful for 'connect-to-disconnect latency outliers' / 'is RPC slow because of " +
+        "connection setup'.  Role: connect = outbound, accept = inbound.  IPv4 + IPv6 merged " +
+        "into one list with an IsIPv6 flag.  Connections still open when capture stopped have " +
+        "TraceResidentEnd=true and CloseTimeUs at trace end.  Reconnect on a connid is " +
+        "treated as the prior session ending.  Requires the NetworkTrace keyword in the " +
+        "capture profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
+    public NetConnectionsResponse NetConnections(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N connections by duration descending (default 100, max 1000)")] int top = 100,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start (filter on connection open time)")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        var trace = _cache.Get(path);
+        return NetConnectionAnalysis.Analyze(trace, pid, top, startUs, endUs);
+    }
 }

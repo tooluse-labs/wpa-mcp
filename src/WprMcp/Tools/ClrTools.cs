@@ -168,4 +168,43 @@ public sealed class ClrTools
         var trace = _cache.Get(path);
         return ClrContentionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
     }
+
+    [McpServerTool, Description(
+        ".NET CLR managed-heap snapshot timeline — one row per GCHeapStats event (the CLR " +
+        "fires this once at the end of each GC), with TotalHeapBytes, Gen0/1/2/LOH/POH " +
+        "sizes, PinnedObjectCount, and GcHandleCount.  PerfView surfaces this in 'GCStats' " +
+        "as the per-GC snapshot table; here it's a chronological time series so you can " +
+        "answer 'is the heap leaking over time' / 'are pinned objects climbing' without " +
+        "orchestrating multiple calls.  Pairs naturally with clr_gc_analysis (same trace, " +
+        "different aggregation).  Requires Microsoft-Windows-DotNETRuntime with the GC " +
+        "keyword.")]
+    public GcHeapStatsResponse ClrGcHeapStats(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Filter to a single process ID (recommended)")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        var trace = _cache.Get(path);
+        return GcHeapStatsAnalysis.Analyze(trace, pid, startUs, endUs);
+    }
+
+    [McpServerTool, Description(
+        ".NET CLR finalizer analysis — top types finalized + finalizer-thread pause batches.  " +
+        "Two related streams matched here: GCFinalizeObject (per-object, carries TypeName) " +
+        "is aggregated to the TopTypes table; GCFinalizersStart/Stop bracket each run of " +
+        "the finalizer thread, with the Stop event carrying the count of finalizers run in " +
+        "that batch — those become the Batches list.  Use this to answer 'why are GCs slow' " +
+        "(finalizers can hold up the next GC because GC waits for the finalizer queue to " +
+        "drain on certain transitions) and 'what's allocating finalizable objects' (pair " +
+        "TopTypes with clr_alloc_top_stacks on the offender types).  Requires " +
+        "Microsoft-Windows-DotNETRuntime with the GC keyword.")]
+    public FinalizerAnalysisResponse ClrFinalizerAnalysis(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Filter to a single process ID (recommended)")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        var trace = _cache.Get(path);
+        return FinalizerAnalysis.Analyze(trace, pid, startUs, endUs);
+    }
 }

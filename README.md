@@ -10,7 +10,7 @@
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** 51 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** 54 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
 > **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
 
@@ -199,7 +199,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## Tools
 
-51 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
+54 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
 
 ### What wpa-mcp adds vs PerfView
 
@@ -280,6 +280,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 |---|---|---|
 | `net_top_stacks` | Top-N stacks by network bytes — TCP + UDP, IPv4 + IPv6 send/recv merged. Splits `TcpBytes` / `UdpBytes` in the response.  Pairs well with `wait_analysis` for "high wall, low CPU" cases where the wait is on a network round-trip. `Connect` / `Accept` / `Disconnect` events have no byte metric — use `find_marker` for those. Requires the `NetworkTrace` keyword (NOT in default `CPU` profiles). | TCP/IP Stacks + UDP/IP Stacks (merged) |
 | `net_caller_callee` | Drill on a focus frame; metric is network bytes. | TCP/IP Stacks → Callers / Callees tabs |
+| `net_connections` | Per-connection lifecycle list — Connect/Accept paired with Disconnect/Reconnect by `connid` to give "connection X opened at T1, closed at T2, lasted T2−T1". Useful for "connect-to-disconnect latency outliers" / "is RPC slow because of connection setup". IPv4 + IPv6 merged with an `IsIPv6` flag. Connections still open at trace end have `TraceResidentEnd=true`. | (no direct equivalent — Events view manual pairing) |
 
 ### Registry
 
@@ -323,13 +324,15 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 | `clr_exception_caller_callee` | Drill on a focus frame; metric is exception count. | Exceptions Stacks → Callers / Callees tabs |
 | `clr_contention_top_stacks` | Top-N stacks by managed-monitor blocked μs — `lock` / `Monitor.Enter` waits. Matches `ContentionStart`→`ContentionStop` by `ThreadID`. Filters to `ContentionFlags.Managed` (native lock contention from the same provider is excluded). The canonical lock-hotspot tool for managed code. Requires the `Contention` keyword. | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | Drill on a focus frame; metric is blocked μs. | Monitor Contention Stacks → Callers / Callees tabs |
+| `clr_gc_heap_stats` | Managed-heap snapshot timeline — one row per `GCHeapStats` event (CLR fires it at the end of each GC) with `TotalHeapBytes`, `Gen0/1/2/LOH/POH` sizes, `PinnedObjectCount`, `GcHandleCount`. Use to answer "is the heap leaking" / "are pinned objects climbing" without orchestrating multiple calls. Pairs with `clr_gc_analysis`. | GCStats per-GC snapshot table |
+| `clr_finalizer_analysis` | Top types finalized + finalizer-thread pause batches. Aggregates `GCFinalizeObject` events by `TypeName` for the TopTypes table and pairs `GCFinalizersStart`→`GCFinalizersStop` for the per-batch list (each carries the count of finalizers run). Useful for "why are GCs slow" (finalizer queue can hold up the next GC) and "what's allocating finalizable objects". | (no equivalent — composite of GCStats fields + Events view filtering) |
 
 ### Markers / generic ETW events
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `find_marker` | Search all ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram (avoids token blow-up); also `count_by_process` and `rows` (full event detail). Useful for surfacing first-party Defender / EDR provider telemetry — e.g., the `Microsoft-Antimalware-AMFilter` provider's `AMFilter_FileScan` rows directly show what the scanner is doing. | Events view |
-| `generic_event_top_stacks` | Top-N stacks by event count for **any** user-mode ETW provider — AspNetCore, Kestrel, EFCore, Antimalware-AMFilter, Sense (Defender for Endpoint), or any custom EventSource. Use `find_marker` first to identify which providers are in the trace, then plug the exact `ProviderName` here. Optional `eventNameSubstring` narrows to a specific event class. Stack quality depends on whether stack-walks were enabled for the provider in the `.wprp`. | Any Stacks (single-provider) |
+| `generic_event_top_stacks` | Top-N stacks by event count for **any** user-mode ETW provider — AspNetCore, Kestrel, EFCore, Antimalware-AMFilter, Sense (Defender for Endpoint), `Microsoft-Windows-DxgKrnl` (GPU), `Microsoft-Windows-Kernel-Power` (CPU frequency / C-state), or any custom EventSource. Use `find_marker` first to identify which providers are in the trace, then plug the exact `ProviderName` here. Optional `eventNameSubstring` narrows to a specific event class. Stack quality depends on whether stack-walks were enabled for the provider in the `.wprp`. | Any Stacks (single-provider) |
 | `generic_event_caller_callee` | Drill on a focus frame; metric is event count. | Any Stacks → Callers / Callees tabs |
 
 ### Composite diagnostics
