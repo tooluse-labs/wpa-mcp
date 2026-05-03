@@ -1,8 +1,9 @@
 name: release
 
-# Triggers on tag push (e.g. v0.2.0). Builds Release, packages into a zip with install
-# scripts + docs, attaches to a GitHub Release. End users grab the zip from the Releases
-# page (or via scripts/bootstrap.ps1 which curls the latest one).
+# Triggers on tag push (e.g. v0.2.0). Builds Release, packages into a zip with the
+# bundled setup.{ps1,sh} installer + uninstall scripts + docs, attaches to a GitHub
+# Release. End users either grab the zip from the Releases page or use the web one-
+# liner scripts/install.{ps1,sh} which downloads the latest zip and invokes setup.ps1.
 on:
   push:
     tags:
@@ -53,16 +54,20 @@ jobs:
           # Binaries — flatten to bin/ at zip root.
           Copy-Item -Recurse publish/bin "$stageDir/bin"
 
-          # Install scripts: lift to zip root so users run `.\install.ps1` (or
-          # `./install.sh` from Git Bash) directly after extracting. Both .ps1 and .sh
-          # variants ship — .sh wraps .ps1 via powershell.exe.
-          Copy-Item scripts/install.ps1 "$stageDir/install.ps1"
+          # Bundled installer: lift to zip root so users run `.\setup.ps1` (or
+          # `./setup.sh` from Git Bash) directly after extracting.  Both .ps1 and .sh
+          # variants ship — .sh wraps .ps1 via powershell.exe.  We do NOT include the
+          # repo's scripts/install.{ps1,sh} (those are web-entry one-liners that
+          # download THIS zip; inside the zip they'd be redundant + confusing).
+          Copy-Item scripts/setup.ps1 "$stageDir/setup.ps1"
+          Copy-Item scripts/setup.sh "$stageDir/setup.sh"
           Copy-Item scripts/uninstall.ps1 "$stageDir/uninstall.ps1"
-          Copy-Item scripts/install.sh "$stageDir/install.sh"
           Copy-Item scripts/uninstall.sh "$stageDir/uninstall.sh"
 
-          # User-facing docs.
+          # User-facing docs.  README.zh-CN.md ships alongside the English README so
+          # in-zip docs match what users see on the GitHub repo page.
           Copy-Item README.md "$stageDir/README.md"
+          Copy-Item README.zh-CN.md "$stageDir/README.zh-CN.md"
           Copy-Item -Recurse docs "$stageDir/docs"
 
           # Pack.
