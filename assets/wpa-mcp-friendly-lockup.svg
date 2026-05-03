@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 256" width="800" height="256" role="img" aria-labelledby="title desc">
+  <title id="title">wpa-mcp</title>
+  <desc id="desc">wpa-mcp lockup, light variant.  Cool-to-warm flame graph alongside monochromatic wordmark, tagline, and three brand-colour bars.</desc>
+
+  <!-- Light card tile -->
+  <rect width="800" height="256" rx="32" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+
+  <!-- Mark: flame graph in the left 256-square region, mirrored on x=128 -->
+  <rect x="28"  y="164" width="200" height="24" rx="3" fill="#06B6D4"/>
+  <rect x="28"  y="132" width="92"  height="24" rx="3" fill="#14B8A6"/>
+  <rect x="136" y="132" width="92"  height="24" rx="3" fill="#14B8A6"/>
+  <rect x="28"  y="100" width="40"  height="24" rx="3" fill="#FBBF24"/>
+  <rect x="80"  y="100" width="32"  height="24" rx="3" fill="#FBBF24"/>
+  <rect x="144" y="100" width="32"  height="24" rx="3" fill="#FBBF24"/>
+  <rect x="188" y="100" width="40"  height="24" rx="3" fill="#FBBF24"/>
+  <rect x="36"  y="68"  width="24"  height="24" rx="3" fill="#F59E0B"/>
+  <rect x="196" y="68"  width="24"  height="24" rx="3" fill="#F59E0B"/>
+
+  <!-- Subtle separator -->
+  <line x1="280" y1="80" x2="280" y2="176" stroke="#E2E8F0" stroke-width="2"/>
+
+  <!-- Wordmark "wpa-mcp" — monochromatic dark slate (Linear/Stripe keep
+       brand colour out of the wordmark; the icon and bars carry it).
+       Wordmark + tagline + bars are vertically centred as a group around
+       canvas y=128 so the right side balances the centred mark. -->
+  <text x="476" y="125" text-anchor="end"
+        font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace"
+        font-weight="700" font-size="72" fill="#0F172A" letter-spacing="-1">wpa</text>
+  <rect x="486" y="103" width="28" height="8" rx="2" fill="#94A3B8"/>
+  <text x="524" y="125" text-anchor="start"
+        font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace"
+        font-weight="700" font-size="72" fill="#0F172A" letter-spacing="-1">mcp</text>
+
+  <!-- Tagline -->
+  <text x="346" y="169"
+        font-family="Inter, 'Segoe UI', system-ui, sans-serif"
+        font-size="22" font-weight="500" fill="#64748B" letter-spacing="0.3">ETW trace analysis for MCP clients</text>
+
+  <!-- Three brand-colour bars echoing the flame graph palette -->
+  <rect x="346" y="193" width="54" height="6" rx="3" fill="#06B6D4"/>
+  <rect x="410" y="193" width="54" height="6" rx="3" fill="#14B8A6"/>
+  <rect x="474" y="193" width="54" height="6" rx="3" fill="#F59E0B"/>
+</svg>

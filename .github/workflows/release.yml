@@ -1,0 +1,83 @@
+name: release
+
+# Triggers on tag push (e.g. v0.2.0). Builds Release, packages into a zip with install
+# scripts + docs, attaches to a GitHub Release. End users grab the zip from the Releases
+# page (or via scripts/bootstrap.ps1 which curls the latest one).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # allow manual trigger for ad-hoc builds
+
+permissions:
+  contents: write # required to create the GitHub Release
+
+jobs:
+  build:
+    # Windows runner is mandatory: TraceEvent's kernel parsers are Windows-only and the
+    # build references native Windows assemblies. Linux runners would fail dotnet restore.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore + Build (Release)
+        run: |
+          dotnet restore src/WprMcp/WprMcp.csproj
+          dotnet build src/WprMcp/WprMcp.csproj -c Release --nologo --no-restore
+
+      - name: Smoke check
+        run: dotnet src/WprMcp/bin/Release/net8.0/WprMcp.dll --version
+
+      - name: Publish (framework-dependent — users have .NET 8 already)
+        run: |
+          dotnet publish src/WprMcp/WprMcp.csproj `
+            -c Release `
+            --no-build `
+            --no-restore `
+            -o publish/bin
+
+      - name: Stage release zip layout
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = 'devbuild' }
+          $stageDir = "release/wpa-mcp-$tag"
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+          # Binaries — flatten to bin/ at zip root.
+          Copy-Item -Recurse publish/bin "$stageDir/bin"
+
+          # Install scripts: lift to zip root so users run `.\install.ps1` directly after
+          # extracting (no `cd scripts` step). The repo's scripts/ stays unchanged so
+          # cloners still find them where the README points.
+          Copy-Item scripts/install.ps1 "$stageDir/install.ps1"
+          Copy-Item scripts/uninstall.ps1 "$stageDir/uninstall.ps1"
+
+          # User-facing docs.
+          Copy-Item README.md "$stageDir/README.md"
+          Copy-Item -Recurse docs "$stageDir/docs"
+
+          # Pack.
+          Compress-Archive -Path "$stageDir/*" -DestinationPath "release/wpa-mcp-$tag.zip" -Force
+          Get-ChildItem release/
+
+      - name: Upload zip as workflow artifact (always; lets manual runs grab it)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wpa-mcp-${{ github.ref_name }}
+          path: release/wpa-mcp-*.zip
+
+      - name: Create GitHub Release (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/wpa-mcp-*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }} # v1.0.0-rc1 → prerelease

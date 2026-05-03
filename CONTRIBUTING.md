@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Contributing to wpa-mcp
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Project-specific gotchas and conventions for anyone (human or AI agent) modifying source code in this repository. End users of the MCP tool don't need this file — the tool's compiled binary doesn't reference it.
 
 ## Project
 
@@ -56,12 +56,12 @@ Don't call `TraceLog.OpenOrConvert` directly from analyzers or tools — always 
 
 ### CpuAnalysis: PerfView-parity invariants (READ BEFORE EDITING `Analyzers/CpuAnalysis.cs`)
 
-Two non-obvious behaviors exist specifically to match PerfView's `SaveCPUStacksAsCsv` output, validated in `tests/manual/perfview_compare.md` (Runs 1–4):
+Two non-obvious behaviors exist specifically to match PerfView's `SaveCPUStacksAsCsv` output:
 
 1. **No-stack samples are attributed to a synthetic `?!?` root**, not dropped. PerfView counts every CPU sample in its grand total; without this, wpa-mcp under-counts by ~20–30%. The `?!?` frame is interned as `Interner.FrameIntern("?!?")` then turned into a `CallStackIntern(noStackFrame, Invalid)` — re-using the same intern call ensures all no-stack samples share one stack identity.
 2. **Unresolved per-address frames are collapsed into per-module `module!?` buckets via a second normalized `MutableTraceEventStackSource`.** Without this, a single hot DLL fills the top-10 with hex offsets. Symbol resolution (`LookupWarmSymbols(50, …)`) **must** run on the raw source before normalization, or real symbols get wiped to `module!?`. The physical resolution rate (`SymbolStats.ResolutionRate`) is computed against the unnormalized frame set so it remains a true symbol-quality signal.
 
-If you change CpuAnalysis, re-run the PerfView comparison documented in `tests/manual/perfview_compare.md` (criteria: 7/10 top-N name overlap, ±10% sample counts, ±15pp percentages, grand total within ~1%) before claiming correctness.
+If you change CpuAnalysis, re-validate against PerfView on a representative trace before claiming correctness. Acceptance criteria: 7/10 top-N name overlap, ±10% sample counts, ±15pp percentages, grand total within ~1%. (Open the same `.etl` in PerfView, dump CPU Stacks → By Name, compare against `cpu_top_functions` output for the same pid+window.)
 
 ### TraceEvent parser-attachment rule (READ BEFORE WRITING ANY ANALYZER)
 

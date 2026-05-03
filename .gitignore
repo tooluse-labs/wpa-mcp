@@ -21,7 +21,8 @@ Thumbs.db
 # Capture script logs (regenerated each run)
 tests/**/fixtures/capture_all.log
 
-# tests/manual/ outputs (regeneratable; the .md files are the durable record)
+# tests/manual/ outputs (regeneratable). When adding manual validation runs, commit
+# only the .md write-up; let captured tool output and stderr stay local.
 tests/manual/*.json
 tests/manual/*.stderr.log
 

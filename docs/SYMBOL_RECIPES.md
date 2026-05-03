@@ -1,30 +1,38 @@
 # Symbol resolution recipes
 
-`_NT_SYMBOL_PATH` accepts semicolon-separated entries. Each `SRV*<cache>*<url>` entry is a symbol server with a local cache.
+`_NT_SYMBOL_PATH` accepts semicolon-separated entries. Each `SRV*<cache>*<url>` entry is a symbol server with a local cache; bare paths point at folders containing PDBs.
 
-## Microsoft system symbols only
+## Microsoft system symbols (always recommended)
 
 ```
 SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols
 ```
 
-## + Chromium public symbols (official Chromium / Edge builds)
+Resolves `ntoskrnl`, `ntdll`, `kernelbase`, `fltmgr`, `wdfilter`, and the rest of the Windows public surface.
+
+## + Chromium-family browsers (Chrome, Edge, Brave, ...)
 
 ```
 SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols;SRV*C:\Symbols*https://chromium-browser-symsrv.commondatastorage.googleapis.com
 ```
 
-## + Quark internal server (VPN required)
+Public Chromium PDBs cover official builds of any browser using the Chromium symbol server.
+
+## + Private vendor symbol server (corporate / internal)
 
 ```
-…above… ;SRV*C:\Symbols*<your-internal-symsrv-url>
+…above… ;SRV*C:\Symbols*https://your-internal-symsrv.example.com/symbols
 ```
 
-## + Local dev build (out\Default PDBs)
+Replace with your team's symbol server URL. May require VPN.
+
+## + Local dev build PDBs
 
 ```
-…above… ;C:\quark\out\Default
+…above… ;C:\path\to\out\Default
 ```
+
+Bare-folder entries (no `SRV*` prefix) are scanned recursively for PDB matches by signature.
 
 ## Setting at runtime
 

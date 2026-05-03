@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title desc">
+  <title id="title">wpa-mcp</title>
+  <desc id="desc">A four-row heat-ramp flame graph: deep-red root at the bottom, amber leaves at the top.</desc>
+
+  <defs>
+    <!-- Heat ramp shared by every flame-graph row.  userSpaceOnUse so the
+         single gradient spans the whole graph (red root at the bottom,
+         amber leaves at the top) rather than repeating per rectangle. -->
+    <linearGradient id="heat" x1="128" y1="188" x2="128" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#6B1F00"/>
+      <stop offset="50%"  stop-color="#E66A1A"/>
+      <stop offset="100%" stop-color="#FFB627"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect width="256" height="256" rx="40" fill="#0F1722"/>
+
+  <!-- Flame graph: 4 rows, mirrored on x=128 -->
+  <rect x="28"  y="164" width="200" height="24" rx="3" fill="url(#heat)"/>
+  <rect x="28"  y="132" width="92"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="136" y="132" width="92"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="28"  y="100" width="40"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="80"  y="100" width="32"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="144" y="100" width="32"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="188" y="100" width="40"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="36"  y="68"  width="24"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="196" y="68"  width="24"  height="24" rx="3" fill="url(#heat)"/>
+</svg>

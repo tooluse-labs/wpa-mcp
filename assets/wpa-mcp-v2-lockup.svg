@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 256" width="800" height="256" role="img" aria-labelledby="title desc">
+  <title id="title">wpa-mcp</title>
+  <desc id="desc">wpa-mcp lockup: heat-ramp flame graph alongside monospace wordmark and tagline.</desc>
+
+  <defs>
+    <linearGradient id="heat" x1="128" y1="188" x2="128" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#6B1F00"/>
+      <stop offset="50%"  stop-color="#E66A1A"/>
+      <stop offset="100%" stop-color="#FFB627"/>
+    </linearGradient>
+    <linearGradient id="heatText" x1="0" y1="160" x2="0" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#E66A1A"/>
+      <stop offset="100%" stop-color="#FFB627"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile spans full lockup so it renders identically on light and dark
+       README backgrounds. -->
+  <rect width="800" height="256" rx="40" fill="#0F1722"/>
+
+  <!-- Mark: flame graph in the left 256-square region, mirrored on x=128 -->
+  <rect x="28"  y="164" width="200" height="24" rx="3" fill="url(#heat)"/>
+  <rect x="28"  y="132" width="92"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="136" y="132" width="92"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="28"  y="100" width="40"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="80"  y="100" width="32"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="144" y="100" width="32"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="188" y="100" width="40"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="36"  y="68"  width="24"  height="24" rx="3" fill="url(#heat)"/>
+  <rect x="196" y="68"  width="24"  height="24" rx="3" fill="url(#heat)"/>
+
+  <!-- Subtle separator -->
+  <line x1="280" y1="80" x2="280" y2="176" stroke="#243042" stroke-width="2"/>
+
+  <!-- Wordmark.  "wpa" right-anchored, "mcp" left-anchored, dash drawn as
+       a custom <rect> so it's pixel-centered between them and lands on the
+       lowercase x-height middle (y=128 — the same horizontal axis as the
+       flame graph's vertical center).  Monospace typeface echoes the
+       terminal aesthetic of an stdio MCP server. -->
+  <text x="476" y="119" text-anchor="end"
+        font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace"
+        font-weight="700" font-size="72" fill="#E5E9F0" letter-spacing="-1">wpa</text>
+  <rect x="486" y="97" width="28" height="8" rx="2" fill="#7A8696"/>
+  <text x="524" y="119" text-anchor="start"
+        font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace"
+        font-weight="700" font-size="72" fill="url(#heatText)" letter-spacing="-1">mcp</text>
+
+  <!-- Tagline, left-aligned with "wpa" left edge -->
+  <text x="346" y="169"
+        font-family="Inter, 'Segoe UI', system-ui, sans-serif"
+        font-size="22" font-weight="500" fill="#9CA3AF" letter-spacing="0.5">ETW trace analysis for MCP clients</text>
+</svg>
