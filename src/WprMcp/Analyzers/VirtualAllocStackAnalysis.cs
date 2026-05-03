@@ -127,12 +127,7 @@ public static class VirtualAllocStackAnalysis
 
         var warnings = new List<string>();
         if (totalOps == 0)
-        {
-            warnings.Add(
-                "No VirtualMemAlloc/VirtualMemFree events matched. The capture profile likely omits " +
-                "the VirtualAlloc keyword (default WPR 'CPU' / 'CPU.light' profiles do); use " +
-                "'GeneralProfile' or a custom .wprp that enables it.");
-        }
+            warnings.Add(WarningBuilder.MissingKeyword("VirtualMemAlloc/VirtualMemFree", "VirtualAlloc"));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 

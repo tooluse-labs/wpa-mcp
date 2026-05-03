@@ -502,13 +502,18 @@ public sealed record InterruptStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
 
-// Top-N call-tree frames ranked by ALPC message count (Send + Receive merged).  Useful for
+// Top-N call-tree frames ranked by ALPC event count (Send + Receive merged).  Useful for
 // finding code paths that do heavy cross-process IPC (RPC, COM, AppContainer broker calls,
-// Windows service interactions, etc.).  SendCount / ReceiveCount break out the totals.
+// Windows service interactions, etc.).
+//
+// NOTE on counting: one logical ALPC message produces TWO events — a Send on the sender
+// side and a Receive on the receiver side.  TotalEvents and the Exclusive/Inclusive*Events
+// fields count both; SendCount and ReceiveCount break the total out per direction.
+// "Number of distinct messages" ≈ min(SendCount, ReceiveCount).
 public sealed record AlpcStackRow(
     string Function,
-    long ExclusiveMessages,
-    long InclusiveMessages,
+    long ExclusiveEvents,
+    long InclusiveEvents,
     double ExclusivePct,
     double InclusivePct,
     double? ExclusivePctOfTrace,
@@ -516,7 +521,7 @@ public sealed record AlpcStackRow(
 
 public sealed record AlpcStacksResponse(
     IReadOnlyList<AlpcStackRow> Rows,
-    long TotalMessages,
+    long TotalEvents,
     long SendCount,
     long ReceiveCount,
     SymbolStats Stats,

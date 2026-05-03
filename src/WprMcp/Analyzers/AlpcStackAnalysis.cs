@@ -42,8 +42,8 @@ public static class AlpcStackAnalysis
             .Take(top)
             .Select(n => new AlpcStackRow(
                 Function: n.Name,
-                ExclusiveMessages: (long)n.ExclusiveMetric,
-                InclusiveMessages: (long)n.InclusiveMetric,
+                ExclusiveEvents: (long)n.ExclusiveMetric,
+                InclusiveEvents: (long)n.InclusiveMetric,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
@@ -52,7 +52,7 @@ public static class AlpcStackAnalysis
 
         return new AlpcStacksResponse(
             Rows: rows,
-            TotalMessages: ctx.TotalCount,
+            TotalEvents: ctx.TotalCount,
             SendCount: ctx.SendCount,
             ReceiveCount: ctx.ReceiveCount,
             Stats: ctx.Stats,
@@ -72,7 +72,7 @@ public static class AlpcStackAnalysis
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
         var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
         return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "alpcMessages", ctx.Stats, ctx.Warnings);
+            ctx.Normalized, focusFunction, top, metricName: "alpcEvents", ctx.Stats, ctx.Warnings);
     }
 
     private record BuildContext(
@@ -127,12 +127,7 @@ public static class AlpcStackAnalysis
 
         var warnings = new List<string>();
         if (totalCount == 0)
-        {
-            warnings.Add(
-                "No ALPC Send/Receive events matched. The capture profile likely omits the ALPC " +
-                "keyword (default WPR 'CPU' / 'CPU.light' profiles do); use 'GeneralProfile' or a " +
-                "custom .wprp that enables it.");
-        }
+            warnings.Add(WarningBuilder.MissingKeyword("ALPC Send/Receive", "ALPC"));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 

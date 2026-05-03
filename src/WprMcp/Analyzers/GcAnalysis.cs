@@ -30,6 +30,12 @@ public static class GcAnalysis
     {
         var pendingStarts = new Dictionary<(int pid, int count), (long startUs, int generation, string reason)>();
         var pendingSuspends = new Dictionary<int, long>();
+        // Pause time accumulated INSIDE an in-flight GC (between GCStart and GCStop) for a
+        // PID — Suspend/Restart fires before GCStop, so the GC's row doesn't exist yet at
+        // attribution time.  GCStop reads-and-clears this entry to populate PauseUs.
+        var pauseAccumByPid = new Dictionary<int, long>();
+        // Pauses that fired with NO in-flight GC for the PID — emitted as standalone rows.
+        var orphanPauses = new List<GcEventRow>();
         var rows = new List<GcEventRow>();
         long totalGcUs = 0, totalPauseUs = 0;
         int gen0 = 0, gen1 = 0, gen2 = 0;
@@ -42,6 +48,8 @@ public static class GcAnalysis
                 if (pid is { } p && data.ProcessID != p) return;
                 pendingStarts[(data.ProcessID, data.Count)] =
                     (nowUs, data.Depth, data.Reason.ToString());
+                // Reset any orphan pause carry-over for this PID — pauses now belong to this GC.
+                pauseAccumByPid[data.ProcessID] = 0;
             };
 
             clr.GCStop += data =>
@@ -59,13 +67,14 @@ public static class GcAnalysis
                 else if (s.generation == 1) gen1++;
                 else gen2++;
 
+                pauseAccumByPid.Remove(data.ProcessID, out var pauseSum);
                 rows.Add(new GcEventRow(
                     StartUs: s.startUs,
                     DurationUs: dur,
                     Generation: s.generation,
                     Reason: s.reason,
                     Pid: data.ProcessID,
-                    PauseUs: null)); // pause filled in by SuspendEE pass below
+                    PauseUs: pauseSum > 0 ? pauseSum : null));
             };
 
             clr.GCSuspendEEStart += data =>
@@ -82,28 +91,17 @@ public static class GcAnalysis
                 if (!pendingSuspends.Remove(data.ProcessID, out var startUsLocal)) return;
 
                 var pauseUs = endUsLocal - startUsLocal;
-                if (startUs is { } sw && startUsLocal < sw) return;
-                if (endUs is { } ew && endUsLocal > ew) return;
-
                 totalPauseUs += pauseUs;
 
-                // Attribute the pause to the most-recent GC for this process whose interval
-                // covers the suspend/restart window.  This is best-effort: if a GC and a
-                // suspend happen back-to-back without a covering GCStart we just record the
-                // pause as a free-standing entry.
-                var matched = false;
-                for (int i = rows.Count - 1; i >= 0 && !matched; i--)
+                if (pauseAccumByPid.ContainsKey(data.ProcessID))
                 {
-                    var r = rows[i];
-                    if (r.Pid != data.ProcessID) continue;
-                    if (r.StartUs > endUsLocal) continue;
-                    if (r.StartUs + r.DurationUs < startUsLocal) break; // GC ended before this pause
-                    rows[i] = r with { PauseUs = (r.PauseUs ?? 0) + pauseUs };
-                    matched = true;
+                    // GC in flight for this PID — accumulate; GCStop will write it onto the row.
+                    pauseAccumByPid[data.ProcessID] += pauseUs;
                 }
-                if (!matched)
+                else
                 {
-                    rows.Add(new GcEventRow(
+                    // Pause without enclosing GC (boundary effect at trace start/end).
+                    orphanPauses.Add(new GcEventRow(
                         StartUs: startUsLocal,
                         DurationUs: pauseUs,
                         Generation: -1,
@@ -113,6 +111,8 @@ public static class GcAnalysis
                 }
             };
         });
+
+        rows.AddRange(orphanPauses);
 
         rows.Sort((a, b) => a.StartUs.CompareTo(b.StartUs));
 
