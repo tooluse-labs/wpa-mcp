@@ -162,6 +162,19 @@ if (-not (Test-Path $dllPath)) {
 Write-Ok "Mode: $mode"
 Write-Ok "DLL:  $dllPath"
 
+# Resolve dotnet to its absolute path BEFORE writing any client config.  We
+# must not write the literal string "dotnet" — MCP clients spawn the server
+# via raw process creation (no shell), and clients launched from environments
+# where dotnet isn't on PATH (Git Bash, some VS Code launches, .NET installed
+# only on system PATH but client started from Git Bash, etc.) hit "MCP startup
+# failed: program not found".  Get-Command resolves to the same absolute path
+# the user's PowerShell currently sees, which is the right one to bake in.
+$dotnetCommand = (Get-Command dotnet -ErrorAction SilentlyContinue).Source
+if (-not $dotnetCommand) {
+    throw "dotnet was just ensured on PATH but Get-Command can't resolve it. Re-run after restarting the shell."
+}
+Write-Ok "dotnet: $dotnetCommand"
+
 # Step 4 — pick clients.
 $installClaudeCode = $false
 $installCodex = $false
@@ -199,7 +212,7 @@ if ($installClaudeCode) {
     & claude mcp add $ServerName --scope user `
         -e "_NT_SYMBOL_PATH=$SymbolPath" `
         -e "WPRMCP_CACHE_SIZE=$CacheSize" `
-        -- dotnet $dllPath
+        -- $dotnetCommand $dllPath
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
     Write-Ok "Registered '$ServerName' with Claude Code."
 }
@@ -237,11 +250,12 @@ if ($installCodex) {
     $argsToml = (@($dllPath) | ForEach-Object { Format-TomlString $_ }) -join ', '
     $symbolToml = Format-TomlString $SymbolPath
     $cacheSizeToml = Format-TomlString "$CacheSize"
+    $dotnetToml = Format-TomlString $dotnetCommand
 
     # Build via here-string + concatenation. No StringBuilder.
     $newSection = @"
 [mcp_servers.$ServerName]
-command = "dotnet"
+command = $dotnetToml
 args = [$argsToml]
 
 [mcp_servers.$ServerName.env]
@@ -272,7 +286,7 @@ if ($installClaudeDesktop) {
     }
 
     $serverEntry = [pscustomobject]@{
-        command = 'dotnet'
+        command = $dotnetCommand
         args    = @($dllPath)
         env     = [pscustomobject]@{
             _NT_SYMBOL_PATH    = $SymbolPath
