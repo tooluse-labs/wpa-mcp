@@ -10,7 +10,7 @@
 
 一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——通过任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）暴露出来。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
-> **状态——PoC。** 约 17 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
+> **状态——PoC。** 26 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
 
 > **看一个真实案例：** [一次完整排查](docs/CASE_STUDIES.md)——进程创建慢到基线的 50 倍，通过 wpa-mcp 工具链根因定位到多套 EDR 在 `PsSetCreateProcessNotifyRoutineEx` 上串行回调。同一份 trace 被两个不同 LLM agent 独立复现得到同样结论。
 
@@ -191,18 +191,90 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## 工具
 
-**永远先调 `load_trace`。** 它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回一个 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`）。其他每个工具的行为都依赖采集时打开了哪些 keyword，提前读 `Capabilities` 能避免"为啥 `mmap_hot_files` 返回空？"这种意外。
+26 个工具分 9 组。底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView，区别在**界面（stdio MCP + JSON 替代 Windows GUI）和**几个把 PerfView 多步操作打包成一次调用的**复合工具**。
 
-| 分类 | 工具 |
-|---|---|
-| Meta（元信息） | **`load_trace`**（返回 `Capabilities`）、`list_processes`、`process_create_timing` |
-| CPU | `cpu_top_functions`、`cpu_top_functions_batch`、`cpu_caller_callee` |
-| Wait（等待） | `wait_analysis`、`wait_top_stacks`、`wait_caller_callee` |
-| Image load（模块加载） | `image_load_timing`、`image_load_top_gaps`、`image_load_top_stacks`、`image_load_caller_callee` |
-| 文件 / 磁盘 / mmap I/O | `file_io_top_files`、`file_io_top_stacks`、`file_io_caller_callee`、`disk_io_top_stacks`、`disk_io_caller_callee`、`mmap_hot_files`、`mmap_top_stacks`、`mmap_caller_callee` |
-| Marker / 符号 | `find_marker`、`set_symbol_path`、`add_symbol_server`、`diagnose_symbols`、`diagnose_slow_startup` |
+### wpa-mcp 相对 PerfView 加了什么
 
-每个 "top" 视图都有匹配的 "caller-callee" 钻取，传入要聚焦的 frame，返回它的 caller / callee 邻居（按采样数加权）。
+* **Agent 驱动而不是 UI 驱动**：PerfView 是 Windows GUI 一路点过去；wpa-mcp 是 stdio MCP server，自然语言对话即可。同样的数据，无 UI 疲劳，方便编进 CI / 回归脚本。
+* **复合工具**：`diagnose_slow_startup`、`process_create_timing`、`image_load_top_gaps` 把 PerfView 多步操作打包成一次调用。
+* **Capabilities-aware**：每个工具"返回不出数据"的状态都对应到 `load_trace` 的 `Capabilities` map 里某个 keyword bit——不再有"这个视图为啥是空"的 PerfView 经典侦探。
+* **per-trace symbol 推荐**：`load_trace` 扫描 trace 里出现的模块、推荐应加哪些 symbol server。PerfView 里这是用户自己摸索的事。
+
+### 调用 pattern
+
+**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`）。其他每个工具的行为都依赖这些 keyword。
+
+大多数组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——和 PerfView 的 "Callers" / "Callees" tab 同形态。
+
+### Meta（元信息）
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
+| `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 暴露"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
+| `process_create_timing` | 给定父 PID，列出每次 fork。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | （无对应——复合，见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）） |
+
+### CPU 栈
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `cpu_top_functions` | 给定窗口 / PID，按 exclusive CPU 采样数返回 top-N 热点函数。可选 `excludeEtwSelfOverhead` 把 `EtwpLogKernelEvent` 等折成单个 `[ETW Overhead]` 桶。 | CPU Stacks → ByName |
+| `cpu_top_functions_batch` | 同上但一次调用覆盖多个 PID。每个 PID 独立 CallTree（inclusive% 按该 PID 的采样数归一化）。 | （无对应——省 N 次往返） |
+| `cpu_caller_callee` | 给定 focus frame，返回其 caller（调进 focus）和 callee（focus 调出去），按 inclusive 采样数排序。Recursion-safe。 | CPU Stacks → Callers / Callees tab |
+
+### Wait / 阻塞时间（CSwitch 衍生）
+
+需要 `CSwitch` 内核 keyword（默认 WPR `CPU` profile 已包含）。
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `wait_analysis` | 每线程阻塞时间 + 主导 wait reason。当 CPU 不忙却 wall 高时回答"为啥这步慢"的标准工具。`WrFilterContext`（卡在 Filter Manager minifilter callback）这类 reason 直接定位到内核状态。 | Thread Time → 每线程阻塞时间 |
+| `wait_top_stacks` | 按阻塞 μs 加权的 top-N 调用栈，从每次 `ThreadCSwitch` 的 resume-point stack walk 构建。回答"**代码哪里**在等"（vs `wait_analysis` 回答"哪个线程 / 哪种 reason"）。 | Thread Time / Wait Time → BlockedTime metric（`ThreadTimeStackComputer`） |
+| `wait_caller_callee` | 给定 focus frame 的 caller-callee 钻取；metric 是阻塞 μs。 | Thread Time → Callers / Callees tab |
+
+### Image / DLL 加载
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `image_load_timing` | 单进程的 DLL 加载时序（按时间排序），每行带相对 `ProcessStart` 的偏移。用来发现"延迟加载的 DLL"或者"两个 DLL 之间长 gap"——后者常见于 minifilter / sig-scan 串行扫描。 | （无直接对应——手动过滤 events list） |
+| `image_load_top_gaps` | 相邻 DLL 加载之间 gap 最大的 top-N 行。和 `image_load_timing` 同源数据，按 gap 排序。响应里也带 `FirstLoadOffsetUs`（首个 DLL 之前的内核 fork 税）。 | （无对应——自定义视图） |
+| `image_load_top_stacks` | 按 `ImageLoad` 事件计数加权的 top-N 调用栈。区分 eager 加载（main 初始化里的 `LoadLibraryEx`）和 lazy / 级联加载（`CoCreateInstance`、`AmsiOpenSession`、EDR 注入的 provider）。 | Image Load Stacks |
+| `image_load_caller_callee` | 给定 focus frame 的 caller-callee 钻取；metric 是 image-load 计数。 | Image Load Stacks → Callers / Callees tab |
+
+### 文件 / 磁盘 / mmap I/O
+
+三个层次覆盖 I/O 栈不同位置——做差能定位时间到底花在哪一层。
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `file_io_top_files` | 按总 `read + write` 字节排序的 top-N 文件。 | File I/O 视图 → ByFile |
+| `file_io_top_stacks` | 按文件 IO 字节加权的 top-N 调用栈。捕获**所有**系统调用包括缓存命中——和 `disk_io_top_stacks` 做差找出缓存读。需要 `FileIO` keyword（默认 `CPU.light` profile 不带）。 | File I/O Stacks |
+| `file_io_caller_callee` | 给定 focus frame 的钻取；metric 是文件 IO 字节。 | File I/O Stacks → Callers / Callees tab |
+| `disk_io_top_stacks` | 按**物理**磁盘 IO 字节加权的 top-N 栈——只统计真正打到物理介质的事件（无缓存）。需要 `DiskIO` keyword。 | Disk I/O Stacks |
+| `disk_io_caller_callee` | 给定 focus frame 的钻取；metric 是物理磁盘字节。 | Disk I/O Stacks → Callers / Callees tab |
+| `mmap_hot_files` | 按**硬页错误（hard page-in）字节**排序的 top-N mmap'd 文件。识别"哪个 mmap'd 文件造成 page-in 加载"（如：网络盘上的 PDF、过大的依赖 DLL）。需要 `HardFaults` keyword（**默认 WPR profile 不带**——见 [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)（英文））。 | Memory Hard Fault → ByFile（复合） |
+| `mmap_top_stacks` | 按硬页错误页入字节加权的 top-N 栈。区分 eager loader 引起的 page-in 和 lazy / 扫描器触发的 page-in。 | Memory Hard Fault Stacks |
+| `mmap_caller_callee` | 给定 focus frame 的钻取；metric 是 page-in 字节。 | Memory Hard Fault Stacks → Callers / Callees tab |
+
+### Marker / 通用 ETW 事件
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `find_marker` | 搜索所有名字 / task 包含给定 substring 的 ETW 事件。默认模式 `count_by_event` 返回直方图（避免 token 爆炸）；也支持 `count_by_process` 和 `rows`（完整事件细节）。挖一方 Defender / EDR provider 遥测最有效——比如 `Microsoft-Antimalware-AMFilter` provider 的 `AMFilter_FileScan` 行直接告诉你扫描器在干啥。 | Events 视图 |
+
+### 复合诊断
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `diagnose_slow_startup` | 挑出 wait_ratio 最高的进程（或匹配 `nameSubstring` 的进程），对每个跑 `wait_analysis` + `image_load_timing` + `cpu_top_functions`，覆盖启动窗口。一次调用替代手工编排四次。 | （无对应——复合） |
+
+### Symbols（符号）
+
+| 工具 | 功能 | PerfView 对应 |
+|---|---|---|
+| `set_symbol_path` | 给运行中的 server 设 `_NT_SYMBOL_PATH`（替换或追加）。 | File → Set Symbol Path… |
+| `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WprMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
+| `diagnose_symbols` | 针对已加载的 trace 报告每个模块的符号状态，给未解析模块的修复建议（应该加哪些服务器）。 | （无对应——程序化）|
 
 ---
 
@@ -238,26 +310,4 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 符号缓存默认 `%LocalAppData%\WprMcp\Symbols`（和 PerfView 的 `C:\Symbols` 分开，避免 PDB lock 争用）。每条 trace 的针对性推荐会出现在 `load_trace` 的返回字段 `SymbolStatus.Recommendations` 里，告诉你针对这份 trace 实际出现的模块应该加哪些服务器。
 
-私有 vendor 符号服务器、Chromium 系列浏览器、本地 build PDB 目录等更多配方见 [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。
-
----
-
-## 故障排查
-
-- **`dotnet: command not found`**——装 SDK：`winget install Microsoft.DotNet.SDK.8`，重启 shell / MCP 客户端。
-- **MCP server 启动失败**——直接跑 DLL：`dotnet C:\path\to\WprMcp.dll --version`。如果这步就失败，要么 build 坏了要么路径错了。
-- **工具列表里没有新工具**——MCP 客户端缓存了旧二进制。完全退出再启动（Claude Desktop）或者跑 `claude mcp restart`（Claude Code）。
-- **`Cannot create type. Only core types are supported in this language mode`**——你的 shell 处于 PowerShell Constrained Language Mode（AppLocker / WDAC）。请用 `wpa-mcp ≥ v0.1.2`；早期 release zip 里的 `setup.ps1` 调了 `[StringBuilder]::new(...)`，CLM 拦截。
-- **`SymbolStatus.Warning` 说 `_NT_SYMBOL_PATH is not set`**——server 进程没继承到环境变量。改用方案 2（在 MCP 配置 JSON 里加 `env`）或者运行时调 `set_symbol_path`。
-- **`ResolutionRate < 0.5`** 但路径都设了——首次下载进行中，或者无法连接到符号服务器。等 1 分钟再试，或者跑 `diagnose_symbols` 看每个模块的解析情况。
-- **`mmap_hot_files` 返回空**——trace 缺 `HardFaults` keyword。查 `load_trace` 返回的 `Capabilities.HasHardFaults` 是不是 `false`。用 `MmapCapture.wprp` 重抓。
-- **`file_io_top_files` 返回空**——同上，`Capabilities.HasFileIo` 没开。默认 `CPU.light` profile 不带 FileIO。
-- **首次 `load_trace` 卡住**——正在构建 `.etlx` 索引。看 stderr；100 MB 的 `.etl` 大约 30 秒，多 GB 要几分钟。同一个文件再加载就是即时的。
-
----
-
-## 项目信息
-
-**架构：** 整体布局见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（英文）。要改 analyzer？先读 [`CONTRIBUTING.md`](CONTRIBUTING.md)（英文）——里面记录了几个非显然的不变量（`CpuAnalysis` 的 PerfView 一致性、内核 parser 挂接规则、file vs mmap 的 key 区分），重构时容易踩。
-
-**License：** Apache-2.0（完整文本见 [`LICENSE`](LICENSE)）。贡献按 Apache 2.0 § 5 默认接受同样的 license。
+私有 vendor 符号服务器、Chromium 系列浏览器、本地 build PDB 目录等更多配方见 [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。

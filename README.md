@@ -10,7 +10,7 @@
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** ~17 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** 26 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
 > **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
 
@@ -193,18 +193,90 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## Tools
 
-**Always start with `load_trace`.**  It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`).  Every other tool's behaviour depends on which keywords were present in the capture, so reading `Capabilities` first prevents "why does `mmap_hot_files` return empty?" surprises.
+26 tools across 9 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
 
-| Group | Tools |
-|---|---|
-| Meta | **`load_trace`** (returns `Capabilities`), `list_processes`, `process_create_timing` |
-| CPU | `cpu_top_functions`, `cpu_top_functions_batch`, `cpu_caller_callee` |
-| Wait | `wait_analysis`, `wait_top_stacks`, `wait_caller_callee` |
-| Image load | `image_load_timing`, `image_load_top_gaps`, `image_load_top_stacks`, `image_load_caller_callee` |
-| File / disk / mmap I/O | `file_io_top_files`, `file_io_top_stacks`, `file_io_caller_callee`, `disk_io_top_stacks`, `disk_io_caller_callee`, `mmap_hot_files`, `mmap_top_stacks`, `mmap_caller_callee` |
-| Markers / symbols | `find_marker`, `set_symbol_path`, `add_symbol_server`, `diagnose_symbols`, `diagnose_slow_startup` |
+### What wpa-mcp adds vs PerfView
 
-Each "top" view has a matching "caller-callee" drill-down that takes a focus frame and returns its caller / callee neighbours weighted by sample count.
+* **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into a CI / regression script.
+* **Composite tools.** `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` package multi-step PerfView workflows into one call.
+* **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work in PerfView.
+* **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
+
+### Pattern
+
+**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`). Every other tool's behaviour depends on those keywords.
+
+Most groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
+
+### Meta
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
+| `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
+| `process_create_timing` | Per-fork timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | (no equivalent — composite, see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)) |
+
+### CPU stacks
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `cpu_top_functions` | Top-N hot functions by exclusive CPU samples in a window / for a PID.  Optional `excludeEtwSelfOverhead` folds `EtwpLogKernelEvent` etc. into a single `[ETW Overhead]` bucket. | CPU Stacks → ByName |
+| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalises to that PID's samples). | (no equivalent — saves N round-trips) |
+| `cpu_caller_callee` | Drill into a focus frame: callers (frames calling INTO it) and callees (frames it calls OUT to), each ranked by inclusive CPU samples. Recursion-safe. | CPU Stacks → Callers / Callees tabs |
+
+### Wait / blocked time (CSwitch-derived)
+
+Requires the `CSwitch` kernel keyword (default WPR `CPU` profiles include it).
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `wait_analysis` | Per-thread blocked time + dominant wait reasons. The canonical answer to "why was this slow?" when CPU is low. Reasons like `WrFilterContext` (blocked in a Filter Manager minifilter callback) directly identify the kernel state. | Thread Time → blocked-time per thread |
+| `wait_top_stacks` | Top-N call stacks ranked by blocked μs, built from the resume-point stack walk on each `ThreadCSwitch` event. Answers "*where in the code* is the wait happening" (vs `wait_analysis` which answers "which thread / which reason"). | Thread Time / Wait Time → BlockedTime metric (`ThreadTimeStackComputer`) |
+| `wait_caller_callee` | Drill into a focus frame; metric is blocked μs. | Thread Time → Callers / Callees tabs |
+
+### Image / DLL load
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `image_load_timing` | Per-process chronological list of every `ImageLoad` event with offset from `ProcessStart`. Spot late-loading DLLs or per-load minifilter / sig-scan delays between loads. | (no direct equivalent — events list filtered manually) |
+| `image_load_top_gaps` | Top-N largest **gaps** between consecutive image loads. Pairs with the chronological view; same data, ranked by gap. Response also carries `FirstLoadOffsetUs` (kernel-side fork tax before any DLL loads). | (no equivalent — custom view) |
+| `image_load_top_stacks` | Top-N call stacks ranked by `ImageLoad` event count.  Distinguishes eager loads (`LoadLibraryEx` in a main initialiser) from lazy / cascading loads (`CoCreateInstance`, `AmsiOpenSession`, EDR-injected providers). | Image Load Stacks |
+| `image_load_caller_callee` | Drill into a focus frame; metric is image-load count. | Image Load Stacks → Callers / Callees tabs |
+
+### File / disk / mmap I/O
+
+The three layers cover different parts of the I/O stack — diff them to localise where time actually goes.
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `file_io_top_files` | Top-N files by total `read + write` bytes. | File I/O view → ByFile |
+| `file_io_top_stacks` | Top-N stacks by file-IO bytes. Captures **all** syscalls including cache-served reads — diff with `disk_io_top_stacks` to find cache hits. Requires the `FileIO` keyword (default `CPU.light` omits it). | File I/O Stacks |
+| `file_io_caller_callee` | Drill on a focus frame; metric is file-IO bytes. | File I/O Stacks → Callers / Callees tabs |
+| `disk_io_top_stacks` | Top-N stacks by **physical** disk-IO bytes — only events that hit physical media (no cache).  Requires the `DiskIO` keyword. | Disk I/O Stacks |
+| `disk_io_caller_callee` | Drill on a focus frame; metric is physical disk bytes. | Disk I/O Stacks → Callers / Callees tabs |
+| `mmap_hot_files` | Top-N memory-mapped files by **hard page-in** bytes. Identifies which mmap'd file caused page-in load (e.g., a network-share PDF, an oversized dependency DLL). Requires the `HardFaults` keyword (NOT in default WPR profiles — see [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)). | Memory Hard Fault → ByFile (composite) |
+| `mmap_top_stacks` | Top-N stacks by hard-fault page-in bytes. Distinguishes eager loader-driven page-in from lazy / scanner-induced page-in. | Memory Hard Fault Stacks |
+| `mmap_caller_callee` | Drill on a focus frame; metric is page-in bytes. | Memory Hard Fault Stacks → Callers / Callees tabs |
+
+### Markers / generic ETW events
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `find_marker` | Search all ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram (avoids token blow-up); also `count_by_process` and `rows` (full event detail). Useful for surfacing first-party Defender / EDR provider telemetry — e.g., the `Microsoft-Antimalware-AMFilter` provider's `AMFilter_FileScan` rows directly show what the scanner is doing. | Events view |
+
+### Composite diagnostics
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `diagnose_slow_startup` | Picks slowest-by-wait-ratio processes (or matches `nameSubstring`), then runs `wait_analysis` + `image_load_timing` + `cpu_top_functions` for each in the startup window — one call instead of orchestrating four. | (no equivalent — composite) |
+
+### Symbols
+
+| Tool | What it does | PerfView equivalent |
+|---|---|---|
+| `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
+| `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WprMcp\Symbols`). | File → Set Symbol Path… (single entry) |
+| `diagnose_symbols` | Reports per-module symbol status for a loaded trace and suggests fixes (which servers to add) for unresolved modules. | (no equivalent — programmatic) |
 
 ---
 
@@ -240,26 +312,4 @@ Three setup paths (any one suffices — they all set the same `_NT_SYMBOL_PATH`)
 
 Symbol cache defaults to `%LocalAppData%\WprMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
 
-For private vendor symbol servers, Chromium-family browsers, and local-build PDB folders, see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md).
-
----
-
-## Troubleshooting
-
-- **`dotnet: command not found`** — install the SDK: `winget install Microsoft.DotNet.SDK.8`, then restart your shell / MCP client.
-- **MCP server fails to start** — run the DLL directly: `dotnet C:\path\to\WprMcp.dll --version`.  If that fails, the build is broken or the path is wrong.
-- **Tool list missing the new tools** — your MCP client cached an old binary.  Fully quit and re-launch (Claude Desktop) or re-run `claude mcp restart` (Claude Code).
-- **`Cannot create type. Only core types are supported in this language mode`** — your shell is in PowerShell Constrained Language Mode (AppLocker / WDAC).  Use `wpa-mcp ≥ v0.1.2`; older release zips have a `setup.ps1` that calls `[StringBuilder]::new(...)` which CLM blocks.
-- **`SymbolStatus.Warning` says `_NT_SYMBOL_PATH is not set`** — the server's process didn't inherit the env var.  Use option 2 (per-server `env` block) or call `set_symbol_path` at runtime.
-- **`ResolutionRate < 0.5`** with paths set — first downloads in progress, or no network to symbol servers.  Re-run after a minute, or run `diagnose_symbols` for module-by-module hints.
-- **`mmap_hot_files` returns empty** — the trace lacks the `HardFaults` keyword.  Check `load_trace` response: `Capabilities.HasHardFaults` will be `false`.  Re-capture with `MmapCapture.wprp`.
-- **`file_io_top_files` returns empty** — same as above for `Capabilities.HasFileIo`.  Default `CPU.light` profile omits FileIO.
-- **First `load_trace` taking forever** — the `.etlx` index is being built.  Watch stderr; expect 30 s for a 100 MB `.etl`, several minutes for multi-GB.  Subsequent loads of the same file are instant.
-
----
-
-## Project info
-
-**Architecture:** see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the high-level layout.  Modifying the analyzers? Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first — it documents non-obvious invariants (PerfView-parity in `CpuAnalysis`, kernel-parser attachment rules, file-vs-mmap keying) that are easy to break in a refactor.
-
-**License:** Apache-2.0 (see [`LICENSE`](LICENSE)).  Contributions accepted under the same license per Apache 2.0 § 5.
+For private vendor symbol servers, Chromium-family browsers, and local-build PDB folders, see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md).  Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
