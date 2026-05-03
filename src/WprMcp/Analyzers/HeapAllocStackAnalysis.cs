@@ -137,11 +137,7 @@ public static class HeapAllocStackAnalysis
 
         var warnings = new List<string>();
         if (totalEvents == 0)
-            warnings.Add(
-                "No NT-heap events matched.  The Heap provider is per-process — it has to be " +
-                "explicitly enabled for the target process at capture time (PerfView's " +
-                "/HeapTrace flag or a .wprp <Heap> element listing the process name).  " +
-                "Default WPR profiles do NOT enable it.");
+            warnings.Add(WarningBuilder.MissingPerProcessHeapTrace);
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 

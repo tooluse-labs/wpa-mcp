@@ -39,4 +39,15 @@ public static class WarningBuilder
         $"provider (Microsoft-Windows-DotNETRuntime, {keywordName} keyword)" +
         (string.IsNullOrEmpty(extraReason) ? "" : $", {extraReason}") +
         ". WPR profiles need an explicit <EventCollectorId> for the runtime provider.";
+
+    /// <summary>
+    /// "No NT-heap events" warning — the heap kernel provider is enabled per-process at
+    /// capture time (PerfView's /HeapTrace flag, or a .wprp &lt;Heap&gt; element naming the
+    /// target process), NOT through a global keyword. Default WPR profiles never enable it.
+    /// </summary>
+    public const string MissingPerProcessHeapTrace =
+        "No NT-heap events matched.  The Heap provider is per-process — it has to be " +
+        "explicitly enabled for the target process at capture time (PerfView's /HeapTrace " +
+        "flag or a .wprp <Heap> element listing the process name).  Default WPR profiles " +
+        "do NOT enable it.";
 }

@@ -35,8 +35,7 @@ public sealed class GenericProviderTools
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        if (string.IsNullOrWhiteSpace(providerName))
-            throw new ArgumentException("providerName is required and must be non-empty.", nameof(providerName));
+        Validation.RequireProviderName(providerName);
         var trace = _cache.Get(path);
         return GenericEventStackAnalysis.TopStacks(trace, providerName, eventNameSubstring, top, pid, startUs, endUs, Console.Error, whenBuckets);
     }
@@ -57,8 +56,7 @@ public sealed class GenericProviderTools
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        if (string.IsNullOrWhiteSpace(providerName))
-            throw new ArgumentException("providerName is required and must be non-empty.", nameof(providerName));
+        Validation.RequireProviderName(providerName);
         var trace = _cache.Get(path);
         return GenericEventStackAnalysis.CallerCallee(trace, providerName, eventNameSubstring, focusFunction, top, pid, startUs, endUs, Console.Error);
     }

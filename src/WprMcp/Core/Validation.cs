@@ -39,4 +39,12 @@ internal static class Validation
             throw new ArgumentException("function name required", paramName ?? nameof(function));
         return function;
     }
+
+    public static string RequireProviderName(string providerName,
+        [CallerArgumentExpression(nameof(providerName))] string? paramName = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerName))
+            throw new ArgumentException("provider name required", paramName ?? nameof(providerName));
+        return providerName;
+    }
 }

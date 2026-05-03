@@ -1,4 +1,6 @@
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Stacks;
 using WprMcp.Output;
 
@@ -109,16 +111,29 @@ public static class GenericEventStackAnalysis
         long totalCount = 0;
         var countByEventName = new Dictionary<string, long>(StringComparer.Ordinal);
 
-        var source = trace.Events.GetSource();
-        source.AllEvents += data =>
+        // Subscribe via AddCallbackForProviderEvents on both Dynamic and Registered parsers so
+        // RejectProvider short-circuits non-matching providers at the dispatcher level — once
+        // the filter says RejectProvider for some provider, we never see another event from it.
+        // That turns a per-event string compare on every event in the trace into one compare
+        // per unique provider, which is the difference between O(events) and O(providers).
+        // Dynamic covers EventSource manifests; Registered covers TDH-resolvable providers
+        // (.man / kernel-registered).  An event is dispatched through whichever parser owns
+        // its template, so attaching to both is union not double-count.
+        EventFilterResponse Filter(string provName, string evName)
         {
-            // Hot path: provider-name string compare first, before any other work.  The
-            // ProviderName property reads from a cached lookup; cheap on the second hit per
-            // provider.
-            if (!string.Equals(data.ProviderName, providerName, StringComparison.Ordinal)) return;
+            if (!string.Equals(provName, providerName, StringComparison.Ordinal))
+                return EventFilterResponse.RejectProvider;
+            // OrdinalIgnoreCase (deviates from PerfView's case-sensitive Any Stacks) — friendlier
+            // for LLM consumers who don't always know exact casing.  Reflected in the
+            // `eventNameSubstring` Description on the MCP tool.
             if (eventNameSubstring is { Length: > 0 } sub &&
-                data.EventName.IndexOf(sub, StringComparison.OrdinalIgnoreCase) < 0) return;
+                evName.IndexOf(sub, StringComparison.OrdinalIgnoreCase) < 0)
+                return EventFilterResponse.RejectEvent;
+            return EventFilterResponse.AcceptEvent;
+        }
 
+        void Handle(TraceEvent data)
+        {
             traceTotalCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (pid is { } p && data.ProcessID != p) return;
@@ -129,7 +144,11 @@ public static class GenericEventStackAnalysis
             countByEventName[data.EventName] = countByEventName.GetValueOrDefault(data.EventName) + 1;
             raw.AddSample(data.CallStackIndex(), data, 1);
             when.Add(nowUs, 1);
-        };
+        }
+
+        var source = trace.Events.GetSource();
+        new DynamicTraceEventParser(source).AddCallbackForProviderEvents(Filter, Handle);
+        new RegisteredTraceEventParser(source).AddCallbackForProviderEvents(Filter, Handle);
         source.Process();
         raw.Source.DoneAddingSamples();
 
