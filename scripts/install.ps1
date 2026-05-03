@@ -23,6 +23,11 @@
 .PARAMETER SkipBuild
   Skip 'dotnet build -c Release' (use existing binary). Auto-set in release-zip mode.
 
+.PARAMETER SkipDotNetInstall
+  Don't auto-install .NET 8 if missing. Default: bootstrap .NET 8 via Microsoft's
+  official user-scope installer (https://dot.net/v1/dotnet-install.ps1) — no admin
+  needed, installs into %USERPROFILE%\.dotnet.
+
 .EXAMPLE
   .\scripts\install.ps1
   Default: build (if needed) + register with every detected MCP client (Claude Code,
@@ -44,7 +49,9 @@ param(
 
     [int]$CacheSize = 2,
 
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+
+    [switch]$SkipDotNetInstall
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,6 +59,63 @@ $ErrorActionPreference = 'Stop'
 function Write-Info($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[install] $msg" -ForegroundColor Yellow }
+
+# Detect (and optionally install) the right .NET 8 variant: 'sdk' for repo mode (need
+# the build toolchain) or 'runtime' for release-zip mode (just need to run the DLL).
+# Bootstrap path: download dotnet-install.ps1 from Microsoft and run user-scope; goes
+# to %USERPROFILE%\.dotnet, no admin required, no winget dependency.
+function Ensure-DotNet {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('runtime', 'sdk')]
+        [string]$Variant
+    )
+
+    $existing = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($existing) {
+        $cmd = if ($Variant -eq 'sdk') { '--list-sdks' } else { '--list-runtimes' }
+        $output = & $existing.Source $cmd 2>$null
+        $hasIt = $false
+        if ($Variant -eq 'sdk') {
+            $hasIt = $output -match '^8\.'
+        } else {
+            $hasIt = $output -match 'Microsoft\.NETCore\.App 8\.'
+        }
+        if ($hasIt) {
+            Write-Ok ".NET 8 $Variant already present."
+            return
+        }
+        Write-Warn "dotnet on PATH but .NET 8 $Variant missing; will bootstrap alongside."
+    }
+
+    if ($SkipDotNetInstall) {
+        throw ".NET 8 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install Microsoft.DotNet.SDK.8"
+    }
+
+    Write-Info "Bootstrapping .NET 8 $Variant via dotnet-install.ps1 (user-scope, no admin)..."
+    $bootstrapPath = Join-Path $env:TEMP 'dotnet-install.ps1'
+    Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $bootstrapPath -UseBasicParsing
+
+    $bootstrapArgs = @('-Channel', '8.0')
+    if ($Variant -eq 'runtime') { $bootstrapArgs += @('-Runtime', 'dotnet') }
+    & $bootstrapPath @bootstrapArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet-install.ps1 failed (exit $LASTEXITCODE). Install manually: winget install Microsoft.DotNet.SDK.8"
+    }
+
+    # dotnet-install.ps1 installs to %USERPROFILE%\.dotnet by default. Add to PATH for
+    # the rest of this session so subsequent `dotnet` calls resolve.
+    $userDotnet = Join-Path $env:USERPROFILE '.dotnet'
+    if ((Test-Path "$userDotnet\dotnet.exe") -and ($env:PATH -notlike "*$userDotnet*")) {
+        $env:PATH = "$userDotnet;$env:PATH"
+    }
+
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        throw "dotnet still not on PATH after install. Add '$userDotnet' to PATH manually and retry."
+    }
+    Write-Ok ".NET 8 $Variant installed to $userDotnet"
+    Write-Warn "If you open a new shell, add '$userDotnet' to PATH (or relog — dotnet-install.ps1 updates user PATH for future sessions)."
+}
 
 # Step 1 — locate the DLL. Two layouts supported:
 #   * Repo mode:        scripts/install.ps1, DLL at ../src/WprMcp/bin/Release/net8.0/WprMcp.dll
@@ -74,10 +138,10 @@ if (Test-Path $zipModeDll) {
     throw "Cannot determine layout. install.ps1 must run from either the wpa-mcp repo's scripts/ folder OR the root of an extracted release zip."
 }
 
-# Step 2 — prereq check.
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    throw '.NET 8 not found on PATH. Install runtime with: winget install Microsoft.DotNet.Runtime.8 (or SDK if building from source)'
-}
+# Step 2 — ensure .NET 8 is available. Repo mode needs the SDK (for `dotnet build`);
+# release-zip mode only needs the runtime (just `dotnet WprMcp.dll`).
+$dotnetVariant = if ($mode -eq 'release-zip') { 'runtime' } else { 'sdk' }
+Ensure-DotNet -Variant $dotnetVariant
 
 # Step 3 — build (repo mode only).
 if ($SkipBuild) {

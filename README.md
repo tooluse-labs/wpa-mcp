@@ -21,8 +21,10 @@ Not for production. Internal use only until validated.
 ## Requirements
 
 - Windows 10/11 (TraceEvent kernel APIs are Windows-only).
-- .NET 8 SDK — `winget install Microsoft.DotNet.SDK.8`.
-- For symbol resolution: `_NT_SYMBOL_PATH` set, or use the symbol tools at runtime (see below).
+- .NET 8 — auto-installed by `install.ps1` if missing (user-scope via Microsoft's
+  `dotnet-install.ps1`; no admin required). Use `-SkipDotNetInstall` to opt out.
+- For symbol resolution: `_NT_SYMBOL_PATH` set, or use the symbol tools at runtime
+  (see below).
 
 ## Install (one-liner — no clone, no build)
 
