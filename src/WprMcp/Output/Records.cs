@@ -48,7 +48,10 @@ public sealed record TraceCapabilities(
     bool HasAlpc,
     bool HasThreadEvents,
     bool HasClrGc,
-    bool HasClrJit);
+    bool HasClrJit,
+    bool HasClrAlloc,
+    bool HasClrException,
+    bool HasClrContention);
 
 public sealed record ProcessRow(
     int Pid,
@@ -583,3 +586,70 @@ public sealed record JitAnalysisResponse(
     long TotalJitUs,
     IReadOnlyList<JitMethodRow> TopMethods,
     IReadOnlyList<string> Warnings);
+
+// One row of a managed-allocation stack view: how many bytes the CLR allocation tick observed
+// flowing through this frame.  Tick == ~100 KB allocated (sampled), so absolute bytes are an
+// estimate, not exhaustive.  ExclusiveTickCount tracks the number of tick events on the stack.
+public sealed record ClrAllocStackRow(
+    string Function,
+    long ExclusiveBytes,
+    long InclusiveBytes,
+    long ExclusiveTickCount,
+    long InclusiveTickCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record ClrAllocTypeRow(string TypeName, long Bytes);
+
+public sealed record ClrAllocStacksResponse(
+    IReadOnlyList<ClrAllocStackRow> Rows,
+    long TotalBytes,
+    long TotalTickCount,
+    IReadOnlyList<ClrAllocTypeRow> TopTypes,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// One row of an exception-throw stack view: count of ExceptionStart events on this frame.
+public sealed record ClrExceptionStackRow(
+    string Function,
+    long ExclusiveCount,
+    long InclusiveCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record ClrExceptionTypeRow(string ExceptionType, long Count);
+
+public sealed record ClrExceptionStacksResponse(
+    IReadOnlyList<ClrExceptionStackRow> Rows,
+    long TotalCount,
+    IReadOnlyList<ClrExceptionTypeRow> TopTypes,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// One row of a managed-monitor-contention stack view: blocked μs on this frame.  Includes only
+// ContentionFlags.Managed events (the CLR's `lock` / Monitor.Enter waits) — native lock
+// contention from the same provider is ignored.
+public sealed record ClrContentionStackRow(
+    string Function,
+    long ExclusiveBlockedUs,
+    long InclusiveBlockedUs,
+    long ExclusiveCount,
+    long InclusiveCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record ClrContentionStacksResponse(
+    IReadOnlyList<ClrContentionStackRow> Rows,
+    long TotalBlockedUs,
+    long TotalEventCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);

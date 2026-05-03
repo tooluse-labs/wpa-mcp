@@ -26,6 +26,7 @@ internal static class TraceCapabilitiesDetector
         bool hasVirtualAlloc = false, hasNetIo = false, hasRegistry = false;
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
         bool hasClrGc = false, hasClrJit = false;
+        bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -57,6 +58,9 @@ internal static class TraceCapabilitiesDetector
 
         clr.GCStart += _ => hasClrGc = true;
         clr.MethodJittingStarted += _ => hasClrJit = true;
+        clr.GCAllocationTick += _ => hasClrAlloc = true;
+        clr.ExceptionStart += _ => hasClrException = true;
+        clr.ContentionStart += _ => hasClrContention = true;
 
         source.Process();
 
@@ -76,6 +80,9 @@ internal static class TraceCapabilitiesDetector
             HasAlpc: hasAlpc,
             HasThreadEvents: hasThreadEvents,
             HasClrGc: hasClrGc,
-            HasClrJit: hasClrJit);
+            HasClrJit: hasClrJit,
+            HasClrAlloc: hasClrAlloc,
+            HasClrException: hasClrException,
+            HasClrContention: hasClrContention);
     }
 }

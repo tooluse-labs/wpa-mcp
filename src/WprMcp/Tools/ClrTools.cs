@@ -50,4 +50,122 @@ public sealed class ClrTools
         var trace = _cache.Get(path);
         return Analyzers.JitAnalysis.Analyze(trace, pid, top, startUs, endUs);
     }
+
+    [McpServerTool, Description(
+        "Top-N call stacks ranked by managed-heap allocation bytes.  PerfView equivalent: " +
+        "'GC Heap Alloc Stacks'.  Driven by GCAllocationTick events (CLR fires one every " +
+        "~100 KB allocated per (heap, generation, type)) — sampled, not exhaustive, but " +
+        "statistically meaningful for hot allocators.  Each stack carries " +
+        "Exclusive/InclusiveBytes and tick counts.  Response also includes TopTypes (top " +
+        "exception type names by total bytes).  Requires Microsoft-Windows-DotNETRuntime " +
+        "with the GC keyword.")]
+    public ClrAllocStacksResponse ClrAllocTopStacks(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N stacks by exclusive allocation bytes (default 50, max 1000)")] int top = 50,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireWhenBuckets(whenBuckets);
+        var trace = _cache.Get(path);
+        return ClrAllocStackAnalysis.TopStacks(trace, top, pid, startUs, endUs, Console.Error, whenBuckets);
+    }
+
+    [McpServerTool, Description(
+        "Caller-callee drill-down on a focus frame in the managed-allocation stack source.  " +
+        "Metric is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO " +
+        "focus, callees by bytes OUT.")]
+    public CallerCalleeResponse ClrAllocCallerCallee(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireFunctionName(focusFunction);
+        var trace = _cache.Get(path);
+        return ClrAllocStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+    }
+
+    [McpServerTool, Description(
+        "Top-N call stacks ranked by .NET exception throw count.  PerfView equivalent: " +
+        "'Exceptions Stacks'.  Fires once per *thrown* exception (rethrows are separate " +
+        "events).  Useful for 'is this code path throwing 1000 exceptions per second' / " +
+        "'where is FormatException being swallowed in a retry loop'.  Response also " +
+        "includes TopTypes (top exception type names by count).  Requires " +
+        "Microsoft-Windows-DotNETRuntime with the Exception keyword.")]
+    public ClrExceptionStacksResponse ClrExceptionTopStacks(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N stacks by exclusive exception count (default 50, max 1000)")] int top = 50,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireWhenBuckets(whenBuckets);
+        var trace = _cache.Get(path);
+        return ClrExceptionStackAnalysis.TopStacks(trace, top, pid, startUs, endUs, Console.Error, whenBuckets);
+    }
+
+    [McpServerTool, Description(
+        "Caller-callee drill-down on a focus frame in the .NET exception stack source.  " +
+        "Metric is exception count; top-N callers ranked by inclusive count flowing INTO " +
+        "focus, callees by count OUT.")]
+    public CallerCalleeResponse ClrExceptionCallerCallee(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireFunctionName(focusFunction);
+        var trace = _cache.Get(path);
+        return ClrExceptionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+    }
+
+    [McpServerTool, Description(
+        "Top-N call stacks ranked by .NET monitor-contention μs (managed `lock` / " +
+        "Monitor.Enter waits).  PerfView equivalent: 'Monitor Contention Stacks'.  Matches " +
+        "ContentionStart→ContentionStop by ThreadID; metric is the wait duration in " +
+        "microseconds.  Filters to ContentionFlags.Managed only — native lock contention " +
+        "from the same provider is excluded.  Requires Microsoft-Windows-DotNETRuntime with " +
+        "the Contention keyword.")]
+    public ClrContentionStacksResponse ClrContentionTopStacks(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N stacks by exclusive blocked μs (default 50, max 1000)")] int top = 50,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireWhenBuckets(whenBuckets);
+        var trace = _cache.Get(path);
+        return ClrContentionStackAnalysis.TopStacks(trace, top, pid, startUs, endUs, Console.Error, whenBuckets);
+    }
+
+    [McpServerTool, Description(
+        "Caller-callee drill-down on a focus frame in the .NET monitor-contention stack " +
+        "source.  Metric is blocked μs; top-N callers ranked by inclusive μs flowing INTO " +
+        "focus, callees by μs OUT.")]
+    public CallerCalleeResponse ClrContentionCallerCallee(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireFunctionName(focusFunction);
+        var trace = _cache.Get(path);
+        return ClrContentionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+    }
 }
