@@ -13,6 +13,11 @@ internal static class ProcessProjection
     /// </summary>
     public static IEnumerable<ProcessRow> Rows(TraceLog trace, bool includeSystem)
     {
+        var traceEndUs = (long)trace.SessionDuration.TotalMicroseconds;
+        // 1 ms epsilon: ETW timestamps round to the timer tick, and TraceProcess.EndTimeRelativeMsec
+        // for trace-resident processes is set to the session end with sub-ms slack.
+        const long residentEpsilonUs = 1000;
+
         foreach (var p in trace.Processes)
         {
             if (!includeSystem && (p.ProcessID == 0 || p.ProcessID == 4))
@@ -26,6 +31,8 @@ internal static class ProcessProjection
             // whose threads were never scheduled during the trace). Null beats +inf in JSON.
             double? ratio = cpuUs > 0 ? (double)wallUs / cpuUs : (double?)null;
 
+            var traceResident = startUs == 0 && endUs >= traceEndUs - residentEpsilonUs;
+
             yield return new ProcessRow(
                 Pid: p.ProcessID,
                 ParentPid: p.ParentID,
@@ -35,7 +42,8 @@ internal static class ProcessProjection
                 WallUs: wallUs,
                 CpuUs: cpuUs,
                 WaitRatio: ratio,
-                ImageLoadCount: p.LoadedModules.Count());
+                ImageLoadCount: p.LoadedModules.Count(),
+                TraceResident: traceResident);
         }
     }
 }

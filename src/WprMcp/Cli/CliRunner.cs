@@ -23,9 +23,22 @@ public static class CliRunner
         ["--help"] = _ => PrintHelp(toError: false),
         ["-h"] = _ => PrintHelp(toError: false),
         ["--list-processes"] = RunListProcesses,
+        ["--process-create-timing"] = RunProcessCreateTiming,
         ["--cpu-top"] = RunCpuTop,
+        ["--cpu-caller-callee"] = RunCpuCallerCallee,
         ["--wait-analysis"] = RunWaitAnalysis,
+        ["--wait-top-stacks"] = RunWaitTopStacks,
+        ["--wait-caller-callee"] = RunWaitCallerCallee,
+        ["--image-load-caller-callee"] = RunImageLoadCallerCallee,
+        ["--mmap-caller-callee"] = RunMmapCallerCallee,
+        ["--file-io-caller-callee"] = RunFileIoCallerCallee,
         ["--image-load-timing"] = RunImageLoadTiming,
+        ["--image-load-top-stacks"] = RunImageLoadTopStacks,
+        ["--image-load-top-gaps"] = RunImageLoadTopGaps,
+        ["--mmap-top-stacks"] = RunMmapTopStacks,
+        ["--file-io-top-stacks"] = RunFileIoTopStacks,
+        ["--disk-io-top-stacks"] = RunDiskIoTopStacks,
+        ["--disk-io-caller-callee"] = RunDiskIoCallerCallee,
         ["--diagnose-slow-startup"] = RunDiagnoseSlowStartup,
         ["--find-marker"] = RunFindMarker,
     };
@@ -57,6 +70,20 @@ public static class CliRunner
         return 0;
     }
 
+    private static int RunProcessCreateTiming(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("usage: --process-create-timing <trace.etl> <parentPid> [top]");
+            return 2;
+        }
+        var parentPid = int.Parse(args[2]);
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
+        var meta = new MetaTools(new TraceCache(capacity: 1));
+        Emit(meta.ProcessCreateTiming(args[1], parentPid: parentPid, top: top));
+        return 0;
+    }
+
     private static int RunCpuTop(string[] args)
     {
         if (args.Length < 2) { Console.Error.WriteLine("usage: --cpu-top <trace.etl> [pid] [top]"); return 2; }
@@ -64,6 +91,21 @@ public static class CliRunner
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var tools = new CpuTools(new TraceCache(capacity: 1));
         Emit(tools.CpuTopFunctions(args[1], top: top, pid: pid));
+        return 0;
+    }
+
+    private static int RunCpuCallerCallee(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("usage: --cpu-caller-callee <trace.etl> <function> [pid] [top]");
+            return 2;
+        }
+        var function = args[2];
+        int? pid = args.Length >= 4 ? int.Parse(args[3]) : (int?)null;
+        var top = args.Length >= 5 ? int.Parse(args[4]) : 20;
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+        Emit(tools.CpuCallerCallee(args[1], function: function, top: top, pid: pid));
         return 0;
     }
 
@@ -77,6 +119,22 @@ public static class CliRunner
         return 0;
     }
 
+    private static int RunWaitTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --wait-top-stacks <trace.etl> [pid] [top] [startUs] [endUs]");
+            return 2;
+        }
+        int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
+        long? startUs = args.Length >= 5 ? long.Parse(args[4]) : (long?)null;
+        long? endUs = args.Length >= 6 ? long.Parse(args[5]) : (long?)null;
+        var tools = new WaitTools(new TraceCache(capacity: 1));
+        Emit(tools.WaitTopStacks(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs));
+        return 0;
+    }
+
     private static int RunImageLoadTiming(string[] args)
     {
         if (args.Length < 3) { Console.Error.WriteLine("usage: --image-load-timing <trace.etl> <pid> [top]"); return 2; }
@@ -84,6 +142,118 @@ public static class CliRunner
         var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
         var tools = new ImageLoadTools(new TraceCache(capacity: 1));
         Emit(tools.ImageLoadTiming(args[1], pid: pid, top: top));
+        return 0;
+    }
+
+    private static int RunImageLoadTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --image-load-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
+            return 2;
+        }
+        int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
+        var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
+        var tools = new ImageLoadTools(new TraceCache(capacity: 1));
+        Emit(tools.ImageLoadTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        return 0;
+    }
+
+    private static int RunImageLoadTopGaps(string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("usage: --image-load-top-gaps <trace.etl> <pid> [top]");
+            return 2;
+        }
+        var pid = int.Parse(args[2]);
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 20;
+        var tools = new ImageLoadTools(new TraceCache(capacity: 1));
+        Emit(tools.ImageLoadTopGaps(args[1], pid: pid, top: top));
+        return 0;
+    }
+
+    private static int RunMmapTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --mmap-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
+            return 2;
+        }
+        int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
+        var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
+        var tools = new MmapTools(new TraceCache(capacity: 1));
+        Emit(tools.MmapTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        return 0;
+    }
+
+    private static int RunFileIoTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --file-io-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
+            return 2;
+        }
+        int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
+        var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
+        var tools = new IoTools(new TraceCache(capacity: 1));
+        Emit(tools.FileIoTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        return 0;
+    }
+
+    // Caller/callee drill-down helpers — same arg shape across all 4 stack sources, just
+    // different tool wiring. Each requires <function> as the focus frame name.
+    private static int RunWaitCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--wait-caller-callee", (path, fn, pid, top) =>
+            new WaitTools(new TraceCache(capacity: 1)).WaitCallerCallee(path, fn, top, pid));
+
+    private static int RunImageLoadCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--image-load-caller-callee", (path, fn, pid, top) =>
+            new ImageLoadTools(new TraceCache(capacity: 1)).ImageLoadCallerCallee(path, fn, top, pid));
+
+    private static int RunMmapCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--mmap-caller-callee", (path, fn, pid, top) =>
+            new MmapTools(new TraceCache(capacity: 1)).MmapCallerCallee(path, fn, top, pid));
+
+    private static int RunFileIoCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--file-io-caller-callee", (path, fn, pid, top) =>
+            new IoTools(new TraceCache(capacity: 1)).FileIoCallerCallee(path, fn, top, pid));
+
+    private static int RunDiskIoTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --disk-io-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
+            return 2;
+        }
+        int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
+        var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
+        var tools = new IoTools(new TraceCache(capacity: 1));
+        Emit(tools.DiskIoTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        return 0;
+    }
+
+    private static int RunDiskIoCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--disk-io-caller-callee", (path, fn, pid, top) =>
+            new IoTools(new TraceCache(capacity: 1)).DiskIoCallerCallee(path, fn, top, pid));
+
+    private static int RunCallerCalleeVerb(
+        string[] args, string verb,
+        Func<string, string, int?, int, WprMcp.Output.CallerCalleeResponse> invoke)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine($"usage: {verb} <trace.etl> <function> [pid] [top]");
+            return 2;
+        }
+        var function = args[2];
+        int? pid = args.Length >= 4 ? int.Parse(args[3]) : (int?)null;
+        var top = args.Length >= 5 ? int.Parse(args[4]) : 20;
+        Emit(invoke(args[1], function, pid, top));
         return 0;
     }
 
@@ -137,9 +307,22 @@ public static class CliRunner
         w.WriteLine();
         w.WriteLine("Verbs:");
         w.WriteLine("  --list-processes        <trace.etl> [orderBy=cpu|wall|wait_ratio]");
+        w.WriteLine("  --process-create-timing <trace.etl> <parentPid> [top=100]");
         w.WriteLine("  --cpu-top               <trace.etl> [pid] [top=30]");
+        w.WriteLine("  --cpu-caller-callee     <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --wait-analysis         <trace.etl> [pid] [top=30]");
+        w.WriteLine("  --wait-top-stacks       <trace.etl> [pid] [top=30] [startUs] [endUs]");
         w.WriteLine("  --image-load-timing     <trace.etl> <pid> [top=100]");
+        w.WriteLine("  --image-load-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --image-load-top-gaps   <trace.etl> <pid> [top=20]");
+        w.WriteLine("  --mmap-top-stacks       <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --file-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --disk-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --disk-io-caller-callee <trace.etl> <function> [pid] [top=20]");
+        w.WriteLine("  --wait-caller-callee    <trace.etl> <function> [pid] [top=20]");
+        w.WriteLine("  --image-load-caller-callee <trace.etl> <function> [pid] [top=20]");
+        w.WriteLine("  --mmap-caller-callee    <trace.etl> <function> [pid] [top=20]");
+        w.WriteLine("  --file-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --diagnose-slow-startup <trace.etl> [nameSubstring] [minWaitRatio=3.0]");
         w.WriteLine("  --find-marker           <trace.etl> <substring> [mode=count_by_event|count_by_process|rows] [top=50]");
         w.WriteLine();

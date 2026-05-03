@@ -55,12 +55,7 @@ public sealed class SymbolTools
             var resolved = !string.IsNullOrEmpty(module.PdbName);
             var hint = resolved
                 ? "PDB resolved."
-                : module.FilePath.Contains("Microsoft", StringComparison.OrdinalIgnoreCase)
-                    ? "Add Microsoft symbol server: add_symbol_server('https://msdl.microsoft.com/download/symbols')"
-                    : module.FilePath.Contains("chrome", StringComparison.OrdinalIgnoreCase)
-                      || module.FilePath.Contains("quark", StringComparison.OrdinalIgnoreCase)
-                        ? "Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')"
-                        : "PDB not indexed; provide local PDB folder via set_symbol_path or contact the module owner.";
+                : SuggestServerForModule(module.FilePath);
             rows.Add(new ModuleSymbolStatus(module.Name, 0, resolved, hint));
         }
 
@@ -75,5 +70,24 @@ public sealed class SymbolTools
             CacheDir: _symbols.DefaultCacheDir,
             Modules: rows.OrderByDescending(r => r.Resolved ? 0 : 1).Take(50).ToList(),
             Suggestions: suggestions);
+    }
+
+    // Per-module symbol-server suggestion. Same pattern table as MetaTools.SymbolServerHints
+    // — keep them consistent so `load_trace` recommendations and `diagnose_symbols` hints
+    // never disagree on which server to add for a given module.
+    private static readonly (string ServerHint, string[] Patterns)[] ServerHints =
+    {
+        ("Add Microsoft symbol server: add_symbol_server('https://msdl.microsoft.com/download/symbols')",
+         new[] { "Microsoft", "Windows" }),
+        ("Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')",
+         new[] { "chrome", "chromium", "msedge", "electron", "cef" }),
+    };
+
+    private static string SuggestServerForModule(string filePath)
+    {
+        foreach (var (hint, patterns) in ServerHints)
+            if (patterns.Any(p => filePath.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                return hint;
+        return "PDB not indexed; provide local PDB folder via set_symbol_path or contact the module owner.";
     }
 }

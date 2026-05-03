@@ -60,4 +60,29 @@ public sealed class CpuTools
         }
         return new CpuTopFunctionsBatchResponse(result, warnings);
     }
+
+    [McpServerTool, Description(
+        "Caller/callee drill-down for a focus function — given a frame name (copy verbatim from " +
+        "cpu_top_functions output), returns the immediate callers (frames calling INTO focus) and " +
+        "callees (frames focus calls OUT to), each ranked by inclusive samples. PerfView equivalent: " +
+        "the 'Callers' / 'Callees' tabs of CPU Stacks. Recursion-safe: counts the leaf-most match " +
+        "of focus per stack only.")]
+    public CallerCalleeResponse CpuCallerCallee(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Focus frame name, exactly as it appears in cpu_top_functions output " +
+                     "(case-sensitive; unresolved frames look like 'module!?').")]
+        string function,
+        [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
+        bool excludeEtwSelfOverhead = false)
+    {
+        Validation.RequireTop(top);
+        Validation.RequireFunctionName(function);
+        var trace = _cache.Get(path);
+        return CpuAnalysis.CallerCallee(
+            trace, function, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead);
+    }
 }

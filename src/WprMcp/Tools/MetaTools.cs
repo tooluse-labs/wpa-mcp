@@ -17,9 +17,12 @@ public sealed class MetaTools
     // so put more-specific patterns before generic ones.
     private static readonly (string Reason, string Url, string[] Patterns)[] SymbolServerHints =
     {
-        ("Chromium / Edge / Quark / Electron",
+        ("Chromium-based browser (Chrome / Edge / Electron / CEF / etc.)",
          "https://chromium-browser-symsrv.commondatastorage.googleapis.com",
-         new[] { "chrome", "chromium", "msedge", "quark", "electron", "cef", "uc_crash" }),
+         // Pattern list captures Chromium-family modules across vendors; matching is done
+         // by substring against module name. Add additional browser-specific tokens here if
+         // your trace uses a renamed Chromium fork that isn't picked up.
+         new[] { "chrome", "chromium", "msedge", "electron", "cef" }),
 
         ("Microsoft public symbols",
          "https://msdl.microsoft.com/download/symbols",
@@ -62,8 +65,12 @@ public sealed class MetaTools
             : null;
 
         var recommendations = BuildSymbolRecommendations(trace);
+        var capabilities = _cache.GetCapabilities(path);
 
-        return new LoadTraceResponse(meta, new SymbolStatus(ntPath, cacheDir, warning, recommendations));
+        return new LoadTraceResponse(
+            meta,
+            new SymbolStatus(ntPath, cacheDir, warning, recommendations),
+            capabilities);
     }
 
     private static IReadOnlyList<SymbolRecommendation> BuildSymbolRecommendations(
@@ -103,29 +110,63 @@ public sealed class MetaTools
     [McpServerTool, Description(
         "Lists processes in the loaded trace. Default order is CPU time descending. " +
         "WaitRatio = WallUs/CpuUs surfaces 'high wall, low CPU' processes (blocked on minifilter, IPC, etc.). " +
-        "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them.")]
+        "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them. " +
+        "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
+        "trace end) are pushed to the bottom because their ratio is denominator-saturated.")]
     public ProcessListResponse ListProcesses(
         [Description("Absolute path to .etl file")] string path,
         [Description("Sort order: 'cpu' (default), 'wall', or 'wait_ratio'")] string orderBy = "cpu",
+        [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false)
     {
+        Validation.RequireTop(top);
         var trace = _cache.Get(path);
         var rows = ProcessProjection.Rows(trace, includeSystem).ToList();
+        var totalCount = rows.Count;
         var hidden = includeSystem
             ? 0
             : trace.Processes.Count(p => p.ProcessID == 0 || p.ProcessID == 4);
 
         rows = orderBy.ToLowerInvariant() switch
         {
+            "cpu" => rows.OrderByDescending(r => r.CpuUs).ToList(),
             "wall" => rows.OrderByDescending(r => r.WallUs).ToList(),
             "wait_ratio" => rows
-                // null ratios sort to the end; tie-break by WallUs so we don't bury slow-but-zero-CPU processes
-                .OrderByDescending(r => r.WaitRatio ?? double.NegativeInfinity)
+                .OrderByDescending(WaitRatioSortKey)
                 .ThenByDescending(r => r.WallUs)
                 .ToList(),
-            _ => rows.OrderByDescending(r => r.CpuUs).ToList(),
+            _ => throw new ArgumentException(
+                $"orderBy must be 'cpu', 'wall', or 'wait_ratio'; got '{orderBy}'", nameof(orderBy)),
         };
 
-        return new ProcessListResponse(rows, hidden);
+        rows = rows.Take(top).ToList();
+        return new ProcessListResponse(rows, hidden, totalCount);
     }
+
+    [McpServerTool, Description(
+        "Per-fork timing for a parent process — given a PID, returns every child the kernel " +
+        "reported as having that parent, with FirstImageLoadOffsetUs (the kernel-side window " +
+        "between ProcessStart and the first DLL load: where AV / process-create callbacks " +
+        "burn time invisibly to the child) and GapFromPreviousSpawnUs (lets you spot fork " +
+        "bursts vs steady-state). Median/p95/max aggregates across kernel gaps surface " +
+        "worst-case in a single number.")]
+    public ProcessCreateTimingResponse ProcessCreateTiming(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
+        int parentPid,
+        [Description("Top N children by spawn order (default 50, max 1000). Children are " +
+                     "sorted chronologically; 'top' caps response size on prolific spawners.")]
+        int top = 50)
+    {
+        Validation.RequireTop(top);
+        Validation.RequirePositivePid(parentPid);
+        var trace = _cache.Get(path);
+        return ProcessCreateTimingAnalysis.Analyze(trace, parentPid, top);
+    }
+
+    // Trace-resident processes (alive across the whole trace) get ratios like 247638× from
+    // wallUs ≈ trace duration / cpuUs ≈ 0 — pure noise. Sort them to the bottom alongside
+    // null ratios so genuinely-blocked processes with bounded WallUs land at the top.
+    private static double WaitRatioSortKey(ProcessRow r)
+        => r.TraceResident ? double.NegativeInfinity : r.WaitRatio ?? double.NegativeInfinity;
 }
