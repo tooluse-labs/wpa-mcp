@@ -73,10 +73,11 @@ if ($tryCodex) {
     if (Test-Path $codexConfigPath) {
         Write-Info "Editing $codexConfigPath..."
         $rawToml = Get-Content $codexConfigPath -Raw
-        if (-not [string]::IsNullOrWhiteSpace($rawToml)) {
-            $escapedName = [regex]::Escape($ServerName)
+        if ($rawToml -and $rawToml.Trim()) {
+            # CLM-safe: -replace + manual regex-escape (no [regex]::* calls).
+            $escapedName = $ServerName -replace '([\\.+*?()\[\]{}|^$])', '\$1'
             $sectionPattern = "(?ms)^\[mcp_servers\.$escapedName(?:\.[^\]]+)?\][\s\S]*?(?=^\[|\z)"
-            $newToml = [regex]::Replace($rawToml, $sectionPattern, '')
+            $newToml = $rawToml -replace $sectionPattern, ''
             if ($newToml -ne $rawToml) {
                 Set-Content -Path $codexConfigPath -Value $newToml.TrimEnd() -Encoding UTF8
                 Write-Ok "Removed '$ServerName' from $codexConfigPath."
@@ -94,7 +95,7 @@ if ($tryClaudeDesktop) {
     if (Test-Path $claudeDesktopConfigPath) {
         Write-Info "Editing $claudeDesktopConfigPath..."
         $rawJson = Get-Content $claudeDesktopConfigPath -Raw
-        if (-not [string]::IsNullOrWhiteSpace($rawJson)) {
+        if ($rawJson -and $rawJson.Trim()) {
             $config = $rawJson | ConvertFrom-Json
             if ($config.PSObject.Properties.Name.Contains('mcpServers') -and
                 $config.mcpServers.PSObject.Properties.Name.Contains($ServerName)) {

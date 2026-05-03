@@ -220,29 +220,38 @@ if ($installCodex) {
     # named header (and any further '.<sub>' suffix on the same prefix) plus everything
     # up to the next top-level [section] or end of file. Does NOT touch unrelated
     # [mcp_servers.<other>] sections.
-    $escapedName = [regex]::Escape($ServerName)
+    #
+    # CLM-safe: -replace operator is built-in (no [regex] type call), and we hand-escape
+    # ServerName via -replace itself. PS Constrained Language Mode (AppLocker / WDAC)
+    # blocks [regex]::*, [System.Text.StringBuilder]::*, etc.; we avoid all of them.
+    $escapedName = $ServerName -replace '([\\.+*?()\[\]{}|^$])', '\$1'
     $sectionPattern = "(?ms)^\[mcp_servers\.$escapedName(?:\.[^\]]+)?\][\s\S]*?(?=^\[|\z)"
-    $rawToml = [regex]::Replace($rawToml, $sectionPattern, '')
+    $rawToml = $rawToml -replace $sectionPattern, ''
 
-    # Append the new entry. Use double-quoted TOML strings with backslash escapes so
-    # Windows paths survive verbatim.
+    # TOML double-quoted string escaping — backslash + double-quote.
     function Format-TomlString([string]$s) {
         $escaped = ($s -replace '\\', '\\\\') -replace '"', '\"'
         return '"' + $escaped + '"'
     }
 
     $argsToml = (@($dllPath) | ForEach-Object { Format-TomlString $_ }) -join ', '
-    $sb = [System.Text.StringBuilder]::new($rawToml.TrimEnd())
-    if ($sb.Length -gt 0) { $sb.AppendLine() | Out-Null; $sb.AppendLine() | Out-Null }
-    $sb.AppendLine("[mcp_servers.$ServerName]") | Out-Null
-    $sb.AppendLine("command = " + (Format-TomlString 'dotnet')) | Out-Null
-    $sb.AppendLine("args = [$argsToml]") | Out-Null
-    $sb.AppendLine() | Out-Null
-    $sb.AppendLine("[mcp_servers.$ServerName.env]") | Out-Null
-    $sb.AppendLine('_NT_SYMBOL_PATH = ' + (Format-TomlString $SymbolPath)) | Out-Null
-    $sb.AppendLine('WPRMCP_CACHE_SIZE = ' + (Format-TomlString "$CacheSize")) | Out-Null
+    $symbolToml = Format-TomlString $SymbolPath
+    $cacheSizeToml = Format-TomlString "$CacheSize"
 
-    Set-Content -Path $codexConfigPath -Value $sb.ToString() -Encoding UTF8
+    # Build via here-string + concatenation. No StringBuilder.
+    $newSection = @"
+[mcp_servers.$ServerName]
+command = "dotnet"
+args = [$argsToml]
+
+[mcp_servers.$ServerName.env]
+_NT_SYMBOL_PATH = $symbolToml
+WPRMCP_CACHE_SIZE = $cacheSizeToml
+"@
+
+    $preamble = $rawToml.TrimEnd()
+    if ($preamble.Length -gt 0) { $preamble = $preamble + "`n`n" }
+    Set-Content -Path $codexConfigPath -Value ($preamble + $newSection) -Encoding UTF8
     Write-Ok "Wrote '$ServerName' entry to $codexConfigPath."
 }
 
@@ -254,7 +263,8 @@ if ($installClaudeDesktop) {
 
     Write-Info "Editing $claudeDesktopConfigPath..."
     $rawJson = Get-Content $claudeDesktopConfigPath -Raw
-    if ([string]::IsNullOrWhiteSpace($rawJson)) { $rawJson = '{}' }
+    # CLM-safe whitespace check: avoid [string]::IsNullOrWhiteSpace static call.
+    if (-not $rawJson -or -not $rawJson.Trim()) { $rawJson = '{}' }
     $config = $rawJson | ConvertFrom-Json
 
     if (-not $config.PSObject.Properties.Name.Contains('mcpServers')) {
