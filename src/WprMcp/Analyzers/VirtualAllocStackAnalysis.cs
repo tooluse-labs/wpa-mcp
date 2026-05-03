@@ -96,12 +96,12 @@ public static class VirtualAllocStackAnalysis
         long totalBytes = 0;
         long totalOps = 0;
 
-        // VirtualMemAlloc / VirtualMemFree both deliver VirtualAllocTraceData with a Length field.
-        // Both events count toward the metric — Free events are also "what code touched virtual
-        // memory in this trace" data.  Filter on operation type at the consumer level if needed.
+        // Free events are folded into the same metric — "what code touched virtual memory"
+        // includes deallocation paths.  Filter at the consumer if you need alloc-only.
         void Handle(VirtualAllocTraceData data)
         {
             var bytes = (long)data.Length;
+            if (bytes == 0) return; // 0-byte ops would inflate ExclusiveCount with no metric
             traceTotalBytes += bytes;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (pid is { } p && data.ProcessID != p) return;

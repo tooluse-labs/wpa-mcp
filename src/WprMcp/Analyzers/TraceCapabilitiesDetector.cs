@@ -35,34 +35,27 @@ internal static class TraceCapabilitiesDetector
         var kernel = new KernelTraceEventParser(source);
         var clr = new ClrTraceEventParser(source);
 
+        // For every event group, multiple events fire iff the same kernel keyword is enabled
+        // (e.g. Registry: Query/Open/SetValue all gated by the Registry keyword).  One
+        // representative subscription per group is enough — they always co-occur, and per-event
+        // dispatch isn't free on a multi-GB trace.  Pick a high-volume representative so the
+        // detector flips early in the walk.
         kernel.PerfInfoSample += _ => hasCpuSamples = true;
         kernel.ThreadCSwitch += _ => hasCSwitch = true;
         kernel.FileIORead += _ => hasFileIo = true;
-        kernel.FileIOWrite += _ => hasFileIo = true;
         kernel.DiskIORead += _ => hasDiskIo = true;
-        kernel.DiskIOWrite += _ => hasDiskIo = true;
         kernel.ImageLoad += _ => hasImageLoad = true;
         kernel.MemoryHardFault += _ => hasHardFaults = true;
         kernel.StackWalkStack += _ => hasStackWalks = true;
         kernel.VirtualMemAlloc += _ => hasVirtualAlloc = true;
-        kernel.VirtualMemFree += _ => hasVirtualAlloc = true;
         kernel.TcpIpSend += _ => hasNetIo = true;
-        kernel.TcpIpRecv += _ => hasNetIo = true;
-        kernel.UdpIpSend += _ => hasNetIo = true;
-        kernel.UdpIpRecv += _ => hasNetIo = true;
         kernel.RegistryQueryValue += _ => hasRegistry = true;
-        kernel.RegistryOpen += _ => hasRegistry = true;
-        kernel.RegistrySetValue += _ => hasRegistry = true;
         kernel.DispatcherReadyThread += _ => hasReadyThread = true;
         kernel.PerfInfoDPC += _ => hasInterrupt = true;
-        kernel.PerfInfoISR += _ => hasInterrupt = true;
         kernel.ALPCSendMessage += _ => hasAlpc = true;
-        kernel.ALPCReceiveMessage += _ => hasAlpc = true;
         kernel.ThreadStart += _ => hasThreadEvents = true;
-        kernel.ThreadStop += _ => hasThreadEvents = true;
 
         clr.GCStart += _ => hasClrGc = true;
-        clr.GCSuspendEEStart += _ => hasClrGc = true;
         clr.MethodJittingStarted += _ => hasClrJit = true;
 
         source.Process();

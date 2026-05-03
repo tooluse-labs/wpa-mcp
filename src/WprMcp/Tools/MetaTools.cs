@@ -170,8 +170,8 @@ public sealed class MetaTools
         "for 'did the thread pool spawn 200 threads in the startup window' / 'is something " +
         "thrashing thread creation'.  Threads still alive at trace end are flagged " +
         "TraceResidentEnd; threads alive when capture started are flagged TraceResidentStart " +
-        "(their StartTimeUs is 0 = trace start, not the real spawn).  ConcurrentPeak gives " +
-        "the maximum number of simultaneously-live threads for the PID.  Requires the Thread " +
+        "(their StartTimeUs is 0 = trace start, not the real spawn).  PeakConcurrentThreads " +
+        "gives the maximum number of simultaneously-live threads for the PID.  Requires the Thread " +
         "keyword in the capture profile (in default kernel profiles).")]
     public ThreadLifetimeResponse ThreadLifetime(
         [Description("Absolute path to .etl file")] string path,

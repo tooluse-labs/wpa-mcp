@@ -543,7 +543,7 @@ public sealed record ThreadLifetimeResponse(
     int Pid,
     string ProcessName,
     int TotalThreads,
-    int ConcurrentPeak,
+    int PeakConcurrentThreads,
     IReadOnlyList<ThreadLifetimeRow> Threads,
     IReadOnlyList<string> Warnings);
 
@@ -569,11 +569,12 @@ public sealed record GcAnalysisResponse(
     IReadOnlyList<GcEventRow> Events,
     IReadOnlyList<string> Warnings);
 
-// Single JIT'd method, with the time spent JITting it and the resulting native size.
+// Single JIT'd method, with the time spent JITting it and the IL size from the source
+// metadata (NOT native code size — the JittingStarted event doesn't carry that).
 public sealed record JitMethodRow(
     string Method,
     long JitDurationUs,
-    int MethodSize,
+    int MethodIlSize,
     int Pid);
 
 public sealed record JitAnalysisResponse(

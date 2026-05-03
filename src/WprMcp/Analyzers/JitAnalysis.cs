@@ -10,7 +10,7 @@ namespace WprMcp.Analyzers;
 // Two events bracket each method JIT:
 //
 //   MethodJittingStarted: fires when JIT begins compiling a method.  Carries MethodID,
-//     MethodNamespace, MethodName, MethodSignature, MethodSize.
+//     MethodNamespace, MethodName, MethodSignature, MethodILSize.
 //   MethodLoadVerbose: fires when the JIT's output is loaded (after compilation completes).
 //     Carries the same MethodID + the resulting method's address.
 //
@@ -21,8 +21,8 @@ public static class JitAnalysis
 {
     public static JitAnalysisResponse Analyze(TraceLog trace, int? pid, int top, long? startUs, long? endUs)
     {
-        // (pid, methodId) → (startUs, fullName, methodSize)
-        var pending = new Dictionary<(int pid, long methodId), (long startUs, string name, int size)>();
+        // (pid, methodId) → (startUs, fullName, ilSize)
+        var pending = new Dictionary<(int pid, long methodId), (long startUs, string name, int ilSize)>();
         var completed = new List<JitMethodRow>();
         long totalJitUs = 0;
 
@@ -50,7 +50,7 @@ public static class JitAnalysis
                 completed.Add(new JitMethodRow(
                     Method: s.name,
                     JitDurationUs: dur,
-                    MethodSize: s.size,
+                    MethodIlSize: s.ilSize,
                     Pid: data.ProcessID));
             };
         });
@@ -62,13 +62,8 @@ public static class JitAnalysis
 
         var warnings = new List<string>();
         if (completed.Count == 0)
-        {
-            warnings.Add(
-                "No CLR JIT events matched. Either the trace lacks the .NET runtime ETW " +
-                "provider (Microsoft-Windows-DotNETRuntime, JIT keyword), all the executed " +
-                "code was R2R/NGen pre-compiled (no JIT happened), or the window/PID filter " +
-                "excluded all events.");
-        }
+            warnings.Add(WarningBuilder.MissingClrKeyword("JIT", "JIT",
+                "or all executed code was R2R/NGen pre-compiled, or filtered out"));
 
         return new JitAnalysisResponse(
             Pid: pid,

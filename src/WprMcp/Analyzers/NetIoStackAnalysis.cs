@@ -107,10 +107,6 @@ public static class NetIoStackAnalysis
         long tcpBytes = 0;
         long udpBytes = 0;
 
-        // Local helper that does the actual sample+filter logic.  All four event families
-        // (TcpV4 / TcpV6 / UdpV4 / UdpV6) carry a `size` field in their TraceData; we pass
-        // that as the metric.  isTcp lets us split the TCP / UDP totals in the response
-        // without double-counting samples.
         void Sample(int processId, int size, double tsRelMs, Microsoft.Diagnostics.Tracing.TraceEvent ev, bool isTcp)
         {
             var bytes = (long)size;

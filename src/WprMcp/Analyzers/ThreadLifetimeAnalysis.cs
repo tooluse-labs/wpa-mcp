@@ -99,18 +99,26 @@ public static class ThreadLifetimeAnalysis
                 $"No ThreadStart / ThreadStop events for PID {pid}. The process may not exist " +
                 "in this trace, or the capture omits the Thread keyword (in default kernel profiles).");
         }
+        // ThreadLifetimeRow ≈ 40 B; 100k = ~4 MB. Anything north of that suggests a
+        // thread-pool thrasher / fork bomb pattern and the consumer should know that
+        // the in-memory list is large (TopN truncates the result, not the working set).
+        if (threads.Count > 100_000)
+        {
+            warnings.Add(
+                $"Trace has {threads.Count:N0} thread events for PID {pid} — unusually high. " +
+                "Consider narrowing the time window or investigating thread-creation thrash.");
+        }
 
         return new ThreadLifetimeResponse(
             Pid: pid,
             ProcessName: processName,
             TotalThreads: threads.Count,
-            ConcurrentPeak: ComputeConcurrentPeak(threads),
+            PeakConcurrentThreads: ComputePeakConcurrentThreads(threads),
             Threads: topRows,
             Warnings: warnings);
     }
 
-    // Sweep-line: walk all start/end events sorted by time, track concurrent count.
-    private static int ComputeConcurrentPeak(List<ThreadLifetimeRow> threads)
+    private static int ComputePeakConcurrentThreads(List<ThreadLifetimeRow> threads)
     {
         var events = new List<(long t, int delta)>(threads.Count * 2);
         foreach (var t in threads)

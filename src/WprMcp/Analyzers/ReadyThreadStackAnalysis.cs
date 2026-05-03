@@ -125,13 +125,7 @@ public static class ReadyThreadStackAnalysis
 
         var warnings = new List<string>();
         if (totalCount == 0)
-        {
-            warnings.Add(
-                "No DispatcherReadyThread events matched. Either the capture omits the CSwitch / " +
-                "ReadyThread keyword, or no thread was readied in the filter window.  CSwitch is " +
-                "in default WPR 'CPU' profiles, but stack-walk-on-ReadyThread isn't always — " +
-                "check the .wprp <Stacks> elements.");
-        }
+            warnings.Add(WarningBuilder.NoEventsInDefaultProfile("DispatcherReadyThread", "CSwitch / ReadyThread"));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 

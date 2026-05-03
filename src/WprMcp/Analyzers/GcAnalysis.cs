@@ -38,7 +38,7 @@ public static class GcAnalysis
         var orphanPauses = new List<GcEventRow>();
         var rows = new List<GcEventRow>();
         long totalGcUs = 0, totalPauseUs = 0;
-        int gen0 = 0, gen1 = 0, gen2 = 0;
+        int gcCount = 0, gen0 = 0, gen1 = 0, gen2 = 0;
 
         ClrEventWalker.Walk(trace, clr =>
         {
@@ -58,16 +58,22 @@ public static class GcAnalysis
                 if (pid is { } p && data.ProcessID != p) return;
                 if (!pendingStarts.Remove((data.ProcessID, data.Count), out var s)) return;
 
-                var dur = endUsLocal - s.startUs;
+                // Always clear the accumulator — this GC is finished regardless of window.
+                // Otherwise stale pauses leak into the next GC's bucket (or get clobbered
+                // by the next GCStart resetting it to 0, silently dropped).
+                pauseAccumByPid.Remove(data.ProcessID, out var pauseSum);
+
                 if (startUs is { } sw && s.startUs < sw) return;
                 if (endUs is { } ew && endUsLocal > ew) return;
 
+                var dur = endUsLocal - s.startUs;
                 totalGcUs += dur;
+                if (pauseSum > 0) totalPauseUs += pauseSum;
+                gcCount++;
                 if (s.generation == 0) gen0++;
                 else if (s.generation == 1) gen1++;
                 else gen2++;
 
-                pauseAccumByPid.Remove(data.ProcessID, out var pauseSum);
                 rows.Add(new GcEventRow(
                     StartUs: s.startUs,
                     DurationUs: dur,
@@ -91,24 +97,26 @@ public static class GcAnalysis
                 if (!pendingSuspends.Remove(data.ProcessID, out var startUsLocal)) return;
 
                 var pauseUs = endUsLocal - startUsLocal;
-                totalPauseUs += pauseUs;
 
                 if (pauseAccumByPid.ContainsKey(data.ProcessID))
                 {
-                    // GC in flight for this PID — accumulate; GCStop will write it onto the row.
+                    // GC in flight — accumulate; GCStop applies the window and adds to totalPauseUs.
                     pauseAccumByPid[data.ProcessID] += pauseUs;
+                    return;
                 }
-                else
-                {
-                    // Pause without enclosing GC (boundary effect at trace start/end).
-                    orphanPauses.Add(new GcEventRow(
-                        StartUs: startUsLocal,
-                        DurationUs: pauseUs,
-                        Generation: -1,
-                        Reason: "(pause without enclosing GCStart/GCStop)",
-                        Pid: data.ProcessID,
-                        PauseUs: pauseUs));
-                }
+
+                // No enclosing GC — emit as standalone, window-gated to match GCStop's behavior.
+                if (startUs is { } sw && startUsLocal < sw) return;
+                if (endUs is { } ew && endUsLocal > ew) return;
+
+                totalPauseUs += pauseUs;
+                orphanPauses.Add(new GcEventRow(
+                    StartUs: startUsLocal,
+                    DurationUs: pauseUs,
+                    Generation: -1,
+                    Reason: "(pause without enclosing GCStart/GCStop)",
+                    Pid: data.ProcessID,
+                    PauseUs: pauseUs));
             };
         });
 
@@ -118,17 +126,11 @@ public static class GcAnalysis
 
         var warnings = new List<string>();
         if (rows.Count == 0)
-        {
-            warnings.Add(
-                "No CLR GC events matched. Either the trace lacks the .NET runtime ETW " +
-                "provider (Microsoft-Windows-DotNETRuntime, GC keyword), or no GC happened in " +
-                "the window for the given PID. WPR profiles need an explicit <EventCollectorId> " +
-                "for the runtime provider to capture GC events.");
-        }
+            warnings.Add(WarningBuilder.MissingClrKeyword("GC", "GC", "or no GC occurred in the filter window"));
 
         return new GcAnalysisResponse(
             Pid: pid,
-            TotalGcCount: rows.Count,
+            TotalGcCount: gcCount,
             Gen0Count: gen0,
             Gen1Count: gen1,
             Gen2Count: gen2,

@@ -108,10 +108,8 @@ public static class InterruptStackAnalysis
         long isrUs = 0;
         long totalCount = 0;
 
-        // DPC and ISR events both carry ElapsedTimeMSec.  We convert to microseconds and
-        // attribute the time to the routine's stack.  No PID filter — these events run in
-        // kernel context (the "process" attribution is whichever thread happened to be
-        // interrupted, which is misleading for diagnostics).
+        // No PID filter — these events run in kernel context; "process" attribution is
+        // whichever thread happened to be interrupted, which is misleading for diagnostics.
         void HandleDpc(DPCTraceData data)
         {
             var us = (long)(data.ElapsedTimeMSec * 1000);
@@ -155,11 +153,7 @@ public static class InterruptStackAnalysis
 
         var warnings = new List<string>();
         if (totalCount == 0)
-        {
-            warnings.Add(
-                "No DPC/ISR events matched. The capture profile likely omits the Interrupt or " +
-                "DPC keyword (most WPR profiles include both, but custom .wprp may not).");
-        }
+            warnings.Add(WarningBuilder.NoEventsInDefaultProfile("DPC/ISR", "Interrupt + DPC"));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
