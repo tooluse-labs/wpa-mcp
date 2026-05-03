@@ -154,6 +154,71 @@ In priority order (highest leverage first):
   fork-burst trace once a week, run `process_create_timing` on the same parent, alert
   if the median doubles.
 
+### Cross-validation: independent reproduction (OpenAI Codex 5.5)
+
+The same trace was later analysed end-to-end by a different agent (OpenAI Codex 5.5
+xhigh) using the same wpa-mcp tools but choosing its own call sequence.  The
+conclusion converged on the same root cause — multiple EDR stacks synchronising on
+`PsSetCreateProcessNotifyRoutineEx` callbacks — and the reproduction surfaced three
+pieces of harder evidence that the original chain above did not collect.
+
+**1. First-party Defender ETW telemetry via `find_marker`**
+
+The independent run used `find_marker nameSubstring=Filter` to surface the
+`Microsoft-Antimalware-AMFilter` provider's events directly:
+
+| Marker | Count |
+|---|---|
+| `AMFilter_CacheHit` | 874 |
+| `AMFilter_FileScan` | 253 |
+| `AMFilter_FileScanResult` | 259 |
+| `AMFilter_ProcessContext` | 30 |
+| `AMFilter_TrustedProcess` | 28 |
+
+This is Defender's own minifilter writing to ETW — first-party "I scanned X, status
+Y" telemetry, strictly stronger than the inferred-from-CPU-samples evidence in the
+original Investigation section.  Pulling the `AMFilter_FileScan{,Result}` rows with
+`mode=rows` revealed scans targeting MyApp user-data, LevelDB stores, journal files,
+and the EDR vendor's own state DBs — all in the burst window.
+
+**2. Direct AMSI provider injection (proof of "who is on the callback chain")**
+
+Pulling the full image-load list for one of the slowest children (PID 15904) with
+`image_load_timing` (not just `image_load_top_gaps`) showed two AMSI provider DLLs
+loaded into the Quark child process:
+
+* `C:\ProgramData\Microsoft\Windows Defender\...\MpOAV.dll` — Defender's AMSI
+  provider.
+* `C:\Program Files (x86)\<Vendor X>\<Service>\...\<vendor>_amsi_provider_64.dll`
+  — the third-party EDR's AMSI provider.
+
+This is direct evidence — not inference — that two AMSI scanners synchronously
+participate in every child-process create.  Each provider runs its own inline-scan
+pass, which compounds the kernel-callback latency.
+
+**3. Trigger anchored to a concrete user action**
+
+The parent process command-line was captured as a stack-trace label by
+`file_io_top_stacks`: `--brand-myapp "<path>\<file>.pdf"` — the 23-fork burst was
+triggered by the user opening a single PDF file.  This anchors "why so many forks at
+once" to a real end-user gesture, not background activity.
+
+**Why this matters for the tools, not just for this case**
+
+* The same tool surface, no UI, no out-of-band exports — two independent agents
+  choosing different call orders both converge on the same root cause.  The wpa-mcp
+  surface is **agent-agnostic** by design (stdio MCP, structured JSON, no implicit
+  state) and this run validates that empirically.
+* `find_marker` is under-used in EDR investigations.  Any security product that
+  ships its own ETW provider — Defender's `Microsoft-Antimalware-AMFilter` is the
+  canonical example, but most vendors do this — becomes directly observable, no
+  stack-walk needed, no symbol resolution loop.  Worth pulling into the default
+  investigation muscle-memory.
+* `image_load_timing`'s complete DLL list (not just `image_load_top_gaps`'s top-N)
+  is independently valuable.  It directly answers "who is loaded into this process"
+  and surfaces injected security DLLs by name and on-disk path — much more legible
+  than a stack-trace inference.
+
 ---
 
 *Have a sanitised investigation worth recording?  Open a PR adding it here.  The
