@@ -24,6 +24,7 @@ internal static class TraceCapabilitiesDetector
         bool hasStackWalks = false;
         bool hasVirtualAlloc = false, hasNetIo = false, hasRegistry = false;
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
+        bool hasClrGc = false, hasClrJit = false;
 
         KernelEventWalker.Walk(trace, kernel =>
         {
@@ -54,6 +55,13 @@ internal static class TraceCapabilitiesDetector
             kernel.ThreadStop += _ => hasThreadEvents = true;
         });
 
+        ClrEventWalker.Walk(trace, clr =>
+        {
+            clr.GCStart += _ => hasClrGc = true;
+            clr.GCSuspendEEStart += _ => hasClrGc = true;
+            clr.MethodJittingStarted += _ => hasClrJit = true;
+        });
+
         return new TraceCapabilities(
             HasCpuSamples: hasCpuSamples,
             HasCSwitch: hasCSwitch,
@@ -68,6 +76,8 @@ internal static class TraceCapabilitiesDetector
             HasReadyThread: hasReadyThread,
             HasInterrupt: hasInterrupt,
             HasAlpc: hasAlpc,
-            HasThreadEvents: hasThreadEvents);
+            HasThreadEvents: hasThreadEvents,
+            HasClrGc: hasClrGc,
+            HasClrJit: hasClrJit);
     }
 }

@@ -46,7 +46,9 @@ public sealed record TraceCapabilities(
     bool HasReadyThread,
     bool HasInterrupt,
     bool HasAlpc,
-    bool HasThreadEvents);
+    bool HasThreadEvents,
+    bool HasClrGc,
+    bool HasClrJit);
 
 public sealed record ProcessRow(
     int Pid,
@@ -538,4 +540,40 @@ public sealed record ThreadLifetimeResponse(
     int TotalThreads,
     int ConcurrentPeak,
     IReadOnlyList<ThreadLifetimeRow> Threads,
+    IReadOnlyList<string> Warnings);
+
+// Single GC event: the wall interval bounded by GCStart→GCStop, with PauseUs filled in
+// from any covering GCSuspendEEStart→GCRestartEEStop on the same PID.  Generation = -1
+// flags a "pause without enclosing GCStart" — rare, happens at trace boundaries.
+public sealed record GcEventRow(
+    long StartUs,
+    long DurationUs,
+    int Generation,
+    string Reason,
+    int Pid,
+    long? PauseUs);
+
+public sealed record GcAnalysisResponse(
+    int? Pid,
+    int TotalGcCount,
+    int Gen0Count,
+    int Gen1Count,
+    int Gen2Count,
+    long TotalGcUs,
+    long TotalPauseUs,
+    IReadOnlyList<GcEventRow> Events,
+    IReadOnlyList<string> Warnings);
+
+// Single JIT'd method, with the time spent JITting it and the resulting native size.
+public sealed record JitMethodRow(
+    string Method,
+    long JitDurationUs,
+    int MethodSize,
+    int Pid);
+
+public sealed record JitAnalysisResponse(
+    int? Pid,
+    int TotalMethodsJitted,
+    long TotalJitUs,
+    IReadOnlyList<JitMethodRow> TopMethods,
     IReadOnlyList<string> Warnings);
