@@ -28,11 +28,19 @@ Not for production. Internal use only until validated.
 
 ## Install (one-liner — no clone, no build)
 
+PowerShell:
+
 ```powershell
 iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/bootstrap.ps1) }"
 ```
 
-The bootstrap downloads the latest GitHub Release zip (pre-built DLL), caches it under `%LOCALAPPDATA%\wpa-mcp\releases\<tag>\`, and runs the bundled `install.ps1`. Subsequent runs are instant (cache hit). To uninstall, run the cached `uninstall.ps1` from the same folder, or re-bootstrap a different tag.
+Git Bash on Windows:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/bootstrap.sh | bash
+```
+
+Both routes do the same thing: download the latest GitHub Release zip (pre-built DLL), cache under `%LOCALAPPDATA%\wpa-mcp\releases\<tag>\`, and run `install.ps1` — auto-detects every MCP client on the machine (Claude Code / OpenAI Codex / Claude Desktop) and registers `wpa-mcp`. .NET 8 runtime is auto-installed user-scope if missing. Subsequent runs are instant (cache hit). Uninstall via the cached `uninstall.ps1` / `uninstall.sh` in the same folder.
 
 Forward flags through the bootstrap:
 
@@ -40,17 +48,29 @@ Forward flags through the bootstrap:
 iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/bootstrap.ps1) } -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
 ```
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/bootstrap.sh | bash -s -- -Tag v0.1.0
+```
+
 ## Install (from a clone)
 
 If you've already cloned the repo (e.g. for development):
 
 ```powershell
+# PowerShell
 git clone https://github.com/tooluse-labs/wpa-mcp
 cd wpa-mcp
 .\scripts\install.ps1
 ```
 
-Builds (Release) and registers `wpa-mcp` with whichever MCP client(s) it detects (Claude Code via `claude mcp add`, Claude Desktop via `%APPDATA%\Claude\claude_desktop_config.json` edit). Idempotent — re-run to update.
+```bash
+# Git Bash
+git clone https://github.com/tooluse-labs/wpa-mcp
+cd wpa-mcp
+./scripts/install.sh
+```
+
+Builds (Release) and registers `wpa-mcp` with whichever MCP client(s) it detects (Claude Code via `claude mcp add`, OpenAI Codex via `~/.codex/config.toml`, Claude Desktop via `%APPDATA%\Claude\claude_desktop_config.json`). Idempotent — re-run to update.
 
 Common flags:
 
@@ -60,11 +80,16 @@ Common flags:
 .\scripts\install.ps1 -SkipBuild                                              # use existing DLL
 ```
 
-Uninstall (works for either install path):
+Uninstall (works for either install path; `.sh` and `.ps1` are interchangeable):
 
 ```powershell
 .\scripts\uninstall.ps1                  # remove from all detected clients
 .\scripts\uninstall.ps1 -CleanBuild      # also wipe bin/ obj/
+```
+
+```bash
+./scripts/uninstall.sh                   # same, from Git Bash
+./scripts/uninstall.sh -CleanBuild
 ```
 
 ## Manual install (if the script doesn't fit your setup)

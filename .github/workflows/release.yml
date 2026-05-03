@@ -53,11 +53,13 @@ jobs:
           # Binaries — flatten to bin/ at zip root.
           Copy-Item -Recurse publish/bin "$stageDir/bin"
 
-          # Install scripts: lift to zip root so users run `.\install.ps1` directly after
-          # extracting (no `cd scripts` step). The repo's scripts/ stays unchanged so
-          # cloners still find them where the README points.
+          # Install scripts: lift to zip root so users run `.\install.ps1` (or
+          # `./install.sh` from Git Bash) directly after extracting. Both .ps1 and .sh
+          # variants ship — .sh wraps .ps1 via powershell.exe.
           Copy-Item scripts/install.ps1 "$stageDir/install.ps1"
           Copy-Item scripts/uninstall.ps1 "$stageDir/uninstall.ps1"
+          Copy-Item scripts/install.sh "$stageDir/install.sh"
+          Copy-Item scripts/uninstall.sh "$stageDir/uninstall.sh"
 
           # User-facing docs.
           Copy-Item README.md "$stageDir/README.md"
