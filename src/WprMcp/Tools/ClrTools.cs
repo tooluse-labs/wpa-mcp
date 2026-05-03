@@ -56,8 +56,8 @@ public sealed class ClrTools
         "'GC Heap Alloc Stacks'.  Driven by GCAllocationTick events (CLR fires one every " +
         "~100 KB allocated per (heap, generation, type)) — sampled, not exhaustive, but " +
         "statistically meaningful for hot allocators.  Each stack carries " +
-        "Exclusive/InclusiveBytes and tick counts.  Response also includes TopTypes (top " +
-        "exception type names by total bytes).  Requires Microsoft-Windows-DotNETRuntime " +
+        "Exclusive/InclusiveBytes and event counts.  Response also includes TopTypes (top " +
+        "allocated type names by total bytes).  Requires Microsoft-Windows-DotNETRuntime " +
         "with the GC keyword.")]
     public ClrAllocStacksResponse ClrAllocTopStacks(
         [Description("Absolute path to .etl file")] string path,

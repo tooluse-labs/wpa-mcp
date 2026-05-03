@@ -587,15 +587,15 @@ public sealed record JitAnalysisResponse(
     IReadOnlyList<JitMethodRow> TopMethods,
     IReadOnlyList<string> Warnings);
 
-// One row of a managed-allocation stack view: how many bytes the CLR allocation tick observed
-// flowing through this frame.  Tick == ~100 KB allocated (sampled), so absolute bytes are an
-// estimate, not exhaustive.  ExclusiveTickCount tracks the number of tick events on the stack.
+// One row of a managed-allocation stack view: bytes the CLR observed flowing through this
+// frame, plus the GCAllocationTick event count (tick ≈ ~100 KB allocated per (heap, gen, type),
+// so absolute bytes are sampled, not exhaustive).
 public sealed record ClrAllocStackRow(
     string Function,
     long ExclusiveBytes,
     long InclusiveBytes,
-    long ExclusiveTickCount,
-    long InclusiveTickCount,
+    long ExclusiveEventCount,
+    long InclusiveEventCount,
     double ExclusivePct,
     double InclusivePct,
     double? ExclusivePctOfTrace,
@@ -606,7 +606,7 @@ public sealed record ClrAllocTypeRow(string TypeName, long Bytes);
 public sealed record ClrAllocStacksResponse(
     IReadOnlyList<ClrAllocStackRow> Rows,
     long TotalBytes,
-    long TotalTickCount,
+    long TotalEventCount,
     IReadOnlyList<ClrAllocTypeRow> TopTypes,
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
@@ -626,7 +626,7 @@ public sealed record ClrExceptionTypeRow(string ExceptionType, long Count);
 
 public sealed record ClrExceptionStacksResponse(
     IReadOnlyList<ClrExceptionStackRow> Rows,
-    long TotalCount,
+    long TotalEventCount,
     IReadOnlyList<ClrExceptionTypeRow> TopTypes,
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,

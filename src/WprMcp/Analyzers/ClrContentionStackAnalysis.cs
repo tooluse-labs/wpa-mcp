@@ -19,8 +19,8 @@ namespace WprMcp.Analyzers;
 // fires the same events with ContentionFlags.Native — it's surfaced by different tools (it's
 // kernel-side); skipping here matches PerfView's view.
 //
-// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the Contention keyword (0x4000)
-// in the capture profile.
+// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the Contention keyword in the
+// capture profile.
 public static class ClrContentionStackAnalysis
 {
     public static ClrContentionStacksResponse TopStacks(
@@ -96,8 +96,10 @@ public static class ClrContentionStackAnalysis
     {
         using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
-        // tid → start-event stack. Per-thread because contention is serialized at the thread.
-        var pendingByTid = new Dictionary<int, Microsoft.Diagnostics.Tracing.Etlx.CallStackIndex>();
+        // (pid, tid) → (start stack, start time).  Per-thread because contention is serialized
+        // per thread; per-process too because Windows TIDs can collide across PIDs over a long
+        // trace, and a Stop must only consume its own process's pending Start.
+        var pendingByTid = new Dictionary<(int Pid, int Tid), (CallStackIndex Stack, long StartUs)>();
         long traceTotalUs = 0;
         long totalUs = 0;
         long totalCount = 0;
@@ -107,26 +109,29 @@ public static class ClrContentionStackAnalysis
             clr.ContentionStart += data =>
             {
                 if (data.ContentionFlags != ContentionFlags.Managed) return;
-                pendingByTid[data.ThreadID] = data.CallStackIndex();
+                var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
+                pendingByTid[(data.ProcessID, data.ThreadID)] = (data.CallStackIndex(), nowUs);
             };
 
             clr.ContentionStop += data =>
             {
                 if (data.ContentionFlags != ContentionFlags.Managed) return;
-                if (!pendingByTid.Remove(data.ThreadID, out var startStack)) return;
+                if (!pendingByTid.Remove((data.ProcessID, data.ThreadID), out var pending)) return;
 
                 var us = (long)(data.DurationNs / 1000.0);
                 if (us <= 0) return;
                 traceTotalUs += us;
-                var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
+                var stopUs = (long)(data.TimeStampRelativeMSec * 1000);
                 if (pid is { } p && data.ProcessID != p) return;
-                if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                // Window filter requires the contention to be entirely inside the window —
+                // matches GcAnalysis's GCStart/GCStop window semantics.
+                if (startUs is { } s && pending.StartUs < s) return;
+                if (endUs is { } e && stopUs > e) return;
 
                 totalUs += us;
                 totalCount++;
-                raw.AddSample(startStack, data, us);
-                when.Add(nowUs, us);
+                raw.AddSample(pending.Stack, data, us);
+                when.Add(stopUs, us);
             };
         });
         raw.Source.DoneAddingSamples();

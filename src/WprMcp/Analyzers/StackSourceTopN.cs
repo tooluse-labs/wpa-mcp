@@ -292,13 +292,19 @@ internal static class StackSourceTopN
         var totalFrames = resolvedFrames + unresolvedFrames;
         var resolutionRate = totalFrames == 0 ? 1.0 : (double)resolvedFrames / totalFrames;
 
-        var topUnresolved = unresolvedByModule
-            .OrderByDescending(kv => kv.Value)
-            .Take(10)
-            .Select(kv => new UnresolvedModule(kv.Key, kv.Value))
-            .ToList();
+        var topUnresolved = TopByValue(unresolvedByModule, 10, (k, v) => new UnresolvedModule(k, v));
         return new SymbolStats(resolvedFrames, unresolvedFrames, resolutionRate, topUnresolved);
     }
+
+    /// <summary>
+    /// Take the N highest-value entries from a counter dictionary and project each into a row
+    /// type.  Replaces the four-call-site `OrderByDescending(kv => kv.Value).Take(n).Select(kv =>
+    /// new TRow(kv.Key, kv.Value)).ToList()` shape — used for things like top exception types,
+    /// top allocated types, top unresolved modules, top marker-event names.
+    /// </summary>
+    public static List<TRow> TopByValue<TKey, TRow>(
+        IDictionary<TKey, long> source, int n, Func<TKey, long, TRow> project) where TKey : notnull =>
+        source.OrderByDescending(kv => kv.Value).Take(n).Select(kv => project(kv.Key, kv.Value)).ToList();
 
     /// <summary>
     /// Builds a second <see cref="MutableTraceEventStackSource"/> that mirrors

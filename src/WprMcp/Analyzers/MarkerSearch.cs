@@ -62,11 +62,7 @@ public static class MarkerSearch
             var key = byProcess ? (ev.ProcessName ?? string.Empty) : ev.EventName;
             counts[key] = counts.GetValueOrDefault(key) + 1;
         }
-        var rows = counts
-            .OrderByDescending(kv => kv.Value)
-            .Take(top)
-            .Select(kv => new MarkerCountRow(kv.Key, kv.Value))
-            .ToList();
+        var rows = StackSourceTopN.TopByValue(counts, top, (k, v) => new MarkerCountRow(k, v));
         return new MarkerSearchResponse(
             Mode: byProcess ? ModeCountByProcess : ModeCountByEvent,
             TotalMatched: total,

@@ -16,8 +16,8 @@ namespace WprMcp.Analyzers;
 // names by count) so consumers don't need to follow up with another tool to answer "what
 // kind of exceptions are these".
 //
-// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the Exception keyword (0x8000)
-// in the capture profile.
+// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the Exception keyword in the
+// capture profile.
 public static class ClrExceptionStackAnalysis
 {
     public static ClrExceptionStacksResponse TopStacks(
@@ -51,7 +51,7 @@ public static class ClrExceptionStackAnalysis
 
         return new ClrExceptionStacksResponse(
             Rows: rows,
-            TotalCount: ctx.TotalCount,
+            TotalEventCount: ctx.TotalCount,
             TopTypes: ctx.TopTypes,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
@@ -117,11 +117,7 @@ public static class ClrExceptionStackAnalysis
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
-        var topTypes = countByType
-            .OrderByDescending(kv => kv.Value)
-            .Take(20)
-            .Select(kv => new ClrExceptionTypeRow(kv.Key, kv.Value))
-            .ToList();
+        var topTypes = StackSourceTopN.TopByValue(countByType, 20, (k, v) => new ClrExceptionTypeRow(k, v));
 
         var warnings = new List<string>();
         if (totalCount == 0)

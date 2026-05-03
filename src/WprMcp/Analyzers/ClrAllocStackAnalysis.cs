@@ -18,7 +18,7 @@ namespace WprMcp.Analyzers;
 // per-object size.  We don't subscribe to it: when both are enabled they double-count, and tick
 // is the canonical default that's been on every CLR since 4.0.
 //
-// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the GC keyword (0x1) in the
+// Requires the Microsoft-Windows-DotNETRuntime ETW provider with the GC keyword in the
 // capture profile.  WPR profiles need an explicit <EventCollectorId> for the runtime provider.
 public static class ClrAllocStackAnalysis
 {
@@ -45,8 +45,8 @@ public static class ClrAllocStackAnalysis
                 Function: n.Name,
                 ExclusiveBytes: (long)n.ExclusiveMetric,
                 InclusiveBytes: (long)n.InclusiveMetric,
-                ExclusiveTickCount: (long)n.ExclusiveCount,
-                InclusiveTickCount: (long)n.InclusiveCount,
+                ExclusiveEventCount: (long)n.ExclusiveCount,
+                InclusiveEventCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalBytesMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalBytesMetric,
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -56,7 +56,7 @@ public static class ClrAllocStackAnalysis
         return new ClrAllocStacksResponse(
             Rows: rows,
             TotalBytes: ctx.TotalBytes,
-            TotalTickCount: ctx.TotalTicks,
+            TotalEventCount: ctx.TotalEvents,
             TopTypes: ctx.TopTypes,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
@@ -83,7 +83,7 @@ public static class ClrAllocStackAnalysis
         SymbolStats Stats,
         long TraceTotalBytes,
         long TotalBytes,
-        long TotalTicks,
+        long TotalEvents,
         IReadOnlyList<ClrAllocTypeRow> TopTypes,
         List<string> Warnings);
 
@@ -99,7 +99,7 @@ public static class ClrAllocStackAnalysis
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalBytes = 0;
         long totalBytes = 0;
-        long totalTicks = 0;
+        long totalEvents = 0;
         var bytesByType = new Dictionary<string, long>(StringComparer.Ordinal);
 
         void Handle(GCAllocationTickTraceData data)
@@ -113,7 +113,7 @@ public static class ClrAllocStackAnalysis
             if (endUs is { } e && nowUs > e) return;
 
             totalBytes += bytes;
-            totalTicks++;
+            totalEvents++;
             if (!string.IsNullOrEmpty(data.TypeName))
                 bytesByType[data.TypeName] = bytesByType.GetValueOrDefault(data.TypeName) + bytes;
             raw.AddSample(data.CallStackIndex(), data, bytes);
@@ -127,19 +127,15 @@ public static class ClrAllocStackAnalysis
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
-        var topTypes = bytesByType
-            .OrderByDescending(kv => kv.Value)
-            .Take(20)
-            .Select(kv => new ClrAllocTypeRow(kv.Key, kv.Value))
-            .ToList();
+        var topTypes = StackSourceTopN.TopByValue(bytesByType, 20, (k, v) => new ClrAllocTypeRow(k, v));
 
         var warnings = new List<string>();
-        if (totalTicks == 0)
+        if (totalEvents == 0)
             warnings.Add(WarningBuilder.MissingClrKeyword("GC allocation", "GC",
                 "or no managed allocation reached the ~100 KB tick threshold in the window"));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
-        return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalTicks, topTypes, warnings);
+        return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalEvents, topTypes, warnings);
     }
 }
