@@ -42,7 +42,11 @@ public sealed record TraceCapabilities(
     bool HasStackWalks,
     bool HasVirtualAlloc,
     bool HasNetIo,
-    bool HasRegistry);
+    bool HasRegistry,
+    bool HasReadyThread,
+    bool HasInterrupt,
+    bool HasAlpc,
+    bool HasThreadEvents);
 
 public sealed record ProcessRow(
     int Pid,
@@ -451,3 +455,87 @@ public sealed record RegistryStacksResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
+
+// Top-N call-tree frames ranked by ReadyThread event count.  The stack on each event is the
+// READIER's stack (the code that woke up the awakened thread) — answers "who unblocked
+// the threads in process X / waiting for resource Y", closing the producer→consumer
+// causality loop that wait_analysis only opens one side of.
+public sealed record ReadyThreadStackRow(
+    string Function,
+    long ExclusiveReadyCount,
+    long InclusiveReadyCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record ReadyThreadStacksResponse(
+    IReadOnlyList<ReadyThreadStackRow> Rows,
+    long TotalReadyCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// Top-N call-tree frames ranked by interrupt time (DPC + ISR), in microseconds.  Combined
+// metric — a hot driver routine shows up regardless of whether its work runs in the ISR or
+// the DPC.  DpcUs / IsrUs break out the totals so callers can see the split.
+public sealed record InterruptStackRow(
+    string Function,
+    long ExclusiveUs,
+    long InclusiveUs,
+    long ExclusiveCount,
+    long InclusiveCount,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record InterruptStacksResponse(
+    IReadOnlyList<InterruptStackRow> Rows,
+    long TotalUs,
+    long DpcUs,
+    long IsrUs,
+    long TotalCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// Top-N call-tree frames ranked by ALPC message count (Send + Receive merged).  Useful for
+// finding code paths that do heavy cross-process IPC (RPC, COM, AppContainer broker calls,
+// Windows service interactions, etc.).  SendCount / ReceiveCount break out the totals.
+public sealed record AlpcStackRow(
+    string Function,
+    long ExclusiveMessages,
+    long InclusiveMessages,
+    double ExclusivePct,
+    double InclusivePct,
+    double? ExclusivePctOfTrace,
+    double? InclusivePctOfTrace);
+
+public sealed record AlpcStacksResponse(
+    IReadOnlyList<AlpcStackRow> Rows,
+    long TotalMessages,
+    long SendCount,
+    long ReceiveCount,
+    SymbolStats Stats,
+    IReadOnlyList<string> Warnings,
+    TimeHistogram? When = null);
+
+// Per-thread lifecycle row: start / end / lifetime in μs.  TraceResident{Start,End} flags
+// say "this side of the lifetime is bounded by trace capture, not the actual thread event"
+// — for a trace-resident-start thread, StartTimeUs is 0 (= trace start), not the real spawn.
+public sealed record ThreadLifetimeRow(
+    int Tid,
+    long StartTimeUs,
+    long EndTimeUs,
+    long LifetimeUs,
+    bool TraceResidentStart,
+    bool TraceResidentEnd);
+
+public sealed record ThreadLifetimeResponse(
+    int Pid,
+    string ProcessName,
+    int TotalThreads,
+    int ConcurrentPeak,
+    IReadOnlyList<ThreadLifetimeRow> Threads,
+    IReadOnlyList<string> Warnings);

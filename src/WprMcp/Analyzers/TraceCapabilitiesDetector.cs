@@ -23,6 +23,7 @@ internal static class TraceCapabilitiesDetector
         bool hasDiskIo = false, hasImageLoad = false, hasHardFaults = false;
         bool hasStackWalks = false;
         bool hasVirtualAlloc = false, hasNetIo = false, hasRegistry = false;
+        bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
 
         KernelEventWalker.Walk(trace, kernel =>
         {
@@ -44,6 +45,13 @@ internal static class TraceCapabilitiesDetector
             kernel.RegistryQueryValue += _ => hasRegistry = true;
             kernel.RegistryOpen += _ => hasRegistry = true;
             kernel.RegistrySetValue += _ => hasRegistry = true;
+            kernel.DispatcherReadyThread += _ => hasReadyThread = true;
+            kernel.PerfInfoDPC += _ => hasInterrupt = true;
+            kernel.PerfInfoISR += _ => hasInterrupt = true;
+            kernel.ALPCSendMessage += _ => hasAlpc = true;
+            kernel.ALPCReceiveMessage += _ => hasAlpc = true;
+            kernel.ThreadStart += _ => hasThreadEvents = true;
+            kernel.ThreadStop += _ => hasThreadEvents = true;
         });
 
         return new TraceCapabilities(
@@ -56,6 +64,10 @@ internal static class TraceCapabilitiesDetector
             HasStackWalks: hasStackWalks,
             HasVirtualAlloc: hasVirtualAlloc,
             HasNetIo: hasNetIo,
-            HasRegistry: hasRegistry);
+            HasRegistry: hasRegistry,
+            HasReadyThread: hasReadyThread,
+            HasInterrupt: hasInterrupt,
+            HasAlpc: hasAlpc,
+            HasThreadEvents: hasThreadEvents);
     }
 }
