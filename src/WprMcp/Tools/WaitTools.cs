@@ -13,10 +13,15 @@ public sealed class WaitTools
     public WaitTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool, Description(
-        "Per-thread blocked-time analysis from CSwitch events. Surfaces threads spending wall-clock " +
-        "time blocked rather than running on CPU — the canonical answer to 'why was this slow?' when " +
-        "CPU usage is low. Each row carries the dominant wait reasons (e.g., WrFilterContext = blocked " +
-        "in a Filter Manager minifilter callback). Requires the CSwitch keyword in the capture profile.")]
+        "Per-thread blocked-time analysis — the canonical 'why was this slow' answer when CPU " +
+        "usage is low and wall-clock is high.  PerfView equivalent: 'Thread Time' view, " +
+        "blocked-time aggregated per thread.  Built from ThreadCSwitch wait→resume intervals: " +
+        "for each thread, sums the time it sat off-CPU between switch-out and switch-in.  Each " +
+        "row carries dominant kernel wait reasons (WrFilterContext = blocked in a Filter " +
+        "Manager minifilter callback, WrUserRequest = WaitForSingleObject, WrLpcReceive = " +
+        "ALPC reply, etc.) which directly identify the kernel state.  Pair with wait_top_stacks " +
+        "to find the call chain (this answers 'which thread / which reason'; that one answers " +
+        "'where in the code').  Requires the CSwitch keyword (default WPR 'CPU' profiles do).")]
     public WaitAnalysisResponse WaitAnalysis(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,

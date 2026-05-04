@@ -13,9 +13,15 @@ public sealed class ImageLoadTools
     public ImageLoadTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool, Description(
-        "Per-process DLL/image-load sequence in chronological order, with offset-from-process-start. " +
-        "Use to spot late-loading DLLs or unusually long gaps that hint at minifilter / sig-scan delays " +
-        "between loads. For load *durations*, combine with wait_analysis on the same PID's main thread.")]
+        "Per-process DLL/image-load timeline in chronological order — every ImageLoad event " +
+        "with absolute timestamp, offset from ProcessStart, and gap from the previous load.  " +
+        "PerfView equivalent: filter the 'Events' view to ImageLoad for one PID (no native " +
+        "composite view).  Use to spot late-loading DLLs, unusually long inter-load gaps that " +
+        "hint at minifilter / sig-scan delays, or a single DLL that took a long time to map.  " +
+        "Pair with image_load_top_gaps (same data ranked by gap, with FirstLoadOffsetUs) and " +
+        "image_load_top_stacks (the call chain that triggered each load).  For load *durations* " +
+        "(not gaps between loads), combine with wait_analysis on the PID's main thread.  " +
+        "Requires the Loader keyword (default WPR profiles include it).")]
     public ImageLoadTimingResponse ImageLoadTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,

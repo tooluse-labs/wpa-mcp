@@ -12,7 +12,17 @@ public sealed class CpuTools
     private readonly TraceCache _cache;
     public CpuTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description("Top N hot functions by exclusive CPU sample count.")]
+    [McpServerTool, Description(
+        "Top-N hot functions by exclusive CPU sample count — the canonical 'where is CPU " +
+        "time going' answer.  PerfView equivalent: 'CPU Stacks → ByName'.  Built from " +
+        "per-CPU PerfInfoSample events (kernel sampler, default ~1 ms cadence per CPU); " +
+        "each row's ExclusiveSamples is the count of samples whose leaf frame was THIS " +
+        "function (i.e., on-CPU AT this frame, not transiting through it).  Pair with " +
+        "cpu_caller_callee to drill into a specific frame, or cpu_top_functions_batch " +
+        "when investigating multiple PIDs in one trace load.  Set excludeEtwSelfOverhead=true " +
+        "to fold kernel-side stack-walk frames (EtwpLogKernelEvent etc.) into one bucket — " +
+        "useful when ETW overhead drowns the workload signal.  Requires the CPU sample " +
+        "keyword (default WPR 'CPU' / 'CPU.light' profiles include it).")]
     public CpuTopFunctionsResponse CpuTopFunctions(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
