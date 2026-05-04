@@ -212,18 +212,21 @@ public sealed record DiskIoStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
 
-public sealed record MmapHotFileRow(
+// Per-file aggregate of MemoryHardFault events: bytes paged in from disk for one file.  Most
+// hard faults come from memory-mapped files (DLLs, data files, network-share content) being
+// touched for the first time; some also come from paged-out heap/stack pages and the page file.
+public sealed record HardFaultFileRow(
     string File,
     long PageInBytes,
     long PageInCount,
     long MaxLatencyUs);
 
-public sealed record MmapHotFilesResponse(
-    IReadOnlyList<MmapHotFileRow> Rows,
+public sealed record HardFaultByFileResponse(
+    IReadOnlyList<HardFaultFileRow> Rows,
     IReadOnlyList<string> Warnings);
 
 // Top-N call-tree frames ranked by hard-fault PAGING-IN BYTES. Different question from
-// MmapHotFilesResponse: that bucket is "which file paged in most"; this one is "which call
+// HardFaultByFileResponse: that bucket is "which file paged in most"; this one is "which call
 // chain triggered the page-in". For a slow-startup process loading a large DLL, the per-file
 // view points at the heavy module by name; the per-stack view shows whether the page-in came
 // from eager linker resolution, lazy use of a constructor, or a third-party scanner.

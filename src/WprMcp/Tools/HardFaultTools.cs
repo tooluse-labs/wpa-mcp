@@ -7,32 +7,36 @@ using WprMcp.Output;
 namespace WprMcp.Tools;
 
 [McpServerToolType]
-public sealed class MmapTools
+public sealed class HardFaultTools
 {
     private readonly TraceCache _cache;
-    public MmapTools(TraceCache cache) => _cache = cache;
+    public HardFaultTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool, Description(
-        "Top N memory-mapped files by hard page-in bytes. " +
-        "Identifies which mmap'd file caused page-in load (e.g., a network-share PDF).")]
-    public MmapHotFilesResponse MmapHotFiles(
+        "Top-N files by hard-fault paging-in bytes — answers 'which file caused the page-in " +
+        "load' (e.g., a network-share PDF, an oversized DLL).  PerfView equivalent: " +
+        "'Memory Hard Fault → ByFile'.  Most hard faults are mmap'd files being touched for " +
+        "the first time; some also come from paged-out heap/stack pages and the page file.  " +
+        "Requires the HardFaults kernel keyword in the capture profile (NOT in default WPR " +
+        "'CPU' / 'CPU.light' profiles).")]
+    public HardFaultByFileResponse HardFaultByFile(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null)
     {
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return MmapAnalysis.HotFiles(trace, top, pid);
+        return HardFaultByFileAnalysis.Analyze(trace, top, pid);
     }
 
     [McpServerTool, Description(
         "Top-N call stacks ranked by hard-fault paging-in bytes — answers 'which call chain " +
-        "is paging in cold pages from disk'. PerfView equivalent: 'Memory Hard Fault Stacks' " +
-        "view. Pairs with mmap_hot_files (per-file bucket); this one is per-stack so you can " +
+        "is paging in cold pages from disk'.  PerfView equivalent: 'Memory Hard Fault Stacks'.  " +
+        "Pairs with hard_fault_by_file (per-file bucket); this one is per-stack so you can " +
         "tell eager loader resolution apart from lazy use of a constructor or scanner-induced " +
-        "page-in. Each row carries both PageInBytes (metric=ByteCount) and FaultCount. Requires " +
-        "the HardFaults kernel keyword in the capture profile.")]
-    public HardFaultStacksResponse MmapTopStacks(
+        "page-in.  Each row carries both PageInBytes (metric=ByteCount) and FaultCount.  " +
+        "Requires the HardFaults kernel keyword in the capture profile.")]
+    public HardFaultStacksResponse HardFaultTopStacks(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -50,12 +54,12 @@ public sealed class MmapTools
     }
 
     [McpServerTool, Description(
-        "Caller/callee drill-down for a focus function in the hard-fault-stack data. Metric " +
+        "Caller/callee drill-down for a focus function in the hard-fault-stack data.  Metric " +
         "is page-in bytes; top-N callers ranked by inclusive bytes paged in for focus, callees " +
-        "by bytes flowing through. Requires HardFaults keyword in the capture profile.")]
-    public CallerCalleeResponse MmapCallerCallee(
+        "by bytes flowing through.  Requires HardFaults keyword in the capture profile.")]
+    public CallerCalleeResponse HardFaultCallerCallee(
         [Description("Absolute path to .etl file")] string path,
-        [Description("Focus frame name, exactly as it appears in mmap_top_stacks output.")]
+        [Description("Focus frame name, exactly as it appears in hard_fault_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,

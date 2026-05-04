@@ -9,7 +9,7 @@ Project-specific gotchas and conventions for anyone (human or AI agent) modifyin
 Tool surface (all under `[McpServerToolType]` attribute classes in `src/WprMcp/Tools/`):
 - **Meta**: `load_trace`, `list_processes` (incl. `WaitRatio`/`ParentPid`/`ImageLoadCount`, hides Idle/System by default)
 - **CPU**: `cpu_top_functions`, `cpu_top_functions_batch` (multi-PID in one trace pass)
-- **IO / mmap**: `file_io_top_files`, `mmap_hot_files`
+- **IO / hard fault**: `file_io_top_files`, `hard_fault_by_file`
 - **Marker**: `find_marker` (default mode `count_by_event` to avoid token blowup; `rows` mode for full detail)
 - **Symbols**: `set_symbol_path`, `add_symbol_server`, `diagnose_symbols` (`load_trace` also returns `Recommendations` based on observed module names)
 - **Wait / Image-load / Diagnose** (PerfView-derived): `wait_analysis`, `image_load_timing`, `diagnose_slow_startup`
@@ -30,11 +30,11 @@ There is **no app entry point besides `--version` and the MCP stdio server** —
 ## High-level architecture
 
 ```
-Tools/*Tools.cs       [McpServerTool] entry points (CpuTools, IoTools, MmapTools, MarkerTools, MetaTools, SymbolTools)
+Tools/*Tools.cs       [McpServerTool] entry points (CpuTools, IoTools, HardFaultTools, MarkerTools, MetaTools, SymbolTools)
    ↓ inject
 Core/{TraceCache,SymbolService,LruCache}.cs
    ↓
-Analyzers/*.cs        Pure analysis on TraceLog (CpuAnalysis, FileIoAnalysis, MmapAnalysis, MarkerSearch, FileObjectResolver)
+Analyzers/*.cs        Pure analysis on TraceLog (CpuAnalysis, FileIoAnalysis, HardFaultByFileAnalysis, MarkerSearch, FileObjectResolver)
    ↓
 Output/{Records,Warnings}.cs   JSON DTOs
 ```
@@ -90,16 +90,16 @@ Threads on their first switch-in (no anchor switch-out) are skipped — under-co
 
 Requires the `CSwitch` keyword in the capture profile. Default `CPU` / `CPU.light` WPR profiles include it; some custom `.wprp` files don't.
 
-### File / mmap analyzers — two distinct keying schemes
+### File-IO vs hard-fault analyzers — two distinct keying schemes
 
 Critical TraceEvent gotcha that the headers explain in detail but is easy to miss:
 
 - **`FileIoAnalysis`** uses `FileObjectResolver`, which maps `FileObject` (a kernel handle) → filename via `FileIORead`/`FileIOWrite`/`FileIOCreate`/etc. (events of type `FileIOReadWriteTraceData` and friends).
-- **`MmapAnalysis`** uses `MemoryHardFault` events whose key is **`FileKey`** (a section-object key), not `FileObject`. It builds its own `FileKey → FileName` map by subscribing to `FileIONameTraceData` events (`FileIOName`/`FileIOFileCreate`/`FileIOFileDelete`/`FileIOFileRundown`).
+- **`HardFaultByFileAnalysis`** uses `MemoryHardFault` events whose key is **`FileKey`** (a section-object key), not `FileObject`. It builds its own `FileKey → FileName` map by subscribing to `FileIONameTraceData` events (`FileIOName`/`FileIOFileCreate`/`FileIOFileDelete`/`FileIOFileRundown`).
 
-Don't try to share `FileObjectResolver` with `MmapAnalysis` — the keys are different kernel concepts. See the long comment block at the top of each file before refactoring.
+Don't try to share `FileObjectResolver` with `HardFaultByFileAnalysis` — the keys are different kernel concepts. See the long comment block at the top of each file before refactoring.
 
-`MemoryHardFault` events require the `HardFaults` kernel keyword, which **is not enabled by default WPR profiles**. `mmap_hot_files` returns empty results on traces captured with `wpr -start CPU` etc. Use `tests/WprMcp.Tests/fixtures/MmapCapture.wprp` (also referenced from `docs/WPR_PROFILE.md`).
+`MemoryHardFault` events require the `HardFaults` kernel keyword, which **is not enabled by default WPR profiles**. `hard_fault_by_file` returns empty results on traces captured with `wpr -start CPU` etc. Use `tests/WprMcp.Tests/fixtures/MmapCapture.wprp` (also referenced from `docs/WPR_PROFILE.md`).
 
 ## Test fixtures
 

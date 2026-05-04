@@ -4,7 +4,9 @@ using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
 
-// Aggregates MemoryHardFault events into per-file page-in totals.
+// Aggregates MemoryHardFault events into per-file page-in totals.  PerfView equivalent:
+// "Memory Hard Fault → ByFile" view.  Most hard faults are mmap'd files being touched for
+// the first time; the rest come from paged-out heap/stack pages and the page file.
 //
 // Probe findings (TraceEvent 3.2.2, KernelTraceEventParser):
 //   * Event: MemoryHardFault (NOT PageFaultHardFault as the plan template guessed).
@@ -28,9 +30,9 @@ namespace WprMcp.Analyzers;
 // Two-pass design (mirrors FileIoAnalysis.TopFiles): one trace pass to populate the
 // FileKey -> FileName map, then a second pass to aggregate hard faults. This avoids
 // the ordering hazard where a fault arrives before the Rundown that names its key.
-public static class MmapAnalysis
+public static class HardFaultByFileAnalysis
 {
-    public static MmapHotFilesResponse HotFiles(TraceLog trace, int top, int? pid)
+    public static HardFaultByFileResponse Analyze(TraceLog trace, int top, int? pid)
     {
         // Pass 1: build FileKey -> FileName map from FileIONameTraceData events.
         var fileNames = BuildFileKeyMap(trace);
@@ -57,13 +59,13 @@ public static class MmapAnalysis
         });
 
         var rows = agg
-            .Select(kv => new MmapHotFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
+            .Select(kv => new HardFaultFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
             .OrderByDescending(r => r.PageInBytes)
             .Take(top)
             .ToList();
 
-        var warnings = new List<string> { WarningBuilder.MmapKeywordHint };
-        return new MmapHotFilesResponse(rows, warnings);
+        var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
+        return new HardFaultByFileResponse(rows, warnings);
     }
 
     private static Dictionary<ulong, string> BuildFileKeyMap(TraceLog trace)

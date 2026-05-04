@@ -16,10 +16,10 @@ namespace WprMcp.Analyzers;
 // bytes processed by this frame"; ExclusiveCount tracks the operation count for free on the
 // same stack source — no need for a separate count-only pipeline.
 //
-// Note vs MmapAnalysis: file IO events fire on the syscall (NtReadFile / NtWriteFile), so
-// they capture both cache-hit and cache-miss reads. MemoryHardFault only fires on cache-miss
-// page-ins. To diagnose "is my IO actually hitting disk", combine this view with mmap_top_stacks
-// (page-in stacks) — what's in file IO but not hard-faults is cache-served.
+// Note vs HardFaultByFileAnalysis: file IO events fire on the syscall (NtReadFile / NtWriteFile),
+// so they capture both cache-hit and cache-miss reads.  MemoryHardFault only fires on cache-miss
+// page-ins.  To diagnose "is my IO actually hitting disk", combine this view with
+// hard_fault_top_stacks — what's in file IO but not hard-faults is cache-served.
 public static class FileIoStackAnalysis
 {
     public static FileIoStacksResponse TopIoStacks(

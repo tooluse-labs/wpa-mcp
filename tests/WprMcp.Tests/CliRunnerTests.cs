@@ -14,7 +14,7 @@ public class CliRunnerTests
         Assert.True(CliRunner.IsCliInvocation(new[] { "--cpu-caller-callee", "x.etl", "fn" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--wait-caller-callee", "x.etl", "fn" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--image-load-caller-callee", "x.etl", "fn" }));
-        Assert.True(CliRunner.IsCliInvocation(new[] { "--mmap-caller-callee", "x.etl", "fn" }));
+        Assert.True(CliRunner.IsCliInvocation(new[] { "--hard-fault-caller-callee", "x.etl", "fn" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--file-io-caller-callee", "x.etl", "fn" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--disk-io-top-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--disk-io-caller-callee", "x.etl", "fn" }));
@@ -23,7 +23,7 @@ public class CliRunnerTests
         Assert.True(CliRunner.IsCliInvocation(new[] { "--image-load-timing", "x.etl", "1234" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--image-load-top-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--image-load-top-gaps", "x.etl", "1234" }));
-        Assert.True(CliRunner.IsCliInvocation(new[] { "--mmap-top-stacks", "x.etl" }));
+        Assert.True(CliRunner.IsCliInvocation(new[] { "--hard-fault-top-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--file-io-top-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--diagnose-slow-startup", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--find-marker", "x.etl", "Sample" }));

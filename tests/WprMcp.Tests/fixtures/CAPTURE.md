@@ -63,7 +63,7 @@ Used by: FileIoAnalysisTests.
 ## small_mmap.etl
 
 Captured with the custom profile `MmapCapture.wprp` (this folder) — the default
-WPR profiles do NOT enable the `HardFaults` keyword that `mmap_hot_files`
+WPR profiles do NOT enable the `HardFaults` keyword that `hard_fault_by_file`
 depends on.
 
 ```powershell
@@ -85,7 +85,7 @@ After capture, shrink WITHOUT a time cut (the test that uses this fixture needs 
 `dotnet run --project tools/etlshrink -- small_mmap.etl small_mmap.shrunk.etl`
 Current committed size: ~8 MB (compression-only).  If still too large, reduce `<Buffers Value="64"/>` in `MmapCapture.wprp` to `"32"` and recapture.
 
-Used by: MmapAnalysisTests.
+Used by: HardFaultByFileAnalysisTests + PageFaultStackAnalysisTests + ImageLoad tests (the mmap fixture spawns 8 short-lived processes).
 
 ## After capturing all 3 fixtures
 
@@ -93,5 +93,5 @@ Notify the controller (or run yourself):
 - Remove `Skip = "..."` from all `[Fact(Skip = "...")]` attributes in:
   - `TraceEventSmokeTests.cs`, `TraceCacheTests.cs`, `MetaToolsTests.cs`,
     `CpuAnalysisTests.cs`, `FileObjectResolverTests.cs`, `MarkerSearchTests.cs`,
-    `SymbolServiceTests.cs`, `FileIoAnalysisTests.cs`, `MmapAnalysisTests.cs`.
+    `SymbolServiceTests.cs`, `FileIoAnalysisTests.cs`, `HardFaultByFileAnalysisTests.cs`.
 - Run `dotnet test` and verify all 33 tests pass (15 previously-passing + 18 newly-runnable).

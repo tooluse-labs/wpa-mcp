@@ -6,11 +6,11 @@ For best coverage of all 6 PoC tools, capture with the included
 | Keyword | Used by |
 |---|---|
 | ProcessThread, Loader | All tools |
-| HardFaults | mmap_hot_files (REQUIRED — default profiles omit) |
-| MemoryInfo | mmap_hot_files |
+| HardFaults | hard_fault_by_file / hard_fault_top_stacks (REQUIRED — default profiles omit) |
+| MemoryInfo | hard_fault_by_file |
 | FileIO, FileIOInit | file_io_top_files |
 
-For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no mmap analysis).
+For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault analysis).
 
 ## Capture commands
 

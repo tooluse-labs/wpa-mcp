@@ -12,7 +12,7 @@ namespace WprMcp.Analyzers;
 // underlying MutableTraceEventStackSource + CallTree machinery is what we already use for
 // every other stack-based analyzer.
 //
-// Pairs with MmapAnalysis.HotFiles, which buckets the SAME events by FileName: the per-file
+// Pairs with HardFaultByFileAnalysis, which buckets the SAME events by FileName: the per-file
 // view answers "which file is paging in most", this per-stack view answers "which call chain
 // is triggering those page-ins" — the question that a slow-process-creation case actually
 // wants answered (eager loader vs lazy use vs scanner-induced).
@@ -22,7 +22,7 @@ namespace WprMcp.Analyzers;
 // "fault count" for free without a second stack source — important because each AddSample
 // adds an entry to the interner and a second source would double symbol-resolution cost.
 //
-// Like MmapAnalysis, requires the HardFaults kernel keyword in the capture profile. Default
+// Like HardFaultByFileAnalysis, requires the HardFaults kernel keyword in the capture profile. Default
 // WPR profiles do NOT enable it — see tests/WprMcp.Tests/fixtures/MmapCapture.wprp. The
 // usual MmapKeywordHint warning is emitted unconditionally so empty results are explainable.
 public static class PageFaultStackAnalysis
@@ -130,7 +130,7 @@ public static class PageFaultStackAnalysis
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
-        var warnings = new List<string> { WarningBuilder.MmapKeywordHint };
+        var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
         if (totalFaults == 0)
         {
             warnings.Add(

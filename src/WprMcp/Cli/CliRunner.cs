@@ -30,12 +30,12 @@ public static class CliRunner
         ["--wait-top-stacks"] = RunWaitTopStacks,
         ["--wait-caller-callee"] = RunWaitCallerCallee,
         ["--image-load-caller-callee"] = RunImageLoadCallerCallee,
-        ["--mmap-caller-callee"] = RunMmapCallerCallee,
+        ["--hard-fault-caller-callee"] = RunHardFaultCallerCallee,
         ["--file-io-caller-callee"] = RunFileIoCallerCallee,
         ["--image-load-timing"] = RunImageLoadTiming,
         ["--image-load-top-stacks"] = RunImageLoadTopStacks,
         ["--image-load-top-gaps"] = RunImageLoadTopGaps,
-        ["--mmap-top-stacks"] = RunMmapTopStacks,
+        ["--hard-fault-top-stacks"] = RunHardFaultTopStacks,
         ["--file-io-top-stacks"] = RunFileIoTopStacks,
         ["--disk-io-top-stacks"] = RunDiskIoTopStacks,
         ["--disk-io-caller-callee"] = RunDiskIoCallerCallee,
@@ -174,18 +174,18 @@ public static class CliRunner
         return 0;
     }
 
-    private static int RunMmapTopStacks(string[] args)
+    private static int RunHardFaultTopStacks(string[] args)
     {
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: --mmap-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
+            Console.Error.WriteLine("usage: --hard-fault-top-stacks <trace.etl> [pid] [top] [whenBuckets]");
             return 2;
         }
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
-        var tools = new MmapTools(new TraceCache(capacity: 1));
-        Emit(tools.MmapTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        var tools = new HardFaultTools(new TraceCache(capacity: 1));
+        Emit(tools.HardFaultTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
         return 0;
     }
 
@@ -214,9 +214,9 @@ public static class CliRunner
         RunCallerCalleeVerb(args, "--image-load-caller-callee", (path, fn, pid, top) =>
             new ImageLoadTools(new TraceCache(capacity: 1)).ImageLoadCallerCallee(path, fn, top, pid));
 
-    private static int RunMmapCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--mmap-caller-callee", (path, fn, pid, top) =>
-            new MmapTools(new TraceCache(capacity: 1)).MmapCallerCallee(path, fn, top, pid));
+    private static int RunHardFaultCallerCallee(string[] args) =>
+        RunCallerCalleeVerb(args, "--hard-fault-caller-callee", (path, fn, pid, top) =>
+            new HardFaultTools(new TraceCache(capacity: 1)).HardFaultCallerCallee(path, fn, top, pid));
 
     private static int RunFileIoCallerCallee(string[] args) =>
         RunCallerCalleeVerb(args, "--file-io-caller-callee", (path, fn, pid, top) =>
@@ -315,13 +315,13 @@ public static class CliRunner
         w.WriteLine("  --image-load-timing     <trace.etl> <pid> [top=100]");
         w.WriteLine("  --image-load-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --image-load-top-gaps   <trace.etl> <pid> [top=20]");
-        w.WriteLine("  --mmap-top-stacks       <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --hard-fault-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --file-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --disk-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --disk-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --wait-caller-callee    <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --image-load-caller-callee <trace.etl> <function> [pid] [top=20]");
-        w.WriteLine("  --mmap-caller-callee    <trace.etl> <function> [pid] [top=20]");
+        w.WriteLine("  --hard-fault-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --file-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --diagnose-slow-startup <trace.etl> [nameSubstring] [minWaitRatio=3.0]");
         w.WriteLine("  --find-marker           <trace.etl> <substring> [mode=count_by_event|count_by_process|rows] [top=50]");
