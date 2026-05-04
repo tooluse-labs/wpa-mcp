@@ -100,7 +100,7 @@ public sealed class SymbolTools
          new[] { "chrome", "chromium", "msedge", "electron", "cef" }),
     };
 
-    private static string SuggestServerForModule(string filePath)
+    internal static string SuggestServerForModule(string filePath)
     {
         foreach (var (hint, patterns) in ServerHints)
             if (patterns.Any(p => filePath.Contains(p, StringComparison.OrdinalIgnoreCase)))

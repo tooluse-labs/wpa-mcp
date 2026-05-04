@@ -32,6 +32,21 @@ public sealed class SymbolService
         var cache = cacheDir ?? DefaultCacheDir;
         Directory.CreateDirectory(cache);
         var entry = $"SRV*{cache}*{url}";
-        SetPath(entry, append: true);
+        // Reentrant lock: SetPath also takes _lock; .NET's Monitor allows the same thread
+        // to re-enter, so the dedupe check + append are atomic against concurrent callers.
+        lock (_lock)
+        {
+            if (CurrentPath != null && PathContainsEntry(CurrentPath, entry))
+                return;
+            SetPath(entry, append: true);
+        }
+    }
+
+    private static bool PathContainsEntry(string path, string entry)
+    {
+        foreach (var part in path.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            if (string.Equals(part.Trim(), entry, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 }

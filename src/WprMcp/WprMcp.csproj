@@ -13,4 +13,8 @@
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="WprMcp.Tests" />
+  </ItemGroup>
+
 </Project>
