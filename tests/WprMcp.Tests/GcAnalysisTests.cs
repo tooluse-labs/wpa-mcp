@@ -14,7 +14,7 @@ public class GcAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrGcAnalysis_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrGcAnalysis_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrGcAnalysis(FixturePath);
@@ -35,8 +35,8 @@ public class GcAnalysisTests
         // Window + pid filters set, but trace has no GC events — verify nothing crashes
         // and the response shape is still well-formed (no NaN, no negative counts).
         var tools = new ClrTools(new TraceCache(capacity: 2));
-        var resp = tools.ClrGcAnalysis(FixturePath, pid: 99999, startUs: 0, endUs: 1_000_000);
-        Assert.Equal(99999, resp.Pid);
+        var resp = tools.ClrGcAnalysis(FixturePath, pid: 999_999, startUs: 0, endUs: 1_000_000);
+        Assert.Equal(999_999, resp.Pid);
         Assert.Equal(0, resp.TotalGcCount);
     }
 

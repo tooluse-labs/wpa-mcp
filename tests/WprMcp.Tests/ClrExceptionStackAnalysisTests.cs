@@ -9,13 +9,12 @@ public class ClrExceptionStackAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrExceptionTopStacks_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrExceptionTopStacks_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrExceptionTopStacks(FixturePath);
-        // CallTree emits a synthetic ROOT node even when the stack source is empty.
         Assert.Equal(0, resp.TotalEventCount);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveCount));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveCount, r => r.InclusiveCount);
         Assert.Empty(resp.TopTypes);
         Assert.Contains(resp.Warnings, w => w.Contains("CLR", StringComparison.OrdinalIgnoreCase));
     }

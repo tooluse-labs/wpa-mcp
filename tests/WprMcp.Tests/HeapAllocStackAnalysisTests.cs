@@ -1,4 +1,5 @@
 using WprMcp.Core;
+using WprMcp.Output;
 using WprMcp.Tools;
 using Xunit;
 
@@ -12,15 +13,15 @@ public class HeapAllocStackAnalysisTests
     public void HeapAllocTopStacks_NoHeapTrace_EmitsPerProcessWarning()
     {
         // small_cpu.etl was captured without /HeapTrace; verify the analyzer routes through
-        // WarningBuilder.MissingPerProcessHeapTrace (specific text mentions "per-process").
+        // WarningBuilder.MissingPerProcessHeapTrace by const-reference equality.
         var tools = new HeapTools(new TraceCache(capacity: 2));
         var resp = tools.HeapAllocTopStacks(FixturePath);
         Assert.Equal(0, resp.TotalBytes);
         Assert.Equal(0, resp.TotalEventCount);
         Assert.Equal(0, resp.AllocBytes);
         Assert.Equal(0, resp.ReallocBytes);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveBytes));
-        Assert.Contains(resp.Warnings, w => w.Contains("per-process", StringComparison.OrdinalIgnoreCase));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBytes, r => r.InclusiveBytes);
+        Assert.Contains(WarningBuilder.MissingPerProcessHeapTrace, resp.Warnings);
     }
 
     [Fact]

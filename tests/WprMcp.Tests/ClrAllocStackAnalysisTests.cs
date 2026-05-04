@@ -9,21 +9,19 @@ public class ClrAllocStackAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrAllocTopStacks_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrAllocTopStacks_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrAllocTopStacks(FixturePath);
-        // CallTree emits a synthetic ROOT node even when the stack source is empty —
-        // assert via metric totals + warning rather than row count.
         Assert.Equal(0, resp.TotalBytes);
         Assert.Equal(0, resp.TotalEventCount);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveBytes));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBytes, r => r.InclusiveBytes);
         Assert.Empty(resp.TopTypes);
         Assert.Contains(resp.Warnings, w => w.Contains("CLR", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void ClrAllocCallerCallee_EmptyTrace_NoFocusMatch()
+    public void ClrAllocCallerCallee_NoMatchingEvents_NoFocusMatch()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrAllocCallerCallee(FixturePath, "System.String..ctor");

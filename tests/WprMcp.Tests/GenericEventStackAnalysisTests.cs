@@ -31,13 +31,12 @@ public class GenericEventStackAnalysisTests
     }
 
     [Fact]
-    public void GenericEventTopStacks_NonexistentProvider_EmptyAndWarns()
+    public void GenericEventTopStacks_NonexistentProvider_NoMatchingEventsAndWarns()
     {
         var tools = new GenericProviderTools(new TraceCache(capacity: 2));
         var resp = tools.GenericEventTopStacks(FixturePath, "NoSuchProvider-DoesNotExist", top: 10);
-        // CallTree emits a synthetic ROOT node even on empty input — assert via totals.
         Assert.Equal(0, resp.TotalEventCount);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveCount));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveCount, r => r.InclusiveCount);
         Assert.Empty(resp.TopEventNames);
         Assert.NotEmpty(resp.Warnings);
         Assert.Contains(resp.Warnings, w => w.Contains("NoSuchProvider-DoesNotExist", StringComparison.Ordinal));
@@ -53,7 +52,7 @@ public class GenericEventStackAnalysisTests
         Assert.True(filtered.TotalEventCount <= unfiltered.TotalEventCount);
         Assert.Equal("ThisSubstringWillMatchNothingFromTheKernel", filtered.EventNameSubstring);
         Assert.Equal(0, filtered.TotalEventCount);
-        Assert.All(filtered.Rows, r => Assert.Equal(0, r.ExclusiveCount));
+        StackAssertions.AssertRootOnly(filtered.Rows, r => r.ExclusiveCount, r => r.InclusiveCount);
     }
 
     [Fact]

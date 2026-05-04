@@ -9,7 +9,7 @@ public class GcHeapStatsAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrGcHeapStats_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrGcHeapStats_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrGcHeapStats(FixturePath);
@@ -21,8 +21,8 @@ public class GcHeapStatsAnalysisTests
     public void ClrGcHeapStats_PidFilterPropagates()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
-        var resp = tools.ClrGcHeapStats(FixturePath, pid: 12345);
-        Assert.Equal(12345, resp.Pid);
+        var resp = tools.ClrGcHeapStats(FixturePath, pid: 999_999);
+        Assert.Equal(999_999, resp.Pid);
         Assert.Empty(resp.Rows);
     }
 }

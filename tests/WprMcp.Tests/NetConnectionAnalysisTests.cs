@@ -23,8 +23,8 @@ public class NetConnectionAnalysisTests
     public void NetConnections_PidFilterReflectedInResponse()
     {
         var tools = new NetIoTools(new TraceCache(capacity: 2));
-        var resp = tools.NetConnections(FixturePath, pid: 7777);
-        Assert.Equal(7777, resp.Pid);
+        var resp = tools.NetConnections(FixturePath, pid: 999_999);
+        Assert.Equal(999_999, resp.Pid);
         Assert.Empty(resp.Connections);
     }
 

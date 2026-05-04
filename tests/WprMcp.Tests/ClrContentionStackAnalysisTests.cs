@@ -9,14 +9,13 @@ public class ClrContentionStackAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrContentionTopStacks_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrContentionTopStacks_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrContentionTopStacks(FixturePath);
-        // CallTree emits a synthetic ROOT node even when the stack source is empty.
         Assert.Equal(0, resp.TotalBlockedUs);
         Assert.Equal(0, resp.TotalEventCount);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveBlockedUs));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBlockedUs, r => r.InclusiveBlockedUs);
         Assert.Contains(resp.Warnings, w => w.Contains("CLR", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -30,7 +29,7 @@ public class ClrContentionStackAnalysisTests
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrContentionTopStacks(FixturePath, pid: 4); // System
         Assert.Equal(0, resp.TotalEventCount);
-        Assert.All(resp.Rows, r => Assert.Equal(0, r.ExclusiveBlockedUs));
+        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBlockedUs, r => r.InclusiveBlockedUs);
     }
 
     [Fact]

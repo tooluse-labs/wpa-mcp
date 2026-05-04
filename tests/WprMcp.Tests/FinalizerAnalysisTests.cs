@@ -9,7 +9,7 @@ public class FinalizerAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl";
 
     [Fact]
-    public void ClrFinalizerAnalysis_EmptyTrace_ReturnsEmptyAndWarns()
+    public void ClrFinalizerAnalysis_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrFinalizerAnalysis(FixturePath);
