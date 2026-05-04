@@ -8,6 +8,8 @@
 
 # wpa-mcp
 
+[![Glama MCP server](https://glama.ai/mcp/servers/tooluse-labs/wpa-mcp/badge)](https://glama.ai/mcp/servers/tooluse-labs/wpa-mcp)
+
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
 > **Status — PoC.** 54 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
