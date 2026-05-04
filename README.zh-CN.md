@@ -365,11 +365,13 @@ wpr.exe -start tests\WprMcp.Tests\fixtures\MmapCapture.wprp -filemode
 wpr.exe -stop C:\path\to\my_capture.etl
 ```
 
-### Symbols
+### Symbols（符号）
 
 > **如果 `cpu_top_functions` 满屏 `module!?`、`Stats.ResolutionRate < 0.8`，说明你的符号没工作。** 这是"输出垃圾"的最大单一来源。
 
-三条配置路径（任选一条——最终都设置同一个 `_NT_SYMBOL_PATH`）：
+#### 路径在哪里设
+
+`_NT_SYMBOL_PATH` 接收用分号分隔的多条 entry：`SRV*<cache>*<url>` 是符号服务器，裸路径是本地 PDB 目录，可以混用。三条配置路径（任选一条——最终都设置同一个环境变量）：
 
 1. **启动前设环境变量**（最干净，重启后仍生效）：
    ```powershell
@@ -381,4 +383,34 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 符号缓存默认 `%LocalAppData%\WprMcp\Symbols`（和 PerfView 的 `C:\Symbols` 分开，避免 PDB lock 争用）。每条 trace 的针对性推荐会出现在 `load_trace` 的返回字段 `SymbolStatus.Recommendations` 里，告诉你针对这份 trace 实际出现的模块应该加哪些服务器。
 
-私有 vendor 符号服务器、Chromium 系列浏览器、本地 build PDB 目录等更多配方见 [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。
+#### 微软模块之外的符号
+
+`load_trace` 的自动推荐只认它内置的 pattern（Microsoft、Chromium）。自家 DLL、第三方 SDK、内部构建的符号需要显式追加，常见写法：
+
+| 你手上有什么 | 应该追加的 entry |
+|---|---|
+| 内部团队符号服务器 | `SRV*C:\Symbols*https://internal-symsrv.example.com/symbols` |
+| 团队共享的 UNC 盘 | `SRV*C:\Symbols*\\fileserver\symbols` |
+| 本地 dev 构建产物（自家 PDB） | `C:\src\myapp\out\Default`（裸路径，无 `SRV*`） |
+
+**顺序有意义**——entry 从左到右尝试，首个签名命中就停。迭代构建时把本地 dev 目录放**最前**，让刚出炉的 PDB 优先于公开 PDB 命中。
+
+#### 自家 DLL 的构建前置条件
+
+符号服务器配得再对，构建本身没产 PDB——或者 PDB 跟最终部署的 DLL 不是同一次构建——也救不了。
+
+- **.NET / C#**：`<DebugType>portable</DebugType>` + `<DebugSymbols>true</DebugSymbols>`。检查 Release 配置没把 PDB 输出关掉。
+- **C++（MSVC）**：`/Zi` + `/DEBUG:FULL`，Release 也要开。PDB 跟 DLL 留同目录。
+- PDB 和 DLL 必须共享同一个签名（GUID + age）——重新 link 就生成新签名，老 PDB 不再认新 DLL。
+
+#### 验证是否生效
+
+```
+> load_trace C:\my\trace.etl
+> diagnose_symbols C:\my\trace.etl
+> cpu_top_functions C:\my\trace.etl
+```
+
+`diagnose_symbols` 给每个模块的解析状态，未解析的会带修复 hint；`cpu_top_functions` 的 `Stats.ResolutionRate` ≥ 0.8 才算可用。中途改了路径之后，已加载的 trace 不会重查符号——`unload_trace` + `load_trace` 强制重查（`LookupWarmSymbols` 在每个加载好的 trace 上只跑一次）。
+
+完整配方（UNC 路径、私有 vendor、Chromium 浏览器、缓存管理、踩坑排查）见 [`docs/SYMBOL_RECIPES.zh-CN.md`](docs/SYMBOL_RECIPES.zh-CN.md)（中文）/ [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。

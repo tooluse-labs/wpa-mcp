@@ -371,7 +371,9 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 > **If `cpu_top_functions` shows `module!?` everywhere and `Stats.ResolutionRate < 0.8`, your symbols are not working.**  This is the single biggest source of "garbage output".
 
-Three setup paths (any one suffices — they all set the same `_NT_SYMBOL_PATH`):
+#### Where to set the path
+
+`_NT_SYMBOL_PATH` accepts semicolon-separated entries: `SRV*<cache>*<url>` for symbol servers, bare folder paths for local PDBs, mix and match. Three setup paths (any one suffices — they all set the same env var):
 
 1. **Pre-launch env var** (cleanest, survives restarts):
    ```powershell
@@ -383,4 +385,34 @@ Three setup paths (any one suffices — they all set the same `_NT_SYMBOL_PATH`)
 
 Symbol cache defaults to `%LocalAppData%\WprMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
 
-For private vendor symbol servers, Chromium-family browsers, and local-build PDB folders, see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md).  Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+#### Beyond Microsoft modules
+
+The auto-recommendation in `load_trace` only knows the public servers it has patterns for (Microsoft, Chromium). For your own DLLs, third-party SDKs, or internal builds, append entries explicitly — common shapes:
+
+| What you have | Entry to append |
+|---|---|
+| Internal team symbol server | `SRV*C:\Symbols*https://internal-symsrv.example.com/symbols` |
+| Team shared drop on a UNC share | `SRV*C:\Symbols*\\fileserver\symbols` |
+| Local dev build output (your own PDBs) | `C:\src\myapp\out\Default` (bare folder, no `SRV*`) |
+
+Order matters — entries are tried left-to-right, first signature match wins. Put the local dev folder **first** when iterating on a build so your fresh PDB beats the public one.
+
+#### Build prerequisites for your own DLLs
+
+A symbol server doesn't help if the build never produced a PDB, or if PDB and deployed DLL are from different builds.
+
+- **.NET / C#**: `<DebugType>portable</DebugType>` + `<DebugSymbols>true</DebugSymbols>`. Check that Release configurations don't disable PDB output.
+- **C++ (MSVC)**: `/Zi` + `/DEBUG:FULL`, even in Release. Keep PDB next to DLL.
+- PDB and DLL must share the same signature (GUID + age) — re-link → new signature → old PDB no longer resolves.
+
+#### Verifying it worked
+
+```
+> load_trace C:\my\trace.etl
+> diagnose_symbols C:\my\trace.etl
+> cpu_top_functions C:\my\trace.etl
+```
+
+`diagnose_symbols` lists per-module status with hints for unresolved ones; `cpu_top_functions`'s `Stats.ResolutionRate` should be ≥ 0.8 for actionable output. After changing the symbol path mid-session, `unload_trace` + `load_trace` to force re-resolution — `LookupWarmSymbols` is cached per loaded trace.
+
+For full recipes (UNC paths, private vendors, Chromium-family browsers, cache management, troubleshooting), see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md) ([中文](docs/SYMBOL_RECIPES.zh-CN.md)). Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
