@@ -214,21 +214,23 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 Most groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
 
+In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI; entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** use raw events that PerfView's Events view exposes but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. The other ~45 tools are 1:1 mappings of PerfView views.
+
 ### Meta
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
 | `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
-| `process_create_timing` | Per-fork timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | (no equivalent — composite, see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)) |
-| `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | (no equivalent — events filter on `Thread/Start` + `Thread/Stop` manually) |
+| `process_create_timing` | Per-fork timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
+| `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |
 
 ### CPU stacks
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `cpu_top_functions` | Top-N hot functions by exclusive CPU samples in a window / for a PID.  Optional `excludeEtwSelfOverhead` folds `EtwpLogKernelEvent` etc. into a single `[ETW Overhead]` bucket. | CPU Stacks → ByName |
-| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalises to that PID's samples). | (no equivalent — saves N round-trips) |
+| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalises to that PID's samples). | **[Composite]** — batch variant, saves N round-trips through CPU Stacks → ByName |
 | `cpu_caller_callee` | Drill into a focus frame: callers (frames calling INTO it) and callees (frames it calls OUT to), each ranked by inclusive CPU samples. Recursion-safe. | CPU Stacks → Callers / Callees tabs |
 
 ### Wait / blocked time (CSwitch-derived)
@@ -245,8 +247,8 @@ Requires the `CSwitch` kernel keyword (default WPR `CPU` profiles include it).
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `image_load_timing` | Per-process chronological list of every `ImageLoad` event with offset from `ProcessStart`. Spot late-loading DLLs or per-load minifilter / sig-scan delays between loads. | (no direct equivalent — events list filtered manually) |
-| `image_load_top_gaps` | Top-N largest **gaps** between consecutive image loads. Pairs with the chronological view; same data, ranked by gap. Response also carries `FirstLoadOffsetUs` (kernel-side fork tax before any DLL loads). | (no equivalent — custom view) |
+| `image_load_timing` | Per-process chronological list of every `ImageLoad` event with offset from `ProcessStart`. Spot late-loading DLLs or per-load minifilter / sig-scan delays between loads. | **[Manual filter]** — Events view, filter on `ImageLoad`, compute offsets by hand |
+| `image_load_top_gaps` | Top-N largest **gaps** between consecutive image loads. Pairs with the chronological view; same data, ranked by gap. Response also carries `FirstLoadOffsetUs` (kernel-side fork tax before any DLL loads). | **[Manual filter]** — same `ImageLoad` filter as above, sort by inter-event delta |
 | `image_load_top_stacks` | Top-N call stacks ranked by `ImageLoad` event count.  Distinguishes eager loads (`LoadLibraryEx` in a main initialiser) from lazy / cascading loads (`CoCreateInstance`, `AmsiOpenSession`, EDR-injected providers). | Image Load Stacks |
 | `image_load_caller_callee` | Drill into a focus frame; metric is image-load count. | Image Load Stacks → Callers / Callees tabs |
 
@@ -280,7 +282,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 |---|---|---|
 | `net_top_stacks` | Top-N stacks by network bytes — TCP + UDP, IPv4 + IPv6 send/recv merged. Splits `TcpBytes` / `UdpBytes` in the response.  Pairs well with `wait_analysis` for "high wall, low CPU" cases where the wait is on a network round-trip. `Connect` / `Accept` / `Disconnect` events have no byte metric — use `find_marker` for those. Requires the `NetworkTrace` keyword (NOT in default `CPU` profiles). | TCP/IP Stacks + UDP/IP Stacks (merged) |
 | `net_caller_callee` | Drill on a focus frame; metric is network bytes. | TCP/IP Stacks → Callers / Callees tabs |
-| `net_connections` | Per-connection lifecycle list — Connect/Accept paired with Disconnect/Reconnect by `connid` to give "connection X opened at T1, closed at T2, lasted T2−T1". Useful for "connect-to-disconnect latency outliers" / "is RPC slow because of connection setup". IPv4 + IPv6 merged with an `IsIPv6` flag. Connections still open at trace end have `TraceResidentEnd=true`. | (no direct equivalent — Events view manual pairing) |
+| `net_connections` | Per-connection lifecycle list — Connect/Accept paired with Disconnect/Reconnect by `connid` to give "connection X opened at T1, closed at T2, lasted T2−T1". Useful for "connect-to-disconnect latency outliers" / "is RPC slow because of connection setup". IPv4 + IPv6 merged with an `IsIPv6` flag. Connections still open at trace end have `TraceResidentEnd=true`. | **[Manual filter]** — Events view, pair `TcpIp/Connect` with `TcpIp/Disconnect` by `connid` by hand |
 
 ### Registry
 
@@ -325,7 +327,7 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 | `clr_contention_top_stacks` | Top-N stacks by managed-monitor blocked μs — `lock` / `Monitor.Enter` waits. Matches `ContentionStart`→`ContentionStop` by `ThreadID`. Filters to `ContentionFlags.Managed` (native lock contention from the same provider is excluded). The canonical lock-hotspot tool for managed code. Requires the `Contention` keyword. | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | Drill on a focus frame; metric is blocked μs. | Monitor Contention Stacks → Callers / Callees tabs |
 | `clr_gc_heap_stats` | Managed-heap snapshot timeline — one row per `GCHeapStats` event (CLR fires it at the end of each GC) with `TotalHeapBytes`, `Gen0/1/2/LOH/POH` sizes, `PinnedObjectCount`, `GcHandleCount`. Use to answer "is the heap leaking" / "are pinned objects climbing" without orchestrating multiple calls. Pairs with `clr_gc_analysis`. | GCStats per-GC snapshot table |
-| `clr_finalizer_analysis` | Top types finalized + finalizer-thread pause batches. Aggregates `GCFinalizeObject` events by `TypeName` for the TopTypes table and pairs `GCFinalizersStart`→`GCFinalizersStop` for the per-batch list (each carries the count of finalizers run). Useful for "why are GCs slow" (finalizer queue can hold up the next GC) and "what's allocating finalizable objects". | (no equivalent — composite of GCStats fields + Events view filtering) |
+| `clr_finalizer_analysis` | Top types finalized + finalizer-thread pause batches. Aggregates `GCFinalizeObject` events by `TypeName` for the TopTypes table and pairs `GCFinalizersStart`→`GCFinalizersStop` for the per-batch list (each carries the count of finalizers run). Useful for "why are GCs slow" (finalizer queue can hold up the next GC) and "what's allocating finalizable objects". | **[Composite]** — GCStats fields + Events view filtering combined into one call |
 
 ### Markers / generic ETW events
 
@@ -339,7 +341,7 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `diagnose_slow_startup` | Picks slowest-by-wait-ratio processes (or matches `nameSubstring`), then runs `wait_analysis` + `image_load_timing` + `cpu_top_functions` for each in the startup window — one call instead of orchestrating four. | (no equivalent — composite) |
+| `diagnose_slow_startup` | Picks slowest-by-wait-ratio processes (or matches `nameSubstring`), then runs `wait_analysis` + `image_load_timing` + `cpu_top_functions` for each in the startup window — one call instead of orchestrating four. | **[Composite]** — wraps four PerfView views in one call |
 
 ### Symbols
 
@@ -347,7 +349,7 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 |---|---|---|
 | `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
 | `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WprMcp\Symbols`). | File → Set Symbol Path… (single entry) |
-| `diagnose_symbols` | Reports per-module symbol status for a loaded trace and suggests fixes (which servers to add) for unresolved modules. | (no equivalent — programmatic) |
+| `diagnose_symbols` | Reports per-module symbol status for a loaded trace and suggests fixes (which servers to add) for unresolved modules. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
 
 ---
 

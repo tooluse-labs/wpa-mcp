@@ -212,21 +212,23 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 大多数工具组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" / "Callees" tab 一致。
 
+下面的表格里 "PerfView 对应" 列指 PerfView GUI 中的对应视图；标 **[复合]** 的把多个 PerfView 视图打包成一次调用，标 **[手动过滤]** 的用 PerfView Events 视图能看到但没预聚合的原始事件，标 **[程序化]** 的用结构化 JSON 替代 GUI 对话框。其余约 45 个工具是 PerfView 视图的 1:1 映射。
+
 ### Meta（元信息）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
 | `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 找出"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
-| `process_create_timing` | 给定父 PID，列出每次 fork。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | （无对应——复合，见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）） |
-| `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | （无对应——手动按 `Thread/Start` + `Thread/Stop` 过滤 events 视图） |
+| `process_create_timing` | 给定父 PID，列出每次 fork。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
+| `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | **[手动过滤]**——Events 视图，过滤 `Thread/Start` + `Thread/Stop` 后手动配对 |
 
 ### CPU 栈
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | `cpu_top_functions` | 给定窗口 / PID，按 exclusive CPU 采样数返回 top-N 热点函数。可选 `excludeEtwSelfOverhead` 把 `EtwpLogKernelEvent` 等折成单个 `[ETW Overhead]` 桶。 | CPU Stacks → ByName |
-| `cpu_top_functions_batch` | 同上但一次调用覆盖多个 PID。每个 PID 独立 CallTree（inclusive% 按该 PID 的采样数归一化）。 | （无对应——省 N 次往返） |
+| `cpu_top_functions_batch` | 同上但一次调用覆盖多个 PID。每个 PID 独立 CallTree（inclusive% 按该 PID 的采样数归一化）。 | **[复合]**——批量变体，省去 N 次 CPU Stacks → ByName 往返 |
 | `cpu_caller_callee` | 给定 focus frame，返回其 caller（调进 focus）和 callee（focus 调出去），按 inclusive 采样数排序。Recursion-safe。 | CPU Stacks → Callers / Callees tab |
 
 ### Wait / 阻塞时间（CSwitch 衍生）
@@ -243,8 +245,8 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `image_load_timing` | 单进程的 DLL 加载时序（按时间排序），每行带相对 `ProcessStart` 的偏移。用来发现"延迟加载的 DLL"或者"两个 DLL 之间长 gap"——后者常见于 minifilter / sig-scan 串行扫描。 | （无直接对应——手动过滤 events list） |
-| `image_load_top_gaps` | 相邻 DLL 加载之间 gap 最大的 top-N 行。和 `image_load_timing` 同源数据，按 gap 排序。响应里也带 `FirstLoadOffsetUs`（首个 DLL 之前的内核 fork 税）。 | （无对应——自定义视图） |
+| `image_load_timing` | 单进程的 DLL 加载时序（按时间排序），每行带相对 `ProcessStart` 的偏移。用来发现"延迟加载的 DLL"或者"两个 DLL 之间长 gap"——后者常见于 minifilter / sig-scan 串行扫描。 | **[手动过滤]**——Events 视图，过滤 `ImageLoad` 后手动算偏移 |
+| `image_load_top_gaps` | 相邻 DLL 加载之间 gap 最大的 top-N 行。和 `image_load_timing` 同源数据，按 gap 排序。响应里也带 `FirstLoadOffsetUs`（首个 DLL 之前的内核 fork 税）。 | **[手动过滤]**——同上的 `ImageLoad` 过滤，按相邻事件间隔排序 |
 | `image_load_top_stacks` | 按 `ImageLoad` 事件计数加权的 top-N 调用栈。区分 eager 加载（main 初始化里的 `LoadLibraryEx`）和 lazy / 级联加载（`CoCreateInstance`、`AmsiOpenSession`、EDR 注入的 provider）。 | Image Load Stacks |
 | `image_load_caller_callee` | 给定 focus frame 的 caller-callee 钻取；metric 是 image-load 计数。 | Image Load Stacks → Callers / Callees tab |
 
@@ -278,7 +280,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 |---|---|---|
 | `net_top_stacks` | 按网络字节加权的 top-N 栈——TCP + UDP、IPv4 + IPv6 send/recv 合并。响应里拆出 `TcpBytes` / `UdpBytes`。配合 `wait_analysis` 排查"高 wall、低 CPU"且阻塞在网络往返的场景。`Connect` / `Accept` / `Disconnect` 这类无字节 metric 的事件不计入——用 `find_marker`。需要 `NetworkTrace` keyword（**默认 `CPU` profile 不带**）。 | TCP/IP Stacks + UDP/IP Stacks（合并） |
 | `net_caller_callee` | 给定 focus frame 的钻取；metric 是网络字节。 | TCP/IP Stacks → Callers / Callees tab |
-| `net_connections` | 按 `connid` 配对 Connect/Accept 与 Disconnect/Reconnect，给出每条 TCP 连接"在 T1 打开、T2 关闭，持续 T2−T1"。适合"连接建立到关闭的延迟离群点"/"RPC 慢是因为连接建立慢吗"。IPv4 + IPv6 合并，带 `IsIPv6` 标志。trace 结束时仍开启的连接 `TraceResidentEnd=true`。 | （无直接对应——Events 视图手工配对） |
+| `net_connections` | 按 `connid` 配对 Connect/Accept 与 Disconnect/Reconnect，给出每条 TCP 连接"在 T1 打开、T2 关闭，持续 T2−T1"。适合"连接建立到关闭的延迟离群点"/"RPC 慢是因为连接建立慢吗"。IPv4 + IPv6 合并，带 `IsIPv6` 标志。trace 结束时仍开启的连接 `TraceResidentEnd=true`。 | **[手动过滤]**——Events 视图，按 `connid` 手动配对 `TcpIp/Connect` 与 `TcpIp/Disconnect` |
 
 ### 注册表
 
@@ -323,7 +325,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 | `clr_contention_top_stacks` | 按托管 monitor 阻塞 μs 加权的 top-N 栈——即 `lock` / `Monitor.Enter` 的等待。按 `ThreadID` 匹配 `ContentionStart`→`ContentionStop`。只统计 `ContentionFlags.Managed`（同 provider 的 native 锁竞争被排除）。托管代码的锁热点标准工具。需要 `Contention` keyword。 | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | 给定 focus frame 的钻取；metric 是阻塞 μs。 | Monitor Contention Stacks → Callers / Callees tab |
 | `clr_gc_heap_stats` | 托管堆快照时序——每次 GC 结束时 CLR 触发一次 `GCHeapStats` 事件，每行带 `TotalHeapBytes`、`Gen0/1/2/LOH/POH` 大小、`PinnedObjectCount`、`GcHandleCount`。回答"堆是不是在泄漏"/"pinned 对象在不在涨"，无须多次工具调用。配合 `clr_gc_analysis` 使用。 | GCStats per-GC snapshot 表 |
-| `clr_finalizer_analysis` | top-N 被 finalize 的类型 + finalizer 线程的暂停批次。`GCFinalizeObject` 按 `TypeName` 聚合得到 TopTypes 表；`GCFinalizersStart`→`GCFinalizersStop` 配对得到每批次列表（Stop 携带这批次跑了多少个 finalizer）。回答"GC 为啥慢"（finalizer 队列会拖住下一次 GC）和"谁在分配可 finalize 的对象"。 | （无直接对应——GCStats 字段 + Events 视图过滤的复合） |
+| `clr_finalizer_analysis` | top-N 被 finalize 的类型 + finalizer 线程的暂停批次。`GCFinalizeObject` 按 `TypeName` 聚合得到 TopTypes 表；`GCFinalizersStart`→`GCFinalizersStop` 配对得到每批次列表（Stop 携带这批次跑了多少个 finalizer）。回答"GC 为啥慢"（finalizer 队列会拖住下一次 GC）和"谁在分配可 finalize 的对象"。 | **[复合]**——把 GCStats 字段 + Events 视图过滤合并到一次调用 |
 
 ### Marker / 通用 ETW 事件
 
@@ -337,7 +339,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `diagnose_slow_startup` | 挑出 wait_ratio 最高的进程（或匹配 `nameSubstring` 的进程），对每个跑 `wait_analysis` + `image_load_timing` + `cpu_top_functions`，覆盖启动窗口。一次调用替代手工编排四次。 | （无对应——复合） |
+| `diagnose_slow_startup` | 挑出 wait_ratio 最高的进程（或匹配 `nameSubstring` 的进程），对每个跑 `wait_analysis` + `image_load_timing` + `cpu_top_functions`，覆盖启动窗口。一次调用替代手工编排四次。 | **[复合]**——把 PerfView 四个视图打包成一次调用 |
 
 ### Symbols（符号）
 
@@ -345,7 +347,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 |---|---|---|
 | `set_symbol_path` | 给运行中的 server 设 `_NT_SYMBOL_PATH`（替换或追加）。 | File → Set Symbol Path… |
 | `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WprMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
-| `diagnose_symbols` | 针对已加载的 trace 报告每个模块的符号状态，给未解析模块的修复建议（应该加哪些服务器）。 | （无对应——程序化）|
+| `diagnose_symbols` | 针对已加载的 trace 报告每个模块的符号状态，给未解析模块的修复建议（应该加哪些服务器）。 | **[程序化]**——以结构化 JSON + 自动推荐替代 Modules 标签 + Set Symbol Path 对话框 |
 
 ---
 
