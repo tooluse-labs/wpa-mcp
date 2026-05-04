@@ -1,7 +1,25 @@
 # Fixture capture
 
 Re-capture if WPR profile schemas change or fixtures get corrupted.
-Each fixture must be ≤ 5 MB to keep the repo lean.
+
+**Size target: ≤ 10 MB per fixture, committed directly to git (no LFS).**  Realistic
+WPR captures are 30-200 MB raw; we shrink them via `tools/etlshrink/` (an
+`ETWReloggerTraceEventSource` wrapper) before committing.  Workflow:
+
+```powershell
+# Capture (admin shell required) — see per-fixture sections below
+wpr.exe -start <profile> -filemode
+# … workload …
+wpr.exe -stop big.etl
+
+# Shrink — relogger compression alone gives ~4-7× reduction; a time cut goes further.
+dotnet run --project tools/etlshrink -- big.etl small.etl 500
+# `500` = keep events with TimeStampRelativeMSec ≤ 500ms.  Omit for compression-only.
+```
+
+Aggressive time cuts can drop late-firing rundown events (process / image metadata logged
+at trace stop) — if a shrunk fixture breaks tests that need that data, raise the cutoff
+or omit it entirely.  See per-fixture sections for the cuts known to work.
 
 ALL captures require an Administrator PowerShell — kernel ETW tracing is privileged.
 
@@ -17,7 +35,7 @@ wpr.exe -stop small_cpu.etl
 Get-Item small_cpu.etl | Select Length
 ```
 
-If size > 5 MB, reduce sleep to 2s and recapture.
+After capture, shrink: `dotnet run --project tools/etlshrink -- small_cpu.etl small_cpu.shrunk.etl 500` then replace.  Current committed size: ~5 MB at 500ms cut.
 
 Used by: SmokeTests, MetaToolsTests, CpuAnalysisTests, MarkerSearchTests, SymbolServiceTests, FileObjectResolverTests.
 
@@ -37,6 +55,8 @@ Get-ChildItem -Recurse C:\Windows\System32 -ErrorAction SilentlyContinue | Out-N
 wpr.exe -stop small_fileio.etl
 Get-Item small_fileio.etl | Select Length
 ```
+
+After capture, shrink: `dotnet run --project tools/etlshrink -- small_fileio.etl small_fileio.shrunk.etl 300` then replace.  Current committed size: ~4 MB at 300ms cut.
 
 Used by: FileIoAnalysisTests.
 
@@ -61,7 +81,9 @@ wpr.exe -stop small_mmap.etl
 Get-Item small_mmap.etl | Select Length
 ```
 
-If size > 5 MB: edit `MmapCapture.wprp` and reduce `<Buffers Value="64"/>` to `"32"`, recapture.
+After capture, shrink WITHOUT a time cut (the test that uses this fixture needs late-firing image-load events that aggressive cuts drop):
+`dotnet run --project tools/etlshrink -- small_mmap.etl small_mmap.shrunk.etl`
+Current committed size: ~8 MB (compression-only).  If still too large, reduce `<Buffers Value="64"/>` in `MmapCapture.wprp` to `"32"` and recapture.
 
 Used by: MmapAnalysisTests.
 
