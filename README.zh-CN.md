@@ -8,8 +8,6 @@
 
 # wpa-mcp
 
-[![Glama MCP server](https://glama.ai/mcp/servers/tooluse-labs/wpa-mcp/badge)](https://glama.ai/mcp/servers/tooluse-labs/wpa-mcp)
-
 一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——通过任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）暴露出来。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
 > **状态——PoC。** 54 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
