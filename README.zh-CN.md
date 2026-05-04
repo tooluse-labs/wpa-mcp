@@ -72,12 +72,12 @@ curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/i
 
 ```powershell
 # PowerShell——指定 tag、限定客户端、自定义 symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.1.2 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.0 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
 ```
 
 ```bash
 # Bash——`bash -s --` 后面的 flag 会传给 install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.1.2
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.0
 ```
 
 ### 卸载（一行命令，对称）
@@ -267,7 +267,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `virtual_alloc_top_stacks` | 按 `VirtualMemAlloc` + `VirtualMemFree` 字节加权的 top-N 栈。和物理驻留（`mmap_*`）不同——回答"谁在保留 4 GB 地址空间"/ "谁在泄漏 VirtualAllocs"。每行带 `Bytes` 和 `OpCount`。需要 `VirtualAlloc` 内核 keyword（**默认 WPR `CPU` profile 不带**）。 | VirtualAlloc Stacks |
+| `virtual_alloc_top_stacks` | 按 `VirtualMemAlloc` + `VirtualMemFree` 字节加权的 top-N 栈。和物理驻留（`hard_fault_*`）不同——回答"谁在保留 4 GB 地址空间"/ "谁在泄漏 VirtualAllocs"。每行带 `Bytes` 和 `OpCount`。需要 `VirtualAlloc` 内核 keyword（**默认 WPR `CPU` profile 不带**）。 | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是虚拟内存字节。 | VirtualAlloc Stacks → Callers / Callees tab |
 | `heap_alloc_top_stacks` | 按 **NT 堆**分配字节（`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new`——任何走 user-mode heap 的分配）加权的 top-N 栈。Native 内存泄漏的标准工具。和 VirtualAlloc 不同：VirtualAlloc 预留页粒度的地址空间，堆分配器在其上做子分配。响应里拆出 `AllocBytes` / `ReallocBytes`。Free 事件不携带 size，不计入。需要 **per-process** 启用 `Heap` provider（默认 WPR profile 不带；用 PerfView `/HeapTrace` 或自定义 `.wprp` 的 `<Heap>` 元素）。 | HeapAllocStacks |
 | `heap_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是 NT 堆字节。 | HeapAllocStacks → Callers / Callees tab |

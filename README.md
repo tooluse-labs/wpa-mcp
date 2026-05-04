@@ -74,12 +74,12 @@ Forward extra flags through the one-liner:
 
 ```powershell
 # PowerShell — pin tag, force a single client, set custom symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.1.2 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.0 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
 ```
 
 ```bash
 # Bash — flags after `bash -s --` go to install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.1.2
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.0
 ```
 
 ### Uninstall (one-liner, symmetric)
@@ -269,7 +269,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `virtual_alloc_top_stacks` | Top-N stacks by `VirtualMemAlloc` + `VirtualMemFree` bytes. Distinct from physical residence (`mmap_*`) — answers "who's reserving 4 GB of address space" / "who's leaking VirtualAllocs". Each row carries both `Bytes` and `OpCount`. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
+| `virtual_alloc_top_stacks` | Top-N stacks by `VirtualMemAlloc` + `VirtualMemFree` bytes. Distinct from physical residence (`hard_fault_*`) — answers "who's reserving 4 GB of address space" / "who's leaking VirtualAllocs". Each row carries both `Bytes` and `OpCount`. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | Drill on a focus frame; metric is virtual-memory bytes. | VirtualAlloc Stacks → Callers / Callees tabs |
 | `heap_alloc_top_stacks` | Top-N stacks by **NT-heap** allocation bytes (`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new` — anything that lands in the user-mode heap). Native-leak finder. Distinct from VirtualAlloc: VirtualAlloc reserves page-granular address space, the heap allocator sub-allocates from it. Splits `AllocBytes` / `ReallocBytes`. Free events carry no size on the wire and are not counted. Requires the `Heap` provider enabled **per-process** (default WPR profiles do NOT enable it; use PerfView's `/HeapTrace` flag or a custom `.wprp` `<Heap>` element). | HeapAllocStacks |
 | `heap_alloc_caller_callee` | Drill on a focus frame; metric is NT-heap bytes. | HeapAllocStacks → Callers / Callees tabs |
