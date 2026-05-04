@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Build wpa-mcp and register it with one or more MCP clients. Idempotent — running
   twice reinstalls cleanly.
@@ -207,8 +207,15 @@ if ($installClaudeCode) {
         throw "'claude' CLI not on PATH. Install Claude Code first: https://docs.claude.com/claude-code"
     }
     Write-Info 'Registering with Claude Code (user scope)...'
-    # Idempotent: remove first, ignore failure if absent.
-    & claude mcp remove $ServerName --scope user 2>$null | Out-Null
+    # Idempotent: remove first, accept non-zero exit if the entry doesn't exist.
+    # NOTE: do NOT redirect stderr with `2>$null` here — under PS 5.1 + ErrorActionPreference=Stop,
+    # captured native-command stderr wraps as a NativeCommandError that DOES terminate.  Letting
+    # claude.exe's "No user-scoped MCP server found" message print to the terminal is fine; we
+    # check $LASTEXITCODE explicitly.
+    & claude mcp remove $ServerName --scope user
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
+    }
     & claude mcp add $ServerName --scope user `
         -e "_NT_SYMBOL_PATH=$SymbolPath" `
         -e "WPRMCP_CACHE_SIZE=$CacheSize" `

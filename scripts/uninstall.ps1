@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Unregister wpa-mcp from MCP clients. Build artifacts stay (delete the repo to remove
   them, or pass -CleanBuild).

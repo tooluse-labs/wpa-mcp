@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   One-line installer for wpa-mcp. Downloads the latest GitHub Release zip, extracts
   it, and runs the bundled setup.ps1.
