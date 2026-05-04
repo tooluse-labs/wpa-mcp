@@ -112,8 +112,7 @@ public static class InterruptStackAnalysis
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.StartUs is { } s && nowUs < s) return;
-            if (req.EndUs is { } e && nowUs > e) return;
+            if (!req.PassesFilter(nowUs)) return;
 
             totalUs += us;
             dpcUs += us;
@@ -127,8 +126,7 @@ public static class InterruptStackAnalysis
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.StartUs is { } s && nowUs < s) return;
-            if (req.EndUs is { } e && nowUs > e) return;
+            if (!req.PassesFilter(nowUs)) return;
 
             totalUs += us;
             isrUs += us;

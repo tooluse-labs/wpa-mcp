@@ -40,6 +40,10 @@ namespace WprMcp.Analyzers;
 /// (ReadyThreadStackAnalysis exposes it as `awakenedPid` because the metric is "who
 /// readied threads in process X").  The record stores the raw nullable int; each analyzer
 /// applies the appropriate semantic.
+///
+/// `When` is a class reference and the bucket array it owns is mutable shared state.
+/// Although the record itself is `readonly record struct`, callers WRITE through `When.Add(...)`
+/// during the trace walk; the struct's value-equality semantics don't extend to it.
 /// </summary>
 internal readonly record struct StackAnalysisRequest(
     int? Pid,
@@ -54,6 +58,24 @@ internal readonly record struct StackAnalysisRequest(
     /// baseline distinct from the filtered subset.
     /// </summary>
     public bool HasFilter => Pid.HasValue || StartUs.HasValue || EndUs.HasValue;
+
+    /// <summary>
+    /// True iff the event with the given process and timestamp passes pid + window filters.
+    /// Replaces the 3-line `if (req.Pid is …) … if (req.StartUs is …) … if (req.EndUs is …) …`
+    /// block that recurs in every typed-event handler.
+    /// </summary>
+    public bool PassesFilter(int processId, long nowUs) =>
+        (!Pid.HasValue || processId == Pid.Value) &&
+        (!StartUs.HasValue || nowUs >= StartUs.Value) &&
+        (!EndUs.HasValue || nowUs <= EndUs.Value);
+
+    /// <summary>
+    /// Time-only filter — for kernel-context analyzers (DPC/ISR) where per-process attribution
+    /// is meaningless and Pid is always null at the call site.
+    /// </summary>
+    public bool PassesFilter(long nowUs) =>
+        (!StartUs.HasValue || nowUs >= StartUs.Value) &&
+        (!EndUs.HasValue || nowUs <= EndUs.Value);
 }
 
 internal static class StackSourceTopN

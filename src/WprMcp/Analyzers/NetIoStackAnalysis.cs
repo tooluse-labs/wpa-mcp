@@ -107,9 +107,7 @@ public static class NetIoStackAnalysis
             var bytes = (long)size;
             traceTotalBytes += bytes;
             var nowUs = (long)(tsRelMs * 1000);
-            if (req.Pid is { } p && processId != p) return;
-            if (req.StartUs is { } s && nowUs < s) return;
-            if (req.EndUs is { } e && nowUs > e) return;
+            if (!req.PassesFilter(processId, nowUs)) return;
 
             totalBytes += bytes;
             totalOps++;

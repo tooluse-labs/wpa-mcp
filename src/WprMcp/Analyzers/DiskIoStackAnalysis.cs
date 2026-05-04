@@ -101,9 +101,7 @@ public static class DiskIoStackAnalysis
         {
             traceTotalBytes += data.TransferSize;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.Pid is { } p && data.ProcessID != p) return;
-            if (req.StartUs is { } s && nowUs < s) return;
-            if (req.EndUs is { } e && nowUs > e) return;
+            if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
             totalBytes += data.TransferSize;
             totalOps++;
