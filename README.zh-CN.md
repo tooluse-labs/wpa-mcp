@@ -8,9 +8,9 @@
 
 # wpa-mcp
 
-一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——通过任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）暴露出来。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
+一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——开放给任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
-> **状态——PoC。** 54 个工具已上线，验证完成前限内部使用。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
+> **状态——PoC。** 54 个工具已上线。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
 
 > **看一个真实案例：** [一次完整排查](docs/CASE_STUDIES.md)——进程创建慢到基线的 50 倍，通过 wpa-mcp 工具链根因定位到多套 EDR 在 `PsSetCreateProcessNotifyRoutineEx` 上串行回调。同一份 trace 被两个不同 LLM agent 独立复现得到同样结论。
 
@@ -82,7 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/i
 
 ### 卸载（一行命令，对称）
 
-可 web 调用，反向编辑相同的客户端配置文件。不动下载缓存。
+同样支持远程一行调用；反向修改之前注册的客户端配置。不动下载缓存。
 
 ```powershell
 iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.ps1) }"
@@ -201,23 +201,23 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ### wpa-mcp 相对 PerfView 加了什么
 
-* **Agent 驱动而不是 UI 驱动**：PerfView 是 Windows GUI 一路点过去；wpa-mcp 是 stdio MCP server，自然语言对话即可。同样的数据，无 UI 疲劳，方便编进 CI / 回归脚本。
+* **Agent 驱动而不是 UI 驱动**：PerfView 是 Windows GUI 一路点过去；wpa-mcp 是 stdio MCP server，自然语言对话即可。同样的数据，省去界面操作，方便编进 CI / 回归脚本。
 * **复合工具**：`diagnose_slow_startup`、`process_create_timing`、`image_load_top_gaps` 把 PerfView 多步操作打包成一次调用。
-* **Capabilities-aware**：每个工具"返回不出数据"的状态都对应到 `load_trace` 的 `Capabilities` map 里某个 keyword bit——不再有"这个视图为啥是空"的 PerfView 经典侦探。
-* **per-trace symbol 推荐**：`load_trace` 扫描 trace 里出现的模块、推荐应加哪些 symbol server。PerfView 里这是用户自己摸索的事。
+* **Capabilities-aware**：每个工具"返回不出数据"的状态都对应到 `load_trace` 的 `Capabilities` map 里某个 keyword bit——不再需要在 PerfView 里"侦探式"排查"这个视图为什么是空"。
+* **per-trace symbol 推荐**：`load_trace` 扫描 trace 里出现的模块、推荐应加哪些 symbol server。在 PerfView 里这要靠用户自己摸索。
 
 ### 调用 pattern
 
 **永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`、`HasVirtualAlloc`、`HasNetIo`、`HasRegistry`、`HasReadyThread`、`HasInterrupt`、`HasAlpc`、`HasThreadEvents`、`HasClrGc`、`HasClrJit`、`HasClrAlloc`、`HasClrException`、`HasClrContention`、`HasNtHeap`）。其他每个工具的行为都依赖这些 keyword。
 
-大多数组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——和 PerfView 的 "Callers" / "Callees" tab 同形态。
+大多数工具组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" / "Callees" tab 一致。
 
 ### Meta（元信息）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
-| `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 暴露"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
+| `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 找出"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
 | `process_create_timing` | 给定父 PID，列出每次 fork。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | （无对应——复合，见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）） |
 | `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | （无对应——手动按 `Thread/Start` + `Thread/Stop` 过滤 events 视图） |
 
@@ -291,21 +291,21 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `ready_thread_top_stacks` | top-N **唤醒方**栈（执行 `SetEvent` / 释放锁 / IOCP 完成等动作把阻塞线程叫醒的代码）。配合 `wait_analysis`：那个工具回答"线程 X 阻塞在 Y 等了 Z μs"——这个工具补上"是谁最终叫醒它的"。`awakenedPid` 过滤"谁在唤醒该 PID 的线程"。需要 `CSwitch` / `ReadyThread` keyword（默认内核 profile 已带）。 | ReadyThread Stacks |
+| `ready_thread_top_stacks` | top-N **唤醒方**栈（执行 `SetEvent` / 释放锁 / IOCP 完成等动作把阻塞线程叫醒的代码）。配合 `wait_analysis`：后者回答"线程 X 阻塞在 Y 等了 Z μs"——本工具补上"是谁最终叫醒它的"。`awakenedPid` 过滤"谁在唤醒该 PID 的线程"。需要 `CSwitch` / `ReadyThread` keyword（默认内核 profile 已带）。 | ReadyThread Stacks |
 | `ready_thread_caller_callee` | 给定 focus frame 的钻取；metric 是 ready 事件计数。 | ReadyThread Stacks → Callers / Callees tab |
 
 ### 中断（DPC / ISR）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `interrupt_top_stacks` | 按内核中断时间（DPC + ISR 微秒数）加权的 top-N 栈。暴露在高 IRQL 烧 CPU 的驱动热例程——常见嫌疑是消费级 GPU 驱动、高负载下的网卡驱动、AV minifilter 回调。健康系统该视图应 <5% 的 trace CPU。响应里拆出 `DpcUs` / `IsrUs`。需要 `Interrupt` + `DPC` keyword（默认 `CPU` profile 全带）。 | DPC/ISR Stacks |
+| `interrupt_top_stacks` | 按内核中断时间（DPC + ISR 微秒数）加权的 top-N 栈。找出在高 IRQL 烧 CPU 的驱动热例程——常见嫌疑是消费级 GPU 驱动、高负载下的网卡驱动、AV minifilter 回调。健康系统下该视图应占 <5% 的 trace CPU 时间。响应里拆出 `DpcUs` / `IsrUs`。需要 `Interrupt` + `DPC` keyword（默认 `CPU` profile 全带）。 | DPC/ISR Stacks |
 | `interrupt_caller_callee` | 给定 focus frame 的钻取；metric 是中断 μs。 | DPC/ISR Stacks → Callers / Callees tab |
 
 ### ALPC（跨进程 IPC）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `alpc_top_stacks` | 按 ALPC 消息计数（Send + Receive）加权的 top-N 栈。ALPC 是 Windows 内核 IPC 原语，RPC、COM、AppContainer broker 调用、lsass、SCM 以及绝大多数 Windows 服务表面都走它——用来回答"是不是慢在某次 LPC 往返"/ "哪条调用链做了所有跨进程 IPC"。需要 `ALPC` keyword（**默认 `CPU` profile 不带**）。 | ALPC Stacks |
+| `alpc_top_stacks` | 按 ALPC 消息计数（Send + Receive）加权的 top-N 栈。ALPC 是 Windows 内核 IPC 原语，RPC、COM、AppContainer broker 调用、lsass、SCM 以及几乎所有 Windows 服务的对外接口都走它——用来回答"是不是慢在某次 LPC 往返"/ "哪条调用链做了所有跨进程 IPC"。需要 `ALPC` keyword（**默认 `CPU` profile 不带**）。 | ALPC Stacks |
 | `alpc_caller_callee` | 给定 focus frame 的钻取；metric 是 ALPC 消息计数。 | ALPC Stacks → Callers / Callees tab |
 
 ### CLR（.NET runtime）
@@ -315,7 +315,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | `clr_gc_analysis` | 列出每次 GC，附 wall 时长**以及** stop-the-world 暂停时长。`GCStart`→`GCStop` 是 wall 区间；`GCSuspendEEStart`→`GCRestartEEStop` 是真正的 mutator 暂停（对 background / concurrent GC 关键——其 wall 远大于真实 pause）。每行带 `Generation` / `Reason` / `PauseUs`，并报 `TotalGcCount` / `Gen0Count` / `Gen1Count` / `Gen2Count` / `TotalPauseUs`。 | GCStats |
-| `clr_jit_analysis` | 按 JIT 编译耗时加权的 top-N 方法。按 `(PID, MethodID)` 匹配 `MethodJittingStarted`→`MethodLoadVerbose`。R2R / NGen / 预编译方法不发 `JittingStarted`，因此对该工具不可见——这是"trace 里 JIT 成本"的正确语义。 | JIT Stats |
+| `clr_jit_analysis` | 按 JIT 编译耗时加权的 top-N 方法。按 `(PID, MethodID)` 匹配 `MethodJittingStarted`→`MethodLoadVerbose`。R2R / NGen / 预编译方法不发 `JittingStarted`，因此该工具看不到它们——这是"trace 里 JIT 成本"的正确语义。 | JIT Stats |
 | `clr_alloc_top_stacks` | 按托管堆分配字节加权的 top-N 栈，由 `GCAllocationTick` 事件驱动（CLR 每分配约 100 KB 触发一次，按 `(堆、代、类型)` 分桶——是采样而非全量，低开销，CLR ≥ 4.0 默认即开）。响应包含 `TopTypes`（按字节排序的 top 类型名）。"谁在请求热路径上分配大量 string"的标准工具。需要 `GC` keyword。 | GC Heap Alloc Stacks |
 | `clr_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是分配字节。 | GC Heap Alloc Stacks → Callers / Callees tab |
 | `clr_exception_top_stacks` | 按 .NET 异常抛出计数加权的 top-N 栈（`ExceptionStart` 事件）。适合"这条代码路径每秒抛 1000 个异常吗"/"哪里在 retry 循环里吞 `FormatException`"。响应包含 `TopTypes`（top 异常类型名）。需要 `Exception` keyword。 | Exceptions Stacks |
@@ -329,7 +329,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `find_marker` | 搜索所有名字 / task 包含给定 substring 的 ETW 事件。默认模式 `count_by_event` 返回直方图（避免 token 爆炸）；也支持 `count_by_process` 和 `rows`（完整事件细节）。挖一方 Defender / EDR provider 遥测最有效——比如 `Microsoft-Antimalware-AMFilter` provider 的 `AMFilter_FileScan` 行直接告诉你扫描器在干啥。 | Events 视图 |
+| `find_marker` | 搜索所有名字 / task 包含给定 substring 的 ETW 事件。默认模式 `count_by_event` 返回直方图（避免 token 爆炸）；也支持 `count_by_process` 和 `rows`（完整事件细节）。挖自家 Defender / EDR provider 遥测最有效——比如 `Microsoft-Antimalware-AMFilter` provider 的 `AMFilter_FileScan` 行直接告诉你扫描器在干啥。 | Events 视图 |
 | `generic_event_top_stacks` | 对**任意** user-mode ETW provider 做 stack-rank 的 top-N 栈：AspNetCore、Kestrel、EFCore、Antimalware-AMFilter、Sense（Defender for Endpoint）、`Microsoft-Windows-DxgKrnl`（GPU）、`Microsoft-Windows-Kernel-Power`（CPU 频率 / C-state），或任何自定义 EventSource。先用 `find_marker` 找出 trace 里有哪些 provider，然后把 `ProviderName` 喂给该工具。可选 `eventNameSubstring` 缩到具体事件类。栈质量取决于 `.wprp` 是否对该 provider 开了 stack-walk。 | Any Stacks（单 provider） |
 | `generic_event_caller_callee` | 给定 focus frame 的钻取；metric 是事件计数。 | Any Stacks → Callers / Callees tab |
 
@@ -397,7 +397,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 #### 自家 DLL 的构建前置条件
 
-符号服务器配得再对，构建本身没产 PDB——或者 PDB 跟最终部署的 DLL 不是同一次构建——也救不了。
+符号服务器配得再对，构建本身没产 PDB——或者 PDB 跟最终部署的 DLL 不是同一次构建——也无济于事。
 
 - **.NET / C#**：`<DebugType>portable</DebugType>` + `<DebugSymbols>true</DebugSymbols>`。检查 Release 配置没把 PDB 输出关掉。
 - **C++（MSVC）**：`/Zi` + `/DEBUG:FULL`，Release 也要开。PDB 跟 DLL 留同目录。

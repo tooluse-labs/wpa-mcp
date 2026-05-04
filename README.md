@@ -10,7 +10,7 @@
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** 54 tools live, internal use only until validated. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** 54 tools live. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
 > **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
 
