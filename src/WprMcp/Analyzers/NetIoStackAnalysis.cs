@@ -33,9 +33,9 @@ public static class NetIoStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -51,8 +51,8 @@ public static class NetIoStackAnalysis
                 InclusiveOpCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalBytesMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalBytesMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
             .ToList();
 
         return new NetIoStacksResponse(
@@ -76,7 +76,8 @@ public static class NetIoStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "netBytes", ctx.Stats, ctx.Warnings);
     }
@@ -91,15 +92,9 @@ public static class NetIoStackAnalysis
         long UdpBytes,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalBytes = 0;
         long totalBytes = 0;
@@ -112,16 +107,16 @@ public static class NetIoStackAnalysis
             var bytes = (long)size;
             traceTotalBytes += bytes;
             var nowUs = (long)(tsRelMs * 1000);
-            if (pid is { } p && processId != p) return;
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.Pid is { } p && processId != p) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalBytes += bytes;
             totalOps++;
             if (isTcp) tcpBytes += bytes;
             else udpBytes += bytes;
             raw.AddSample(ev.CallStackIndex(), ev, bytes);
-            when.Add(nowUs, bytes);
+            req.When.Add(nowUs, bytes);
         }
 
         KernelEventWalker.Walk(trace, kernel =>

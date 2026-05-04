@@ -45,9 +45,9 @@ public static class BlockedTimeStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -64,8 +64,8 @@ public static class BlockedTimeStackAnalysis
                 InclusiveBlockedUs: (long)n.InclusiveMetric,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBlockedUs, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBlockedUs, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.InclusiveMetric)))
             .ToList();
 
         return new WaitTopStacksResponse(
@@ -87,7 +87,8 @@ public static class BlockedTimeStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "blockedUs", ctx.Stats, ctx.Warnings);
     }
@@ -100,15 +101,9 @@ public static class BlockedTimeStackAnalysis
         long SampleCount,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         var lastSwitchOutTime = new Dictionary<int, double>();
         long traceTotalBlockedUs = 0;
@@ -140,9 +135,9 @@ public static class BlockedTimeStackAnalysis
                         traceTotalBlockedUs += blockedUs;
 
                         var inWindow =
-                            (!startUs.HasValue || nowUs >= startUs.Value) &&
-                            (!endUs.HasValue || nowUs <= endUs.Value);
-                        var inPid = !pid.HasValue || data.NewProcessID == pid.Value;
+                            (!req.StartUs.HasValue || nowUs >= req.StartUs.Value) &&
+                            (!req.EndUs.HasValue || nowUs <= req.EndUs.Value);
+                        var inPid = !req.Pid.HasValue || data.NewProcessID == req.Pid.Value;
                         if (inWindow && inPid)
                         {
                             totalBlockedUs += blockedUs;
@@ -151,7 +146,7 @@ public static class BlockedTimeStackAnalysis
                             // CSwitch is the END of a wait that may span buckets — charge
                             // the full interval to the bucket where the wait ended (resume
                             // bucket). Matches PerfView's sample-time-based "When" semantics.
-                            when.Add(nowUs, blockedUs);
+                            req.When.Add(nowUs, blockedUs);
                         }
                     }
                 }

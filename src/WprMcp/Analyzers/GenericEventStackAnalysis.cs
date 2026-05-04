@@ -39,9 +39,9 @@ public static class GenericEventStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, providerName, eventNameSubstring, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, providerName, eventNameSubstring, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -55,8 +55,8 @@ public static class GenericEventStackAnalysis
                 InclusiveCount: (long)n.InclusiveMetric,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
             .ToList();
 
         return new GenericEventStacksResponse(
@@ -82,7 +82,8 @@ public static class GenericEventStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, providerName, eventNameSubstring, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, providerName, eventNameSubstring, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "providerEvents", ctx.Stats, ctx.Warnings);
     }
@@ -99,13 +100,9 @@ public static class GenericEventStackAnalysis
         TraceLog trace,
         string providerName,
         string? eventNameSubstring,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+        StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalCount = 0;
         long totalCount = 0;
@@ -136,14 +133,14 @@ public static class GenericEventStackAnalysis
         {
             traceTotalCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (pid is { } p && data.ProcessID != p) return;
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.Pid is { } p && data.ProcessID != p) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalCount++;
             countByEventName[data.EventName] = countByEventName.GetValueOrDefault(data.EventName) + 1;
             raw.AddSample(data.CallStackIndex(), data, 1);
-            when.Add(nowUs, 1);
+            req.When.Add(nowUs, 1);
         }
 
         var source = trace.Events.GetSource();

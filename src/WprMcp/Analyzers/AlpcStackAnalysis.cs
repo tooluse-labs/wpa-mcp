@@ -30,9 +30,9 @@ public static class AlpcStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -46,8 +46,8 @@ public static class AlpcStackAnalysis
                 InclusiveEvents: (long)n.InclusiveMetric,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
             .ToList();
 
         return new AlpcStacksResponse(
@@ -70,7 +70,8 @@ public static class AlpcStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "alpcEvents", ctx.Stats, ctx.Warnings);
     }
@@ -84,15 +85,9 @@ public static class AlpcStackAnalysis
         long ReceiveCount,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalCount = 0;
         long totalCount = 0;
@@ -103,15 +98,15 @@ public static class AlpcStackAnalysis
         {
             traceTotalCount++;
             var nowUs = (long)(tsRelMs * 1000);
-            if (pid is { } p && processId != p) return;
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.Pid is { } p && processId != p) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalCount++;
             if (isSend) sendCount++;
             else receiveCount++;
             raw.AddSample(ev.CallStackIndex(), ev, 1);
-            when.Add(nowUs, 1);
+            req.When.Add(nowUs, 1);
         }
 
         KernelEventWalker.Walk(trace, kernel =>

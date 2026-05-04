@@ -30,6 +30,32 @@ namespace WprMcp.Analyzers;
 // What this helper does NOT do: build the raw source, decide the metric, run the CallTree.
 // Those are analyzer-specific. Callers fill rawSource themselves (one sample per CPU sample,
 // or one sample per CSwitch resume), then hand it here for stats + normalization.
+/// <summary>
+/// Common per-call inputs to a stack analyzer's BuildNormalized stage.  The 5-tuple
+/// (pid, startUs, endUs, symbolLog, when) was repeated in every analyzer's signature
+/// before this record absorbed it.
+///
+/// `Pid` semantics differ slightly per analyzer: some omit it entirely (InterruptStackAnalysis —
+/// kernel context, no per-process attribution), some rename it for the public API
+/// (ReadyThreadStackAnalysis exposes it as `awakenedPid` because the metric is "who
+/// readied threads in process X").  The record stores the raw nullable int; each analyzer
+/// applies the appropriate semantic.
+/// </summary>
+internal readonly record struct StackAnalysisRequest(
+    int? Pid,
+    long? StartUs,
+    long? EndUs,
+    TextWriter SymbolLog,
+    StackSourceTopN.WhenHistogram When)
+{
+    /// <summary>
+    /// True iff the caller restricted the analysis with at least one of pid / startUs / endUs.
+    /// Gates the PctOfTrace denominator — it only carries meaning when there's a "trace total"
+    /// baseline distinct from the filtered subset.
+    /// </summary>
+    public bool HasFilter => Pid.HasValue || StartUs.HasValue || EndUs.HasValue;
+}
+
 internal static class StackSourceTopN
 {
     // PerfView's threshold for "warm" symbol resolution: modules with ≥50 inclusive samples

@@ -36,9 +36,10 @@ public static class InterruptStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, startUs, endUs, symbolLog, when);
+        // Pid: null — interrupt events run in kernel context, no per-process attribution.
+        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -54,8 +55,8 @@ public static class InterruptStackAnalysis
                 InclusiveCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalUs, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.InclusiveMetric)))
             .ToList();
 
         return new InterruptStacksResponse(
@@ -78,7 +79,8 @@ public static class InterruptStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "interruptUs", ctx.Stats, ctx.Warnings);
     }
@@ -93,14 +95,9 @@ public static class InterruptStackAnalysis
         long TotalCount,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalUs = 0;
         long totalUs = 0;
@@ -115,14 +112,14 @@ public static class InterruptStackAnalysis
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalUs += us;
             dpcUs += us;
             totalCount++;
             raw.AddSample(data.CallStackIndex(), data, us);
-            when.Add(nowUs, us);
+            req.When.Add(nowUs, us);
         }
 
         void HandleIsr(ISRTraceData data)
@@ -130,14 +127,14 @@ public static class InterruptStackAnalysis
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalUs += us;
             isrUs += us;
             totalCount++;
             raw.AddSample(data.CallStackIndex(), data, us);
-            when.Add(nowUs, us);
+            req.When.Add(nowUs, us);
         }
 
         KernelEventWalker.Walk(trace, kernel =>

@@ -32,9 +32,9 @@ public static class ClrContentionStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -50,8 +50,8 @@ public static class ClrContentionStackAnalysis
                 InclusiveCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalUs, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.InclusiveMetric)))
             .ToList();
 
         return new ClrContentionStacksResponse(
@@ -73,7 +73,8 @@ public static class ClrContentionStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "contentionUs", ctx.Stats, ctx.Warnings);
     }
@@ -86,15 +87,9 @@ public static class ClrContentionStackAnalysis
         long TotalCount,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         // (pid, tid) → (start stack, start time).  Per-thread because contention is serialized
         // per thread; per-process too because Windows TIDs can collide across PIDs over a long
@@ -122,16 +117,16 @@ public static class ClrContentionStackAnalysis
                 if (us <= 0) return;
                 traceTotalUs += us;
                 var stopUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
+                if (req.Pid is { } p && data.ProcessID != p) return;
                 // Window filter requires the contention to be entirely inside the window —
                 // matches GcAnalysis's GCStart/GCStop window semantics.
-                if (startUs is { } s && pending.StartUs < s) return;
-                if (endUs is { } e && stopUs > e) return;
+                if (req.StartUs is { } s && pending.StartUs < s) return;
+                if (req.EndUs is { } e && stopUs > e) return;
 
                 totalUs += us;
                 totalCount++;
                 raw.AddSample(pending.Stack, data, us);
-                when.Add(stopUs, us);
+                req.When.Add(stopUs, us);
             };
         });
         raw.Source.DoneAddingSamples();

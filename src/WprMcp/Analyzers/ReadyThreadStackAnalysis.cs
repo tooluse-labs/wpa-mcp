@@ -33,9 +33,11 @@ public static class ReadyThreadStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = awakenedPid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, awakenedPid, startUs, endUs, symbolLog, when);
+        // StackAnalysisRequest.Pid is interpreted as awakenedPid here (the process whose
+        // thread is being readied, not the readier).
+        var req = new StackAnalysisRequest(awakenedPid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -49,8 +51,8 @@ public static class ReadyThreadStackAnalysis
                 InclusiveReadyCount: (long)n.InclusiveMetric,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
             .ToList();
 
         return new ReadyThreadStacksResponse(
@@ -71,7 +73,8 @@ public static class ReadyThreadStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, awakenedPid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(awakenedPid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "readyEvents", ctx.Stats, ctx.Warnings);
     }
@@ -83,15 +86,9 @@ public static class ReadyThreadStackAnalysis
         long TotalCount,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? awakenedPid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalCount = 0;
         long totalCount = 0;
@@ -99,18 +96,19 @@ public static class ReadyThreadStackAnalysis
         // The DispatcherReadyThread event fires on the READIER thread — its CallStackIndex
         // is the readier's stack (the code that did the SetEvent / ReleaseSemaphore / IOCP
         // completion / etc.).  AwakenedProcessID identifies the process whose thread is
-        // about to wake; awakenedPid filters to "who readied threads in process X".
+        // about to wake; req.Pid (== awakenedPid here) filters to "who readied threads in
+        // process X".
         void Handle(DispatcherReadyThreadTraceData data)
         {
             traceTotalCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (awakenedPid is { } p && data.AwakenedProcessID != p) return;
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.Pid is { } p && data.AwakenedProcessID != p) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalCount++;
             raw.AddSample(data.CallStackIndex(), data, 1);
-            when.Add(nowUs, 1);
+            req.When.Add(nowUs, 1);
         }
 
         KernelEventWalker.Walk(trace, kernel =>

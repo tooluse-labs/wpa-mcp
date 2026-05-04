@@ -36,9 +36,9 @@ public static class PageFaultStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         // CallTree on the metric-weighted source gives us BOTH dimensions for free:
         //   ExclusiveMetric = sum of ByteCount values ending at this frame ("bytes paged in")
@@ -58,8 +58,8 @@ public static class PageFaultStackAnalysis
                 InclusiveFaultCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalBytesMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalBytesMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
             .ToList();
 
         return new HardFaultStacksResponse(
@@ -81,7 +81,8 @@ public static class PageFaultStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "pageInBytes", ctx.Stats, ctx.Warnings);
     }
@@ -94,15 +95,9 @@ public static class PageFaultStackAnalysis
         long TotalFaults,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalBytes = 0;
         long totalBytes = 0;
@@ -114,14 +109,14 @@ public static class PageFaultStackAnalysis
             {
                 traceTotalBytes += data.ByteCount;
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                if (req.Pid is { } p && data.ProcessID != p) return;
+                if (req.StartUs is { } s && nowUs < s) return;
+                if (req.EndUs is { } e && nowUs > e) return;
 
                 totalBytes += data.ByteCount;
                 totalFaults++;
                 raw.AddSample(data.CallStackIndex(), data, data.ByteCount);
-                when.Add(nowUs, data.ByteCount);
+                req.When.Add(nowUs, data.ByteCount);
             };
         });
         raw.Source.DoneAddingSamples();

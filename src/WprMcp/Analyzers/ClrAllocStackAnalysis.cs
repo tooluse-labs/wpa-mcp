@@ -31,9 +31,9 @@ public static class ClrAllocStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
@@ -49,8 +49,8 @@ public static class ClrAllocStackAnalysis
                 InclusiveEventCount: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveMetric / totalBytesMetric,
                 InclusivePct: 100.0 * n.InclusiveMetric / totalBytesMetric,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
             .ToList();
 
         return new ClrAllocStacksResponse(
@@ -73,7 +73,8 @@ public static class ClrAllocStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "allocBytes", ctx.Stats, ctx.Warnings);
     }
@@ -87,15 +88,9 @@ public static class ClrAllocStackAnalysis
         IReadOnlyList<ClrAllocTypeRow> TopTypes,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalBytes = 0;
         long totalBytes = 0;
@@ -108,16 +103,16 @@ public static class ClrAllocStackAnalysis
             if (bytes <= 0) return;
             traceTotalBytes += bytes;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (pid is { } p && data.ProcessID != p) return;
-            if (startUs is { } s && nowUs < s) return;
-            if (endUs is { } e && nowUs > e) return;
+            if (req.Pid is { } p && data.ProcessID != p) return;
+            if (req.StartUs is { } s && nowUs < s) return;
+            if (req.EndUs is { } e && nowUs > e) return;
 
             totalBytes += bytes;
             totalEvents++;
             if (!string.IsNullOrEmpty(data.TypeName))
                 bytesByType[data.TypeName] = bytesByType.GetValueOrDefault(data.TypeName) + bytes;
             raw.AddSample(data.CallStackIndex(), data, bytes);
-            when.Add(nowUs, bytes);
+            req.When.Add(nowUs, bytes);
         }
 
         ClrEventWalker.Walk(trace, clr => clr.GCAllocationTick += Handle);

@@ -30,9 +30,9 @@ public static class ImageLoadStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
 
         // Metric=1 per load means ExclusiveCount and ExclusiveMetric are equal — pick
         // ExclusiveCount for parity with CpuAnalysis.
@@ -48,8 +48,8 @@ public static class ImageLoadStackAnalysis
                 InclusiveLoads: (long)n.InclusiveCount,
                 ExclusivePct: 100.0 * n.ExclusiveCount / totalSamples,
                 InclusivePct: 100.0 * n.InclusiveCount / totalSamples,
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalLoads, n.ExclusiveCount),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, ctx.TraceTotalLoads, n.InclusiveCount)))
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalLoads, n.ExclusiveCount),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalLoads, n.InclusiveCount)))
             .ToList();
 
         return new ImageLoadStacksResponse(
@@ -70,7 +70,8 @@ public static class ImageLoadStackAnalysis
         TextWriter symbolLog)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var ctx = BuildNormalized(trace, pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var ctx = BuildNormalized(trace, req);
         return StackSourceTopN.ComputeCallerCallee(
             ctx.Normalized, focusFunction, top, metricName: "loads", ctx.Stats, ctx.Warnings);
     }
@@ -82,15 +83,9 @@ public static class ImageLoadStackAnalysis
         long TotalLoads,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(
-        TraceLog trace,
-        int? pid,
-        long? startUs,
-        long? endUs,
-        TextWriter symbolLog,
-        StackSourceTopN.WhenHistogram when)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalLoads = 0;
         long totalLoads = 0;
@@ -101,13 +96,13 @@ public static class ImageLoadStackAnalysis
             {
                 traceTotalLoads++;
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                if (req.Pid is { } p && data.ProcessID != p) return;
+                if (req.StartUs is { } s && nowUs < s) return;
+                if (req.EndUs is { } e && nowUs > e) return;
 
                 totalLoads++;
                 raw.AddSample(data.CallStackIndex(), data, 1);
-                when.Add(nowUs, 1);
+                req.When.Add(nowUs, 1);
             };
         });
         raw.Source.DoneAddingSamples();
