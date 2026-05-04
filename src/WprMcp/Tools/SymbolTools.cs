@@ -22,8 +22,7 @@ public sealed class SymbolTools
         "servers + caches separated by `;`); for incremental setup of one server at a time, " +
         "prefer add_symbol_server.  PerfView equivalent: File → Set Symbol Path… dialog.  " +
         "Affects all subsequent stack-resolving tool calls until the server restarts or this " +
-        "is called again.  Returns the path actually in effect after the change so callers can " +
-        "verify what was applied.")]
+        "is called again.  Returns the resulting path so callers can verify what was applied.")]
     public string SetSymbolPath(
         [Description("New path (e.g. 'SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols')")]
         string path,
@@ -55,10 +54,10 @@ public sealed class SymbolTools
         "fixes for unresolved modules (which symbol server to add for which module — e.g., " +
         "msdl.microsoft.com for ntdll/kernelbase, Chromium symbol server for chrome.exe / cef.dll).  " +
         "The first sanity check to run when cpu_top_functions shows lots of `module!?` frames " +
-        "or `Stats.ResolutionRate < 0.8`.  PerfView has no single equivalent — this composes " +
-        "what PerfView's 'modules' view + symbol-path dialog let you check manually, plus " +
-        "auto-recommendations.  Returns top 50 modules sorted unresolved-first; if any are " +
-        "unresolved, includes a 'after fixing, re-run cpu_top_functions to verify' suggestion.")]
+        "or `Stats.ResolutionRate < 0.8`.  PerfView equivalent: Modules tab + Set Symbol Path " +
+        "dialog (this tool composes both, plus auto-recommends which server to add per module).  " +
+        "Returns top 50 modules sorted unresolved-first; if any are unresolved, includes a " +
+        "'after fixing, re-run cpu_top_functions to verify' suggestion.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
         [Description("Absolute path to .etl file")] string path)
     {
