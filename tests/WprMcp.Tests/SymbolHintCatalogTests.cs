@@ -44,4 +44,38 @@ public class SymbolHintCatalogTests
         Assert.Equal("Microsoft public symbols", entry.LoadTraceReason);
         Assert.Contains("Add Microsoft symbol server", entry.DiagnoseHint);
     }
+
+    [Fact]
+    public void Match_UnknownModule_ReturnsNull()
+    {
+        Assert.Null(SymbolHintCatalog.Match("MyAppPrivateDll"));
+        Assert.Null(SymbolHintCatalog.Match(""));
+    }
+
+    [Fact]
+    public void Match_IsCaseInsensitive()
+    {
+        Assert.NotNull(SymbolHintCatalog.Match("NTOSKRNL"));
+        Assert.NotNull(SymbolHintCatalog.Match("FFmpeg"));
+        Assert.NotNull(SymbolHintCatalog.Match("Chrome"));
+    }
+
+    [Fact]
+    public void Match_NoPdbTakesPrecedenceOverMicrosoft()
+    {
+        // A name containing both "ffmpeg" and "ntdll" must match the no-PDB tier first
+        // because no-PDB precedes Microsoft in the catalog. This locks in the
+        // first-match-wins ordering invariant.
+        var entry = SymbolHintCatalog.Match("ffmpeg-with-ntdll-in-name");
+        Assert.NotNull(entry);
+        Assert.Null(entry!.ServerUrl);
+    }
+
+    [Fact]
+    public void Entries_HasExactlyThreeTiers()
+    {
+        // Sanity guard: extending the catalog with a 4th tier should be a deliberate
+        // decision, not an accident. Update this assertion when adding tiers.
+        Assert.Equal(3, SymbolHintCatalog.Entries.Count);
+    }
 }
