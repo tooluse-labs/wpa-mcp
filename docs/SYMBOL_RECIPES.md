@@ -150,3 +150,4 @@ For routine "add MS symbol server then load trace" flows this is a non-issue (se
 | Worked yesterday, fails today after `set_symbol_path` | You changed the path mid-session — see "Changing paths mid-session" above. |
 | Internal symsrv timeouts | VPN required; `_NT_SYMBOL_PROXY` env var if you need an HTTP proxy for the symbol fetch. |
 | Two MCP servers fighting over PDB locks | Point each at a different cache directory. |
+| `diagnose_symbols` says "PDB not indexed" for a Windows system DLL (e.g. `crypt32`, `bcrypt`, `setupapi`) | The hint comes from an explicit allowlist (kernel + GDI + COM + .NET runtime + Defender + graphics + network + DWM); modules not on the list fall through to the generic message. Symbols themselves still resolve normally if `msdl.microsoft.com` is on `_NT_SYMBOL_PATH` — the gap is only in the per-module hint text. |

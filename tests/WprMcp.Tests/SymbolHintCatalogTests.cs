@@ -76,7 +76,9 @@ public class SymbolHintCatalogTests
     public void Entries_HasExactlyThreeTiers()
     {
         // Sanity guard: extending the catalog with a 4th tier should be a deliberate
-        // decision, not an accident. Update this assertion when adding tiers.
+        // decision, not an accident.  Adding a tier: bump this assertion AND add a
+        // precedence test pinning the new tier's relative position to existing tiers
+        // (see Match_NoPdbTakesPrecedenceOverMicrosoft for the existing example).
         Assert.Equal(3, SymbolHintCatalog.Entries.Count);
     }
 }
