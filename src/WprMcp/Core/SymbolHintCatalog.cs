@@ -41,6 +41,15 @@ public static class SymbolHintCatalog
                 "vendor app bundles) ship stripped.  Rebuild from source with linker /DEBUG:FULL " +
                 "and place the local PDB folder ahead of any SRV* entries on _NT_SYMBOL_PATH; " +
                 "otherwise treat this module as opaque and focus on resolved kernel frames."),
+
+        // Tier 2: Chromium symbol server (Google Chrome official builds, Electron, CEF).
+        // Excludes msedge / msedgewebview2 — those are MS-shipped and live on msdl
+        // (verified empirically: msedge.exe.pdb HEADs 200 on msdl, 404 on chromium-symsrv).
+        new(
+            Patterns: new[] { "chrome", "chromium", "electron", "cef" },
+            DiagnoseHint: "Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')",
+            ServerUrl: "https://chromium-browser-symsrv.commondatastorage.googleapis.com",
+            LoadTraceReason: "Chromium-based browser (Chrome / Electron / CEF)"),
     };
 
     public static SymbolHintEntry? Match(string moduleName)
