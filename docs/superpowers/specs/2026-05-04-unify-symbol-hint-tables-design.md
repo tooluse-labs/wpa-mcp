@@ -59,8 +59,8 @@ public static class SymbolHintCatalog
 ### Catalog content (order = first-match precedence)
 
 1. **No public PDB** — patterns: `ffmpeg`, `ffprobe`, `ffplay`. `ServerUrl = null`. Hint: existing rebuild-from-source text.
-2. **Chromium symbol server** — patterns: `chrome`, `chromium`, `msedge`, `electron`, `cef`, `msedgewebview2`. `ServerUrl = https://chromium-browser-symsrv.commondatastorage.googleapis.com`. Hint: `"Add Chromium symbol server: add_symbol_server('…')"`.
-3. **Microsoft public symbols** — full enumerated module list ported from `MetaTools.SymbolServerHints`: `ntoskrnl, ntdll, kernel32, kernelbase, win32k, user32, gdi32, advapi32, rpcrt4, combase, ole32, oleaut32, shell32, shlwapi, msvcrt, ucrtbase, vcruntime, msvcp, fltmgr, mssecflt, wdf01000, wdfldr, mpengine, mpsvc, dxgi, d3d11, d3d12, d2d1, dwrite, windows.ui, wininet, winhttp, afd.sys, netio.sys, tcpip.sys, http.sys, win32u, dwmapi, dwmcore`. `ServerUrl = https://msdl.microsoft.com/download/symbols`. Hint: `"Add Microsoft symbol server: add_symbol_server('…')"`.
+2. **Chromium symbol server** — patterns: `chrome`, `chromium`, `electron`, `cef`. `ServerUrl = https://chromium-browser-symsrv.commondatastorage.googleapis.com`. Hint: `"Add Chromium symbol server: add_symbol_server('…')"`. **Notably excludes `msedge` / `msedgewebview2`**: those are Microsoft-shipped binaries whose PDBs live on `msdl.microsoft.com`, not on the Chromium server (verified empirically against Edge 147 — `msedge.exe.pdb` HEADs 200 on msdl, 404 on chromium-symsrv). The current `MetaTools` Chromium tier listing `msedge` is itself wrong and is fixed by this unification.
+3. **Microsoft public symbols** — full enumerated module list ported from `MetaTools.SymbolServerHints` plus `msedge` (which catches `msedgewebview2` via substring): `ntoskrnl, ntdll, kernel32, kernelbase, win32k, user32, gdi32, advapi32, rpcrt4, combase, ole32, oleaut32, shell32, shlwapi, msvcrt, ucrtbase, vcruntime, msvcp, fltmgr, mssecflt, wdf01000, wdfldr, mpengine, mpsvc, msedge, dxgi, d3d11, d3d12, d2d1, dwrite, windows.ui, wininet, winhttp, afd.sys, netio.sys, tcpip.sys, http.sys, win32u, dwmapi, dwmcore`. The explicit `msedgewebview2` entry from MetaTools is dropped — `msedge` substring covers it. `ServerUrl = https://msdl.microsoft.com/download/symbols`. Hint: `"Add Microsoft symbol server: add_symbol_server('…')"`.
 
 The "no public PDB" tier comes first so a module name like `ffmpeg.exe` matches there before the Microsoft tier could pick it up via a `Microsoft`-substring match. (The Microsoft tier is now name-anchored and the false-positive risk is gone, but the ordering invariant still holds for the same logical reason.)
 
@@ -113,9 +113,17 @@ First-match-wins. Returns null when nothing matches; consumers fall back to a to
 | `C:\Tools\someApp\msvcp140.dll` (self-redistributed VC runtime) | `load_trace` → MS recommendation; `diagnose_symbols` → "PDB not indexed" | Both tools → MS recommendation |
 | `C:\Users\ffmpegfan\foo.exe` (no ffmpeg involved) | `diagnose_symbols` → ffmpeg "no public PDB" hint (false positive) | `diagnose_symbols` → "PDB not indexed" (correct) |
 | `\Microsoft Store cache\unrelated.exe` | `diagnose_symbols` → "Add MS server" hint (false positive on path) | `diagnose_symbols` → "PDB not indexed" (correct) |
+| `msedge.exe` / `msedgewebview2.exe` | `load_trace` → Chromium recommendation (**wrong**, msdl is the actual host); `diagnose_symbols` → MS recommendation (right via path-substring) | Both tools → MS recommendation (correct, via `msedge` pattern in MS tier) |
+| **Unlisted Windows DLLs under `\Windows\System32\`** (e.g. `setupapi.dll`, `crypt32.dll`, `iphlpapi.dll`, `bcrypt.dll`, `ws2_32.dll`, `dnsapi.dll` — anything not in the explicit ~38-item MS list) | `diagnose_symbols` → MS recommendation (via path-substring on `\Windows\` or `\Microsoft\`) | `diagnose_symbols` → "PDB not indexed" fall-through |
 | Standard `ntoskrnl.exe`, `chrome.dll`, `ffmpeg.exe` | Both tools agree | Both tools still agree (now via single catalog) |
 
-No tool description / readme changes needed — outputs are unchanged for typical traces; only edge cases shift to the more-correct answer.
+**The unlisted-Windows-DLL row is an intentional regression** of recall in exchange for precision. Today's path-substring approach catches every DLL under `\Windows\` (correct most of the time, wrong on `C:\Users\WindowsLover\foo.exe`-style paths). The unified catalog trades that broad reach for an explicit allowlist with no false positives. Mitigations:
+
+- Users with `_NT_SYMBOL_PATH` already pointing at `msdl.microsoft.com` get full resolution regardless of the hint — the hint only matters when symbols aren't yet resolved and the user is shopping for a server to add.
+- The 38-item explicit list covers the modules that actually appear in typical CPU/wait traces (kernel, NT runtime, GDI, COM/RPC, CLR runtime, networking stack, graphics stack, Defender). Modules that fall through (`setupapi` etc.) are usually rarely-on-stack.
+- Adding modules to the list is one PR away — the catalog is centralised and easy to extend.
+
+If this regression turns out to bite real users, follow-up: add a path-based fallback tier matching `\Windows\System32\` → MS hint, behind the explicit allowlist. Out of scope for this spec.
 
 ## Tests
 
@@ -125,7 +133,8 @@ No tool description / readme changes needed — outputs are unchanged for typica
   - Rename → `RoutesByModuleName`.
   - InlineData rows switch from full paths to module names. Expected fragments unchanged:
     - `"ntoskrnl"` → `"msdl.microsoft.com"`
-    - `"msedge"` → `"chromium-browser-symsrv"` *(changed from `msdl.microsoft.com` per Open Questions §1: the old expectation enshrined a path-segment false-positive on "Microsoft"; the publishing symbol server for msedge is the Chromium one)*
+    - `"msedge"` → `"msdl.microsoft.com"` *(unchanged from existing test expectation — msdl really does host Edge symbols; the unification reaches the same destination via an explicit `msedge` pattern in the MS tier instead of a path-substring on "Microsoft")*
+    - `"msedgewebview2"` → `"msdl.microsoft.com"` *(new row — covered by the same `msedge` substring pattern)*
     - `"chrome"` → `"chromium-browser-symsrv"`
     - `"electron"` → `"chromium-browser-symsrv"`
     - `"ffmpeg"` → `"no public PDB server"`
@@ -157,11 +166,13 @@ No tool description / readme changes needed — outputs are unchanged for typica
 | `tests/WprMcp.Tests/SymbolHintCatalogTests.cs` | New | +30 |
 | **Total** | | **+57 net** |
 
-## Open questions
+## Resolved during review
 
-1. **`msedge` routing**: the Microsoft tier in `MetaTools.SymbolServerHints` currently lists `msedgewebview2` (and matches Edge UI binaries via the path-segment "Microsoft"). The Chromium tier lists `msedge`. After unification: `msedge.exe` matches the Chromium tier (which comes first), so it routes to `chromium-browser-symsrv`. This is *more correct* (msedge is Chromium-derived and msdl carries only some of its symbols), but it differs from the current `SymbolTools` test row `"C:\\Program Files\\Microsoft\\Edge\\msedge.exe" → msdl.microsoft.com`. **Resolution: change that test row's expected fragment to `chromium-browser-symsrv`** — the unification is the trigger that fixes a latent test-enshrined bug.
+1. **`msedge` routing — msdl, not Chromium.** Earlier draft proposed routing msedge to the Chromium tier and changing the existing `SymbolServiceTests` expectation to `chromium-browser-symsrv`. That was wrong on the destination: empirical HEAD requests against an Edge 147 install confirm `msedge.exe.pdb` is on `msdl.microsoft.com` (200) and not on `chromium-browser-symsrv` (404). Microsoft owns and ships Edge; PDBs land on msdl. The Chromium symbol server is Google's, scoped to Chrome official builds. The current `MetaTools.SymbolServerHints` Chromium tier listing `msedge` is itself a latent bug — `load_trace` recommends a server that 404s for Edge symbols. **Resolution: `msedge` lives in the MS tier; Chromium tier omits it. Existing test expectation stays unchanged.**
 
-2. **`msedgewebview2` placement**: it's MS-published; `msdl.microsoft.com` actually carries it. Leave in the Microsoft tier. After unification, `msedgewebview2.dll` matches Microsoft (Chromium tier doesn't list it). This is a deliberate distinction.
+2. **`msedgewebview2` placement.** Same publisher as `msedge`; same symbol server (msdl). Substring matching means a single `msedge` pattern in the MS tier catches both `msedge.exe` and `msedgewebview2.exe`. **Resolution: drop the explicit `msedgewebview2` entry; rely on `msedge` substring.**
+
+3. **Unlisted Windows DLL recall regression.** Switching from path-substring matching (`Microsoft`/`Windows`) to enumerated module-name matching means Windows DLLs not in the explicit ~38-item MS list (e.g. `setupapi`, `crypt32`, `iphlpapi`) lose their auto-MS-hint and fall through to the generic "PDB not indexed" message. **Resolution: documented in the Behavior changes section as an intentional precision-over-recall tradeoff. Mitigation paths (path-based fallback tier, list expansion) noted but out of scope for this spec.**
 
 ## Out of scope
 
