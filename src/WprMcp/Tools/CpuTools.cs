@@ -19,7 +19,11 @@ public sealed class CpuTools
         "each row's ExclusiveSamples is the count of samples whose leaf frame was THIS " +
         "function (i.e., on-CPU AT this frame, not transiting through it).  Pair with " +
         "cpu_caller_callee to drill into a specific frame, or cpu_top_functions_batch " +
-        "when investigating multiple PIDs in one trace load.  Set excludeEtwSelfOverhead=true " +
+        "when investigating multiple PIDs in one trace load.  On large traces, scope " +
+        "via `pid` first (use `list_processes orderBy=cpu` to pick heavy hitters) — " +
+        "whole-trace aggregation walks every CpuSample event and fetches PDBs for every " +
+        "warm module, and can hit the MCP tool-call timeout on multi-GB traces.  " +
+        "Set excludeEtwSelfOverhead=true " +
         "to fold kernel-side stack-walk frames (EtwpLogKernelEvent etc.) into one bucket — " +
         "useful when ETW overhead drowns the workload signal.  Requires the CPU sample " +
         "keyword (default WPR 'CPU' / 'CPU.light' profiles include it).")]

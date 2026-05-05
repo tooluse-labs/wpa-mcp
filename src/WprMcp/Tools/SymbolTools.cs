@@ -89,11 +89,18 @@ public sealed class SymbolTools
             Suggestions: suggestions);
     }
 
-    // Per-module symbol-server suggestion. Same pattern table as MetaTools.SymbolServerHints
-    // — keep them consistent so `load_trace` recommendations and `diagnose_symbols` hints
-    // never disagree on which server to add for a given module.
-    private static readonly (string ServerHint, string[] Patterns)[] ServerHints =
+    // Per-module hint lookup.  First-match-wins on a case-insensitive substring match
+    // against the module's file path (see SuggestServerForModule).  Specific patterns
+    // MUST precede generic ones — ffmpeg's "no public PDB" entry must come before the
+    // "Microsoft"/"Windows" entries, or a path like `\Microsoft\…\ffmpeg.exe` would route
+    // to the MS server hint (which can't help) instead of the rebuild advice.
+    private static readonly (string Hint, string[] Patterns)[] ServerHints =
     {
+        ("This module has no public PDB server — public Windows builds (gyan.dev / BtbN / " +
+         "vendor app bundles) ship stripped.  Rebuild from source with linker /DEBUG:FULL " +
+         "and place the local PDB folder ahead of any SRV* entries on _NT_SYMBOL_PATH; " +
+         "otherwise treat this module as opaque and focus on resolved kernel frames.",
+         new[] { "ffmpeg", "ffprobe", "ffplay" }),
         ("Add Microsoft symbol server: add_symbol_server('https://msdl.microsoft.com/download/symbols')",
          new[] { "Microsoft", "Windows" }),
         ("Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')",

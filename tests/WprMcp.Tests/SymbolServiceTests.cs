@@ -113,6 +113,8 @@ public class SymbolServiceTests
     [InlineData("C:\\Program Files\\Microsoft\\Edge\\msedge.exe", "msdl.microsoft.com")]
     [InlineData("C:\\Program Files\\Google\\Chrome\\Application\\chrome.dll", "chromium-browser-symsrv")]
     [InlineData("C:\\Program Files\\Electron\\electron.exe", "chromium-browser-symsrv")]
+    [InlineData("C:\\Tools\\ffmpeg\\bin\\ffmpeg.exe", "no public PDB server")]
+    [InlineData("C:\\Apps\\Encoder\\ffprobe.exe", "no public PDB server")]
     [InlineData("C:\\src\\myproduct\\out\\release\\MyApp.dll", "set_symbol_path")]
     public void SuggestServerForModule_RoutesByPathSubstring(string filePath, string expectedHintFragment)
     {
