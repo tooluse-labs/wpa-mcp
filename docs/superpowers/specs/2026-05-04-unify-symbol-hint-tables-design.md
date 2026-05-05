@@ -33,9 +33,11 @@ Single source of truth for "given a module name, what symbol hint applies?" — 
 namespace WprMcp.Core;
 
 /// <summary>
-/// One row of the catalog. Patterns match (case-insensitive substring) against module
-/// names — typically TraceEvent's <c>ModuleFile.Name</c>, which is the basename without
-/// extension (e.g. <c>"ntoskrnl"</c>, <c>"ffmpeg"</c>).
+/// One row of the catalog. Patterns match (case-insensitive substring) against the
+/// module name as TraceEvent exposes it via <c>ModuleFile.Name</c>. The exposed form
+/// is fixture-dependent — sometimes basename (<c>ntoskrnl</c>), sometimes basename plus
+/// extension (<c>tcpip.sys</c>); substring matching tolerates either, so patterns may
+/// include or omit the extension as long as they remain specific enough.
 ///
 /// <para>
 /// <c>ServerUrl</c> + <c>LoadTraceReason</c> are paired: both set means "load_trace
