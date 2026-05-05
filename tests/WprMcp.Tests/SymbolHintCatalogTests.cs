@@ -26,4 +26,22 @@ public class SymbolHintCatalogTests
         Assert.Equal("Chromium-based browser (Chrome / Electron / CEF)", entry.LoadTraceReason);
         Assert.Contains("Add Chromium symbol server", entry.DiagnoseHint);
     }
+
+    [Theory]
+    [InlineData("ntoskrnl")]
+    [InlineData("ntdll")]
+    [InlineData("kernel32")]
+    [InlineData("msvcp")]
+    [InlineData("mpengine")]
+    [InlineData("tcpip.sys")]   // kernel-driver pattern: extension is part of Name
+    [InlineData("msedge")]       // corrected routing: MS, not Chromium
+    [InlineData("msedgewebview2")] // covered by `msedge` substring
+    public void Match_MicrosoftModuleName_ReturnsMicrosoftEntry(string moduleName)
+    {
+        var entry = SymbolHintCatalog.Match(moduleName);
+        Assert.NotNull(entry);
+        Assert.Equal("https://msdl.microsoft.com/download/symbols", entry!.ServerUrl);
+        Assert.Equal("Microsoft public symbols", entry.LoadTraceReason);
+        Assert.Contains("Add Microsoft symbol server", entry.DiagnoseHint);
+    }
 }

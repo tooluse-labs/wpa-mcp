@@ -50,6 +50,26 @@ public static class SymbolHintCatalog
             DiagnoseHint: "Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')",
             ServerUrl: "https://chromium-browser-symsrv.commondatastorage.googleapis.com",
             LoadTraceReason: "Chromium-based browser (Chrome / Electron / CEF)"),
+
+        // Tier 3: Microsoft public symbols (msdl). Patterns ported from the previous
+        // MetaTools.SymbolServerHints list, plus `msedge` (which catches `msedgewebview2`
+        // via substring — both are MS-published and live on msdl).
+        new(
+            Patterns: new[]
+            {
+                "ntoskrnl", "ntdll", "kernel32", "kernelbase", "win32k", "user32", "gdi32",
+                "advapi32", "rpcrt4", "combase", "ole32", "oleaut32", "shell32", "shlwapi",
+                "msvcrt", "ucrtbase", "vcruntime", "msvcp",
+                "fltmgr", "mssecflt", "wdf01000", "wdfldr",
+                "mpengine", "mpsvc",
+                "msedge",
+                "dxgi", "d3d11", "d3d12", "d2d1", "dwrite", "windows.ui", "wininet", "winhttp",
+                "afd.sys", "netio.sys", "tcpip.sys", "http.sys",
+                "win32u", "dwmapi", "dwmcore",
+            },
+            DiagnoseHint: "Add Microsoft symbol server: add_symbol_server('https://msdl.microsoft.com/download/symbols')",
+            ServerUrl: "https://msdl.microsoft.com/download/symbols",
+            LoadTraceReason: "Microsoft public symbols"),
     };
 
     public static SymbolHintEntry? Match(string moduleName)
