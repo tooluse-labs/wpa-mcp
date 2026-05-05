@@ -14,7 +14,7 @@ namespace WprMcp.Core;
 /// </para>
 /// </summary>
 public sealed record SymbolHintEntry(
-    string[] Patterns,
+    IReadOnlyList<string> Patterns,
     string DiagnoseHint,
     string? ServerUrl = null,
     string? LoadTraceReason = null)
