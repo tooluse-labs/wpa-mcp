@@ -109,16 +109,17 @@ public class SymbolServiceTests
     }
 
     [Theory]
-    [InlineData("C:\\Windows\\System32\\ntoskrnl.exe", "msdl.microsoft.com")]
-    [InlineData("C:\\Program Files\\Microsoft\\Edge\\msedge.exe", "msdl.microsoft.com")]
-    [InlineData("C:\\Program Files\\Google\\Chrome\\Application\\chrome.dll", "chromium-browser-symsrv")]
-    [InlineData("C:\\Program Files\\Electron\\electron.exe", "chromium-browser-symsrv")]
-    [InlineData("C:\\Tools\\ffmpeg\\bin\\ffmpeg.exe", "no public PDB server")]
-    [InlineData("C:\\Apps\\Encoder\\ffprobe.exe", "no public PDB server")]
-    [InlineData("C:\\src\\myproduct\\out\\release\\MyApp.dll", "set_symbol_path")]
-    public void SuggestServerForModule_RoutesByPathSubstring(string filePath, string expectedHintFragment)
+    [InlineData("ntoskrnl", "msdl.microsoft.com")]
+    [InlineData("msedge", "msdl.microsoft.com")]
+    [InlineData("msedgewebview2", "msdl.microsoft.com")]
+    [InlineData("chrome", "chromium-browser-symsrv")]
+    [InlineData("electron", "chromium-browser-symsrv")]
+    [InlineData("ffmpeg", "no public PDB server")]
+    [InlineData("ffprobe", "no public PDB server")]
+    [InlineData("MyApp", "set_symbol_path")]
+    public void SuggestServerForModule_RoutesByModuleName(string moduleName, string expectedHintFragment)
     {
-        var hint = SymbolTools.SuggestServerForModule(filePath);
+        var hint = SymbolTools.SuggestServerForModule(moduleName);
         Assert.Contains(expectedHintFragment, hint);
     }
 

@@ -72,7 +72,7 @@ public sealed class SymbolTools
             var resolved = !string.IsNullOrEmpty(module.PdbName);
             var hint = resolved
                 ? "PDB resolved."
-                : SuggestServerForModule(module.FilePath);
+                : SuggestServerForModule(module.Name);
             rows.Add(new ModuleSymbolStatus(module.Name, 0, resolved, hint));
         }
 
@@ -89,29 +89,9 @@ public sealed class SymbolTools
             Suggestions: suggestions);
     }
 
-    // Per-module hint lookup.  First-match-wins on a case-insensitive substring match
-    // against the module's file path (see SuggestServerForModule).  Specific patterns
-    // MUST precede generic ones — ffmpeg's "no public PDB" entry must come before the
-    // "Microsoft"/"Windows" entries, or a path like `\Microsoft\…\ffmpeg.exe` would route
-    // to the MS server hint (which can't help) instead of the rebuild advice.
-    private static readonly (string Hint, string[] Patterns)[] ServerHints =
-    {
-        ("This module has no public PDB server — public Windows builds (gyan.dev / BtbN / " +
-         "vendor app bundles) ship stripped.  Rebuild from source with linker /DEBUG:FULL " +
-         "and place the local PDB folder ahead of any SRV* entries on _NT_SYMBOL_PATH; " +
-         "otherwise treat this module as opaque and focus on resolved kernel frames.",
-         new[] { "ffmpeg", "ffprobe", "ffplay" }),
-        ("Add Microsoft symbol server: add_symbol_server('https://msdl.microsoft.com/download/symbols')",
-         new[] { "Microsoft", "Windows" }),
-        ("Add Chromium symbol server: add_symbol_server('https://chromium-browser-symsrv.commondatastorage.googleapis.com')",
-         new[] { "chrome", "chromium", "msedge", "electron", "cef" }),
-    };
-
-    internal static string SuggestServerForModule(string filePath)
-    {
-        foreach (var (hint, patterns) in ServerHints)
-            if (patterns.Any(p => filePath.Contains(p, StringComparison.OrdinalIgnoreCase)))
-                return hint;
-        return "PDB not indexed; provide local PDB folder via set_symbol_path or contact the module owner.";
-    }
+    // Per-module hint lookup is centralised in SymbolHintCatalog (see Core/).
+    // Both this method and MetaTools.BuildSymbolRecommendations consume that catalog.
+    internal static string SuggestServerForModule(string moduleName)
+        => SymbolHintCatalog.Match(moduleName)?.DiagnoseHint
+           ?? "PDB not indexed; provide local PDB folder via set_symbol_path or contact the module owner.";
 }
