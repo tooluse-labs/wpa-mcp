@@ -150,4 +150,4 @@ PDB 和 DLL 必须共享同一个签名（GUID + age）。同样的源文件再 
 | 昨天还能用、今天 `set_symbol_path` 后就废了 | 中途改了路径——见上面的"中途改路径"章节。 |
 | 内部 symsrv 超时 | 需要 VPN；要走 HTTP 代理就设 `_NT_SYMBOL_PROXY` 环境变量。 |
 | 两个 MCP server 抢 PDB lock | 给每个 server 指向不同的缓存目录。 |
-| `diagnose_symbols` 对某个 Windows 系统 DLL（如 `crypt32`/`bcrypt`/`setupapi`）报 "PDB not indexed" | 提示来自一个显式 allowlist（内核 + GDI + COM + .NET runtime + Defender + 图形 + 网络 + DWM），不在表内的模块会落到通用兜底文案。只要 `msdl.microsoft.com` 在 `_NT_SYMBOL_PATH` 里，符号本身照样能解出来——缺的只是每模块那行 hint。 |
+| `diagnose_symbols` 对某个 Windows 系统 DLL（如 `crypt32`/`bcrypt`/`setupapi`）报 "PDB not indexed" | 只要 `msdl.microsoft.com` 在 `_NT_SYMBOL_PATH` 里，符号本身照样能解出来——缺的只是每模块那行 hint。提示来自一个显式 allowlist（内核 + GDI + COM + .NET runtime + Defender + 图形 + 网络 + DWM），不在表内的模块会落到通用兜底文案。 |
