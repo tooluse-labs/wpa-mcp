@@ -74,6 +74,7 @@ public static class SymbolHintCatalog
 
     public static SymbolHintEntry? Match(string moduleName)
     {
+        if (string.IsNullOrEmpty(moduleName)) return null;
         foreach (var entry in Entries)
             if (entry.Patterns.Any(p => moduleName.Contains(p, StringComparison.OrdinalIgnoreCase)))
                 return entry;

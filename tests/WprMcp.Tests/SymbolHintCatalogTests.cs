@@ -50,6 +50,7 @@ public class SymbolHintCatalogTests
     {
         Assert.Null(SymbolHintCatalog.Match("MyAppPrivateDll"));
         Assert.Null(SymbolHintCatalog.Match(""));
+        Assert.Null(SymbolHintCatalog.Match(null!));
     }
 
     [Fact]
