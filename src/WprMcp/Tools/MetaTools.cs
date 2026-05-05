@@ -12,34 +12,6 @@ public sealed class MetaTools
     private readonly TraceCache _cache;
     public MetaTools(TraceCache cache) => _cache = cache;
 
-    // Pattern → recommended server URL mapping. Patterns are case-insensitive substrings on
-    // module name (without .dll/.exe extension). Order matters: first match wins per module,
-    // so put more-specific patterns before generic ones.
-    private static readonly (string Reason, string Url, string[] Patterns)[] SymbolServerHints =
-    {
-        ("Chromium-based browser (Chrome / Edge / Electron / CEF / etc.)",
-         "https://chromium-browser-symsrv.commondatastorage.googleapis.com",
-         // Pattern list captures Chromium-family modules across vendors; matching is done
-         // by substring against module name. Add additional browser-specific tokens here if
-         // your trace uses a renamed Chromium fork that isn't picked up.
-         new[] { "chrome", "chromium", "msedge", "electron", "cef" }),
-
-        ("Microsoft public symbols",
-         "https://msdl.microsoft.com/download/symbols",
-         new[]
-         {
-             "ntoskrnl", "ntdll", "kernel32", "kernelbase", "win32k", "user32", "gdi32",
-             "advapi32", "rpcrt4", "combase", "ole32", "oleaut32", "shell32", "shlwapi",
-             "msvcrt", "ucrtbase", "vcruntime", "msvcp",
-             "fltmgr", "mssecflt", "wdf01000", "wdfldr",
-             "mpengine", "mpsvc",            // Windows Defender
-             "msedgewebview2",
-             "dxgi", "d3d11", "d3d12", "d2d1", "dwrite", "windows.ui", "wininet", "winhttp",
-             "afd.sys", "netio.sys", "tcpip.sys", "http.sys",
-             "win32u", "ntdll", "dwmapi", "dwmcore",
-         }),
-    };
-
     [McpServerTool, Description(
         "Loads (or returns cached) a Windows ETW .etl trace. First load can take 30s-3min; subsequent calls are instant. " +
         "Response includes symbol-server recommendations based on the modules referenced by the trace.")]
@@ -76,8 +48,14 @@ public sealed class MetaTools
     private static IReadOnlyList<SymbolRecommendation> BuildSymbolRecommendations(
         Microsoft.Diagnostics.Tracing.Etlx.TraceLog trace)
     {
-        var hits = SymbolServerHints
-            .Select(h => (h.Reason, h.Url, Modules: new SortedSet<string>(StringComparer.OrdinalIgnoreCase)))
+        // Catalog entries that recommend a server (skip the no-public-PDB tier — it has no
+        // URL to recommend, only diagnose_symbols consumes it).
+        var serverEntries = SymbolHintCatalog.Entries
+            .Where(e => e.ServerUrl != null && e.LoadTraceReason != null)
+            .ToList();
+
+        var hits = serverEntries
+            .Select(e => (Entry: e, Modules: new SortedSet<string>(StringComparer.OrdinalIgnoreCase)))
             .ToList();
 
         foreach (var module in trace.ModuleFiles)
@@ -88,7 +66,7 @@ public sealed class MetaTools
             var name = module.Name ?? string.Empty;
             for (var i = 0; i < hits.Count; i++)
             {
-                var patterns = SymbolServerHints[i].Patterns;
+                var patterns = hits[i].Entry.Patterns;
                 if (patterns.Any(p => name.Contains(p, StringComparison.OrdinalIgnoreCase)))
                 {
                     hits[i].Modules.Add(name);
@@ -100,8 +78,8 @@ public sealed class MetaTools
         return hits
             .Where(h => h.Modules.Count > 0)
             .Select(h => new SymbolRecommendation(
-                Reason: h.Reason,
-                ServerUrl: h.Url,
+                Reason: h.Entry.LoadTraceReason!,
+                ServerUrl: h.Entry.ServerUrl!,
                 MatchedModuleCount: h.Modules.Count,
                 SampleModules: h.Modules.Take(5).ToList()))
             .ToList();
