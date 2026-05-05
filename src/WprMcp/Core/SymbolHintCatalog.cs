@@ -17,7 +17,18 @@ public sealed record SymbolHintEntry(
     string[] Patterns,
     string DiagnoseHint,
     string? ServerUrl = null,
-    string? LoadTraceReason = null);
+    string? LoadTraceReason = null)
+{
+    /// <summary>
+    /// True iff <paramref name="moduleName"/> case-insensitively contains any of this entry's
+    /// patterns. Null/empty input never matches. Both <c>SymbolHintCatalog.Match</c> (single-hit)
+    /// and <c>MetaTools.BuildSymbolRecommendations</c> (group-by) read through this method, so
+    /// changing matching semantics is a one-line edit.
+    /// </summary>
+    public bool Matches(string moduleName)
+        => !string.IsNullOrEmpty(moduleName) &&
+           Patterns.Any(p => moduleName.Contains(p, StringComparison.OrdinalIgnoreCase));
+}
 
 /// <summary>
 /// Single source of truth for "given a module name, what symbol hint applies?".
@@ -74,9 +85,8 @@ public static class SymbolHintCatalog
 
     public static SymbolHintEntry? Match(string moduleName)
     {
-        if (string.IsNullOrEmpty(moduleName)) return null;
         foreach (var entry in Entries)
-            if (entry.Patterns.Any(p => moduleName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            if (entry.Matches(moduleName))
                 return entry;
         return null;
     }

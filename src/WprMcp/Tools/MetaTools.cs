@@ -66,8 +66,7 @@ public sealed class MetaTools
             var name = module.Name ?? string.Empty;
             for (var i = 0; i < hits.Count; i++)
             {
-                var patterns = hits[i].Entry.Patterns;
-                if (patterns.Any(p => name.Contains(p, StringComparison.OrdinalIgnoreCase)))
+                if (hits[i].Entry.Matches(name))
                 {
                     hits[i].Modules.Add(name);
                     break;
