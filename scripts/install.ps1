@@ -26,6 +26,9 @@
 
 .PARAMETER CacheSize
   Value passed to wpa-mcp via --cache-size. Defaults to 2.
+
+.PARAMETER ForceDownload
+  Download and replace the executable even if the installed copy looks complete.
 #>
 
 [CmdletBinding()]
@@ -41,7 +44,8 @@ param(
     [string]$Scope,
     [string]$ServerName = 'wpa-mcp',
     [string]$SymbolPath = 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols',
-    [int]$CacheSize = 2
+    [int]$CacheSize = 2,
+    [switch]$ForceDownload
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +96,59 @@ function Move-WithRetry {
     }
 }
 
+function Test-TruthyEnv {
+    param([string]$Value)
+
+    if (-not $Value) { return $false }
+    return @('1', 'true', 'yes', 'on') -contains $Value.ToLowerInvariant()
+}
+
+function Test-UsableBinary {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path $Path)) { return $false }
+
+    try {
+        $item = Get-Item -LiteralPath $Path
+        if ($item.Length -le 0) { return $false }
+
+        & $Path --version | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+function Find-ReleaseAsset {
+    param(
+        [Parameter(Mandatory)]$Release,
+        [Parameter(Mandatory)][string]$AssetName
+    )
+
+    return @($Release.assets) | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
+}
+
+function Test-InstalledBinaryMatchesRelease {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        $ReleaseAsset
+    )
+
+    if (-not $ReleaseAsset) { return $false }
+    if (-not (Test-UsableBinary -Path $BinaryPath)) { return $false }
+
+    $item = Get-Item -LiteralPath $BinaryPath
+
+    $digest = $ReleaseAsset.digest
+    if ($digest -and $digest.Length -gt 7 -and $digest.Substring(0, 7).ToLowerInvariant() -eq 'sha256:') {
+        $expectedHash = $digest.Substring(7)
+        $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $BinaryPath).Hash
+        return $actualHash -eq $expectedHash
+    }
+
+    return $false
+}
+
 function Install-Binary {
     $resolvedInstallDir = $InstallDir
     if (-not $resolvedInstallDir) {
@@ -101,14 +158,22 @@ function Install-Binary {
         $resolvedInstallDir = Join-Path $env:USERPROFILE '.local\bin'
     }
 
+    $assetName = 'wpa-mcp-win-x64.exe'
+    $release = $null
     $resolvedTag = $Tag
     if (-not $resolvedTag) {
         $resolvedTag = $env:VERSION
     }
     if (-not $resolvedTag) {
         Write-Info "Querying latest release of $Owner/$Repo..."
-        $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
-        $resolvedTag = $latest.tag_name
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
+        $resolvedTag = $release.tag_name
+    } else {
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$resolvedTag" -UseBasicParsing
+        } catch {
+            Write-Warn "Could not query release metadata for $resolvedTag; download skip check disabled."
+        }
     }
     if (-not $resolvedTag) {
         throw "Could not resolve a release tag for $Owner/$Repo."
@@ -117,10 +182,16 @@ function Install-Binary {
 
     New-Item -ItemType Directory -Path $resolvedInstallDir -Force | Out-Null
 
-    $assetName = 'wpa-mcp-win-x64.exe'
+    $releaseAsset = if ($release) { Find-ReleaseAsset -Release $release -AssetName $assetName } else { $null }
     $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$resolvedTag/$assetName"
     $binaryPath = Join-Path $resolvedInstallDir 'wpa-mcp.exe'
     $tempPath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.download.exe"
+    $force = $ForceDownload -or (Test-TruthyEnv $env:FORCE_DOWNLOAD) -or (Test-TruthyEnv $env:WPA_MCP_FORCE_DOWNLOAD)
+
+    if (-not $force -and (Test-InstalledBinaryMatchesRelease -BinaryPath $binaryPath -ReleaseAsset $releaseAsset)) {
+        Write-Ok "Using existing complete $binaryPath"
+        return $binaryPath
+    }
 
     Write-Info "Downloading $assetUrl..."
     Invoke-WebRequest -Uri $assetUrl -OutFile $tempPath -UseBasicParsing

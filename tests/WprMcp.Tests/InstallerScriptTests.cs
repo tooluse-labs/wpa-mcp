@@ -111,6 +111,22 @@ public class InstallerScriptTests
     }
 
     [Fact]
+    public void InstallScriptSkipsDownloadWhenInstalledExeMatchesReleaseAsset()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("function Test-UsableBinary", content);
+        Assert.Contains("function Test-InstalledBinaryMatchesRelease", content);
+        Assert.Contains("Find-ReleaseAsset -Release $release -AssetName $assetName", content);
+        Assert.Contains("Get-FileHash -Algorithm SHA256 -LiteralPath $BinaryPath", content);
+        Assert.DoesNotContain("$ReleaseAsset.size", content);
+        Assert.Contains("if (-not $force -and (Test-InstalledBinaryMatchesRelease -BinaryPath $binaryPath -ReleaseAsset $releaseAsset))", content);
+        Assert.Contains("Write-Ok \"Using existing complete $binaryPath\"", content);
+        Assert.Contains("[switch]$ForceDownload", content);
+        Assert.Contains("Test-TruthyEnv $env:WPA_MCP_FORCE_DOWNLOAD", content);
+    }
+
+    [Fact]
     public void InstallScriptDoesNotUseScriptScopeForResolvedTagOrInstallDir()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
