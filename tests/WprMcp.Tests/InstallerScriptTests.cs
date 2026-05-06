@@ -144,6 +144,29 @@ public class InstallerScriptTests
             content);
     }
 
+    // The Claude Code CLI documents (https://code.claude.com/docs/en/mcp) the
+    // canonical shape as
+    //   claude mcp add [options] <name> -- <command> [args...]
+    // with all options (--scope, -e/--env, --transport, --header) BEFORE the server
+    // name.  When we previously put $ServerName first and -e flags after, the
+    // variadic env-flag parser kept consuming tokens past the last `-e` and ate the
+    // `--` separator plus the command, producing
+    //   error: missing required argument 'commandOrUrl'
+    // and aborting registration.  Pin the canonical ordering here.
+
+    [Fact]
+    public void SetupScriptCallsClaudeMcpAddInCanonicalOrder()
+    {
+        var content = File.ReadAllText(LocateScript("setup.ps1"));
+
+        // Negative: name must not appear immediately after `mcp add`.
+        Assert.DoesNotMatch(@"mcp\s+add\s+\$ServerName\b", content);
+
+        // Positive: $ServerName must be the last positional before `--` (with at most
+        // a line-continuation backtick and surrounding whitespace between them).
+        Assert.Matches(@"\$ServerName\s*`?\s*--\s+", content);
+    }
+
     // -- scripts/install.sh -------------------------------------------------
     // Fresh installs via `curl ... | bash` on MSYS2/Git Bash failed inside
     // dotnet-install.ps1 with

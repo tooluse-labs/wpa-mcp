@@ -240,9 +240,16 @@ if ($installClaudeCode) {
     if ($LASTEXITCODE -ne 0) {
         Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
     }
-    & claude mcp add $ServerName --scope user `
+    # Canonical syntax (https://code.claude.com/docs/en/mcp):
+    #   claude mcp add [options] <name> -- <command> [args...]
+    # All flags (--scope, -e, --transport, --header) MUST come before the server name.
+    # If the name appears first, the variadic env-flag parser keeps consuming tokens
+    # past the trailing `-e` and swallows the `--` separator + the actual command,
+    # producing "error: missing required argument 'commandOrUrl'".
+    & claude mcp add --scope user `
         -e "_NT_SYMBOL_PATH=$SymbolPath" `
         -e "WPRMCP_CACHE_SIZE=$CacheSize" `
+        $ServerName `
         -- $dotnetCommand $dllPath
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
     Write-Ok "Registered '$ServerName' with Claude Code."
