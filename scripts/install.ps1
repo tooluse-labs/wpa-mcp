@@ -93,28 +93,34 @@ function Move-WithRetry {
 }
 
 function Install-Binary {
-    if (-not $InstallDir) {
-        if ($env:INSTALL_DIR) {
-            $script:InstallDir = $env:INSTALL_DIR
-        } else {
-            $script:InstallDir = Join-Path $env:USERPROFILE '.local\bin'
-        }
+    $resolvedInstallDir = $InstallDir
+    if (-not $resolvedInstallDir) {
+        $resolvedInstallDir = $env:INSTALL_DIR
+    }
+    if (-not $resolvedInstallDir) {
+        $resolvedInstallDir = Join-Path $env:USERPROFILE '.local\bin'
     }
 
-    if (-not $Tag -and $env:VERSION) { $script:Tag = $env:VERSION }
-    if (-not $Tag) {
+    $resolvedTag = $Tag
+    if (-not $resolvedTag) {
+        $resolvedTag = $env:VERSION
+    }
+    if (-not $resolvedTag) {
         Write-Info "Querying latest release of $Owner/$Repo..."
         $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
-        $script:Tag = $latest.tag_name
+        $resolvedTag = $latest.tag_name
     }
-    Write-Ok "Tag: $Tag"
+    if (-not $resolvedTag) {
+        throw "Could not resolve a release tag for $Owner/$Repo."
+    }
+    Write-Ok "Tag: $resolvedTag"
 
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $resolvedInstallDir -Force | Out-Null
 
     $assetName = 'wpa-mcp-win-x64.exe'
-    $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$Tag/$assetName"
-    $binaryPath = Join-Path $InstallDir 'wpa-mcp.exe'
-    $tempPath = Join-Path $InstallDir "wpa-mcp-$Tag.download.exe"
+    $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$resolvedTag/$assetName"
+    $binaryPath = Join-Path $resolvedInstallDir 'wpa-mcp.exe'
+    $tempPath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.download.exe"
 
     Write-Info "Downloading $assetUrl..."
     Invoke-WebRequest -Uri $assetUrl -OutFile $tempPath -UseBasicParsing

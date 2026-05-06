@@ -100,6 +100,16 @@ public class InstallerScriptTests
         Assert.DoesNotContain("wpa-mcp-$Tag.zip", content);
     }
 
+    [Fact]
+    public void InstallScriptDoesNotUseScriptScopeForResolvedTagOrInstallDir()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.DoesNotContain("$script:", content);
+        Assert.Contains("$resolvedTag", content);
+        Assert.Contains("$resolvedInstallDir", content);
+    }
+
     // -- scripts/setup.ps1 -------------------------------------------------
     // A fresh install via the web one-liner failed with
     //   '8.0' is not a supported value for -Quality option.
