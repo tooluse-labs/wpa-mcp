@@ -96,8 +96,14 @@ function Ensure-DotNet {
     $bootstrapPath = Join-Path $env:TEMP 'dotnet-install.ps1'
     Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $bootstrapPath -UseBasicParsing
 
-    $bootstrapArgs = @('-Channel', '8.0')
-    if ($Variant -eq 'runtime') { $bootstrapArgs += @('-Runtime', 'dotnet') }
+    # Hashtable splat (NOT array splat).  In PowerShell, splatting a string array
+    # passes its elements POSITIONALLY -- the leading dash on a token like the channel
+    # flag is just a literal character, not a parameter-name marker.  That used to
+    # make dotnet-install.ps1 receive the flag string as its first positional ($Channel)
+    # and 8.0 as its second positional ($Quality), which threw "'8.0' is not a
+    # supported value for -Quality option".  Hashtable splat binds by name.
+    $bootstrapArgs = @{ Channel = '8.0' }
+    if ($Variant -eq 'runtime') { $bootstrapArgs['Runtime'] = 'dotnet' }
     & $bootstrapPath @bootstrapArgs
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet-install.ps1 failed (exit $LASTEXITCODE). Install manually: winget install Microsoft.DotNet.SDK.8"
