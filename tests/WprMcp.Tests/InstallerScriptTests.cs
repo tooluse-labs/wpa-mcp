@@ -101,6 +101,28 @@ public class InstallerScriptTests
         Assert.Matches(@"\$bootstrapArgs\s*=\s*@\{[^}]*Channel\s*=", content);
     }
 
+    // After the splat fix, the bootstrap began *succeeding*, but setup.ps1 still
+    // threw with the empty error
+    //   dotnet-install.ps1 failed (exit ).
+    // because the post-call guard read $LASTEXITCODE.  $LASTEXITCODE is only set by
+    // native (.exe) commands; .ps1 invocations leave it untouched, so on a fresh
+    // shell it stayed $null -- and `$null -ne 0` is $true.  The check fired on every
+    // successful bootstrap.  .ps1 calls signal failure via terminating errors, so the
+    // bootstrap is now wrapped in try/catch and the spurious LASTEXITCODE guard is
+    // gone.  Native commands later in setup.ps1 (claude.exe, dotnet build) DO set
+    // LASTEXITCODE legitimately, so the regex below scopes its negative match to a
+    // narrow window immediately after the bootstrap invocation.
+
+    [Fact]
+    public void SetupScriptDoesNotCheckLastExitCodeAfterDotNetBootstrap()
+    {
+        var content = File.ReadAllText(LocateScript("setup.ps1"));
+
+        Assert.DoesNotMatch(
+            @"&\s*\$bootstrapPath\s*@bootstrapArgs[\s\S]{0,200}\$LASTEXITCODE",
+            content);
+    }
+
     // -- scripts/install.sh -------------------------------------------------
     // Fresh installs via `curl ... | bash` on MSYS2/Git Bash failed inside
     // dotnet-install.ps1 with

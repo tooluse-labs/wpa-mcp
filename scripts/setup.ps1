@@ -104,9 +104,15 @@ function Ensure-DotNet {
     # supported value for -Quality option".  Hashtable splat binds by name.
     $bootstrapArgs = @{ Channel = '8.0' }
     if ($Variant -eq 'runtime') { $bootstrapArgs['Runtime'] = 'dotnet' }
-    & $bootstrapPath @bootstrapArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "dotnet-install.ps1 failed (exit $LASTEXITCODE). Install manually: winget install Microsoft.DotNet.SDK.8"
+    # dotnet-install.ps1 is a .ps1, so $LASTEXITCODE is NEVER set by this call -- it
+    # stays at whatever it was before (often $null in a fresh PS session).  Since
+    # `$null -ne 0` is $true, an `if ($LASTEXITCODE -ne 0)` check would fire spuriously
+    # on every successful install.  .ps1 invocations signal failure via terminating
+    # errors, so use try/catch instead.
+    try {
+        & $bootstrapPath @bootstrapArgs
+    } catch {
+        throw "dotnet-install.ps1 failed: $_`nInstall manually: winget install Microsoft.DotNet.SDK.8"
     }
 
     # dotnet-install.ps1 installs to %USERPROFILE%\.dotnet by default. Add to PATH for
