@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bash wrapper around uninstall.ps1.  Two invocation modes:
 #
-#   1. Local (extracted from the release zip):
+#   1. Local (next to uninstall.ps1):
 #        ./uninstall.sh
 #      Picks up uninstall.ps1 sitting next to this script on disk.
 #
@@ -37,19 +37,19 @@ if [[ -n "$LOCAL_PS1" ]]; then
 fi
 
 # Mode 2: download from the repo.
-TMP=$(mktemp -t wpa-mcp-uninstall-XXXXXX)
-mv "$TMP" "$TMP.ps1"
-TMP="$TMP.ps1"
-trap 'rm -f "$TMP"' EXIT
+SCRIPT_FILE=$(mktemp -t wpa-mcp-uninstall-XXXXXX)
+mv "$SCRIPT_FILE" "$SCRIPT_FILE.ps1"
+SCRIPT_FILE="$SCRIPT_FILE.ps1"
+trap 'rm -f "$SCRIPT_FILE"' EXIT
 
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$URL" -o "$TMP"
+    curl -fsSL "$URL" -o "$SCRIPT_FILE"
 elif command -v wget >/dev/null 2>&1; then
-    wget -q "$URL" -O "$TMP"
+    wget -q "$URL" -O "$SCRIPT_FILE"
 else
     echo "[uninstall.sh] Need curl or wget on PATH to download uninstall.ps1" >&2
     exit 1
 fi
 
-WIN_PATH=$(cygpath -w "$TMP")
+WIN_PATH=$(cygpath -w "$SCRIPT_FILE")
 exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WIN_PATH" "$@"

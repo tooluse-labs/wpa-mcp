@@ -68,18 +68,18 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
 ```
 
-Both routes do the same thing: download the latest GitHub Release zip (pre-built DLL), cache under `%LOCALAPPDATA%\wpa-mcp\releases\<tag>\`, and run the bundled `setup.ps1`.  Auto-detects every MCP client on the machine (Claude Code / Codex / Claude Desktop) and registers `wpa-mcp` against each.  .NET 8 runtime is auto-installed user-scope if missing.  Subsequent runs are instant (cache hit).
+Both routes do the same thing: download the latest self-contained `wpa-mcp-win-x64.exe` from GitHub Releases into `%USERPROFILE%\.local\bin\wpa-mcp.exe`, then register that executable directly with every detected MCP client (Claude Code / Codex / Claude Desktop). No local .NET runtime or SDK is required.
 
 Forward extra flags through the one-liner:
 
 ```powershell
 # PowerShell — pin tag, force a single client, set custom symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.0 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.8 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash — flags after `bash -s --` go to install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.0
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.8
 ```
 
 ### Uninstall (one-liner, symmetric)
@@ -94,13 +94,13 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-This removes the `wpa-mcp` entry from every detected MCP client.  The cached release zip and symbol cache stay (delete `%LOCALAPPDATA%\wpa-mcp\` and `%LocalAppData%\WprMcp\Symbols\` to remove those).
+This removes the `wpa-mcp` entry from every detected MCP client and deletes `%USERPROFILE%\.local\bin\wpa-mcp.exe`. The symbol cache stays (delete `%LocalAppData%\WprMcp\Symbols\` to remove it).
 
 ### Requirements
 
 - Windows 10 / 11 (TraceEvent kernel APIs are Windows-only)
-- .NET 8 — auto-installed user-scope by the installer if missing (uses Microsoft's official `dotnet-install.ps1`; no admin needed).  Pass `-SkipDotNetInstall` to opt out.
-- For symbol resolution: `_NT_SYMBOL_PATH` set, or use the symbol tools at runtime (see [Configuration → Symbols](#symbols)).
+- No .NET runtime is required for the one-line installer; releases ship a self-contained Windows executable.
+- For symbol resolution: pass `-SymbolPath` at install time, set `_NT_SYMBOL_PATH`, or use the symbol tools at runtime (see [Configuration → Symbols](#symbols)).
 
 <details>
 <summary><strong>Install from a clone (developers)</strong></summary>
@@ -160,7 +160,7 @@ dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # prints "WprMcp 0.
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
-Then register with your MCP client.  The DLL path must be **absolute**.
+Then register with your MCP client.  The command path must be **absolute**. For release installs, use `%USERPROFILE%\.local\bin\wpa-mcp.exe`; for clone builds, use `dotnet` plus the absolute DLL path.
 
 **Claude Code** — per-project (`<project>/.mcp.json`) or global (`~/.claude.json`):
 
@@ -168,12 +168,13 @@ Then register with your MCP client.  The DLL path must be **absolute**.
 {
   "mcpServers": {
     "wpa-mcp": {
-      "command": "dotnet",
-      "args": ["C:/Users/me/Dev/wpa-mcp/src/WprMcp/bin/Release/net8.0/WprMcp.dll"],
-      "env": {
-        "_NT_SYMBOL_PATH": "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
-        "WPRMCP_CACHE_SIZE": "2"
-      }
+      "command": "C:/Users/me/.local/bin/wpa-mcp.exe",
+      "args": [
+        "--symbol-path",
+        "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
+        "--cache-size",
+        "2"
+      ]
     }
   }
 }
@@ -182,10 +183,8 @@ Then register with your MCP client.  The DLL path must be **absolute**.
 Or via the CLI helper:
 
 ```powershell
-claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp/bin/Release/net8.0/WprMcp.dll
+claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symbol-path "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols" --cache-size 2
 ```
-
-(Add `-e _NT_SYMBOL_PATH=...` for env vars.)
 
 **Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json`, same shape as above.
 
@@ -375,14 +374,14 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 #### Where to set the path
 
-`_NT_SYMBOL_PATH` accepts semicolon-separated entries: `SRV*<cache>*<url>` for symbol servers, bare folder paths for local PDBs, mix and match. Three setup paths (any one suffices — they all set the same env var):
+`_NT_SYMBOL_PATH` accepts semicolon-separated entries: `SRV*<cache>*<url>` for symbol servers, bare folder paths for local PDBs, mix and match. Three setup paths:
 
 1. **Pre-launch env var** (cleanest, survives restarts):
    ```powershell
    [Environment]::SetEnvironmentVariable("_NT_SYMBOL_PATH",
        "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols", "User")
    ```
-2. **Per-MCP-server `env` block** in the config JSON (see manual install above).  Easiest to share between teammates.
+2. **Per-MCP-server `--symbol-path` arg** in the config JSON/TOML (see manual install above).  Easiest to share between teammates.
 3. **Runtime via tool calls** — ask the agent: *"set the symbol path to SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols, then run `diagnose_symbols` on this trace."*
 
 Symbol cache defaults to `%LocalAppData%\WprMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.

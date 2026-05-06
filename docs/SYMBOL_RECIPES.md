@@ -92,11 +92,11 @@ PDB and DLL must share the same signature (GUID + age). Re-linking the same sour
 | Lifetime | How |
 |---|---|
 | Per tool call | `set_symbol_path` / `add_symbol_server` |
-| Per MCP-server process | `env` block in the MCP client's JSON config (see manual install in README) |
+| Per MCP-server process | `--symbol-path "..."` in the MCP client's `args` list (see manual install in README) |
 | Per user, system-wide | `[Environment]::SetEnvironmentVariable("_NT_SYMBOL_PATH", "...", "User")` |
-| Install-time, baked into client config | `setup.ps1 -SymbolPath "..."` writes the path into every detected MCP client's env block |
+| Install-time, baked into client config | `install.ps1 -SymbolPath "..."` writes `--symbol-path` into every detected MCP client's args |
 
-For team shared setups, the JSON `env` block is usually the right answer — checked in alongside the rest of the config, no per-machine state.
+For team shared setups, a JSON/TOML `args` entry is usually the right answer: checked in alongside the rest of the config, no per-machine state.
 
 ## Setting at runtime
 

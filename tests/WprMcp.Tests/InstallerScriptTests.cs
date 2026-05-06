@@ -23,9 +23,16 @@ public class InstallerScriptTests
         return path;
     }
 
+    private static string LocateRepoFile(params string[] parts)
+    {
+        var path = Path.Combine(new[] { LocateRepoRoot() }.Concat(parts).ToArray());
+        Assert.True(File.Exists(path), $"Expected file at {path}");
+        return path;
+    }
+
     // -- scripts/install.ps1 -----------------------------------------------
     // The documented one-liner
-    //   iex "& { $(irm $URL) } -InstallArgs '...'"
+    //   iex "& { $(irm $URL) } -Tag v0.2.8"
     // failed with cascading parse errors when install.ps1 was saved with a
     // UTF-8 BOM. `irm` decodes UTF-8 but does not strip the BOM, so the U+FEFF
     // landed mid-string between `& {` and `<#`, and PS 5.1's parser could not
@@ -48,7 +55,7 @@ public class InstallerScriptTests
         var hasBom = bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
         Assert.False(hasBom,
             "scripts/install.ps1 starts with a UTF-8 BOM. This re-breaks " +
-            "the documented `iex \"& { $(irm $URL) } -InstallArgs '...'\"` " +
+            "the documented `iex \"& { $(irm $URL) } -Tag v0.2.8\"` " +
             "one-liner: `irm` decodes UTF-8 without stripping the BOM, and " +
             "PS 5.1 cannot tokenize `<#` after a U+FEFF interpolated mid-string. " +
             "Resave as UTF-8 *without* BOM.");
@@ -78,13 +85,19 @@ public class InstallerScriptTests
     }
 
     [Fact]
-    public void InstallScriptRepairsCachedSetupVariableColonBug()
+    public void InstallScriptDownloadsSelfContainedExeAndDoesNotRunSetup()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
 
-        Assert.Contains("Repair-KnownSetupScriptBugs", content);
-        Assert.Contains("Replace('$Variant:', '${Variant}:')", content);
-        Assert.Contains("Repair-KnownSetupScriptBugs $installScript", content);
+        Assert.Contains("wpa-mcp-win-x64.exe", content);
+        Assert.Contains("wpa-mcp.exe", content);
+        Assert.Contains("claude mcp add --scope $ClaudeScope $ServerName -- $BinaryPath @serverArgs", content);
+        Assert.Contains("command = $commandToml", content);
+        Assert.Contains("args = [$argsToml]", content);
+        Assert.DoesNotContain("Expand-Archive", content);
+        Assert.DoesNotContain("setup.ps1", content);
+        Assert.DoesNotContain("dotnet-install.ps1", content);
+        Assert.DoesNotContain("wpa-mcp-$Tag.zip", content);
     }
 
     // -- scripts/setup.ps1 -------------------------------------------------
@@ -135,22 +148,24 @@ public class InstallerScriptTests
 
     // PowerShell sessions running under AppLocker / WDAC / Device Guard policy are
     // forced into Constrained Language Mode, which blocks all .NET method invocations.
-    // Microsoft's dotnet-install.ps1 calls .NET methods directly on every code path
-    // (e.g. [System.Net.WebClient]::new()), so the bootstrap is fundamentally
-    // impossible there.  Without an upfront guard the symptom is a confusing
-    //   Cannot invoke method. Method invocation is supported only on core types
-    //   in this language mode.
-    // surfacing from deep inside dotnet-install.ps1.  setup.ps1 must detect CLM
-    // before attempting bootstrap and refuse with a clear "install via winget then
-    // re-run with -SkipDotNetInstall" message.
+    // Microsoft's dotnet-install.ps1 calls .NET methods directly on every code path,
+    // so setup.ps1 must avoid that bootstrap in CLM. Native winget still works in
+    // managed environments, so setup.ps1 should try that before giving up.
 
     [Fact]
-    public void SetupScriptGuardsAgainstConstrainedLanguageModeBeforeBootstrap()
+    public void SetupScriptUsesWingetFallbackInConstrainedLanguageMode()
     {
         var content = File.ReadAllText(LocateScript("setup.ps1"));
 
+        Assert.Contains("function Install-DotNetWithWinget", content);
         Assert.Matches(
-            @"(?i)LanguageMode[\s\S]{0,80}-ne\s*'FullLanguage'[\s\S]{0,500}throw",
+            @"(?i)\$languageMode\s*=\s*\$ExecutionContext\.SessionState\.LanguageMode[\s\S]{0,120}if\s*\(\$languageMode\s+-ne\s+'FullLanguage'\)",
+            content);
+        Assert.Matches(
+            @"(?i)if\s*\(\$languageMode\s+-ne\s+'FullLanguage'\)\s*\{[\s\S]{0,800}Install-DotNetWithWinget",
+            content);
+        Assert.Matches(
+            @"(?i)if\s*\(\$languageMode\s+-ne\s+'FullLanguage'\)\s*\{[\s\S]{0,1800}throw",
             content);
     }
 
@@ -183,18 +198,42 @@ public class InstallerScriptTests
     // Claude Code 2.1.129 documents `claude mcp add -e KEY=value name -- command`,
     // but its variadic -e parser consumes the following server name as another env
     // value and fails with "Invalid environment variable format: wpa-mcp".  Register
-    // a PowerShell launcher instead: it sets env vars, then execs dotnet.
+    // direct command+args instead: dotnet, DLL path, then server options.
 
     [Fact]
-    public void SetupScriptUsesClaudeAddWithPowerShellEnvLauncher()
+    public void SetupScriptUsesClaudeAddWithDirectServerArgs()
     {
         var content = File.ReadAllText(LocateScript("setup.ps1"));
 
         Assert.DoesNotMatch(@"-e\s+_NT_SYMBOL_PATH", content);
-        Assert.Contains("function Format-PowerShellSingleQuotedString", content);
-        Assert.Contains("$env:_NT_SYMBOL_PATH", content);
-        Assert.Contains("claude mcp add --scope user $ServerName --", content);
-        Assert.Contains("-ExecutionPolicy Bypass -Command $runCommand", content);
+        Assert.DoesNotContain("$env:_NT_SYMBOL_PATH", content);
+        Assert.Contains("$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', \"$CacheSize\")", content);
+        Assert.Contains("claude mcp add --scope user $ServerName -- $dotnetCommand @serverArgs", content);
+        Assert.Contains("args = [$argsToml]", content);
+        Assert.DoesNotContain("[mcp_servers.$ServerName.env]", content);
+    }
+
+    [Fact]
+    public void ReleaseWorkflowPublishesSelfContainedWindowsExecutable()
+    {
+        var content = File.ReadAllText(LocateRepoFile(".github", "workflows", "release.yml"));
+
+        Assert.Contains("-r win-x64", content);
+        Assert.Contains("--self-contained true", content);
+        Assert.Contains("PublishSingleFile=true", content);
+        Assert.Contains("wpa-mcp-win-x64.exe", content);
+        Assert.DoesNotContain("Compress-Archive", content);
+        Assert.DoesNotContain("wpa-mcp-*.zip", content);
+    }
+
+    [Fact]
+    public void UninstallScriptRemovesClaudeDesktopEntryWithoutPsObjectRemove()
+    {
+        var content = File.ReadAllText(LocateScript("uninstall.ps1"));
+
+        Assert.DoesNotContain(".PSObject.Properties.Remove(", content);
+        Assert.Contains("New-Object PSObject -Property @{}", content);
+        Assert.Contains("$config.mcpServers = $newServers", content);
     }
 
     // -- scripts/install.sh -------------------------------------------------
@@ -215,19 +254,23 @@ public class InstallerScriptTests
     // assignments to any of those names anywhere in install.sh.
 
     [Fact]
-    public void InstallShellScriptDoesNotShadowTempEnvVars()
+    public void ShellScriptsDoNotShadowTempEnvVars()
     {
-        var path = LocateScript("install.sh");
-        var lines = File.ReadAllLines(path);
         var offenders = new List<string>();
         var pattern = new Regex(@"^(?:export\s+)?(TMP|TEMP|TMPDIR)\s*=");
 
-        for (var i = 0; i < lines.Length; i++)
+        foreach (var scriptName in new[] { "install.sh", "uninstall.sh" })
         {
-            var trimmed = lines[i].TrimStart();
-            if (trimmed.StartsWith("#")) continue;
-            if (pattern.IsMatch(trimmed))
-                offenders.Add($"  line {i + 1}: {lines[i]}");
+            var path = LocateScript(scriptName);
+            var lines = File.ReadAllLines(path);
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("#")) continue;
+                if (pattern.IsMatch(trimmed))
+                    offenders.Add($"  {scriptName} line {i + 1}: {lines[i]}");
+            }
         }
 
         Assert.True(offenders.Count == 0,

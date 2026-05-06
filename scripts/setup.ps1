@@ -62,8 +62,89 @@ function Write-Warn($msg) { Write-Host "[install] $msg" -ForegroundColor Yellow 
 
 # Detect (and optionally install) the right .NET 8 variant: 'sdk' for repo mode (need
 # the build toolchain) or 'runtime' for release-zip mode (just need to run the DLL).
-# Bootstrap path: download dotnet-install.ps1 from Microsoft and run user-scope; goes
-# to %USERPROFILE%\.dotnet, no admin required, no winget dependency.
+function Find-DotNetCommand {
+    $existing = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($existing) { return $existing.Source }
+
+    $candidates = @()
+    if ($env:ProgramFiles) {
+        $candidates += (Join-Path $env:ProgramFiles 'dotnet\dotnet.exe')
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} 'dotnet\dotnet.exe')
+    }
+    if ($env:USERPROFILE) {
+        $candidates += (Join-Path $env:USERPROFILE '.dotnet\dotnet.exe')
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Add-DotNetDirectoryToPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DotNetCommand
+    )
+
+    $dotnetDir = Split-Path -Parent $DotNetCommand
+    if ($env:PATH -notlike "*$dotnetDir*") {
+        $env:PATH = "$dotnetDir;$env:PATH"
+    }
+}
+
+function Test-DotNet8VariantPresent {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DotNetCommand,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('runtime', 'sdk')]
+        [string]$Variant
+    )
+
+    $cmd = if ($Variant -eq 'sdk') { '--list-sdks' } else { '--list-runtimes' }
+    $output = & $DotNetCommand $cmd 2>$null
+    if ($Variant -eq 'sdk') {
+        return ($output -match '^8\.')
+    }
+    return ($output -match 'Microsoft\.NETCore\.App 8\.')
+}
+
+function Get-DotNetWingetPackage {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('runtime', 'sdk')]
+        [string]$Variant
+    )
+
+    if ($Variant -eq 'sdk') { return 'Microsoft.DotNet.SDK.8' }
+    return 'Microsoft.DotNet.Runtime.8'
+}
+
+function Install-DotNetWithWinget {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('runtime', 'sdk')]
+        [string]$Variant
+    )
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) { return $false }
+
+    $pkg = Get-DotNetWingetPackage -Variant $Variant
+    Write-Info "Bootstrapping .NET 8 $Variant via winget..."
+    & $winget.Source install --id $pkg --exact --source winget --accept-package-agreements --accept-source-agreements --silent
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "winget install $pkg failed (exit $LASTEXITCODE)."
+        return $false
+    }
+
+    return $true
+}
+
 function Ensure-DotNet {
     param(
         [Parameter(Mandatory)]
@@ -71,37 +152,40 @@ function Ensure-DotNet {
         [string]$Variant
     )
 
-    $existing = Get-Command dotnet -ErrorAction SilentlyContinue
-    if ($existing) {
-        $cmd = if ($Variant -eq 'sdk') { '--list-sdks' } else { '--list-runtimes' }
-        $output = & $existing.Source $cmd 2>$null
-        $hasIt = $false
-        if ($Variant -eq 'sdk') {
-            $hasIt = $output -match '^8\.'
-        } else {
-            $hasIt = $output -match 'Microsoft\.NETCore\.App 8\.'
-        }
-        if ($hasIt) {
+    $dotnetCommand = Find-DotNetCommand
+    if ($dotnetCommand) {
+        Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
+        if (Test-DotNet8VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
             Write-Ok ".NET 8 $Variant already present."
             return
         }
-        Write-Warn "dotnet on PATH but .NET 8 $Variant missing; will bootstrap alongside."
+        Write-Warn "dotnet found but .NET 8 $Variant missing; will bootstrap alongside."
     }
 
     if ($SkipDotNetInstall) {
-        throw ".NET 8 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install Microsoft.DotNet.SDK.8"
+        $pkg = Get-DotNetWingetPackage -Variant $Variant
+        throw ".NET 8 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install $pkg"
     }
 
     # Constrained Language Mode (AppLocker / WDAC / Device Guard policy) blocks .NET
     # method invocations entirely.  dotnet-install.ps1 uses [System.Net.WebClient]::new(),
     # [System.IO.Path]::Combine(...) and similar on every code path, so the bootstrap
-    # can't even start under CLM.  Detect early and surface actionable guidance instead
-    # of letting the failure manifest deep inside dotnet-install.ps1 as a generic
-    # "Cannot invoke method ... in this language mode" error.
+    # can't even start under CLM.  Native installers still work, so try winget first.
     $languageMode = $ExecutionContext.SessionState.LanguageMode
     if ($languageMode -ne 'FullLanguage') {
-        $pkg = if ($Variant -eq 'sdk') { 'Microsoft.DotNet.SDK.8' } else { 'Microsoft.DotNet.Runtime.8' }
-        throw "Cannot bootstrap .NET 8 ${Variant}: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy). Microsoft's dotnet-install.ps1 calls .NET methods directly and Constrained Language Mode blocks them. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
+        if (Install-DotNetWithWinget -Variant $Variant) {
+            $dotnetCommand = Find-DotNetCommand
+            if ($dotnetCommand) {
+                Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
+                if (Test-DotNet8VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
+                    Write-Ok ".NET 8 $Variant installed via winget."
+                    return
+                }
+            }
+        }
+
+        $pkg = Get-DotNetWingetPackage -Variant $Variant
+        throw "Cannot bootstrap .NET 8 ${Variant}: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy), and the winget fallback did not make .NET 8 available. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
     }
 
     Write-Info "Bootstrapping .NET 8 $Variant via dotnet-install.ps1 (user-scope, no admin)..."
@@ -124,7 +208,8 @@ function Ensure-DotNet {
     try {
         & $bootstrapPath @bootstrapArgs
     } catch {
-        throw "dotnet-install.ps1 failed: $_`nInstall manually: winget install Microsoft.DotNet.SDK.8"
+        $pkg = Get-DotNetWingetPackage -Variant $Variant
+        throw "dotnet-install.ps1 failed: $_`nInstall manually: winget install $pkg"
     }
 
     # dotnet-install.ps1 installs to %USERPROFILE%\.dotnet by default. Add to PATH for
@@ -134,9 +219,11 @@ function Ensure-DotNet {
         $env:PATH = "$userDotnet;$env:PATH"
     }
 
-    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    $dotnetCommand = Find-DotNetCommand
+    if (-not $dotnetCommand) {
         throw "dotnet still not on PATH after install. Add '$userDotnet' to PATH manually and retry."
     }
+    Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
     Write-Ok ".NET 8 $Variant installed to $userDotnet"
     Write-Warn "If you open a new shell, add '$userDotnet' to PATH (or relog — dotnet-install.ps1 updates user PATH for future sessions)."
 }
@@ -198,6 +285,7 @@ if (-not $dotnetCommand) {
     throw "dotnet was just ensured on PATH but Get-Command can't resolve it. Re-run after restarting the shell."
 }
 Write-Ok "dotnet: $dotnetCommand"
+$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', "$CacheSize")
 
 # Step 4 — pick clients.
 $installClaudeCode = $false
@@ -232,18 +320,6 @@ if ($installClaudeCode) {
     }
     Write-Info 'Registering with Claude Code (user scope)...'
 
-    $powershellCommand = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
-    if (-not $powershellCommand) {
-        throw "powershell.exe not on PATH. Cannot register Claude Code wrapper command."
-    }
-    function Format-PowerShellSingleQuotedString([string]$s) {
-        return "'" + ($s -replace "'", "''") + "'"
-    }
-    $runCommand = '$env:_NT_SYMBOL_PATH = ' + (Format-PowerShellSingleQuotedString $SymbolPath) +
-        '; $env:WPRMCP_CACHE_SIZE = ' + (Format-PowerShellSingleQuotedString "$CacheSize") +
-        '; & ' + (Format-PowerShellSingleQuotedString $dotnetCommand) +
-        ' ' + (Format-PowerShellSingleQuotedString $dllPath)
-
     # Idempotent: remove first, accept non-zero exit if the entry doesn't exist.
     # NOTE: do NOT redirect stderr with `2>$null` here -- under PS 5.1 + ErrorActionPreference=Stop,
     # captured native-command stderr wraps as a NativeCommandError that DOES terminate.  Letting
@@ -254,8 +330,7 @@ if ($installClaudeCode) {
         Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
     }
 
-    & claude mcp add --scope user $ServerName -- `
-        $powershellCommand -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $runCommand
+    & claude mcp add --scope user $ServerName -- $dotnetCommand @serverArgs
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
     Write-Ok "Registered '$ServerName' with Claude Code."
 }
@@ -290,9 +365,7 @@ if ($installCodex) {
         return '"' + $escaped + '"'
     }
 
-    $argsToml = (@($dllPath) | ForEach-Object { Format-TomlString $_ }) -join ', '
-    $symbolToml = Format-TomlString $SymbolPath
-    $cacheSizeToml = Format-TomlString "$CacheSize"
+    $argsToml = ($serverArgs | ForEach-Object { Format-TomlString $_ }) -join ', '
     $dotnetToml = Format-TomlString $dotnetCommand
 
     # Build via here-string + concatenation. No StringBuilder.
@@ -300,10 +373,6 @@ if ($installCodex) {
 [mcp_servers.$ServerName]
 command = $dotnetToml
 args = [$argsToml]
-
-[mcp_servers.$ServerName.env]
-_NT_SYMBOL_PATH = $symbolToml
-WPRMCP_CACHE_SIZE = $cacheSizeToml
 "@
 
     $preamble = $rawToml.TrimEnd()
@@ -325,16 +394,12 @@ if ($installClaudeDesktop) {
     $config = $rawJson | ConvertFrom-Json
 
     if (-not ($config.PSObject.Properties.Name -contains 'mcpServers')) {
-        $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([pscustomobject]@{})
+        $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue (New-Object PSObject -Property @{})
     }
 
-    $serverEntry = [pscustomobject]@{
+    $serverEntry = New-Object PSObject -Property @{
         command = $dotnetCommand
-        args    = @($dllPath)
-        env     = [pscustomobject]@{
-            _NT_SYMBOL_PATH    = $SymbolPath
-            WPRMCP_CACHE_SIZE  = "$CacheSize"
-        }
+        args    = $serverArgs
     }
     if ($config.mcpServers.PSObject.Properties.Name -contains $ServerName) {
         $config.mcpServers.$ServerName = $serverEntry

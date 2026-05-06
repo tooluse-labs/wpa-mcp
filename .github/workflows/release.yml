@@ -1,22 +1,19 @@
 name: release
 
-# Triggers on tag push (e.g. v0.2.0). Builds Release, packages into a zip with the
-# bundled setup.{ps1,sh} installer + uninstall scripts + docs, attaches to a GitHub
-# Release. End users either grab the zip from the Releases page or use the web one-
-# liner scripts/install.{ps1,sh} which downloads the latest zip and invokes setup.ps1.
+# Tag pushes (for example v0.2.8) publish a self-contained Windows executable.
+# The web installers are intentionally thin: they download this asset and register
+# it directly with MCP clients, with no user-machine .NET bootstrap.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: # allow manual trigger for ad-hoc builds
+  workflow_dispatch:
 
 permissions:
-  contents: write # required to create the GitHub Release
+  contents: write
 
 jobs:
   build:
-    # Windows runner is mandatory: TraceEvent's kernel parsers are Windows-only and the
-    # build references native Windows assemblies. Linux runners would fail dotnet restore.
     runs-on: windows-latest
 
     steps:
@@ -27,64 +24,40 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore + Build (Release)
-        run: |
-          dotnet restore src/WprMcp/WprMcp.csproj
-          dotnet build src/WprMcp/WprMcp.csproj -c Release --nologo --no-restore
+      - name: Restore
+        run: dotnet restore src/WprMcp/WprMcp.csproj -r win-x64
 
-      - name: Smoke check
-        run: dotnet src/WprMcp/bin/Release/net8.0/WprMcp.dll --version
-
-      - name: Publish (framework-dependent — users have .NET 8 already)
+      - name: Publish self-contained win-x64 executable
         run: |
           dotnet publish src/WprMcp/WprMcp.csproj `
             -c Release `
-            --no-build `
+            -r win-x64 `
+            --self-contained true `
             --no-restore `
-            -o publish/bin
+            -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o publish/win-x64
 
-      - name: Stage release zip layout
+      - name: Stage release assets
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = 'devbuild' }
-          $stageDir = "release/wpa-mcp-$tag"
-          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
-
-          # Binaries — flatten to bin/ at zip root.
-          Copy-Item -Recurse publish/bin "$stageDir/bin"
-
-          # Bundled installer: lift to zip root so users run `.\setup.ps1` (or
-          # `./setup.sh` from Git Bash) directly after extracting.  Both .ps1 and .sh
-          # variants ship — .sh wraps .ps1 via powershell.exe.  We do NOT include the
-          # repo's scripts/install.{ps1,sh} (those are web-entry one-liners that
-          # download THIS zip; inside the zip they'd be redundant + confusing).
-          Copy-Item scripts/setup.ps1 "$stageDir/setup.ps1"
-          Copy-Item scripts/setup.sh "$stageDir/setup.sh"
-          Copy-Item scripts/uninstall.ps1 "$stageDir/uninstall.ps1"
-          Copy-Item scripts/uninstall.sh "$stageDir/uninstall.sh"
-
-          # User-facing docs.  README.zh-CN.md ships alongside the English README so
-          # in-zip docs match what users see on the GitHub repo page.
-          Copy-Item README.md "$stageDir/README.md"
-          Copy-Item README.zh-CN.md "$stageDir/README.zh-CN.md"
-          Copy-Item -Recurse docs "$stageDir/docs"
-
-          # Pack.
-          Compress-Archive -Path "$stageDir/*" -DestinationPath "release/wpa-mcp-$tag.zip" -Force
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item publish/win-x64/WprMcp.exe release/wpa-mcp-win-x64.exe
+          .\release\wpa-mcp-win-x64.exe --version
           Get-ChildItem release/
 
-      - name: Upload zip as workflow artifact (always; lets manual runs grab it)
+      - name: Upload executable as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wpa-mcp-${{ github.ref_name }}
-          path: release/wpa-mcp-*.zip
+          name: wpa-mcp-win-x64
+          path: release/wpa-mcp-win-x64.exe
 
-      - name: Create GitHub Release (only on tag push)
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/wpa-mcp-*.zip
+          files: release/wpa-mcp-win-x64.exe
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }} # v1.0.0-rc1 → prerelease
+          prerelease: ${{ contains(github.ref_name, '-') }}

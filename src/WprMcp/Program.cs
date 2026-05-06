@@ -22,7 +22,10 @@ public static class Program
             return CliRunner.Run(args);
         }
 
-        var builder = Host.CreateApplicationBuilder(args);
+        var serverOptions = McpServerOptions.Parse(args);
+        serverOptions.ApplyToEnvironment();
+
+        var builder = Host.CreateApplicationBuilder(serverOptions.HostArgs);
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);

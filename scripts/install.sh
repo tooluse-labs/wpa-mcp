@@ -3,9 +3,10 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
 #
-# Downloads install.ps1 from the same repo and runs it via powershell.exe. All
-# flags forward to install.ps1; with curl-pipe-bash you'd typically pass them via
-# the trailing argument convention:
+# Downloads install.ps1 from the same repo and runs it via powershell.exe. The
+# PowerShell installer downloads the self-contained Windows executable and registers
+# it directly with MCP clients. All flags forward to install.ps1; with curl-pipe-bash
+# you'd typically pass them via the trailing argument convention:
 #
 #   curl -fsSL .../install.sh | bash -s -- -Tag v0.2.0
 #
@@ -33,9 +34,8 @@ fi
 # IMPORTANT: do NOT name this variable TMP / TEMP / TMPDIR.  Those names are exported
 # env vars on MSYS2/Git Bash, so a plain `TMP=...` assignment here updates the export
 # and the exec'd powershell.exe inherits a $env:TMP pointing at our temp .ps1 FILE
-# rather than the temp DIRECTORY.  dotnet-install.ps1 then calls .NET's
-# Path.GetTempPath() (which prefers $TMP) and tries to create a sub-file inside what
-# it thinks is a directory, throwing "Could not find a part of the path".
+# rather than the temp DIRECTORY. Keep temp script state out of process-wide temp
+# env vars so downstream tools inherit a sane environment.
 SCRIPT_FILE=$(mktemp -t wpa-mcp-install-XXXXXX)
 mv "$SCRIPT_FILE" "$SCRIPT_FILE.ps1"
 SCRIPT_FILE="$SCRIPT_FILE.ps1"
