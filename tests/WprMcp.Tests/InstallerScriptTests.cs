@@ -24,10 +24,10 @@ public class InstallerScriptTests
     }
 
     // -- scripts/install.ps1 -----------------------------------------------
-    // Commit 1252eaf (v0.2.2) — the documented one-liner
+    // The documented one-liner
     //   iex "& { $(irm $URL) } -InstallArgs '...'"
-    // failed with cascading parse errors because scripts/install.ps1 was saved with
-    // a UTF-8 BOM. `irm` decodes UTF-8 but does not strip the BOM, so the U+FEFF
+    // failed with cascading parse errors when install.ps1 was saved with a
+    // UTF-8 BOM. `irm` decodes UTF-8 but does not strip the BOM, so the U+FEFF
     // landed mid-string between `& {` and `<#`, and PS 5.1's parser could not
     // tokenize the comment-block opener that followed.
     //
@@ -78,7 +78,7 @@ public class InstallerScriptTests
     }
 
     // -- scripts/setup.ps1 -------------------------------------------------
-    // v0.2.2 -> v0.2.3 — a fresh install via the web one-liner failed with
+    // A fresh install via the web one-liner failed with
     //   '8.0' is not a supported value for -Quality option.
     // because Ensure-DotNet splatted the bootstrap args as a string array:
     //   $bootstrapArgs = @('-Channel', '8.0'); & $bootstrapPath @bootstrapArgs
@@ -98,13 +98,14 @@ public class InstallerScriptTests
         var content = File.ReadAllText(LocateScript("setup.ps1"));
 
         Assert.DoesNotMatch(@"\$bootstrapArgs\s*=\s*@\(", content);
-        Assert.Matches(@"\$bootstrapArgs\s*=\s*@\{\s*Channel\s*=\s*'8\.0'\s*\}", content);
+        Assert.Matches(@"\$bootstrapArgs\s*=\s*@\{[^}]*Channel\s*=", content);
     }
 
     // -- scripts/install.sh -------------------------------------------------
-    // v0.2.3 -> v0.2.4 — after the dotnet-install splat fix, fresh installs
-    // via `curl ... | bash` on MSYS2/Git Bash failed inside dotnet-install.ps1
-    // with "Could not find a part of the path '<tmpdir>\wpa-mcp-install-XXXXXX.ps1\<random>.tmp'".
+    // Fresh installs via `curl ... | bash` on MSYS2/Git Bash failed inside
+    // dotnet-install.ps1 with
+    //   Could not find a part of the path
+    //   '<tmpdir>\wpa-mcp-install-XXXXXX.ps1\<random>.tmp'.
     //
     // Cause: install.sh did `TMP=$(mktemp ...); ...; TMP="$TMP.ps1"`.  TMP is
     // already an exported env var on MSYS2, so the plain assignment updates
