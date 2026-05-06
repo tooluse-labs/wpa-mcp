@@ -82,9 +82,20 @@ function Move-WithRetry {
         [Parameter(Mandatory)][string]$Destination
     )
 
+    $destDir = Split-Path -Parent $Destination
+    $destName = Split-Path -Leaf $Destination
+    $oldFiles = @(Get-ChildItem -LiteralPath $destDir -Filter "$destName.old-*" -Name -ErrorAction SilentlyContinue)
+    foreach ($oldName in $oldFiles) {
+        Remove-Item -LiteralPath (Join-Path $destDir $oldName) -Force -ErrorAction SilentlyContinue
+    }
+
     for ($i = 1; $i -le 5; $i++) {
         try {
-            Move-Item -Path $Source -Destination $Destination -Force
+            if (Test-Path $Destination) {
+                $aside = Join-Path $destDir "$destName.old-$(Get-Random)"
+                Move-Item -LiteralPath $Destination -Destination $aside -Force
+            }
+            Move-Item -LiteralPath $Source -Destination $Destination -Force
             return
         } catch {
             if ($i -eq 5) {

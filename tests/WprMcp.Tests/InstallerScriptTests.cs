@@ -127,6 +127,17 @@ public class InstallerScriptTests
     }
 
     [Fact]
+    public void InstallScriptRenamesExistingExeBeforeMove()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("Get-ChildItem -LiteralPath $destDir -Filter \"$destName.old-*\" -Name", content);
+        Assert.Contains("Move-Item -LiteralPath $Destination -Destination $aside -Force", content);
+        Assert.Contains("Move-Item -LiteralPath $Source -Destination $Destination -Force", content);
+        Assert.DoesNotContain("Move-Item -Path $Source -Destination $Destination -Force", content);
+    }
+
+    [Fact]
     public void InstallScriptDoesNotUseScriptScopeForResolvedTagOrInstallDir()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
