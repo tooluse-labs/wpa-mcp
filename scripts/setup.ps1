@@ -330,7 +330,7 @@ if ($installClaudeCode) {
         Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
     }
 
-    & claude mcp add --scope user $ServerName -- $dotnetCommand @serverArgs
+    & claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
     Write-Ok "Registered '$ServerName' with Claude Code."
 }

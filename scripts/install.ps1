@@ -154,7 +154,7 @@ function Register-ClaudeCode {
     }
 
     $serverArgs = New-ServerArgs
-    & claude mcp add --scope $ClaudeScope $ServerName -- $BinaryPath @serverArgs
+    & claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
 
     Write-Ok "Registered '$ServerName' with Claude Code."

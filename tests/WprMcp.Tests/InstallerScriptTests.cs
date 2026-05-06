@@ -91,13 +91,23 @@ public class InstallerScriptTests
 
         Assert.Contains("wpa-mcp-win-x64.exe", content);
         Assert.Contains("wpa-mcp.exe", content);
-        Assert.Contains("claude mcp add --scope $ClaudeScope $ServerName -- $BinaryPath @serverArgs", content);
+        Assert.Contains("claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs", content);
         Assert.Contains("command = $commandToml", content);
         Assert.Contains("args = [$argsToml]", content);
         Assert.DoesNotContain("Expand-Archive", content);
         Assert.DoesNotContain("setup.ps1", content);
         Assert.DoesNotContain("dotnet-install.ps1", content);
         Assert.DoesNotContain("wpa-mcp-$Tag.zip", content);
+    }
+
+    [Fact]
+    public void InstallScriptUsesClaudeAddSyntaxThatDoesNotSwallowServerArgs()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs", content);
+        Assert.DoesNotContain("claude mcp add --scope $ClaudeScope $ServerName -- $BinaryPath @serverArgs", content);
+        Assert.DoesNotContain("claude mcp add $ServerName --scope $ClaudeScope $BinaryPath @serverArgs", content);
     }
 
     [Fact]
@@ -218,7 +228,7 @@ public class InstallerScriptTests
         Assert.DoesNotMatch(@"-e\s+_NT_SYMBOL_PATH", content);
         Assert.DoesNotContain("$env:_NT_SYMBOL_PATH", content);
         Assert.Contains("$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', \"$CacheSize\")", content);
-        Assert.Contains("claude mcp add --scope user $ServerName -- $dotnetCommand @serverArgs", content);
+        Assert.Contains("claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs", content);
         Assert.Contains("args = [$argsToml]", content);
         Assert.DoesNotContain("[mcp_servers.$ServerName.env]", content);
     }
