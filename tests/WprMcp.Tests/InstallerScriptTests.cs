@@ -123,6 +123,27 @@ public class InstallerScriptTests
             content);
     }
 
+    // PowerShell sessions running under AppLocker / WDAC / Device Guard policy are
+    // forced into Constrained Language Mode, which blocks all .NET method invocations.
+    // Microsoft's dotnet-install.ps1 calls .NET methods directly on every code path
+    // (e.g. [System.Net.WebClient]::new()), so the bootstrap is fundamentally
+    // impossible there.  Without an upfront guard the symptom is a confusing
+    //   Cannot invoke method. Method invocation is supported only on core types
+    //   in this language mode.
+    // surfacing from deep inside dotnet-install.ps1.  setup.ps1 must detect CLM
+    // before attempting bootstrap and refuse with a clear "install via winget then
+    // re-run with -SkipDotNetInstall" message.
+
+    [Fact]
+    public void SetupScriptGuardsAgainstConstrainedLanguageModeBeforeBootstrap()
+    {
+        var content = File.ReadAllText(LocateScript("setup.ps1"));
+
+        Assert.Matches(
+            @"(?i)LanguageMode[\s\S]{0,80}-ne\s*'FullLanguage'[\s\S]{0,500}throw",
+            content);
+    }
+
     // -- scripts/install.sh -------------------------------------------------
     // Fresh installs via `curl ... | bash` on MSYS2/Git Bash failed inside
     // dotnet-install.ps1 with

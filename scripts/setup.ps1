@@ -92,6 +92,18 @@ function Ensure-DotNet {
         throw ".NET 8 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install Microsoft.DotNet.SDK.8"
     }
 
+    # Constrained Language Mode (AppLocker / WDAC / Device Guard policy) blocks .NET
+    # method invocations entirely.  dotnet-install.ps1 uses [System.Net.WebClient]::new(),
+    # [System.IO.Path]::Combine(...) and similar on every code path, so the bootstrap
+    # can't even start under CLM.  Detect early and surface actionable guidance instead
+    # of letting the failure manifest deep inside dotnet-install.ps1 as a generic
+    # "Cannot invoke method ... in this language mode" error.
+    $languageMode = $ExecutionContext.SessionState.LanguageMode
+    if ($languageMode -ne 'FullLanguage') {
+        $pkg = if ($Variant -eq 'sdk') { 'Microsoft.DotNet.SDK.8' } else { 'Microsoft.DotNet.Runtime.8' }
+        throw "Cannot bootstrap .NET 8 $Variant: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy). Microsoft's dotnet-install.ps1 calls .NET methods directly and Constrained Language Mode blocks them. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
+    }
+
     Write-Info "Bootstrapping .NET 8 $Variant via dotnet-install.ps1 (user-scope, no admin)..."
     $bootstrapPath = Join-Path $env:TEMP 'dotnet-install.ps1'
     Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $bootstrapPath -UseBasicParsing
