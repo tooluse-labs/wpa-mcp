@@ -1,10 +1,10 @@
-﻿<#
+<#
 .SYNOPSIS
   One-line installer for wpa-mcp. Downloads the latest GitHub Release zip, extracts
   it, and runs the bundled setup.ps1.
 
 .DESCRIPTION
-  Designed to be invoked over the network — no clone needed:
+  Designed to be invoked over the network -- no clone needed:
 
     irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1 | iex
 
@@ -45,7 +45,7 @@ $ErrorActionPreference = 'Stop'
 function Write-Info($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
 
-# Step 1 — resolve target tag (default to latest release).
+# Step 1 -- resolve target tag (default to latest release).
 if (-not $Tag) {
     Write-Info "Querying latest release of $Owner/$Repo..."
     $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/latest" -UseBasicParsing
@@ -57,7 +57,7 @@ $zipName = "wpa-mcp-$Tag.zip"
 $zipUrl = "https://github.com/$Owner/$Repo/releases/download/$Tag/$zipName"
 $installRoot = Join-Path $env:LOCALAPPDATA "wpa-mcp\releases\$Tag"
 
-# Step 2 — download (skip if already cached).
+# Step 2 -- download (skip if already cached).
 $zipPath = Join-Path $installRoot $zipName
 if (-not (Test-Path $zipPath)) {
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
@@ -67,7 +67,7 @@ if (-not (Test-Path $zipPath)) {
     Write-Info "Cached zip found at $zipPath."
 }
 
-# Step 3 — extract (idempotent: re-extract if neither setup.ps1 nor install.ps1 found).
+# Step 3 -- extract (idempotent: re-extract if neither setup.ps1 nor install.ps1 found).
 $extractDir = Join-Path $installRoot 'extracted'
 $setupCandidate   = Join-Path $extractDir 'setup.ps1'
 $legacyCandidate  = Join-Path $extractDir 'install.ps1'
@@ -77,7 +77,7 @@ if (-not (Test-Path $setupCandidate) -and -not (Test-Path $legacyCandidate)) {
     Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 }
 
-# Step 4 — invoke the bundled setup.ps1.  Backward-compat: older release zips (≤ v0.1.0)
+# Step 4 -- invoke the bundled setup.ps1.  Backward-compat: older release zips (<= v0.1.0)
 # bundled the script under the older name install.ps1.
 $installScript = if (Test-Path $setupCandidate) { $setupCandidate } else { $legacyCandidate }
 if (-not (Test-Path $installScript)) {
