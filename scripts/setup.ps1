@@ -101,7 +101,7 @@ function Ensure-DotNet {
     $languageMode = $ExecutionContext.SessionState.LanguageMode
     if ($languageMode -ne 'FullLanguage') {
         $pkg = if ($Variant -eq 'sdk') { 'Microsoft.DotNet.SDK.8' } else { 'Microsoft.DotNet.Runtime.8' }
-        throw "Cannot bootstrap .NET 8 $Variant: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy). Microsoft's dotnet-install.ps1 calls .NET methods directly and Constrained Language Mode blocks them. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
+        throw "Cannot bootstrap .NET 8 ${Variant}: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy). Microsoft's dotnet-install.ps1 calls .NET methods directly and Constrained Language Mode blocks them. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
     }
 
     Write-Info "Bootstrapping .NET 8 $Variant via dotnet-install.ps1 (user-scope, no admin)..."

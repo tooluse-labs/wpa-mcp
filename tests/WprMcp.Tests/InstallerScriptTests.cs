@@ -77,6 +77,16 @@ public class InstallerScriptTests
             "`<=` for U+2264):\n" + string.Join("\n", offenders));
     }
 
+    [Fact]
+    public void InstallScriptRepairsCachedSetupVariableColonBug()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("Repair-KnownSetupScriptBugs", content);
+        Assert.Contains("Replace('$Variant:', '${Variant}:')", content);
+        Assert.Contains("Repair-KnownSetupScriptBugs $installScript", content);
+    }
+
     // -- scripts/setup.ps1 -------------------------------------------------
     // A fresh install via the web one-liner failed with
     //   '8.0' is not a supported value for -Quality option.
@@ -142,6 +152,32 @@ public class InstallerScriptTests
         Assert.Matches(
             @"(?i)LanguageMode[\s\S]{0,80}-ne\s*'FullLanguage'[\s\S]{0,500}throw",
             content);
+    }
+
+    [Fact]
+    public void SetupScriptDoesNotInterpolatePlainVariablesBeforeColon()
+    {
+        var lines = File.ReadAllLines(LocateScript("setup.ps1"));
+        var offenders = new List<string>();
+        var pattern = new Regex(@"\$(?<name>[A-Za-z_][A-Za-z0-9_]*):");
+        var allowedScopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "env", "global", "local", "private", "script", "using"
+        };
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            foreach (Match match in pattern.Matches(lines[i]))
+            {
+                if (allowedScopes.Contains(match.Groups["name"].Value)) continue;
+                offenders.Add($"  line {i + 1}: {lines[i].Trim()}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "PowerShell parses `$name:` inside a double-quoted string as a scoped " +
+            "variable reference, not `$name` followed by a colon. Use `${name}:` " +
+            "when interpolation is intended:\n" + string.Join("\n", offenders));
     }
 
     // The Claude Code CLI documents (https://code.claude.com/docs/en/mcp) the

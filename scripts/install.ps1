@@ -45,6 +45,17 @@ $ErrorActionPreference = 'Stop'
 function Write-Info($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
 
+function Repair-KnownSetupScriptBugs($path) {
+    if (-not (Test-Path $path)) { return }
+
+    $content = Get-Content -Path $path -Raw
+    if ($content.Contains('$Variant:')) {
+        Write-Info "Repairing cached setup.ps1 PowerShell variable-colon compatibility bug."
+        $content = $content.Replace('$Variant:', '${Variant}:')
+        Set-Content -Path $path -Value $content -Encoding UTF8
+    }
+}
+
 # Step 1 -- resolve target tag (default to latest release).
 if (-not $Tag) {
     Write-Info "Querying latest release of $Owner/$Repo..."
@@ -83,6 +94,7 @@ $installScript = if (Test-Path $setupCandidate) { $setupCandidate } else { $lega
 if (-not (Test-Path $installScript)) {
     throw "Neither setup.ps1 nor install.ps1 found in release zip. Asset may be malformed."
 }
+Repair-KnownSetupScriptBugs $installScript
 Write-Info "Running $installScript $InstallArgs..."
 & $installScript @InstallArgs
 
