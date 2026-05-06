@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace WprMcp.Tests;
 
 // Regression coverage for the installer scripts in scripts/.  Every check here pins
@@ -97,5 +99,47 @@ public class InstallerScriptTests
 
         Assert.DoesNotMatch(@"\$bootstrapArgs\s*=\s*@\(", content);
         Assert.Matches(@"\$bootstrapArgs\s*=\s*@\{\s*Channel\s*=\s*'8\.0'\s*\}", content);
+    }
+
+    // -- scripts/install.sh -------------------------------------------------
+    // v0.2.3 -> v0.2.4 — after the dotnet-install splat fix, fresh installs
+    // via `curl ... | bash` on MSYS2/Git Bash failed inside dotnet-install.ps1
+    // with "Could not find a part of the path '<tmpdir>\wpa-mcp-install-XXXXXX.ps1\<random>.tmp'".
+    //
+    // Cause: install.sh did `TMP=$(mktemp ...); ...; TMP="$TMP.ps1"`.  TMP is
+    // already an exported env var on MSYS2, so the plain assignment updates
+    // the exported value.  When the script then `exec`'d powershell.exe,
+    // PowerShell inherited $env:TMP pointing at the temp script FILE instead
+    // of the temp DIRECTORY.  dotnet-install.ps1 calls .NET's
+    // Path.GetTempPath() (which prefers $TMP) and tried to write a sub-file
+    // inside what it thought was a directory.
+    //
+    // The same hazard exists for TEMP and TMPDIR.  This check forbids
+    // assignments to any of those names anywhere in install.sh.
+
+    [Fact]
+    public void InstallShellScriptDoesNotShadowTempEnvVars()
+    {
+        var path = LocateScript("install.sh");
+        var lines = File.ReadAllLines(path);
+        var offenders = new List<string>();
+        var pattern = new Regex(@"^(?:export\s+)?(TMP|TEMP|TMPDIR)\s*=");
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith("#")) continue;
+            if (pattern.IsMatch(trimmed))
+                offenders.Add($"  line {i + 1}: {lines[i]}");
+        }
+
+        Assert.True(offenders.Count == 0,
+            "install.sh assigns to TMP / TEMP / TMPDIR. On MSYS2/Git Bash these " +
+            "are already-exported env vars, so the assignment updates the export " +
+            "and exec'd powershell.exe inherits a broken $env:TMP. Inside " +
+            "dotnet-install.ps1, .NET's Path.GetTempPath() then resolves to a " +
+            "FILE path and the runtime download fails with " +
+            "\"Could not find a part of the path\". Use a non-env variable " +
+            "name (e.g. SCRIPT_FILE):\n" + string.Join("\n", offenders));
     }
 }
