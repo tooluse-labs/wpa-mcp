@@ -231,8 +231,21 @@ if ($installClaudeCode) {
         throw "'claude' CLI not on PATH. Install Claude Code first: https://docs.claude.com/claude-code"
     }
     Write-Info 'Registering with Claude Code (user scope)...'
+
+    $powershellCommand = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+    if (-not $powershellCommand) {
+        throw "powershell.exe not on PATH. Cannot register Claude Code wrapper command."
+    }
+    function Format-PowerShellSingleQuotedString([string]$s) {
+        return "'" + ($s -replace "'", "''") + "'"
+    }
+    $runCommand = '$env:_NT_SYMBOL_PATH = ' + (Format-PowerShellSingleQuotedString $SymbolPath) +
+        '; $env:WPRMCP_CACHE_SIZE = ' + (Format-PowerShellSingleQuotedString "$CacheSize") +
+        '; & ' + (Format-PowerShellSingleQuotedString $dotnetCommand) +
+        ' ' + (Format-PowerShellSingleQuotedString $dllPath)
+
     # Idempotent: remove first, accept non-zero exit if the entry doesn't exist.
-    # NOTE: do NOT redirect stderr with `2>$null` here — under PS 5.1 + ErrorActionPreference=Stop,
+    # NOTE: do NOT redirect stderr with `2>$null` here -- under PS 5.1 + ErrorActionPreference=Stop,
     # captured native-command stderr wraps as a NativeCommandError that DOES terminate.  Letting
     # claude.exe's "No user-scoped MCP server found" message print to the terminal is fine; we
     # check $LASTEXITCODE explicitly.
@@ -240,17 +253,9 @@ if ($installClaudeCode) {
     if ($LASTEXITCODE -ne 0) {
         Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
     }
-    # Canonical syntax (https://code.claude.com/docs/en/mcp):
-    #   claude mcp add [options] <name> -- <command> [args...]
-    # All flags (--scope, -e, --transport, --header) MUST come before the server name.
-    # If the name appears first, the variadic env-flag parser keeps consuming tokens
-    # past the trailing `-e` and swallows the `--` separator + the actual command,
-    # producing "error: missing required argument 'commandOrUrl'".
-    & claude mcp add --scope user `
-        -e "_NT_SYMBOL_PATH=$SymbolPath" `
-        -e "WPRMCP_CACHE_SIZE=$CacheSize" `
-        $ServerName `
-        -- $dotnetCommand $dllPath
+
+    & claude mcp add --scope user $ServerName -- `
+        $powershellCommand -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $runCommand
     if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
     Write-Ok "Registered '$ServerName' with Claude Code."
 }
@@ -319,7 +324,7 @@ if ($installClaudeDesktop) {
     if (-not $rawJson -or -not $rawJson.Trim()) { $rawJson = '{}' }
     $config = $rawJson | ConvertFrom-Json
 
-    if (-not $config.PSObject.Properties.Name.Contains('mcpServers')) {
+    if (-not ($config.PSObject.Properties.Name -contains 'mcpServers')) {
         $config | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([pscustomobject]@{})
     }
 
@@ -331,7 +336,7 @@ if ($installClaudeDesktop) {
             WPRMCP_CACHE_SIZE  = "$CacheSize"
         }
     }
-    if ($config.mcpServers.PSObject.Properties.Name.Contains($ServerName)) {
+    if ($config.mcpServers.PSObject.Properties.Name -contains $ServerName) {
         $config.mcpServers.$ServerName = $serverEntry
     } else {
         $config.mcpServers | Add-Member -NotePropertyName $ServerName -NotePropertyValue $serverEntry

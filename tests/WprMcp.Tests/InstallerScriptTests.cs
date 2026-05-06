@@ -180,27 +180,21 @@ public class InstallerScriptTests
             "when interpolation is intended:\n" + string.Join("\n", offenders));
     }
 
-    // The Claude Code CLI documents (https://code.claude.com/docs/en/mcp) the
-    // canonical shape as
-    //   claude mcp add [options] <name> -- <command> [args...]
-    // with all options (--scope, -e/--env, --transport, --header) BEFORE the server
-    // name.  When we previously put $ServerName first and -e flags after, the
-    // variadic env-flag parser kept consuming tokens past the last `-e` and ate the
-    // `--` separator plus the command, producing
-    //   error: missing required argument 'commandOrUrl'
-    // and aborting registration.  Pin the canonical ordering here.
+    // Claude Code 2.1.129 documents `claude mcp add -e KEY=value name -- command`,
+    // but its variadic -e parser consumes the following server name as another env
+    // value and fails with "Invalid environment variable format: wpa-mcp".  Register
+    // a PowerShell launcher instead: it sets env vars, then execs dotnet.
 
     [Fact]
-    public void SetupScriptCallsClaudeMcpAddInCanonicalOrder()
+    public void SetupScriptUsesClaudeAddWithPowerShellEnvLauncher()
     {
         var content = File.ReadAllText(LocateScript("setup.ps1"));
 
-        // Negative: name must not appear immediately after `mcp add`.
-        Assert.DoesNotMatch(@"mcp\s+add\s+\$ServerName\b", content);
-
-        // Positive: $ServerName must be the last positional before `--` (with at most
-        // a line-continuation backtick and surrounding whitespace between them).
-        Assert.Matches(@"\$ServerName\s*`?\s*--\s+", content);
+        Assert.DoesNotMatch(@"-e\s+_NT_SYMBOL_PATH", content);
+        Assert.Contains("function Format-PowerShellSingleQuotedString", content);
+        Assert.Contains("$env:_NT_SYMBOL_PATH", content);
+        Assert.Contains("claude mcp add --scope user $ServerName --", content);
+        Assert.Contains("-ExecutionPolicy Bypass -Command $runCommand", content);
     }
 
     // -- scripts/install.sh -------------------------------------------------
