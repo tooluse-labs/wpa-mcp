@@ -22,7 +22,9 @@ public sealed class CpuTools
         "when investigating multiple PIDs in one trace load.  On large traces, scope " +
         "via `pid` first (use `list_processes orderBy=cpu` to pick heavy hitters) — " +
         "whole-trace aggregation walks every CpuSample event and fetches PDBs for every " +
-        "warm module, and can hit the MCP tool-call timeout on multi-GB traces.  " +
+        "warm module, and can hit the MCP tool-call timeout on multi-GB traces.  By default, " +
+        "filtered calls omit percent-of-entire-trace columns to avoid an extra whole-trace " +
+        "sample-count pass; set includeTracePct=true only when those columns matter.  " +
         "Set excludeEtwSelfOverhead=true " +
         "to fold kernel-side stack-walk frames (EtwpLogKernelEvent etc.) into one bucket — " +
         "useful when ETW overhead drowns the workload signal.  Requires the CPU sample " +
@@ -34,11 +36,13 @@ public sealed class CpuTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start")] long? endUs = null,
         [Description("Fold known ETW-overhead frames (EtwpLogKernelEvent, RtlpWalkFrameChain, etc.) into a single [ETW Overhead] bucket. Default false.")]
-        bool excludeEtwSelfOverhead = false)
+        bool excludeEtwSelfOverhead = false,
+        [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
+        bool includeTracePct = false)
     {
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead);
+        return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct);
     }
 
     [McpServerTool, Description(
@@ -52,7 +56,9 @@ public sealed class CpuTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start")] long? endUs = null,
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
-        bool excludeEtwSelfOverhead = false)
+        bool excludeEtwSelfOverhead = false,
+        [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
+        bool includeTracePct = false)
     {
         if (pids is null || pids.Length == 0)
             throw new ArgumentException("pids required and must be non-empty", nameof(pids));
@@ -65,7 +71,7 @@ public sealed class CpuTools
         {
             try
             {
-                result[p] = CpuAnalysis.TopFunctions(trace, top, p, startUs, endUs, Console.Error, excludeEtwSelfOverhead);
+                result[p] = CpuAnalysis.TopFunctions(trace, top, p, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct);
             }
             catch (Exception ex)
             {

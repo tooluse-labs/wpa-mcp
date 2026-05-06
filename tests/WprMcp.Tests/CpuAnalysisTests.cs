@@ -1,3 +1,4 @@
+using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using WprMcp.Core;
 using WprMcp.Tools;
 using Xunit;
@@ -31,6 +32,56 @@ public class CpuAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10);
         Assert.True(resp.Stats.ResolutionRate >= 0.0 && resp.Stats.ResolutionRate <= 1.0);
+    }
+
+    [Fact]
+    public void CpuTopFunctions_FilteredDefaultOmitsTracePctForSpeed()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var resp = tools.CpuTopFunctions(FixturePath, top: 10, startUs: 0);
+
+        Assert.NotEmpty(resp.Rows);
+        Assert.All(resp.Rows, r =>
+        {
+            Assert.Null(r.ExclusivePctOfTrace);
+            Assert.Null(r.InclusivePctOfTrace);
+        });
+        Assert.Contains(resp.Warnings, w => w.Contains("PctOfTrace", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CpuTopFunctions_EndUsLimitsWindowSamples()
+    {
+        var sampleTimes = CpuSampleTimesUs();
+        var distinctTimes = sampleTimes.Distinct().ToList();
+        Assert.True(distinctTimes.Count > 1, "fixture must have CPU samples at multiple timestamps");
+
+        var endUs = distinctTimes[(distinctTimes.Count - 1) / 2];
+        var expectedSamples = sampleTimes.Count(t => t <= endUs);
+        Assert.InRange(expectedSamples, 1, sampleTimes.Count - 1);
+
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var resp = tools.CpuTopFunctions(FixturePath, top: 10, endUs: endUs);
+
+        var noStackRow = resp.Rows.First(r => r.Function == "?!?");
+        Assert.Equal(expectedSamples, noStackRow.ExclusiveSamples);
+        Assert.Null(noStackRow.ExclusivePctOfTrace);
+        Assert.Null(noStackRow.InclusivePctOfTrace);
+    }
+
+    [Fact]
+    public void CpuTopFunctions_FilteredCanOptIntoTracePct()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var resp = tools.CpuTopFunctions(FixturePath, top: 10, startUs: 0, includeTracePct: true);
+
+        Assert.NotEmpty(resp.Rows);
+        Assert.All(resp.Rows, r =>
+        {
+            Assert.NotNull(r.ExclusivePctOfTrace);
+            Assert.NotNull(r.InclusivePctOfTrace);
+        });
+        Assert.DoesNotContain(resp.Warnings, w => w.Contains("PctOfTrace", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -105,5 +156,17 @@ public class CpuAnalysisTests
             Assert.True(resp.Callers[i - 1].InclusiveMetric >= resp.Callers[i].InclusiveMetric);
         for (var i = 1; i < resp.Callees.Count; i++)
             Assert.True(resp.Callees[i - 1].InclusiveMetric >= resp.Callees[i].InclusiveMetric);
+    }
+
+    private static List<long> CpuSampleTimesUs()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var times = new List<long>();
+        foreach (var ev in trace.Events)
+        {
+            if (ev is SampledProfileTraceData)
+                times.Add((long)(ev.TimeStampRelativeMSec * 1000));
+        }
+        return times;
     }
 }

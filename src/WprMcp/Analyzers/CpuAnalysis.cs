@@ -19,11 +19,12 @@ public static class CpuAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        bool excludeEtwSelfOverhead = false)
+        bool excludeEtwSelfOverhead = false,
+        bool includeTracePct = false)
     {
         var hasFilter = pid.HasValue || startUs.HasValue || endUs.HasValue;
         var (normalized, stats, traceTotalSamples) = BuildNormalized(
-            trace, pid, startUs, endUs, symbolLog, excludeEtwSelfOverhead);
+            trace, pid, startUs, endUs, symbolLog, excludeEtwSelfOverhead, includeTracePct);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = normalized };
         var totalSamples = (double)Math.Max(1, callTree.Root.InclusiveCount);
@@ -44,6 +45,10 @@ public static class CpuAnalysis
         var warnings = stats.ResolutionRate < 0.8
             ? new List<string> { WarningBuilder.SymbolResolution(stats.ResolutionRate) }
             : new List<string>();
+        if (hasFilter && !includeTracePct)
+        {
+            warnings.Add("PctOfTrace omitted; pass includeTracePct=true to compute it (slow on large ETLs).");
+        }
 
         return new CpuTopFunctionsResponse(rows, stats, warnings);
     }
@@ -59,7 +64,7 @@ public static class CpuAnalysis
         bool excludeEtwSelfOverhead = false)
     {
         var (normalized, stats, _) = BuildNormalized(
-            trace, pid, startUs, endUs, symbolLog, excludeEtwSelfOverhead);
+            trace, pid, startUs, endUs, symbolLog, excludeEtwSelfOverhead, countTraceTotalSamples: false);
         var baseWarnings = stats.ResolutionRate < 0.8
             ? new List<string> { WarningBuilder.SymbolResolution(stats.ResolutionRate) }
             : new List<string>();
@@ -69,9 +74,9 @@ public static class CpuAnalysis
     }
 
     /// <summary>
-    /// Walk SampledProfileTraceData events, tally trace-total unconditionally, push samples
-    /// (metric=1) into the stack source for events passing the pid/window filter, then run
-    /// LookupWarmSymbols + ComputeSymbolStats + BuildNormalized. Shared by TopFunctions and
+    /// Walk SampledProfileTraceData events, optionally tally trace-total for PctOfTrace,
+    /// push samples (metric=1) into the stack source for events passing the pid/window
+    /// filter, then run LookupWarmSymbols + ComputeSymbolStats + BuildNormalized. Shared by TopFunctions and
     /// CallerCallee — same input semantics, just different terminal projections.
     /// </summary>
     private static (MutableTraceEventStackSource Normalized, SymbolStats Stats, long TraceTotalSamples)
@@ -81,17 +86,20 @@ public static class CpuAnalysis
             long? startUs,
             long? endUs,
             TextWriter symbolLog,
-            bool excludeEtwSelfOverhead)
+            bool excludeEtwSelfOverhead,
+            bool countTraceTotalSamples)
     {
         using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
         long traceTotalSamples = 0;
         foreach (var ev in trace.Events)
         {
-            if (ev is not SampledProfileTraceData) continue;
-            traceTotalSamples++;
-            if (pid is { } p && ev.ProcessID != p) continue;
             var usSinceStart = (long)(ev.TimeStampRelativeMSec * 1000);
+            if (!countTraceTotalSamples && endUs is { } eUsForBreak && usSinceStart > eUsForBreak) break;
+
+            if (ev is not SampledProfileTraceData) continue;
+            if (countTraceTotalSamples) traceTotalSamples++;
+            if (pid is { } p && ev.ProcessID != p) continue;
             if (startUs is { } s && usSinceStart < s) continue;
             if (endUs is { } eUs && usSinceStart > eUs) continue;
 
