@@ -232,6 +232,7 @@ public class InstallerScriptTests
         Assert.Contains("--self-contained true", content);
         Assert.Contains("PublishSingleFile=true", content);
         Assert.Contains("wpa-mcp-win-x64.exe", content);
+        Assert.DoesNotContain("actions/upload-artifact", content);
         Assert.DoesNotContain("Compress-Archive", content);
         Assert.DoesNotContain("wpa-mcp-*.zip", content);
     }
