@@ -144,6 +144,28 @@ function Write-DiagnosticTokens {
     }
 }
 
+function New-ClaudeServerJson {
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter(Mandatory)][object[]]$Args
+    )
+
+    $serverObj = [ordered]@{
+        type    = 'stdio'
+        command = $Command
+        args    = @($Args)
+    }
+    $serverJson = $serverObj | ConvertTo-Json -Compress
+
+    # Windows PowerShell 5.1 strips inner double quotes when passing strings to
+    # native commands. Backslash-escape so claude receives valid JSON. PS 7.3+
+    # with default Standard argument passing does not need this.
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        $serverJson = $serverJson -replace '"', '\"'
+    }
+    return $serverJson
+}
+
 function Write-ClaudeDiagnostics {
     param(
         [Parameter(Mandatory)][string]$BinaryPath,
@@ -199,6 +221,8 @@ function Write-ClaudeDiagnostics {
         Write-Diag "claude mcp add --help threw: $_"
     }
 
+    $serverJson = New-ClaudeServerJson -Command $BinaryPath -Args $ServerArgs
+    Write-DiagnosticTokens 'claude mcp add-json' @('claude', 'mcp', 'add-json', '--scope', $ClaudeScope, $ServerName, $serverJson)
     Write-DiagnosticTokens 'claude mcp add' (@('claude', 'mcp', 'add', $ServerName, '--scope', $ClaudeScope, '--', $BinaryPath) + @($ServerArgs))
 }
 
@@ -328,12 +352,17 @@ function Register-ClaudeCode {
         Write-Info "(no prior $ServerName entry to remove; expected on first install)"
     }
 
-    & claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs
+    $serverJson = New-ClaudeServerJson -Command $BinaryPath -Args $serverArgs
+    & claude mcp add-json --scope $ClaudeScope $ServerName $serverJson
     if ($LASTEXITCODE -ne 0) {
-        if (-not (Test-DiagnosticsEnabled)) {
-            Write-Warn "For Claude registration diagnostics, rerun with -Diagnostics or set WPA_MCP_INSTALL_DIAGNOSTICS=1."
+        Write-Warn "claude mcp add-json failed (exit $LASTEXITCODE); falling back to claude mcp add."
+        & claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs
+        if ($LASTEXITCODE -ne 0) {
+            if (-not (Test-DiagnosticsEnabled)) {
+                Write-Warn "For Claude registration diagnostics, rerun with -Diagnostics or set WPA_MCP_INSTALL_DIAGNOSTICS=1."
+            }
+            throw 'claude mcp add failed.'
         }
-        throw 'claude mcp add failed.'
     }
 
     Write-Ok "Registered '$ServerName' with Claude Code."

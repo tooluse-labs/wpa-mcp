@@ -60,6 +60,28 @@ function Write-Info($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[install] $msg" -ForegroundColor Yellow }
 
+function New-ClaudeServerJson {
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter(Mandatory)][object[]]$Args
+    )
+
+    $serverObj = [ordered]@{
+        type    = 'stdio'
+        command = $Command
+        args    = @($Args)
+    }
+    $serverJson = $serverObj | ConvertTo-Json -Compress
+
+    # Windows PowerShell 5.1 strips inner double quotes when passing strings to
+    # native commands. Backslash-escape so claude receives valid JSON. PS 7.3+
+    # with default Standard argument passing does not need this.
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        $serverJson = $serverJson -replace '"', '\"'
+    }
+    return $serverJson
+}
+
 # Detect (and optionally install) the right .NET 8 variant: 'sdk' for repo mode (need
 # the build toolchain) or 'runtime' for release-zip mode (just need to run the DLL).
 function Find-DotNetCommand {
@@ -330,8 +352,13 @@ if ($installClaudeCode) {
         Write-Info "(no prior $ServerName entry to remove; that's expected on first install)"
     }
 
-    & claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs
-    if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
+    $serverJson = New-ClaudeServerJson -Command $dotnetCommand -Args $serverArgs
+    & claude mcp add-json --scope user $ServerName $serverJson
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "claude mcp add-json failed (exit $LASTEXITCODE); falling back to claude mcp add."
+        & claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs
+        if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
+    }
     Write-Ok "Registered '$ServerName' with Claude Code."
 }
 

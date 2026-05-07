@@ -91,6 +91,7 @@ public class InstallerScriptTests
 
         Assert.Contains("wpa-mcp-win-x64.exe", content);
         Assert.Contains("wpa-mcp.exe", content);
+        Assert.Contains("claude mcp add-json --scope $ClaudeScope $ServerName $serverJson", content);
         Assert.Contains("claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs", content);
         Assert.Contains("command = $commandToml", content);
         Assert.Contains("args = [$argsToml]", content);
@@ -105,6 +106,10 @@ public class InstallerScriptTests
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
 
+        Assert.Contains("function New-ClaudeServerJson", content);
+        Assert.Contains("ConvertTo-Json -Compress", content);
+        Assert.Contains("claude mcp add-json --scope $ClaudeScope $ServerName $serverJson", content);
+        Assert.Contains("falling back to claude mcp add", content);
         Assert.Contains("claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs", content);
         Assert.DoesNotContain("claude mcp add --scope $ClaudeScope $ServerName -- $BinaryPath @serverArgs", content);
         Assert.DoesNotContain("claude mcp add $ServerName --scope $ClaudeScope $BinaryPath @serverArgs", content);
@@ -122,6 +127,7 @@ public class InstallerScriptTests
         Assert.Contains("claude --version", content);
         Assert.Contains("claude mcp --help", content);
         Assert.Contains("claude mcp add --help", content);
+        Assert.Contains("Write-DiagnosticTokens 'claude mcp add-json'", content);
         Assert.Contains("Write-DiagnosticTokens 'claude mcp add'", content);
         Assert.Contains("For Claude registration diagnostics, rerun with -Diagnostics", content);
     }
@@ -258,19 +264,23 @@ public class InstallerScriptTests
             "when interpolation is intended:\n" + string.Join("\n", offenders));
     }
 
-    // Claude Code 2.1.129 documents `claude mcp add -e KEY=value name -- command`,
-    // but its variadic -e parser consumes the following server name as another env
-    // value and fails with "Invalid environment variable format: wpa-mcp".  Register
-    // direct command+args instead: dotnet, DLL path, then server options.
+    // Claude Code's `mcp add` parser and Windows npm shims have both misrouted
+    // server flags into Claude's own option parser in real installs. Prefer
+    // add-json so the whole stdio entry is one positional JSON blob, and keep the
+    // direct command+args form as a fallback for older Claude CLIs.
 
     [Fact]
-    public void SetupScriptUsesClaudeAddWithDirectServerArgs()
+    public void SetupScriptUsesClaudeAddJsonWithDirectServerArgsFallback()
     {
         var content = File.ReadAllText(LocateScript("setup.ps1"));
 
         Assert.DoesNotMatch(@"-e\s+_NT_SYMBOL_PATH", content);
         Assert.DoesNotContain("$env:_NT_SYMBOL_PATH", content);
         Assert.Contains("$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', \"$CacheSize\")", content);
+        Assert.Contains("function New-ClaudeServerJson", content);
+        Assert.Contains("ConvertTo-Json -Compress", content);
+        Assert.Contains("claude mcp add-json --scope user $ServerName $serverJson", content);
+        Assert.Contains("falling back to claude mcp add", content);
         Assert.Contains("claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs", content);
         Assert.Contains("args = [$argsToml]", content);
         Assert.DoesNotContain("[mcp_servers.$ServerName.env]", content);
