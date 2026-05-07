@@ -111,6 +111,22 @@ public class InstallerScriptTests
     }
 
     [Fact]
+    public void InstallScriptCanPrintClaudeRegistrationDiagnostics()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("[switch]$Diagnostics", content);
+        Assert.Contains("WPA_MCP_INSTALL_DIAGNOSTICS", content);
+        Assert.Contains("function Write-ClaudeDiagnostics", content);
+        Assert.Contains("Get-Command claude -All", content);
+        Assert.Contains("claude --version", content);
+        Assert.Contains("claude mcp --help", content);
+        Assert.Contains("claude mcp add --help", content);
+        Assert.Contains("Write-DiagnosticTokens 'claude mcp add'", content);
+        Assert.Contains("For Claude registration diagnostics, rerun with -Diagnostics", content);
+    }
+
+    [Fact]
     public void InstallScriptSkipsDownloadWhenInstalledExeMatchesReleaseAsset()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));

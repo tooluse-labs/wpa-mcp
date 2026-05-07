@@ -29,6 +29,10 @@
 
 .PARAMETER ForceDownload
   Download and replace the executable even if the installed copy looks complete.
+
+.PARAMETER Diagnostics
+  Print Claude Code registration diagnostics. Also enabled by
+  WPA_MCP_INSTALL_DIAGNOSTICS=1.
 #>
 
 [CmdletBinding()]
@@ -45,7 +49,8 @@ param(
     [string]$ServerName = 'wpa-mcp',
     [string]$SymbolPath = 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols',
     [int]$CacheSize = 2,
-    [switch]$ForceDownload
+    [switch]$ForceDownload,
+    [switch]$Diagnostics
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +58,7 @@ $ErrorActionPreference = 'Stop'
 function Write-Info($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[install] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[install] $msg" -ForegroundColor Yellow }
+function Write-Diag($msg) { Write-Host "[install:diag] $msg" -ForegroundColor DarkGray }
 
 function Normalize-Scope {
     param([string]$Value)
@@ -112,6 +118,88 @@ function Test-TruthyEnv {
 
     if (-not $Value) { return $false }
     return @('1', 'true', 'yes', 'on') -contains $Value.ToLowerInvariant()
+}
+
+function Test-DiagnosticsEnabled {
+    return $Diagnostics -or (Test-TruthyEnv $env:WPA_MCP_INSTALL_DIAGNOSTICS)
+}
+
+function Join-DiagnosticLines {
+    param($Lines)
+
+    $items = @($Lines)
+    if ($items.Count -eq 0) { return '<no output>' }
+    return ($items | ForEach-Object { "$_" }) -join ' | '
+}
+
+function Write-DiagnosticTokens {
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][object[]]$Tokens
+    )
+
+    Write-Diag "$Label token count: $($Tokens.Count)"
+    for ($i = 0; $i -lt $Tokens.Count; $i++) {
+        Write-Diag "$Label[$i]: $($Tokens[$i])"
+    }
+}
+
+function Write-ClaudeDiagnostics {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        [Parameter(Mandatory)][string]$ClaudeScope,
+        [Parameter(Mandatory)][object[]]$ServerArgs
+    )
+
+    Write-Diag "PowerShell version: $($PSVersionTable.PSVersion)"
+    Write-Diag "PowerShell edition: $($PSVersionTable.PSEdition)"
+    Write-Diag "PowerShell language mode: $($ExecutionContext.SessionState.LanguageMode)"
+
+    $claudeCommands = @(Get-Command claude -All -ErrorAction SilentlyContinue)
+    if ($claudeCommands.Count -eq 0) {
+        Write-Diag "Get-Command claude -All found no candidates."
+    } else {
+        for ($i = 0; $i -lt $claudeCommands.Count; $i++) {
+            $cmd = $claudeCommands[$i]
+            $source = $cmd.Source
+            if (-not $source) { $source = $cmd.Definition }
+            Write-Diag "claude candidate[$i]: type=$($cmd.CommandType) source=$source"
+        }
+    }
+
+    try {
+        $versionOutput = @(& claude --version)
+        Write-Diag "claude --version exit=$LASTEXITCODE output=$(Join-DiagnosticLines $versionOutput)"
+    } catch {
+        Write-Diag "claude --version threw: $_"
+    }
+
+    try {
+        $mcpHelp = @(& claude mcp --help)
+        $hasAddJson = @($mcpHelp | Where-Object { $_ -match 'add-json' }).Count -gt 0
+        Write-Diag "claude mcp --help exit=$LASTEXITCODE has-add-json=$hasAddJson"
+        foreach ($line in $mcpHelp) {
+            if ($line -match 'Usage:|add-json| add \[options\]') {
+                Write-Diag "claude mcp --help: $line"
+            }
+        }
+    } catch {
+        Write-Diag "claude mcp --help threw: $_"
+    }
+
+    try {
+        $addHelp = @(& claude mcp add --help)
+        Write-Diag "claude mcp add --help exit=$LASTEXITCODE"
+        foreach ($line in $addHelp) {
+            if ($line -match 'Usage:|args\.\.\.|subprocess flags|--scope') {
+                Write-Diag "claude mcp add --help: $line"
+            }
+        }
+    } catch {
+        Write-Diag "claude mcp add --help threw: $_"
+    }
+
+    Write-DiagnosticTokens 'claude mcp add' (@('claude', 'mcp', 'add', $ServerName, '--scope', $ClaudeScope, '--', $BinaryPath) + @($ServerArgs))
 }
 
 function Test-UsableBinary {
@@ -229,15 +317,24 @@ function Register-ClaudeCode {
         return $false
     }
 
+    $serverArgs = New-ServerArgs
+    if (Test-DiagnosticsEnabled) {
+        Write-ClaudeDiagnostics -BinaryPath $BinaryPath -ClaudeScope $ClaudeScope -ServerArgs $serverArgs
+    }
+
     Write-Info "Registering with Claude Code ($ClaudeScope scope)..."
     & claude mcp remove $ServerName --scope $ClaudeScope
     if ($LASTEXITCODE -ne 0) {
         Write-Info "(no prior $ServerName entry to remove; expected on first install)"
     }
 
-    $serverArgs = New-ServerArgs
     & claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs
-    if ($LASTEXITCODE -ne 0) { throw 'claude mcp add failed.' }
+    if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-DiagnosticsEnabled)) {
+            Write-Warn "For Claude registration diagnostics, rerun with -Diagnostics or set WPA_MCP_INSTALL_DIAGNOSTICS=1."
+        }
+        throw 'claude mcp add failed.'
+    }
 
     Write-Ok "Registered '$ServerName' with Claude Code."
     return $true
