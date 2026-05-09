@@ -3,7 +3,7 @@
   <desc id="desc">A four-row flame graph in a cool-to-warm palette (cyan, teal, amber).  Linear/Stripe-style light variant.</desc>
 
   <!-- Light tile with hairline border for definition on white pages -->
-  <rect width="256" height="256" rx="32" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+  <rect width="256" height="256" rx="0" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
 
   <!-- Flame graph: 4 rows in a cool-to-warm progression, mirrored on x=128.
        Solid colors per row (rather than a gradient) keep cyan→teal→amber

@@ -14,7 +14,7 @@
   </defs>
 
   <!-- Tile -->
-  <rect width="256" height="256" rx="40" fill="#0F1722"/>
+  <rect width="256" height="256" rx="0" fill="#0F1722"/>
 
   <!-- Flame graph: 4 rows, mirrored on x=128 -->
   <rect x="28"  y="164" width="200" height="24" rx="3" fill="url(#heat)"/>

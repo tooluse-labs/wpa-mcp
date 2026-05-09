@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 240 240" width="320" height="320" role="img" aria-labelledby="title desc">
   <title id="title">wpa-mcp mark</title>
-  <desc id="desc">wpa-mcp mark: dark rounded badge containing a kernel-event timeline grid, an .etl trace polyline in cyan/teal/amber, and three coloured vertex markers at the trace's folding points.</desc>
+  <desc id="desc">wpa-mcp mark: dark badge containing a kernel-event timeline grid, an .etl trace polyline in cyan/teal/amber, and three coloured vertex markers at the trace's folding points.</desc>
 
   <defs>
     <linearGradient id="markFill" x1="54" y1="48" x2="266" y2="286" gradientUnits="userSpaceOnUse">
@@ -18,8 +18,8 @@
   </defs>
 
   <g filter="url(#softShadow)">
-    <!-- Dark rounded badge -->
-    <rect x="40" y="40" width="240" height="240" rx="52" fill="url(#markFill)"/>
+    <!-- Dark badge -->
+    <rect x="40" y="40" width="240" height="240" rx="0" fill="url(#markFill)"/>
 
     <!-- Kernel-event timeline grid -->
     <path d="M84 88V232M132 68V252M180 68V252M228 88V232" stroke="#1E293B" stroke-width="2"/>
