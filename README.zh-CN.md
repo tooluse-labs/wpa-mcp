@@ -6,15 +6,9 @@
   <img src="assets/wpa-mcp-logo.svg" alt="wpa-mcp">
 </p>
 
-<p align="center">
-  <a href="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/tooluse-labs/wpa-mcp/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tooluse-labs/wpa-mcp?sort=semver"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D4.svg">
-  <img alt="Status" src="https://img.shields.io/badge/status-PoC-orange.svg">
-</p>
-
-# wpa-mcp
+[![CI](https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tooluse-labs/wpa-mcp)](https://github.com/tooluse-labs/wpa-mcp/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——开放给任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
