@@ -1,14 +1,18 @@
-<p align="right">
-  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
-</p>
-
 <p align="center">
   <img src="assets/wpa-mcp-logo.svg" alt="wpa-mcp">
 </p>
 
-[![CI](https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/tooluse-labs/wpa-mcp)](https://github.com/tooluse-labs/wpa-mcp/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+<p align="center">
+  <a href="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/tooluse-labs/wpa-mcp/releases"><img alt="Release" src="https://img.shields.io/github/v/release/tooluse-labs/wpa-mcp"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+</p>
+
+<p align="center">
+  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+---
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
