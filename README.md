@@ -6,6 +6,14 @@
   <img src="assets/wpa-mcp-logo.svg" alt="wpa-mcp">
 </p>
 
+<p align="center">
+  <a href="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tooluse-labs/wpa-mcp/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/tooluse-labs/wpa-mcp/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tooluse-labs/wpa-mcp?sort=semver"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D4.svg">
+  <img alt="Status" src="https://img.shields.io/badge/status-PoC-orange.svg">
+</p>
+
 # wpa-mcp
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
