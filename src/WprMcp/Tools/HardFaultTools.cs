@@ -44,13 +44,17 @@ public sealed class HardFaultTools
         [Description("Window end in microseconds since trace start")] long? endUs = null,
         [Description("If > 0, also return a When-histogram of paging-in bytes over this many " +
                      "buckets across the filter window. Default 0 = histogram off.")]
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        [Description(StackResponseOptions.CompactStacksDescription)]
+        bool compactStacks = false,
+        [Description(StackResponseOptions.SummaryOnlyDescription)]
+        bool summaryOnly = false)
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
         return PageFaultStackAnalysis.TopFaultStacks(
-            trace, top, pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
     [McpServerTool, Description(

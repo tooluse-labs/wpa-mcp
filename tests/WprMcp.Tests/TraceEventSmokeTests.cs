@@ -6,7 +6,7 @@ namespace WprMcp.Tests;
 public class TraceEventSmokeTests
 {
     private const string FixturePath =
-        "fixtures/small_cpu.etl"; // captured in Task 17
+        "fixtures/small_cpu.etl"; // captured by fixtures/capture_all.ps1
 
     [Fact]
     public void CanOpenOrConvertSanityEtl()

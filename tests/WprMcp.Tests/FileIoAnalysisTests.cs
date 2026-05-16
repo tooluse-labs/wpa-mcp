@@ -6,7 +6,7 @@ namespace WprMcp.Tests;
 
 public class FileIoAnalysisTests
 {
-    private const string FixturePath = "fixtures/small_fileio.etl"; // captured in Task 17
+    private const string FixturePath = "fixtures/small_fileio.etl"; // captured by fixtures/capture_all.ps1
 
     [Fact]
     public void FileIoTopFiles_ReturnsRows()

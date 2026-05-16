@@ -49,13 +49,17 @@ public sealed class WaitTools
         [Description("If > 0, also return a When-histogram of blocked μs over this many " +
                      "equal-width buckets across the filter window. Default 0 = histogram off. " +
                      "Use 20-30 to spot bursts vs steady-state inside a startup window.")]
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        [Description(StackResponseOptions.CompactStacksDescription)]
+        bool compactStacks = false,
+        [Description(StackResponseOptions.SummaryOnlyDescription)]
+        bool summaryOnly = false)
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
         return BlockedTimeStackAnalysis.TopBlockedStacks(
-            trace, top, pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
     [McpServerTool, Description(
