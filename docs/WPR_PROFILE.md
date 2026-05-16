@@ -10,6 +10,16 @@ For best coverage of all 6 PoC tools, capture with the included
 | MemoryInfo | hard_fault_by_file |
 | FileIO, FileIOInit | file_io_top_files |
 
+For memory resource views (`memory_resource_analysis`), use
+`tests/WprMcp.Tests/fixtures/MemoryCapture.wprp`. It enables:
+
+| Keyword | Used by |
+|---|---|
+| Memory, MemoryInfo, MemoryInfoWS | working set, commit, derived private bytes, and system free/modified memory samples |
+| Handle | observed handle create/close/duplicate deltas by process |
+| Pool | future paged/non-paged pool views; current `memory_resource_analysis` warns that pool counters are not emitted yet |
+| VirtualAllocation | pairs resource snapshots with virtual-allocation stack analysis |
+
 For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault analysis).
 
 ## Capture commands
@@ -18,6 +28,12 @@ For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault 
 wpr.exe -start MmapCapture.wprp -filemode
 # … workload …
 wpr.exe -stop my_capture.etl
+```
+
+```powershell
+wpr.exe -start MemoryCapture.wprp!MemoryMcp -filemode
+# … workload …
+wpr.exe -stop my_memory_capture.etl
 ```
 
 ## Trace size

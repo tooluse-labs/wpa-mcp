@@ -13,6 +13,27 @@ public sealed class VirtualMemoryTools
     public VirtualMemoryTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool, Description(
+        "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
+        "create/close deltas. Reports working set, commit, derived private bytes, private " +
+        "working set, virtual size, and handle deltas by process. Requires MemoryInfoWS for " +
+        "process snapshots and Handle for handle events; use MemoryCapture.wprp when resident " +
+        "footprint or handle-leak questions matter. Pool capture is called out in warnings " +
+        "because current paged/nonpaged pool counters are not emitted by this response yet. " +
+        "Process rows are ordered by current working set bytes; handle rows by absolute net " +
+        "delta. Neither order implies severity or causality.")]
+    public MemoryResourceResponse MemoryResourceAnalysis(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N process and handle rows (default 50, max 1000)")] int top = 50,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        var trace = _cache.Get(path);
+        return Analyzers.MemoryResourceAnalysis.Analyze(trace, top, pid, startUs, endUs);
+    }
+
+    [McpServerTool, Description(
         "Top-N call stacks ranked by VirtualAlloc bytes — answers 'who's reserving / committing " +
         "virtual memory'.  PerfView equivalent: 'VirtualAlloc Stacks' view.  Counts both " +
         "VirtualMemAlloc and VirtualMemFree events; the metric is the allocation Length so " +

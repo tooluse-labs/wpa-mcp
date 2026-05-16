@@ -16,7 +16,7 @@
 
 A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** 54 tools live. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** 55 tools live. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
 > **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
 
@@ -204,7 +204,7 @@ claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symb
 
 ## Tools
 
-54 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
+55 tools across 15 groups.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
 
 ### What wpa-mcp adds vs PerfView
 
@@ -287,6 +287,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
+| `memory_resource_analysis` | Process memory resource snapshots from `Memory/ProcessMemInfo`: working set, commit, derived private bytes, private working set, virtual size, and observed handle create/close deltas. Requires `MemoryInfoWS` and `Handle`; use `MemoryCapture.wprp`. Rows are ordered by resource size/delta, not severity or causality. Pool capture is documented but current pool counters are not emitted by this response yet. | Memory / Handles views |
 | `virtual_alloc_top_stacks` | Top-N stacks by `VirtualMemAlloc` + `VirtualMemFree` bytes. Distinct from physical residence (`hard_fault_*`) — answers "who's reserving 4 GB of address space" / "who's leaking VirtualAllocs". Each row carries both `Bytes` and `OpCount`. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | Drill on a focus frame; metric is virtual-memory bytes. | VirtualAlloc Stacks → Callers / Callees tabs |
 | `heap_alloc_top_stacks` | Top-N stacks by **NT-heap** allocation bytes (`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new` — anything that lands in the user-mode heap). Native-leak finder. Distinct from VirtualAlloc: VirtualAlloc reserves page-granular address space, the heap allocator sub-allocates from it. Splits `AllocBytes` / `ReallocBytes`. Free events carry no size on the wire and are not counted. Requires the `Heap` provider enabled **per-process** (default WPR profiles do NOT enable it; use PerfView's `/HeapTrace` flag or a custom `.wprp` `<Heap>` element). | HeapAllocStacks |

@@ -13,7 +13,7 @@
 
 ## 原则
 
-- **先做导航层，再扩能力面。** 当前已有 54 个工具，继续直接加工具会提高 LLM 选错工具的概率。
+- **先做导航层，再扩能力面。** 当前已有 55 个工具，继续直接加工具会提高 LLM 选错工具的概率。
 - **关键能力必须是 Tool。** LLM 需要自主调用的能力不能只放在 Resource 或 Prompt。
 - **Resources / Prompts 只做增强层。** Resources 放稳定参考材料；Prompts 放人类启动的调查模板。
 - **避免万能工具。** 不引入 `analyze_trace(mode=...)` 这类 catch-all 入口。
@@ -180,6 +180,7 @@
 
 ### T2.4 Memory resource views
 
+- **状态：** 进行中（2026-05-16）。现有 fixtures 不含 `Memory/ProcessMemInfo`；已新增 `MemoryCapture.wprp` 记录所需的 `MemoryInfoWS` / `Handle` / `Pool` capture。`memory_resource_analysis` 已暴露 process working-set / commit / derived-private snapshots 和 handle deltas，但 paged/non-paged pool current counters 以及正向 memory fixture 仍需要 elevated WPR capture 后补齐。
 - **先验证（风险闸门）：** 确认现有 wpr profile 是否实际采集 working-set、commit、paged / non-paged pool、handle 计数器。如需新增 wpr keyword，本条降到 **P2.5**，且 keyword 工作先于 analyzer 工作。详见 `CAPABILITY_GAPS.md` v4 A-4 风险注脚——analyzer 无法恢复从未被记录的事件。
 - **验证失败时的 fallback：** 在 `MmapCapture.wprp` 旁新增 `MemoryCapture.wprp`，采集能通过的 fixture，并先在 `docs/WPR_PROFILE.md` 记录 keyword 要求，再实现 analyzer。
 - **内容（数据源确认后）：** 暴露 working set、commit、private bytes、paged / non-paged pool、handle count。
@@ -217,7 +218,7 @@
 - 纯 UI 渲染：flamegraph 图片、timeline、heatmap、bar chart、主题、截图、HTML report。
 - 捕获执行：启动 / 停止 ETW session、实时 provider 管理、`wpr -start`。
 - 动态 `tools/list` 过滤：会破坏 prompt prefix caching，客户端兼容性也不稳定。
-- 将现有 54 个工具合并成一个万能入口：这是 breaking change，且会把决策负担转移到参数层。
+- 将现有 55 个工具合并成一个万能入口：这是 breaking change，且会把决策负担转移到参数层。
 - 长期迁移到每个 domain 一个工具，并用 `view=top|stacks|caller_callee` 和 `metric=` 参数切换视图：这是已归档 O6 的 breaking variant。除非使用数据证明值得重开设计，否则只通过 Layer-3 composites 做整合。
 
 ## 推荐实施顺序

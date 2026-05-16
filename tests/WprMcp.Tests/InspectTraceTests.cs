@@ -98,6 +98,8 @@ public sealed class InspectTraceTests
         Assert.True(mmap.Capabilities.HasHardFaults);
         Assert.False(mmap.Capabilities.HasCSwitch);
         Assert.False(mmap.Capabilities.HasStackWalks);
+        Assert.False(mmap.Capabilities.HasMemoryProcessInfo);
+        Assert.False(mmap.Capabilities.HasHandleEvents);
 
         var fileIo = meta.InspectTrace(FileIoFixture);
         Assert.True(fileIo.Capabilities.HasFileIo);
@@ -241,6 +243,26 @@ public sealed class InspectTraceTests
         Assert.DoesNotContain(recommendations, r => r.ToolName == "net_top_stacks");
     }
 
+    [Fact]
+    public void BuildTraceQualityWarnings_ReportsMissingMemoryResourceSignals()
+    {
+        var capabilities = AllCapabilities() with
+        {
+            HasMemoryProcessInfo = false,
+            HasHandleEvents = false,
+        };
+
+        var warnings = MetaTools.BuildTraceQualityWarnings(
+            eventsLost: 0,
+            capabilities: capabilities,
+            symbolQuality: GoodSymbolQuality());
+
+        Assert.Contains(warnings, w => w.Code == "missing_memory_process_info" &&
+                                      w.AffectedTools.Contains("memory_resource_analysis"));
+        Assert.Contains(warnings, w => w.Code == "missing_handle_events" &&
+                                      w.AffectedTools.Contains("memory_resource_analysis"));
+    }
+
     private static InspectSymbolQuality GoodSymbolQuality() =>
         new(
             NtSymbolPath: @"SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols",
@@ -273,5 +295,7 @@ public sealed class InspectTraceTests
             HasClrAlloc: true,
             HasClrException: true,
             HasClrContention: true,
-            HasNtHeap: true);
+            HasNtHeap: true,
+            HasMemoryProcessInfo: true,
+            HasHandleEvents: true);
 }

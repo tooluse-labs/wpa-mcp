@@ -143,7 +143,9 @@ public sealed record TraceCapabilities(
     bool HasClrAlloc,
     bool HasClrException,
     bool HasClrContention,
-    bool HasNtHeap);
+    bool HasNtHeap,
+    bool HasMemoryProcessInfo,
+    bool HasHandleEvents);
 
 public sealed record ProcessRow(
     int Pid,
@@ -655,6 +657,50 @@ public sealed record VirtualAllocStacksResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
+
+public sealed record MemoryResourceProcessRow(
+    int Pid,
+    string ProcessName,
+    long FirstSampleUs,
+    long LastSampleUs,
+    int SampleCount,
+    long WorkingSetBytes,
+    long PeakWorkingSetBytes,
+    long PrivateWorkingSetBytes,
+    long PeakPrivateWorkingSetBytes,
+    long CommitBytes,
+    long PeakCommitBytes,
+    long PrivateBytes,
+    long PeakPrivateBytes,
+    long SharedCommitBytes,
+    long VirtualSizeBytes,
+    long CommitDebtBytes,
+    long StoreBytes);
+
+public sealed record MemoryResourceSystemRow(
+    long TimeUs,
+    long? FreeBytes,
+    long? ZeroBytes,
+    long? ModifiedBytes,
+    long? ModifiedNoWriteBytes,
+    long? BadBytes);
+
+public sealed record MemoryHandleProcessRow(
+    int Pid,
+    string ProcessName,
+    long Created,
+    long Closed,
+    long DuplicatedIn,
+    long DuplicatedOut,
+    long NetDelta);
+
+public sealed record MemoryResourceResponse(
+    IReadOnlyList<MemoryResourceProcessRow> Processes,
+    IReadOnlyList<MemoryHandleProcessRow> Handles,
+    IReadOnlyList<MemoryResourceSystemRow> SystemMemory,
+    long ProcessSampleCount,
+    long HandleEventCount,
+    IReadOnlyList<string> Warnings);
 
 // Top-N call-tree frames ranked by TCP+UDP send/receive byte count.  Pairs IPv4 and IPv6
 // variants of each event family.  TcpBytes / UdpBytes break out the totals so consumers

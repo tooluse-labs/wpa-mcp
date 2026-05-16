@@ -27,7 +27,7 @@ internal static class TraceCapabilitiesDetector
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
         bool hasClrGc = false, hasClrJit = false;
         bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
-        bool hasNtHeap = false;
+        bool hasNtHeap = false, hasMemoryProcessInfo = false, hasHandleEvents = false;
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -87,6 +87,10 @@ internal static class TraceCapabilitiesDetector
         kernel.ALPCReceiveMessage += _ => hasAlpc = true;
         kernel.ThreadStart += _ => hasThreadEvents = true;
         kernel.ThreadStop += _ => hasThreadEvents = true;
+        kernel.MemoryProcessMemInfo += _ => hasMemoryProcessInfo = true;
+        kernel.ObjectCreateHandle += _ => hasHandleEvents = true;
+        kernel.ObjectCloseHandle += _ => hasHandleEvents = true;
+        kernel.ObjectDuplicateHandle += _ => hasHandleEvents = true;
 
         clr.GCStart += _ => hasClrGc = true;
         clr.MethodJittingStarted += _ => hasClrJit = true;
@@ -119,6 +123,8 @@ internal static class TraceCapabilitiesDetector
             HasClrAlloc: hasClrAlloc,
             HasClrException: hasClrException,
             HasClrContention: hasClrContention,
-            HasNtHeap: hasNtHeap);
+            HasNtHeap: hasNtHeap,
+            HasMemoryProcessInfo: hasMemoryProcessInfo,
+            HasHandleEvents: hasHandleEvents);
     }
 }

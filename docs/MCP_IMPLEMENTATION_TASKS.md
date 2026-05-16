@@ -13,7 +13,7 @@
 
 ## Principles
 
-- **Build the navigation layer before expanding the capability surface.** The server already exposes 54 tools; adding more directly increases the chance that an LLM picks the wrong one.
+- **Build the navigation layer before expanding the capability surface.** The server already exposes 55 tools; adding more directly increases the chance that an LLM picks the wrong one.
 - **Critical capabilities must be Tools.** Anything an LLM must invoke autonomously cannot live only in a Resource or Prompt.
 - **Resources and Prompts are enhancement layers.** Resources hold stable reference material; Prompts hold human-started investigation templates.
 - **Avoid universal catch-all tools.** Do not introduce an `analyze_trace(mode=...)` entry point.
@@ -180,6 +180,7 @@
 
 ### T2.4 Memory Resource Views
 
+- **Status:** In progress 2026-05-16. Existing fixtures lack `Memory/ProcessMemInfo`; `MemoryCapture.wprp` documents the required `MemoryInfoWS` / `Handle` / `Pool` capture. `memory_resource_analysis` exposes process working-set / commit / derived-private snapshots and handle deltas, but paged/non-paged pool current counters and a positive memory fixture are still pending an elevated WPR capture.
 - **Verify first (risk gate):** Confirm whether existing wpr profiles actually capture working-set, commit, paged / non-paged pool, and handle counters. If a new wpr keyword is required, this entry drops to **P2.5** and the keyword work precedes the analyzer work. See `CAPABILITY_GAPS.md` v4 A-4 risk note — an analyzer cannot recover events that were never recorded.
 - **Fallback if verification fails:** Author a `MemoryCapture.wprp` beside `MmapCapture.wprp`, capture a passing fixture, and document keyword requirements in `docs/WPR_PROFILE.md` before analyzer implementation.
 - **Work (assuming data source confirmed):** Expose working set, commit, private bytes, paged / non-paged pool, and handle count.
@@ -217,7 +218,7 @@
 - Pure UI rendering: flamegraph images, timelines, heatmaps, bar charts, themes, screenshots, HTML reports.
 - Capture execution: starting / stopping ETW sessions, live provider management, `wpr -start`.
 - Dynamic `tools/list` filtering: it breaks prompt-prefix caching and has uneven client support.
-- Merging the current 54 tools into one universal entry point: this would be a breaking change and would move decision fatigue into parameters.
+- Merging the current 55 tools into one universal entry point: this would be a breaking change and would move decision fatigue into parameters.
 - Long-term migration to one tool per domain with `view=top|stacks|caller_callee` and `metric=` parameters: this is the archived O6 breaking variant. Consolidation happens through Layer-3 composites unless usage data justifies reopening the design.
 
 ## Recommended Implementation Order

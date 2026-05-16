@@ -225,6 +225,24 @@ public sealed class MetaTools
             "Recapture with NetworkTrace enabled if TCP connect/accept/disconnect timing is part of the investigation.",
             NetworkConnectionToolNames);
 
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasMemoryProcessInfo,
+            "missing_memory_process_info",
+            "info",
+            "Process memory resource snapshots were not observed.",
+            "Recapture with MemoryInfoWS enabled, for example tests/WprMcp.Tests/fixtures/MemoryCapture.wprp.",
+            MemoryResourceToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasHandleEvents,
+            "missing_handle_events",
+            "info",
+            "Handle create/close events were not observed.",
+            "Recapture with the Handle keyword enabled when handle-leak analysis matters.",
+            MemoryResourceToolNames);
+
         return warnings;
     }
 
@@ -322,6 +340,9 @@ public sealed class MetaTools
 
         if (capabilities.HasNetConnections)
             recommendations.Add(("net_connections", "Network connection lifecycle events are present; inspect TCP connect/accept/disconnect timing.", ["network", "connections"]));
+
+        if (capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents)
+            recommendations.Add(("memory_resource_analysis", "Memory resource events are present; inspect working set, commit/private bytes, and handle deltas by process.", ["memory"]));
 
         if (capabilities.HasAlpc)
             recommendations.Add(("alpc_top_stacks", "ALPC events are present; rank cross-process IPC message stacks.", ["ipc"]));
@@ -423,6 +444,11 @@ public sealed class MetaTools
     private static readonly string[] NetworkConnectionToolNames =
     [
         "net_connections",
+    ];
+
+    private static readonly string[] MemoryResourceToolNames =
+    [
+        "memory_resource_analysis",
     ];
 
     private static readonly string[] StackDependentToolNames =
