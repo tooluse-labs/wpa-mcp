@@ -12,7 +12,7 @@ namespace WprMcp.Analyzers;
 // Algorithm (simplified port of PerfView's ThreadTimeStackComputer in
 // src/TraceEvent/Computers/ThreadTimeStackComputer.cs):
 //
-//   For each thread T, maintain:
+//   For each process/thread T, maintain:
 //     lastSwitchInTime[T]  — when T last started running on a CPU
 //     lastSwitchOutTime[T] — when T last stopped running
 //     lastWaitReason[T]    — wait reason captured when T switched out
@@ -109,128 +109,174 @@ public static class WaitAnalysis
         long? startUs,
         long? endUs)
     {
-        var threadCpu = new Dictionary<int, long>();
-        var threadBlocked = new Dictionary<int, long>();
-        var threadCSwitchCount = new Dictionary<int, long>();
-        var threadWaitReasons = new Dictionary<int, Dictionary<string, (long blocked, long count)>>();
-        var lastSwitchOutTime = new Dictionary<int, double>();
-        var lastSwitchInTime = new Dictionary<int, double>();
-        var lastWaitReason = new Dictionary<int, string>();
-        var threadProcess = new Dictionary<int, (int pid, string name)>();
-
-        long totalCSwitches = 0;
-        long traceCSwitches = 0;
+        var accumulator = new WaitAnalysisAccumulator(top, pid, startUs, endUs);
 
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ThreadCSwitch += data =>
-        {
-            traceCSwitches++;
-            var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-            var inWindow =
-                (!startUs.HasValue || tsUs >= startUs.Value) &&
-                (!endUs.HasValue || tsUs < endUs.Value);
-
-            if (inWindow) totalCSwitches++;
-
-            var nowMs = data.TimeStampRelativeMSec;
-            var oldTid = data.OldThreadID;
-            var newTid = data.NewThreadID;
-
-            // --- Thread switching OUT ---
-            if (oldTid != 0)
-            {
-                if (lastSwitchInTime.TryGetValue(oldTid, out var inMs))
-                {
-                    var cpuMs = nowMs - inMs;
-                    if (cpuMs > 0 && inWindow)
-                        threadCpu[oldTid] = threadCpu.GetValueOrDefault(oldTid) + (long)(cpuMs * 1000);
-                }
-                lastSwitchOutTime[oldTid] = nowMs;
-                lastWaitReason[oldTid] = WaitReasonName(data.OldThreadWaitReason);
-
-                // Record process membership (the kernel reports it on every CSwitch).
-                if (data.OldProcessID > 0)
-                    threadProcess[oldTid] = (data.OldProcessID, data.OldProcessName ?? string.Empty);
-                if (inWindow)
-                    threadCSwitchCount[oldTid] = threadCSwitchCount.GetValueOrDefault(oldTid) + 1;
-            }
-
-            // --- Thread switching IN ---
-            if (newTid != 0)
-            {
-                if (lastSwitchOutTime.TryGetValue(newTid, out var outMs))
-                {
-                    var blockedMs = nowMs - outMs;
-                    if (blockedMs > 0 && inWindow)
-                    {
-                        var blockedUs = (long)(blockedMs * 1000);
-                        threadBlocked[newTid] = threadBlocked.GetValueOrDefault(newTid) + blockedUs;
-                        var reason = lastWaitReason.GetValueOrDefault(newTid, "Unknown");
-                        if (!threadWaitReasons.TryGetValue(newTid, out var reasons))
-                            threadWaitReasons[newTid] = reasons = new Dictionary<string, (long, long)>();
-                        var prev = reasons.GetValueOrDefault(reason);
-                        reasons[reason] = (prev.blocked + blockedUs, prev.count + 1);
-                    }
-                }
-                lastSwitchInTime[newTid] = nowMs;
-
-                if (data.NewProcessID > 0)
-                    threadProcess[newTid] = (data.NewProcessID, data.NewProcessName ?? string.Empty);
-                if (inWindow)
-                    threadCSwitchCount[newTid] = threadCSwitchCount.GetValueOrDefault(newTid) + 1;
-            }
-        };
+                accumulator.Process(new WaitAnalysisSwitchEvent(
+                    OldProcessId: data.OldProcessID,
+                    OldProcessName: data.OldProcessName ?? string.Empty,
+                    OldThreadId: data.OldThreadID,
+                    OldThreadWaitReason: data.OldThreadWaitReason,
+                    NewProcessId: data.NewProcessID,
+                    NewProcessName: data.NewProcessName ?? string.Empty,
+                    NewThreadId: data.NewThreadID,
+                    TimeStampRelativeMSec: data.TimeStampRelativeMSec));
         });
 
-        // Build candidate set, then filter+sort.
-        var allTids = new HashSet<int>(threadBlocked.Keys);
-        allTids.UnionWith(threadCpu.Keys);
+        return accumulator.BuildResponse();
+    }
+}
 
-        var candidates = allTids
-            .Select(tid =>
+internal readonly record struct WaitAnalysisSwitchEvent(
+    int OldProcessId,
+    string OldProcessName,
+    int OldThreadId,
+    ThreadWaitReason OldThreadWaitReason,
+    int NewProcessId,
+    string NewProcessName,
+    int NewThreadId,
+    double TimeStampRelativeMSec);
+
+internal sealed class WaitAnalysisAccumulator
+{
+    private readonly int _top;
+    private readonly int? _pid;
+    private readonly long? _startUs;
+    private readonly long? _endUs;
+
+    private readonly Dictionary<ThreadKey, long> _threadCpu = new();
+    private readonly Dictionary<ThreadKey, long> _threadBlocked = new();
+    private readonly Dictionary<ThreadKey, long> _threadCSwitchCount = new();
+    private readonly Dictionary<ThreadKey, Dictionary<string, (long blocked, long count)>> _threadWaitReasons = new();
+    private readonly Dictionary<ThreadKey, double> _lastSwitchOutTime = new();
+    private readonly Dictionary<ThreadKey, double> _lastSwitchInTime = new();
+    private readonly Dictionary<ThreadKey, string> _lastWaitReason = new();
+    private readonly Dictionary<ThreadKey, string> _processNames = new();
+
+    private long _totalCSwitches;
+    private long _traceCSwitches;
+
+    public WaitAnalysisAccumulator(int top, int? pid, long? startUs, long? endUs)
+    {
+        _top = top;
+        _pid = pid;
+        _startUs = startUs;
+        _endUs = endUs;
+    }
+
+    public void Process(WaitAnalysisSwitchEvent data)
+    {
+        _traceCSwitches++;
+        var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
+        var inWindow =
+            (!_startUs.HasValue || tsUs >= _startUs.Value) &&
+            (!_endUs.HasValue || tsUs < _endUs.Value);
+
+        if (inWindow) _totalCSwitches++;
+
+        var nowMs = data.TimeStampRelativeMSec;
+
+        // --- Thread switching OUT ---
+        if (TryMakeKey(data.OldProcessId, data.OldThreadId, out var oldKey))
+        {
+            if (_lastSwitchInTime.TryGetValue(oldKey, out var inMs))
             {
-                var (procPid, procName) = threadProcess.GetValueOrDefault(tid, (-1, string.Empty));
-                var cpu = threadCpu.GetValueOrDefault(tid);
-                var blocked = threadBlocked.GetValueOrDefault(tid);
+                var cpuMs = nowMs - inMs;
+                if (cpuMs > 0 && inWindow)
+                    _threadCpu[oldKey] = _threadCpu.GetValueOrDefault(oldKey) + (long)(cpuMs * 1000);
+            }
+            _lastSwitchOutTime[oldKey] = nowMs;
+            _lastWaitReason[oldKey] = WaitAnalysis.WaitReasonName(data.OldThreadWaitReason);
+
+            _processNames[oldKey] = data.OldProcessName;
+            if (inWindow)
+                _threadCSwitchCount[oldKey] = _threadCSwitchCount.GetValueOrDefault(oldKey) + 1;
+        }
+
+        // --- Thread switching IN ---
+        if (TryMakeKey(data.NewProcessId, data.NewThreadId, out var newKey))
+        {
+            if (_lastSwitchOutTime.TryGetValue(newKey, out var outMs))
+            {
+                var blockedMs = nowMs - outMs;
+                if (blockedMs > 0 && inWindow)
+                {
+                    var blockedUs = (long)(blockedMs * 1000);
+                    _threadBlocked[newKey] = _threadBlocked.GetValueOrDefault(newKey) + blockedUs;
+                    var reason = _lastWaitReason.GetValueOrDefault(newKey, "Unknown");
+                    if (!_threadWaitReasons.TryGetValue(newKey, out var reasons))
+                        _threadWaitReasons[newKey] = reasons = new Dictionary<string, (long, long)>();
+                    var prev = reasons.GetValueOrDefault(reason);
+                    reasons[reason] = (prev.blocked + blockedUs, prev.count + 1);
+                }
+            }
+            _lastSwitchInTime[newKey] = nowMs;
+
+            _processNames[newKey] = data.NewProcessName;
+            if (inWindow)
+                _threadCSwitchCount[newKey] = _threadCSwitchCount.GetValueOrDefault(newKey) + 1;
+        }
+    }
+
+    public WaitAnalysisResponse BuildResponse()
+    {
+        // Build candidate set, then filter+sort.
+        var allThreads = new HashSet<ThreadKey>(_threadBlocked.Keys);
+        allThreads.UnionWith(_threadCpu.Keys);
+
+        var candidates = allThreads
+            .Select(thread =>
+            {
+                var cpu = _threadCpu.GetValueOrDefault(thread);
+                var blocked = _threadBlocked.GetValueOrDefault(thread);
                 double? ratio = cpu > 0 ? (double)blocked / cpu : (double?)null;
-                var reasons = threadWaitReasons.GetValueOrDefault(tid)?
+                var reasons = _threadWaitReasons.GetValueOrDefault(thread)?
                     .OrderByDescending(r => r.Value.blocked)
                     .Take(5)
                     .Select(r => new WaitReasonBucket(r.Key, r.Value.blocked, r.Value.count))
                     .ToList()
                     ?? new List<WaitReasonBucket>();
                 return new WaitAnalysisRow(
-                    Pid: procPid,
-                    ProcessName: procName,
-                    Tid: tid,
+                    Pid: thread.Pid,
+                    ProcessName: _processNames.GetValueOrDefault(thread, string.Empty),
+                    Tid: thread.Tid,
                     CpuUs: cpu,
                     BlockedUs: blocked,
                     WaitRatio: ratio,
-                    ContextSwitches: threadCSwitchCount.GetValueOrDefault(tid),
+                    ContextSwitches: _threadCSwitchCount.GetValueOrDefault(thread),
                     TopWaitReasons: reasons);
             });
 
-        if (pid is { } p)
+        if (_pid is { } p)
             candidates = candidates.Where(r => r.Pid == p);
 
         var rows = candidates
             .OrderByDescending(r => r.BlockedUs)
-            .Take(top)
+            .Take(_top)
             .ToList();
 
         var warnings = new List<string>();
-        if (traceCSwitches == 0)
+        if (_traceCSwitches == 0)
         {
             warnings.Add(
                 "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
                 "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
         }
-        else if (totalCSwitches == 0)
+        else if (_totalCSwitches == 0)
         {
             warnings.Add("CSwitch events were present in the trace, but none landed inside the requested time window.");
         }
 
-        return new WaitAnalysisResponse(rows, totalCSwitches, warnings);
+        return new WaitAnalysisResponse(rows, _totalCSwitches, warnings);
     }
+
+    private static bool TryMakeKey(int pid, int tid, out ThreadKey key)
+    {
+        key = new ThreadKey(pid, tid);
+        return pid > 0 && tid != 0;
+    }
+
+    private readonly record struct ThreadKey(int Pid, int Tid);
 }
