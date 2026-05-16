@@ -10,6 +10,7 @@ public sealed class InspectTraceTests
     private const string CpuFixture = "fixtures/small_cpu.etl";
     private const string FileIoFixture = "fixtures/small_fileio.etl";
     private const string MmapFixture = "fixtures/small_mmap.etl";
+    private const string PerfViewGcFixture = "fixtures/perfview_gcevents.etl";
 
     [Fact]
     public void FileIoCapabilityAgreesWithAnalyzerOnPresentAndMissingFixtures()
@@ -58,6 +59,28 @@ public sealed class InspectTraceTests
         Assert.True(inspect.Capabilities.HasImageLoad);
         Assert.Contains(inspect.CapabilitySupportedTools, r => r.ToolName == "image_load_top_gaps");
         Assert.True(stacks.TotalLoads > 0);
+    }
+
+    [Fact]
+    public void ClrGcCapabilityAgreesWithAnalyzerOnPerfViewFixture()
+    {
+        var cache = new TraceCache(capacity: 4);
+        var meta = new MetaTools(cache);
+        var clr = new ClrTools(cache);
+
+        var inspect = meta.InspectTrace(PerfViewGcFixture);
+        var gc = clr.ClrGcAnalysis(PerfViewGcFixture);
+
+        Assert.True(inspect.Capabilities.HasClrGc);
+        Assert.False(inspect.Capabilities.HasCSwitch);
+        Assert.False(inspect.Capabilities.HasStackWalks);
+        Assert.True(gc.TotalGcCount > 0);
+        Assert.Empty(gc.Warnings);
+        Assert.Contains(inspect.CapabilitySupportedTools, r => r.ToolName == "clr_gc_analysis");
+        Assert.DoesNotContain(inspect.CapabilitySupportedTools, r => r.ToolName == "clr_alloc_top_stacks");
+        Assert.Contains(inspect.Warnings, w => w.Code == "missing_context_switches");
+        Assert.Contains(inspect.Warnings, w => w.Code == "missing_stackwalks");
+        Assert.DoesNotContain(inspect.Warnings, w => w.Code == "missing_clr_runtime");
     }
 
     [Fact]

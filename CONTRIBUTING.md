@@ -103,12 +103,14 @@ Don't try to share `FileObjectResolver` with `HardFaultByFileAnalysis` — the k
 
 ## Test fixtures
 
-The `*.etl` fixtures under `tests/WprMcp.Tests/fixtures/` are gitignored by default, except those explicitly committed (the .gitignore allows `tests/**/fixtures/*.etl`). Tests assume the three canonical fixtures are present:
+The `*.etl` fixtures under `tests/WprMcp.Tests/fixtures/` are gitignored by default, except those explicitly committed (the .gitignore allows `tests/**/fixtures/*.etl`). Most fixture-backed tests assume the three locally captured canonical fixtures are present:
 - `small_cpu.etl` (~60 MB) — `wpr -start CPU.light`, ~3 s
 - `small_fileio.etl` (~150 MB) — `wpr -start FileIO.light`, ~3 s
 - `small_mmap.etl` (~35 MB) — custom `MmapCapture.wprp` with `HardFaults` keyword + 8 spawned processes
 
 Capture all three with `tests/WprMcp.Tests/fixtures/capture_all.ps1` (requires **Administrator PowerShell**). Without fixtures, ~15 fixture-dependent tests will fail with `FileNotFoundException`; the test runner does not auto-skip.
+
+`perfview_gcevents.etl` is a committed third-party CLR fixture from the MIT-licensed PerfView repository. It is intentionally not captured by `capture_all.ps1`; its source, upstream commit, SHA256, and license text are recorded in `tests/WprMcp.Tests/fixtures/PROVENANCE.md`.
 
 xUnit assembly-level parallelization is **disabled** (`tests/WprMcp.Tests/AssemblyInfo.cs`) because every fixture-touching test calls `TraceLog.OpenOrConvert` against the same `.etlx`, and parallel writers race on the `.etlx.new` temp file. Suite still runs in ~5 seconds.
 

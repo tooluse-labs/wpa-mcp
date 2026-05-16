@@ -23,6 +23,11 @@ or omit it entirely.  See per-fixture sections for the cuts known to work.
 
 ALL captures require an Administrator PowerShell — kernel ETW tracing is privileged.
 
+`perfview_gcevents.etl` is the exception in this folder: it is a small committed
+third-party CLR fixture from the MIT-licensed PerfView repository, not a local WPR
+capture. Do not regenerate it with `capture_all.ps1`; see `PROVENANCE.md` for
+its source URL, upstream commit, SHA256, and license text.
+
 ## small_cpu.etl
 
 Captured with: `wpr.exe -start CPU -filemode` for ~3 seconds.
