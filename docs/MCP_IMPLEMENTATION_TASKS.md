@@ -180,7 +180,7 @@
 
 ### T2.4 Memory Resource Views
 
-- **Status:** In progress 2026-05-16. `MemoryCapture.wprp` and `small_memory.etl` cover positive `Memory/ProcessMemInfo` and handle-event paths. `memory_resource_analysis` now emits observed paged/non-paged pool allocation/free deltas when `PoolAllocation` / `PoolFree` events are present. Pool parsing for the committed shrunk fixture is conversion-environment sensitive (CI sees pool events, one local conversion did not), so strict pool-positive fixture assertions remain conditional until a smaller no-stack recapture is committed. Pool rows are explicitly captured-window deltas, not absolute current counters, because the available pool snapshot events do not expose usable counter fields.
+- **Status:** ✅ Completed 2026-05-16. `MemoryCapture.wprp` and `small_memory.etl` cover positive `Memory/ProcessMemInfo`, handle-event, and Pool event paths. `memory_resource_analysis` exposes process working-set / commit / derived-private snapshots, handle deltas, and observed paged/non-paged pool allocation/free deltas. Pool rows are explicitly captured-window deltas, not absolute current counters, because the available pool snapshot events do not expose usable counter fields.
 - **Verify first (risk gate):** Confirm whether existing wpr profiles actually capture working-set, commit, paged / non-paged pool, and handle counters. If a new wpr keyword is required, this entry drops to **P2.5** and the keyword work precedes the analyzer work. See `CAPABILITY_GAPS.md` v4 A-4 risk note — an analyzer cannot recover events that were never recorded.
 - **Fallback if verification fails:** Author a `MemoryCapture.wprp` beside `MmapCapture.wprp`, capture a passing fixture, and document keyword requirements in `docs/WPR_PROFILE.md` before analyzer implementation.
 - **Work (assuming data source confirmed):** Expose working set, commit, private bytes, paged / non-paged pool, and handle count.
@@ -249,7 +249,7 @@
 ## Revision history
 
 - **v9 (2026-05-16)**: completed T2.2 by documenting half-open window semantics, locking boundary tests, and requiring non-windowed tools to explain their whole-trace or lifecycle scope.
-- **v10 (2026-05-16)**: advanced T2.4 by adding a positive `small_memory.etl` fixture for `Memory/ProcessMemInfo` and handle events plus analyzer support for observed pool allocation/free deltas. Pool-positive fixture assertions remain conditional because Pool event visibility in the current shrunk fixture is conversion-environment sensitive.
+- **v10 (2026-05-16)**: completed T2.4 by adding a positive `small_memory.etl` fixture for `Memory/ProcessMemInfo`, handle events, and Pool events plus analyzer support for observed pool allocation/free deltas.
 - **v8 (2026-05-15)**: aligned `inspect_trace` wording with the final P0 schema split: orientation tools and capability-supported tool hints replace the old single ranked recommendation field.
 - **v7 (2026-05-15)**: completed T2.1 trace quality / system metadata: `inspect_trace` now includes system metadata, driver module summary, provider event counts, and stackwalk completeness. CPU model remains nullable with an explicit limitation instead of host fallback.
 - **v6 (2026-05-15)**: completed T0.6 stack response compactness: `compactStacks` / `summaryOnly` options across `*TopStacks`, compact row cap, and sizing/shape tests.

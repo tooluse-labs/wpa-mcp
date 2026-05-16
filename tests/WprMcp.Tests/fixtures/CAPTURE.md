@@ -104,6 +104,19 @@ Run from Administrator PowerShell:
 powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Capture-SmallMemory.ps1
 ```
 
+For the #13 fixture refresh path, prefer the guarded wrapper:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Refresh-SmallMemoryFixture.ps1
+```
+
+`Refresh-SmallMemoryFixture.ps1` captures to a candidate file first, verifies
+`Memory/ProcessMemInfo`, handle create/close, and `Pool/PoolAllocation` /
+`Pool/PoolFree`, tries shrink cutoffs if the raw candidate exceeds 95 MB, and
+only replaces `small_memory.etl` after the selected candidate passes those
+checks. Use `-AllowMissingPool` only for diagnostics; do not use it for the
+committed fixture refresh.
+
 The script starts `MemoryCapture.wprp!MemoryMcp`, allocates 64 MB of private
 memory, repeatedly reads `kernel32.dll` to create handle activity, waits 1
 second by default, stops WPR to `small_memory.etl`, and prints the captured path
@@ -112,7 +125,8 @@ Ctrl+C while it merges the trace. The script uses `-skipPdbGen -compress` to
 keep stop time and fixture size down. If capture fails after WPR starts, the
 script cancels the active WPR session before exiting.
 
-After capture, verify before replacing the committed fixture:
+The guarded refresh script runs these checks before replacing the committed
+fixture:
 
 ```powershell
 dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Memory/ProcessMemInfo" count_by_event 10
@@ -120,19 +134,20 @@ dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Object/" coun
 dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Pool/" count_by_event 10
 ```
 
-Avoid `tools/etlshrink` for the pool-positive fixture unless the resulting ETL
-is re-verified with the `Pool/` marker command above. A previous 520 ms relogged
-fixture retained `Memory/ProcessMemInfo` and `Object/*Handle` but lost
-`PoolAllocation` / `PoolFree` when freshly converted from ETL.
+Avoid manually replacing the fixture after `tools/etlshrink` unless the
+resulting ETL is re-verified with the `Pool/` marker command above. A previous
+520 ms relogged fixture retained `Memory/ProcessMemInfo` and `Object/*Handle`
+but lost `PoolAllocation` / `PoolFree` when freshly converted from ETL.
 
 Used by: positive-path `MemoryResourceAnalysisTests`. The first local agent
 attempt on 2026-05-16 failed with `0x80070005 Access is denied` because the shell
 was not elevated; WPR kernel capture requires Administrator PowerShell. The
-successful capture was recorded from Administrator PowerShell and shrunk from
-783,161,353 bytes to 19,453,742 bytes while preserving `Memory/ProcessMemInfo`
-and `Object/*Handle` events. Pool event visibility in that shrunk fixture has
-been conversion-environment sensitive, so recapture with the lighter no-stack
-`MemoryCapture.wprp` before making pool-positive fixture assertions strict.
+The current committed fixture was refreshed from Administrator PowerShell on
+2026-05-16. `Refresh-SmallMemoryFixture.ps1` selected the 750 ms shrink cutoff:
+raw capture 741,854,847 bytes to 24,989,947 bytes while preserving
+`Memory/ProcessMemInfo` (409), `Object/CreateHandle` (6,729),
+`Object/CloseHandle` (6,360), `Pool/PoolAllocation` (920,883), and
+`Pool/PoolFree` (920,340).
 
 ## After capturing all 3 fixtures
 
