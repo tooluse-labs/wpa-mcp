@@ -125,7 +125,7 @@ PDB 和 DLL 必须共享同一个签名（GUID + age）。同样的源文件再 
 
 ## 中途改路径
 
-`set_symbol_path` / `add_symbol_server` 之后，**已经在缓存里的 trace 不会重新解析符号**——`LookupWarmSymbols` 在每个加载好的 `TraceLog` 上只跑一次。要强制重查：
+`set_symbol_path` / `add_symbol_server` 之后，**已经在缓存里的 trace 不会重新解析符号**——`LookupWarmSymbols` 在每个加载好的 `TraceLog` 上只跑一次。目前要强制重查需重启 MCP server；等 MCP 暴露 cache unload 后，预期流程是：
 
 ```
 > unload_trace C:\my\trace.etl
