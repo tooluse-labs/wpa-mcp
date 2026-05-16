@@ -11,13 +11,15 @@ public sealed class MemoryResourceAnalysisTests
 {
     private const string MmapFixture = "fixtures/small_mmap.etl";
     private const string MemoryFixture = "fixtures/small_memory.etl";
+    private const string MemoryFixturePathEnv = "WPRMCP_MEMORY_FIXTURE_PATH";
+    private const string RequirePoolFixtureEnv = "WPRMCP_REQUIRE_POOL_FIXTURE";
 
     [Fact]
     public void MemoryResourceAnalysis_ReturnsProcessSnapshotsAndHandleDeltas()
     {
         var tools = new VirtualMemoryTools(new TraceCache(capacity: 2));
 
-        var resp = tools.MemoryResourceAnalysis(MemoryFixture);
+        var resp = tools.MemoryResourceAnalysis(MemoryFixturePath());
 
         Assert.True(resp.ProcessSampleCount > 0);
         Assert.NotEmpty(resp.Processes);
@@ -26,10 +28,15 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Contains(resp.Handles, row => row.Created > 0 || row.Closed > 0 || row.DuplicatedIn > 0);
         Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Memory/ProcessMemInfo"));
         Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Object handle events"));
-        // The committed fixture currently does not expose Pool events after a
-        // deleted-cache clean conversion, but real traces with Pool data should
-        // still populate the pool rows instead of the warning branch.
-        if (resp.PoolEventCount > 0)
+        if (RequiresPoolFixture())
+        {
+            Assert.True(resp.PoolEventCount > 0);
+            Assert.NotEmpty(resp.PoolProcesses);
+            Assert.NotEmpty(resp.PoolTags);
+            Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No PoolAllocation/PoolFree"));
+            Assert.Contains(resp.Warnings, warning => warning.Contains("not absolute current"));
+        }
+        else if (resp.PoolEventCount > 0)
         {
             Assert.NotEmpty(resp.PoolProcesses);
             Assert.NotEmpty(resp.PoolTags);
@@ -117,4 +124,15 @@ public sealed class MemoryResourceAnalysisTests
     {
         Assert.Equal(expected, MemoryResourceAnalysis.DecodePoolTag(rawTag));
     }
+
+    private static string MemoryFixturePath()
+        => Environment.GetEnvironmentVariable(MemoryFixturePathEnv) is { Length: > 0 } path
+            ? path
+            : MemoryFixture;
+
+    private static bool RequiresPoolFixture()
+        => string.Equals(
+            Environment.GetEnvironmentVariable(RequirePoolFixtureEnv),
+            "1",
+            StringComparison.Ordinal);
 }

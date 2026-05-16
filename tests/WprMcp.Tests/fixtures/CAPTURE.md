@@ -116,8 +116,9 @@ powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtu
 `Memory/ProcessMemInfo`, handle create/close, and marker-level
 `Pool/PoolAllocation` / `Pool/PoolFree`, tries shrink cutoffs if the raw
 candidate exceeds 95 MB, and only replaces `small_memory.etl` after the selected
-candidate passes those checks. The script removes the committed `.etlx` cache
-before running fixture tests so stale conversions cannot prove success. Use
+candidate passes those checks and a strict `memory_resource_analysis` pool-row
+test. The script removes `.etlx` caches before candidate validation and before
+running fixture tests so stale conversions cannot prove success. Use
 `-AllowMissingPool` only for diagnostics with `-KeepCandidate`; the wrapper
 refuses to overwrite the committed fixture in that mode.
 
@@ -150,11 +151,11 @@ kernel capture requires Administrator PowerShell.
 
 The current committed fixture was refreshed from Administrator PowerShell on
 2026-05-16. `Refresh-SmallMemoryFixture.ps1` selected the 750 ms shrink cutoff:
-raw capture 741,854,847 bytes to 24,989,947 bytes. A clean TraceEvent conversion
-currently exposes `Memory/ProcessMemInfo` and Object handle events, but not
-`Pool/PoolAllocation` / `Pool/PoolFree`. Keep memory-resource pool assertions
-conditional until a committed fixture proves pool rows from a deleted-cache,
-clean-checkout conversion.
+raw capture 741,854,847 bytes to 24,989,947 bytes. A clean TraceEvent
+conversion currently exposes `Memory/ProcessMemInfo` and Object handle events,
+but not `Pool/PoolAllocation` / `Pool/PoolFree`. Keep memory-resource pool
+assertions conditional until a committed fixture proves pool rows from a
+deleted-cache, clean-checkout conversion.
 
 ## After capturing all 3 fixtures
 

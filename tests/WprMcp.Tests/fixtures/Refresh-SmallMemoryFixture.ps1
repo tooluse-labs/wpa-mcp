@@ -98,6 +98,39 @@ function Test-Candidate {
     return $true
 }
 
+function Test-AnalyzerPoolCandidate {
+    param([string]$TracePath)
+
+    if ($AllowMissingPool) { return $true }
+
+    $validationPath = Join-Path $fixturesDir "small_memory_fresh_validation.etl"
+    Remove-Item -LiteralPath $validationPath -Force -ErrorAction SilentlyContinue
+    Remove-TraceCache $validationPath
+    Copy-Item -LiteralPath $TracePath -Destination $validationPath -Force
+    Remove-TraceCache $validationPath
+
+    $oldFixturePath = $env:WPRMCP_MEMORY_FIXTURE_PATH
+    $oldRequirePool = $env:WPRMCP_REQUIRE_POOL_FIXTURE
+    try {
+        $env:WPRMCP_MEMORY_FIXTURE_PATH = $validationPath
+        $env:WPRMCP_REQUIRE_POOL_FIXTURE = "1"
+        Write-Host "Validating analyzer pool rows for candidate..."
+        dotnet test WprMcp.sln -c Release --no-build --filter "FullyQualifiedName~MemoryResourceAnalysis_ReturnsProcessSnapshotsAndHandleDeltas" | Out-Host
+        $exitCode = $LASTEXITCODE
+        return $exitCode -eq 0
+    }
+    finally {
+        if ($null -eq $oldFixturePath) { Remove-Item Env:\WPRMCP_MEMORY_FIXTURE_PATH -ErrorAction SilentlyContinue }
+        else { $env:WPRMCP_MEMORY_FIXTURE_PATH = $oldFixturePath }
+
+        if ($null -eq $oldRequirePool) { Remove-Item Env:\WPRMCP_REQUIRE_POOL_FIXTURE -ErrorAction SilentlyContinue }
+        else { $env:WPRMCP_REQUIRE_POOL_FIXTURE = $oldRequirePool }
+
+        Remove-TraceCache $validationPath
+        Remove-Item -LiteralPath $validationPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 if ($ValidateOnly) {
     Write-Host "Refresh-SmallMemoryFixture.ps1 parsed successfully."
     Write-Host "RepoRoot: $RepoRoot"
@@ -142,7 +175,12 @@ try {
     }
 
     $selectedPath = $candidatePath
-    if ((Get-Item -LiteralPath $candidatePath).Length -gt $MaxBytes) {
+    if ((Get-Item -LiteralPath $candidatePath).Length -le $MaxBytes) {
+        if (-not (Test-AnalyzerPoolCandidate $candidatePath)) {
+            throw "Raw candidate passed marker checks but memory_resource_analysis did not expose Pool rows."
+        }
+    }
+    else {
         Write-Host "Raw candidate exceeds $MaxBytes bytes; trying shrink cutoffs..."
         $selectedPath = $null
         foreach ($cutoff in $ShrinkCutoffsMs) {
@@ -154,14 +192,14 @@ try {
                 dotnet run --project tools\etlshrink -- $candidatePath $shrunkPath $cutoff
             }
 
-            if (Test-Candidate $shrunkPath -RequireSize) {
+            if ((Test-Candidate $shrunkPath -RequireSize) -and (Test-AnalyzerPoolCandidate $shrunkPath)) {
                 $selectedPath = $shrunkPath
                 break
             }
         }
 
         if ($null -eq $selectedPath) {
-            throw "No shrink cutoff produced a fixture <= $MaxBytes bytes with all required markers."
+            throw "No shrink cutoff produced a fixture <= $MaxBytes bytes with all required markers and analyzer-visible Pool rows."
         }
     }
 
@@ -181,6 +219,9 @@ try {
 
     Write-Host "Replaced fixture: $outputPath"
     Test-Candidate $outputPath -RequireSize | Out-Null
+    if (-not (Test-AnalyzerPoolCandidate $outputPath)) {
+        throw "Replaced fixture passed marker checks but memory_resource_analysis did not expose Pool rows."
+    }
 
     if (-not $SkipTests) {
         Remove-TraceCache $outputPath
