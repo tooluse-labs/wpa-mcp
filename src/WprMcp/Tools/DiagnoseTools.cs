@@ -25,7 +25,8 @@ public sealed class DiagnoseTools
         "(or the ones matching nameSubstring), then runs wait_analysis (top wait reasons), image_load_timing " +
         "(first N DLLs from process start), and cpu_top_functions (top hot functions in the startup window) " +
         "for each. Equivalent to manually composing list_processes + wait_analysis + image_load_timing + " +
-        "cpu_top_functions but with a single tool call.")]
+        "cpu_top_functions but with a single tool call. No startUs/endUs: this composite derives each " +
+        "candidate window from ProcessStart plus startupWindowUs.")]
     public DiagnoseSlowStartupResponse DiagnoseSlowStartup(
         [Description("Absolute path to .etl file")] string path,
         [Description("Match candidates whose process name contains this substring (case-insensitive). " +

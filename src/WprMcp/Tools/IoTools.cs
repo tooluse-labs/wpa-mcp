@@ -12,7 +12,9 @@ public sealed class IoTools
     private readonly TraceCache _cache;
     public IoTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description("Top N files by total IO bytes (read + write).")]
+    [McpServerTool, Description(
+        "Top N files by total IO bytes (read + write). No startUs/endUs: this is a whole-trace " +
+        "by-file summary; use file_io_top_stacks for windowed attribution.")]
     public FileIoResponse FileIoTopFiles(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,

@@ -221,6 +221,16 @@ Most groups follow the same three-tool shape: a **summary** (top-N flat rows), a
 
 In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI; entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** use raw events that PerfView's Events view exposes but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. The other ~45 tools are 1:1 mappings of PerfView views.
 
+### Time-window semantics
+
+Tools that accept `startUs` and `endUs` use a half-open interval: an event is included only when `startUs <= timestamp < endUs`. A null boundary means the trace start or trace end respectively.
+
+Tools without `startUs` / `endUs` are intentionally scoped differently and say so in their MCP description:
+
+* **Whole-trace orientation/configuration:** `load_trace`, `inspect_trace`, `list_processes`, `find_marker`, `diagnose_symbols`, `set_symbol_path`, `add_symbol_server`.
+* **Lifecycle views:** `process_create_timing`, `thread_lifetime`, `image_load_timing`, `image_load_top_gaps`, and `diagnose_slow_startup` use process-start or lifecycle-relative windows instead of an arbitrary trace window.
+* **Whole-trace by-file summaries:** `file_io_top_files` and `hard_fault_by_file` summarize file names over the trace. Use the corresponding stack tools when you need a time-windowed attribution view.
+
 ### Meta
 
 | Tool | What it does | PerfView equivalent |

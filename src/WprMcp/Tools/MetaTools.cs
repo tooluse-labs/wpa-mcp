@@ -15,7 +15,8 @@ public sealed class MetaTools
 
     [McpServerTool, Description(
         "Loads (or returns cached) a Windows ETW .etl trace. First load can take 30s-3min; subsequent calls are instant. " +
-        "Response includes symbol-server recommendations based on the modules referenced by the trace.")]
+        "Response includes symbol-server recommendations based on the modules referenced by the trace. " +
+        "No startUs/endUs: this is whole-trace cache/orientation, not event-window analysis.")]
     public LoadTraceResponse LoadTrace(
         [Description("Absolute path to .etl file")] string path)
     {
@@ -34,7 +35,8 @@ public sealed class MetaTools
         "system metadata, provider counts, stackwalk completeness, symbol quality, quality " +
         "warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, " +
         "the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. " +
-        "Recommendations are capability-driven hints, not goal-specific rankings.")]
+        "Recommendations are capability-driven hints, not goal-specific rankings. " +
+        "No startUs/endUs: capabilities, metadata, provider counts, and symbol quality describe the whole trace.")]
     public InspectTraceResponse InspectTrace(
         [Description("Absolute path to .etl file")] string path)
     {
@@ -506,7 +508,8 @@ public sealed class MetaTools
         "WaitRatio = WallUs/CpuUs surfaces 'high wall, low CPU' processes (blocked on minifilter, IPC, etc.). " +
         "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them. " +
         "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
-        "trace end) are pushed to the bottom because their ratio is denominator-saturated.")]
+        "trace end) are pushed to the bottom because their ratio is denominator-saturated. " +
+        "No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.")]
     public ProcessListResponse ListProcesses(
         [Description("Absolute path to .etl file")] string path,
         [Description("Sort order: 'cpu' (default), 'wall', or 'wait_ratio'")] string orderBy = "cpu",
@@ -543,7 +546,8 @@ public sealed class MetaTools
         "between ProcessStart and the first DLL load: where AV / process-create callbacks " +
         "burn time invisibly to the child) and GapFromPreviousSpawnUs (lets you spot fork " +
         "bursts vs steady-state). Median/p95/max aggregates across kernel gaps surface " +
-        "worst-case in a single number.")]
+        "worst-case in a single number. No startUs/endUs: scope is the parent's child-process lifecycle, " +
+        "with rows ordered by child spawn time.")]
     public ProcessCreateTimingResponse ProcessCreateTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
@@ -566,7 +570,8 @@ public sealed class MetaTools
         "TraceResidentEnd; threads alive when capture started are flagged TraceResidentStart " +
         "(their StartTimeUs is 0 = trace start, not the real spawn).  PeakConcurrentThreads " +
         "gives the maximum number of simultaneously-live threads for the PID.  Requires the Thread " +
-        "keyword in the capture profile (in default kernel profiles).")]
+        "keyword in the capture profile (in default kernel profiles). No startUs/endUs: this reports a " +
+        "per-PID thread lifecycle timeline; timestamps identify the interval boundaries.")]
     public ThreadLifetimeResponse ThreadLifetime(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,

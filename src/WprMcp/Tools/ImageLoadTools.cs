@@ -21,7 +21,8 @@ public sealed class ImageLoadTools
         "Pair with image_load_top_gaps (same data ranked by gap, with FirstLoadOffsetUs) and " +
         "image_load_top_stacks (the call chain that triggered each load).  For load *durations* " +
         "(not gaps between loads), combine with wait_analysis on the PID's main thread.  " +
-        "Requires the Loader keyword (default WPR profiles include it).")]
+        "Requires the Loader keyword (default WPR profiles include it). No startUs/endUs: this is " +
+        "a per-process image-load lifecycle timeline; use image_load_top_stacks for windowed stacks.")]
     public ImageLoadTimingResponse ImageLoadTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
@@ -37,7 +38,8 @@ public sealed class ImageLoadTools
         "spot 'loader was frozen for ~Xms between DLL Y and DLL Z' patterns that hint at per-DLL " +
         "minifilter scans / signature checks. Response also carries FirstLoadOffsetUs (kernel-side " +
         "gap before any DLL loaded — process-creation-callback time). Pairs with image_load_timing " +
-        "(chronological list) — same data, different ordering.")]
+        "(chronological list) — same data, different ordering. No startUs/endUs: gaps are computed " +
+        "over the per-process image-load lifecycle.")]
     public ImageLoadTopGapsResponse ImageLoadTopGaps(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,

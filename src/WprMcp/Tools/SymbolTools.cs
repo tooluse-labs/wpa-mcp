@@ -22,7 +22,8 @@ public sealed class SymbolTools
         "servers + caches separated by `;`); for incremental setup of one server at a time, " +
         "prefer add_symbol_server.  PerfView equivalent: File → Set Symbol Path… dialog.  " +
         "Affects all subsequent stack-resolving tool calls until the server restarts or this " +
-        "is called again.  Returns the resulting path so callers can verify what was applied.")]
+        "is called again.  Returns the resulting path so callers can verify what was applied. " +
+        "No startUs/endUs: symbol-path configuration is process-wide state, not trace-event analysis.")]
     public string SetSymbolPath(
         [Description("New path (e.g. 'SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols')")]
         string path,
@@ -39,7 +40,8 @@ public sealed class SymbolTools
         "incremental setup ('add msdl.microsoft.com, then Chromium's symbol server'); for a " +
         "full replacement string, use set_symbol_path.  PerfView equivalent: a single entry in " +
         "the File → Set Symbol Path dialog.  Idempotent — re-adding the same URL is a no-op.  " +
-        "Returns the path actually in effect after the change.")]
+        "Returns the path actually in effect after the change. No startUs/endUs: symbol-path " +
+        "configuration is process-wide state, not trace-event analysis.")]
     public string AddSymbolServer(
         [Description("Symbol server URL (e.g. https://msdl.microsoft.com/download/symbols)")]
         string url,
@@ -57,7 +59,8 @@ public sealed class SymbolTools
         "or `Stats.ResolutionRate < 0.8`.  PerfView equivalent: Modules tab + Set Symbol Path " +
         "dialog (this tool composes both, plus auto-recommends which server to add per module).  " +
         "Returns top 50 modules sorted unresolved-first; if any are unresolved, includes a " +
-        "'after fixing, re-run cpu_top_functions to verify' suggestion.")]
+        "'after fixing, re-run cpu_top_functions to verify' suggestion. No startUs/endUs: module " +
+        "symbol status is a whole-trace image/module property.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
         [Description("Absolute path to .etl file")] string path)
     {

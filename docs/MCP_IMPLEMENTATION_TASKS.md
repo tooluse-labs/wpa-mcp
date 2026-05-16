@@ -162,15 +162,16 @@
 
 ### T2.2 Unify ROI / Time-Window Semantics
 
+- **Status:** ✅ Completed 2026-05-16 (`StackAnalysisRequest` half-open filter, boundary tests, `cpu_precise_analysis`, and non-windowed tool scope descriptions).
 - **Work:**
-  - Audit tools that still lack `startUs` / `endUs`.
-  - Standardize boundary semantics.
-  - Add clip-boundary correctness tests.
-  - Design shared ROI context without relying on dynamic tool lists.
+  - ✅ Audit tools that still lack `startUs` / `endUs`.
+  - ✅ Standardize boundary semantics.
+  - ✅ Add clip-boundary correctness tests.
+  - ✅ Design shared ROI context without relying on dynamic tool lists: keep ROI explicit in `startUs` / `endUs` parameters and composite `ExecutedToolCalls` provenance rather than ambient mutable state.
 - **Acceptance:**
-  - Boundary semantics are defined as half-open intervals: include an event iff `startUs <= timestamp < endUs`.
-  - A conformance fixture covers events exactly on the boundary.
-  - Every time-windowed analyzer follows the same boundary rule; trace-global tools document why they do not accept a window.
+  - ✅ Boundary semantics are defined as half-open intervals: include an event iff `startUs <= timestamp < endUs`.
+  - ✅ A conformance fixture covers events exactly on the boundary.
+  - ✅ Every time-windowed analyzer follows the same boundary rule; trace-global tools document why they do not accept a window.
 
 ### T2.3 CPU Usage Precise and Scheduler Analysis
 
@@ -229,7 +230,7 @@
 6. ✅ T2.1 add trace quality / system metadata.
 7. T1.2 add 2-3 composite tools, starting with `diagnose_high_wait`. Composites ship as "preview" routing targets until the T0.5 benchmark shows lower wrong-tool selection or fewer mean calls per investigation versus the Layer-1-only baseline. `inspect_trace` capability-supported tool hints should include composites alongside the relevant Layer-1 tools only after that threshold is met.
 8. T1.1 implement `list_applicable_tools` only if T0.5 shows `inspect_trace` is insufficient.
-9. T2.2 unify ROI / time-window semantics.
+9. ✅ T2.2 unify ROI / time-window semantics.
 10. T2.3 and T2.4 begin CPU Precise and memory resource views (T2.4 contingent on the verify-first gate).
 11. Start P3 items only after usage data and correctness risks are understood.
 
@@ -246,6 +247,7 @@
 
 ## Revision history
 
+- **v9 (2026-05-16)**: completed T2.2 by documenting half-open window semantics, locking boundary tests, and requiring non-windowed tools to explain their whole-trace or lifecycle scope.
 - **v8 (2026-05-15)**: aligned `inspect_trace` wording with the final P0 schema split: orientation tools and capability-supported tool hints replace the old single ranked recommendation field.
 - **v7 (2026-05-15)**: completed T2.1 trace quality / system metadata: `inspect_trace` now includes system metadata, driver module summary, provider event counts, and stackwalk completeness. CPU model remains nullable with an explicit limitation instead of host fallback.
 - **v6 (2026-05-15)**: completed T0.6 stack response compactness: `compactStacks` / `summaryOnly` options across `*TopStacks`, compact row cap, and sizing/shape tests.

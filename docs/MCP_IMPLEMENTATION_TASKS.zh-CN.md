@@ -162,15 +162,16 @@
 
 ### T2.2 ROI / time-window 语义统一
 
+- **状态：** ✅ 已完成 2026-05-16（`StackAnalysisRequest` 半开区间过滤、边界测试、`cpu_precise_analysis`，以及无时间窗工具的 scope 说明）。
 - **内容：**
-  - 审计所有缺少 `startUs` / `endUs` 的工具。
-  - 统一边界语义。
-  - 增加 clip-boundary correctness tests。
-  - 设计共享 ROI context，但不依赖动态工具表。
+  - ✅ 审计所有缺少 `startUs` / `endUs` 的工具。
+  - ✅ 统一边界语义。
+  - ✅ 增加 clip-boundary correctness tests。
+  - ✅ 设计共享 ROI context，但不依赖动态工具表：ROI 通过显式 `startUs` / `endUs` 参数和 composite `ExecutedToolCalls` provenance 传递，不引入 ambient mutable state。
 - **验收：**
-  - 边界语义定义为半开区间：仅当 `startUs <= timestamp < endUs` 时包含事件。
-  - conformance fixture 覆盖正好落在边界上的事件。
-  - 所有支持时间窗的 analyzer 遵循同一边界规则；trace-global 工具文档化说明为什么不接受时间窗。
+  - ✅ 边界语义定义为半开区间：仅当 `startUs <= timestamp < endUs` 时包含事件。
+  - ✅ conformance fixture 覆盖正好落在边界上的事件。
+  - ✅ 所有支持时间窗的 analyzer 遵循同一边界规则；trace-global 工具文档化说明为什么不接受时间窗。
 
 ### T2.3 CPU Usage Precise 与 scheduler 分析
 
@@ -229,7 +230,7 @@
 6. ✅ T2.1 补 trace quality / system metadata。
 7. T1.2 增加 2-3 个 composite tools，从 `diagnose_high_wait` 开始。Composites 先作为 "preview" routing targets 发布；只有 T0.5 benchmark 证明它们相比 Layer-1-only baseline 降低 wrong-tool selection 或 mean calls per investigation 后，`inspect_trace` 的 capability-supported tool hints 才应把 composites 与相关 Layer-1 工具一起列出。
 8. 只有 T0.5 显示 `inspect_trace` 不足时，才实现 T1.1 `list_applicable_tools`。
-9. T2.2 统一 ROI / time-window 语义。
+9. ✅ T2.2 统一 ROI / time-window 语义。
 10. T2.3 / T2.4 开始补 CPU Precise 和 memory resource views（T2.4 受"先验证"闸门约束）。
 11. P3 项根据真实使用数据和正确性风险逐项启动。
 
@@ -246,6 +247,7 @@
 
 ## 修订历史
 
+- **v9 (2026-05-16)**：完成 T2.2：文档化半开时间窗语义，锁定边界测试，并要求无时间窗工具说明其 whole-trace 或 lifecycle scope。
 - **v8 (2026-05-15)**：同步 `inspect_trace` 最终 P0 schema：用 orientation tools 与 capability-supported tool hints 取代旧的单一排序推荐字段。
 - **v7 (2026-05-15)**：完成 T2.1 trace quality / system metadata：`inspect_trace` 现在包含 system metadata、driver module summary、provider event counts、stackwalk completeness。CPU model 保持 nullable，并显式标注 limitation，不使用宿主机兜底。
 - **v6 (2026-05-15)**：完成 T0.6 stack response compactness：为所有 `*TopStacks` 增加 `compactStacks` / `summaryOnly`，加入 compact row cap 与 sizing/shape tests。

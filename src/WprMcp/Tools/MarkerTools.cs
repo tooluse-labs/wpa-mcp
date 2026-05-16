@@ -16,7 +16,9 @@ public sealed class MarkerTools
     [McpServerTool, Description(
         "Searches all events whose name or task contains the given substring (case-insensitive). " +
         "Default mode 'count_by_event' returns a histogram, which avoids dumping every matching row " +
-        "for broad queries like 'Process'. Switch to 'rows' for full event detail.")]
+        "for broad queries like 'Process'. Switch to 'rows' for full event detail. " +
+        "No startUs/endUs: this is a whole-trace event-discovery scan; use returned timestamps " +
+        "to choose windows for downstream analyzers.")]
     public MarkerSearchResponse FindMarker(
         [Description("Absolute path to .etl file")] string path,
         [Description("Substring to match against event/task names")] string nameSubstring,
