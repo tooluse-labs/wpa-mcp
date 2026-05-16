@@ -28,7 +28,7 @@ public sealed class ReadyThreadTools
                      "dominated by the kernel's IOCP / scheduler self-traffic.")]
         int? awakenedPid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("If > 0, also return a When-histogram of ready-event count over this many " +
                      "buckets across the filter window. Default 0 = histogram off.")]
         int whenBuckets = 0,
@@ -56,7 +56,7 @@ public sealed class ReadyThreadTools
         [Description("Filter to threads readied in this PID (same semantic as in top_stacks).")]
         int? awakenedPid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);

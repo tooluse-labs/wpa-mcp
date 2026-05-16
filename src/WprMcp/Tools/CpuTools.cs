@@ -34,7 +34,7 @@ public sealed class CpuTools
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Fold known ETW-overhead frames (EtwpLogKernelEvent, RtlpWalkFrameChain, etc.) into a single [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false,
         [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
@@ -54,7 +54,7 @@ public sealed class CpuTools
         [Description("Process IDs to analyze (must be non-empty)")] int[] pids,
         [Description("Top N rows per PID (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false,
         [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
@@ -95,7 +95,7 @@ public sealed class CpuTools
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false)
     {

@@ -95,13 +95,13 @@ public static class CpuAnalysis
         foreach (var ev in trace.Events)
         {
             var usSinceStart = (long)(ev.TimeStampRelativeMSec * 1000);
-            if (!countTraceTotalSamples && endUs is { } eUsForBreak && usSinceStart > eUsForBreak) break;
+            if (!countTraceTotalSamples && endUs is { } eUsForBreak && usSinceStart >= eUsForBreak) break;
 
             if (ev is not SampledProfileTraceData) continue;
             if (countTraceTotalSamples) traceTotalSamples++;
             if (pid is { } p && ev.ProcessID != p) continue;
             if (startUs is { } s && usSinceStart < s) continue;
-            if (endUs is { } eUs && usSinceStart > eUs) continue;
+            if (endUs is { } eUs && usSinceStart >= eUs) continue;
 
             raw.AddSample(ev.CallStackIndex(), ev, metric: 1);
         }

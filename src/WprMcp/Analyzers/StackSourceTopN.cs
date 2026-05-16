@@ -60,14 +60,15 @@ internal readonly record struct StackAnalysisRequest(
     public bool HasFilter => Pid.HasValue || StartUs.HasValue || EndUs.HasValue;
 
     /// <summary>
-    /// True iff the event with the given process and timestamp passes pid + window filters.
+    /// True iff the event with the given process and timestamp passes pid + half-open
+    /// window filters: StartUs <= nowUs < EndUs.
     /// Replaces the 3-line `if (req.Pid is …) … if (req.StartUs is …) … if (req.EndUs is …) …`
     /// block that recurs in every typed-event handler.
     /// </summary>
     public bool PassesFilter(int processId, long nowUs) =>
         (!Pid.HasValue || processId == Pid.Value) &&
         (!StartUs.HasValue || nowUs >= StartUs.Value) &&
-        (!EndUs.HasValue || nowUs <= EndUs.Value);
+        (!EndUs.HasValue || nowUs < EndUs.Value);
 
     /// <summary>
     /// Time-only filter — for kernel-context analyzers (DPC/ISR) where per-process attribution
@@ -75,7 +76,7 @@ internal readonly record struct StackAnalysisRequest(
     /// </summary>
     public bool PassesFilter(long nowUs) =>
         (!StartUs.HasValue || nowUs >= StartUs.Value) &&
-        (!EndUs.HasValue || nowUs <= EndUs.Value);
+        (!EndUs.HasValue || nowUs < EndUs.Value);
 }
 
 internal static class StackSourceTopN

@@ -41,7 +41,7 @@ public static class FinalizerAnalysis
                 if (pid is { } p && data.ProcessID != p) return;
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
                 if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                if (endUs is { } e && nowUs >= e) return;
 
                 totalObjects++;
                 var typeName = string.IsNullOrEmpty(data.TypeName) ? "(unknown)" : data.TypeName;
@@ -59,7 +59,7 @@ public static class FinalizerAnalysis
                 if (pid is { } p && data.ProcessID != p) return;
                 var endBatchUs = (long)(data.TimeStampRelativeMSec * 1000);
                 if (startUs is { } s && startBatchUs < s) return;
-                if (endUs is { } e && endBatchUs > e) return;
+                if (endUs is { } e && endBatchUs >= e) return;
 
                 var dur = endBatchUs - startBatchUs;
                 totalBatchUs += dur;

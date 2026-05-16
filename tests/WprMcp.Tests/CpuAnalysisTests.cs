@@ -50,14 +50,14 @@ public class CpuAnalysisTests
     }
 
     [Fact]
-    public void CpuTopFunctions_EndUsLimitsWindowSamples()
+    public void CpuTopFunctions_EndUsIsExclusive()
     {
         var sampleTimes = CpuSampleTimesUs();
         var distinctTimes = sampleTimes.Distinct().ToList();
         Assert.True(distinctTimes.Count > 1, "fixture must have CPU samples at multiple timestamps");
 
         var endUs = distinctTimes[(distinctTimes.Count - 1) / 2];
-        var expectedSamples = sampleTimes.Count(t => t <= endUs);
+        var expectedSamples = sampleTimes.Count(t => t < endUs);
         Assert.InRange(expectedSamples, 1, sampleTimes.Count - 1);
 
         var tools = new CpuTools(new TraceCache(capacity: 2));

@@ -28,7 +28,7 @@ public static class GcHeapStatsAnalysis
                 if (pid is { } p && data.ProcessID != p) return;
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
                 if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                if (endUs is { } e && nowUs >= e) return;
 
                 rows.Add(new GcHeapStatsRow(
                     TimeUs: nowUs,

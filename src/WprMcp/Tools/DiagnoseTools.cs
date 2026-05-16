@@ -239,7 +239,7 @@ public sealed class DiagnoseTools
         int? pid = null,
         [Description("Window start in microseconds since trace start. Null means full trace.")]
         long? startUs = null,
-        [Description("Window end in microseconds since trace start. Null means full trace.")]
+        [Description("Window end in microseconds since trace start (exclusive). Null means full trace.")]
         long? endUs = null,
         [Description("How many candidate processes to return (default 5, max 20).")]
         int maxCandidates = 5,

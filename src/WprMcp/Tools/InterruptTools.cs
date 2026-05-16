@@ -26,7 +26,7 @@ public sealed class InterruptTools
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("If > 0, also return a When-histogram of interrupt μs over this many " +
                      "buckets across the filter window. Default 0 = histogram off.")]
         int whenBuckets = 0,
@@ -52,7 +52,7 @@ public sealed class InterruptTools
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);

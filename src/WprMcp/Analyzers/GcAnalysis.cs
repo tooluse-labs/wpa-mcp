@@ -64,7 +64,7 @@ public static class GcAnalysis
                 pauseAccumByPid.Remove(data.ProcessID, out var pauseSum);
 
                 if (startUs is { } sw && s.startUs < sw) return;
-                if (endUs is { } ew && endUsLocal > ew) return;
+                if (endUs is { } ew && endUsLocal >= ew) return;
 
                 var dur = endUsLocal - s.startUs;
                 totalGcUs += dur;
@@ -107,7 +107,7 @@ public static class GcAnalysis
 
                 // No enclosing GC — emit as standalone, window-gated to match GCStop's behavior.
                 if (startUs is { } sw && startUsLocal < sw) return;
-                if (endUs is { } ew && endUsLocal > ew) return;
+                if (endUs is { } ew && endUsLocal >= ew) return;
 
                 totalPauseUs += pauseUs;
                 orphanPauses.Add(new GcEventRow(

@@ -34,7 +34,7 @@ public sealed class IoTools
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("If > 0, also return a When-histogram of IO bytes over this many buckets " +
                      "across the filter window. Default 0 = histogram off.")]
         int whenBuckets = 0,
@@ -61,7 +61,7 @@ public sealed class IoTools
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
@@ -81,7 +81,7 @@ public sealed class IoTools
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("If > 0, also return a When-histogram of disk bytes over this many " +
                      "buckets across the filter window. Default 0 = histogram off.")]
         int whenBuckets = 0,
@@ -108,7 +108,7 @@ public sealed class IoTools
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);

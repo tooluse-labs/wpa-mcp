@@ -136,7 +136,7 @@ public static class BlockedTimeStackAnalysis
 
                         var inWindow =
                             (!req.StartUs.HasValue || nowUs >= req.StartUs.Value) &&
-                            (!req.EndUs.HasValue || nowUs <= req.EndUs.Value);
+                            (!req.EndUs.HasValue || nowUs < req.EndUs.Value);
                         var inPid = !req.Pid.HasValue || data.NewProcessID == req.Pid.Value;
                         if (inWindow && inPid)
                         {

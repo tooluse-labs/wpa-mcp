@@ -119,16 +119,19 @@ public static class WaitAnalysis
         var threadProcess = new Dictionary<int, (int pid, string name)>();
 
         long totalCSwitches = 0;
+        long traceCSwitches = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ThreadCSwitch += data =>
         {
+            traceCSwitches++;
             var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (startUs is { } s && tsUs < s) return;
-            if (endUs is { } e && tsUs > e) return;
+            var inWindow =
+                (!startUs.HasValue || tsUs >= startUs.Value) &&
+                (!endUs.HasValue || tsUs < endUs.Value);
 
-            totalCSwitches++;
+            if (inWindow) totalCSwitches++;
 
             var nowMs = data.TimeStampRelativeMSec;
             var oldTid = data.OldThreadID;
@@ -140,7 +143,7 @@ public static class WaitAnalysis
                 if (lastSwitchInTime.TryGetValue(oldTid, out var inMs))
                 {
                     var cpuMs = nowMs - inMs;
-                    if (cpuMs > 0)
+                    if (cpuMs > 0 && inWindow)
                         threadCpu[oldTid] = threadCpu.GetValueOrDefault(oldTid) + (long)(cpuMs * 1000);
                 }
                 lastSwitchOutTime[oldTid] = nowMs;
@@ -149,7 +152,8 @@ public static class WaitAnalysis
                 // Record process membership (the kernel reports it on every CSwitch).
                 if (data.OldProcessID > 0)
                     threadProcess[oldTid] = (data.OldProcessID, data.OldProcessName ?? string.Empty);
-                threadCSwitchCount[oldTid] = threadCSwitchCount.GetValueOrDefault(oldTid) + 1;
+                if (inWindow)
+                    threadCSwitchCount[oldTid] = threadCSwitchCount.GetValueOrDefault(oldTid) + 1;
             }
 
             // --- Thread switching IN ---
@@ -158,7 +162,7 @@ public static class WaitAnalysis
                 if (lastSwitchOutTime.TryGetValue(newTid, out var outMs))
                 {
                     var blockedMs = nowMs - outMs;
-                    if (blockedMs > 0)
+                    if (blockedMs > 0 && inWindow)
                     {
                         var blockedUs = (long)(blockedMs * 1000);
                         threadBlocked[newTid] = threadBlocked.GetValueOrDefault(newTid) + blockedUs;
@@ -173,7 +177,8 @@ public static class WaitAnalysis
 
                 if (data.NewProcessID > 0)
                     threadProcess[newTid] = (data.NewProcessID, data.NewProcessName ?? string.Empty);
-                threadCSwitchCount[newTid] = threadCSwitchCount.GetValueOrDefault(newTid) + 1;
+                if (inWindow)
+                    threadCSwitchCount[newTid] = threadCSwitchCount.GetValueOrDefault(newTid) + 1;
             }
         };
         });
@@ -215,11 +220,15 @@ public static class WaitAnalysis
             .ToList();
 
         var warnings = new List<string>();
-        if (totalCSwitches == 0)
+        if (traceCSwitches == 0)
         {
             warnings.Add(
                 "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
                 "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+        }
+        else if (totalCSwitches == 0)
+        {
+            warnings.Add("CSwitch events were present in the trace, but none landed inside the requested time window.");
         }
 
         return new WaitAnalysisResponse(rows, totalCSwitches, warnings);

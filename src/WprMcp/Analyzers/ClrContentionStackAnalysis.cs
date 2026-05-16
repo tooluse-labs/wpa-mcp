@@ -121,7 +121,7 @@ public static class ClrContentionStackAnalysis
                 // Window filter requires the contention to be entirely inside the window —
                 // matches GcAnalysis's GCStart/GCStop window semantics.
                 if (req.StartUs is { } s && pending.StartUs < s) return;
-                if (req.EndUs is { } e && stopUs > e) return;
+                if (req.EndUs is { } e && stopUs >= e) return;
 
                 totalUs += us;
                 totalCount++;

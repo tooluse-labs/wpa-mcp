@@ -33,7 +33,7 @@ public static class JitAnalysis
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
                 if (pid is { } p && data.ProcessID != p) return;
                 if (startUs is { } s && nowUs < s) return;
-                if (endUs is { } e && nowUs > e) return;
+                if (endUs is { } e && nowUs >= e) return;
 
                 var fullName = $"{data.MethodNamespace}.{data.MethodName}{data.MethodSignature}";
                 pending[(data.ProcessID, data.MethodID)] = (nowUs, fullName, (int)data.MethodILSize);

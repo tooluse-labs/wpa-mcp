@@ -30,7 +30,7 @@ public sealed class GenericProviderTools
         [Description("Top N stacks by exclusive event count (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0,
         [Description(StackResponseOptions.CompactStacksDescription)]
         bool compactStacks = false,
@@ -57,7 +57,7 @@ public sealed class GenericProviderTools
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);

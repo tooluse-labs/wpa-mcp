@@ -72,7 +72,7 @@ public static class NetConnectionAnalysis
         {
             if (pid is { } p && r.Pid != p) return false;
             if (startUs is { } s && r.OpenTimeUs < s) return false;
-            if (endUs is { } e && r.OpenTimeUs > e) return false;
+            if (endUs is { } e && r.OpenTimeUs >= e) return false;
             return true;
         }).ToList();
 

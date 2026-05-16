@@ -1,4 +1,5 @@
 using System.Diagnostics;       // ThreadWaitReason (BCL)
+using WprMcp.Analyzers;
 using WprMcp.Core;
 using WprMcp.Tools;
 using Xunit;
@@ -79,5 +80,34 @@ public class WaitAnalysisTests
         var firstPid = unfiltered.Rows[0].Pid;
         var filtered = tools.WaitAnalysis(FixturePath, top: 100, pid: firstPid);
         Assert.All(filtered.Rows, r => Assert.Equal(firstPid, r.Pid));
+    }
+
+    [Fact]
+    public void WaitAnalysis_EndUsIsExclusive()
+    {
+        var cswitchTimes = CSwitchTimesUs();
+        var distinctTimes = cswitchTimes.Distinct().ToList();
+        Assert.True(distinctTimes.Count > 1, "fixture must have CSwitch events at multiple timestamps");
+
+        var endUs = distinctTimes[(distinctTimes.Count - 1) / 2];
+        var expectedSwitches = cswitchTimes.Count(t => t < endUs);
+        Assert.InRange(expectedSwitches, 1, cswitchTimes.Count - 1);
+
+        var tools = new WaitTools(new TraceCache(capacity: 2));
+        var resp = tools.WaitAnalysis(FixturePath, top: 1000, endUs: endUs);
+
+        Assert.Equal(expectedSwitches, resp.TotalCSwitches);
+    }
+
+    private static List<long> CSwitchTimesUs()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var times = new List<long>();
+        KernelEventWalker.Walk(trace, kernel =>
+        {
+            kernel.ThreadCSwitch += data =>
+                times.Add((long)(data.TimeStampRelativeMSec * 1000));
+        });
+        return times;
     }
 }
