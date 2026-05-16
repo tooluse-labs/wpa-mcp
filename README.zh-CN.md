@@ -419,6 +419,6 @@ wpr.exe -stop C:\path\to\my_capture.etl
 > cpu_top_functions C:\my\trace.etl
 ```
 
-`diagnose_symbols` 给每个模块的解析状态，未解析的会带修复 hint；`cpu_top_functions` 的 `Stats.ResolutionRate` ≥ 0.8 才算可用。中途改了路径之后，已加载的 trace 不会重查符号——`unload_trace` + `load_trace` 强制重查（`LookupWarmSymbols` 在每个加载好的 trace 上只跑一次）。
+`diagnose_symbols` 给每个模块的解析状态，未解析的会带修复 hint；`cpu_top_functions` 的 `Stats.ResolutionRate` ≥ 0.8 才算可用。中途改了路径之后，已加载的 trace 不会重查符号；目前先重启 MCP server，等 cache-unload 工具暴露后再用 `unload_trace` + `load_trace` 强制重查。
 
 完整配方（UNC 路径、私有 vendor、Chromium 浏览器、缓存管理、踩坑排查）见 [`docs/SYMBOL_RECIPES.zh-CN.md`](docs/SYMBOL_RECIPES.zh-CN.md)（中文）/ [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。

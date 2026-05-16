@@ -22,7 +22,7 @@ Single csproj for PoC. Module split (`WprMcp.Analyzers`, `WprMcp.Core`) is defer
 
 1. `load_trace(path)` → `TraceCache.Get(path)` → first call: `TraceLog.OpenOrConvert` (slow); subsequent: cached (fast).
 2. Cache evicts on LRU + mtime change. Each `TraceLog` holds 200 MB-1.5 GB of mmap'd `.etlx`.
-3. `unload_trace(path)` (future) frees memory mid-session.
+3. `TraceCache.Unload(path)` exists internally; a future MCP `unload_trace(path)` should expose it so clients can free memory mid-session.
 
 ## Symbol resolution
 

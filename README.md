@@ -420,6 +420,6 @@ A symbol server doesn't help if the build never produced a PDB, or if PDB and de
 > cpu_top_functions C:\my\trace.etl
 ```
 
-`diagnose_symbols` lists per-module status with hints for unresolved ones; `cpu_top_functions`'s `Stats.ResolutionRate` should be ≥ 0.8 for actionable output. After changing the symbol path mid-session, `unload_trace` + `load_trace` to force re-resolution — `LookupWarmSymbols` is cached per loaded trace.
+`diagnose_symbols` lists per-module status with hints for unresolved ones; `cpu_top_functions`'s `Stats.ResolutionRate` should be ≥ 0.8 for actionable output. After changing the symbol path mid-session, already loaded traces do not re-resolve symbols; restart the MCP server for now, or use `unload_trace` + `load_trace` once the cache-unload tool is exposed.
 
 For full recipes (UNC paths, private vendors, Chromium-family browsers, cache management, troubleshooting), see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md) ([中文](docs/SYMBOL_RECIPES.zh-CN.md)). Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).

@@ -125,7 +125,7 @@ If a module you expect to resolve is unresolved, the hint field tells you which 
 
 ## Changing paths mid-session
 
-After `set_symbol_path` / `add_symbol_server`, traces already loaded into the cache **do not re-resolve symbols** — `LookupWarmSymbols` is sticky per loaded `TraceLog`. To force re-resolution:
+After `set_symbol_path` / `add_symbol_server`, traces already loaded into the cache **do not re-resolve symbols** — `LookupWarmSymbols` is sticky per loaded `TraceLog`. To force re-resolution today, restart the MCP server. Once MCP exposes cache unload, the intended flow is:
 
 ```
 > unload_trace C:\my\trace.etl
