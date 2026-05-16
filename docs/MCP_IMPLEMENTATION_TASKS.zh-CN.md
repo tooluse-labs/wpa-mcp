@@ -180,7 +180,7 @@
 
 ### T2.4 Memory resource views
 
-- **状态：** ✅ 已完成（2026-05-16）。`MemoryCapture.wprp` 和 `small_memory.etl` 已覆盖正向 `Memory/ProcessMemInfo`、handle-event 与 Pool event 路径。`memory_resource_analysis` 已暴露 process working-set / commit / derived-private snapshots、handle deltas，以及 observed paged/non-paged pool allocation/free deltas。Pool rows 明确是 captured-window deltas，不是绝对 current counters，因为可用的 pool snapshot events 没有暴露可用 counter 字段。
+- **状态：** ⚠️ 已实现，但仍有 fixture 限制（2026-05-16）。`MemoryCapture.wprp` 和 `small_memory.etl` 已覆盖正向 `Memory/ProcessMemInfo` 与 handle-event 路径。`memory_resource_analysis` 也会在 trace 暴露 `PoolAllocation` / `PoolFree` 时输出 observed paged/non-paged pool allocation/free deltas，但当前提交的 fixture 在删除 `.etlx` 后 clean conversion 不能证明 pool 正路径。Pool rows 明确是 captured-window deltas，不是绝对 current counters，因为可用的 pool snapshot events 没有暴露可用 counter 字段。
 - **先验证（风险闸门）：** 确认现有 wpr profile 是否实际采集 working-set、commit、paged / non-paged pool、handle 计数器。如需新增 wpr keyword，本条降到 **P2.5**，且 keyword 工作先于 analyzer 工作。详见 `CAPABILITY_GAPS.md` v4 A-4 风险注脚——analyzer 无法恢复从未被记录的事件。
 - **验证失败时的 fallback：** 在 `MmapCapture.wprp` 旁新增 `MemoryCapture.wprp`，采集能通过的 fixture，并先在 `docs/WPR_PROFILE.md` 记录 keyword 要求，再实现 analyzer。
 - **内容（数据源确认后）：** 暴露 working set、commit、private bytes、paged / non-paged pool、handle count。
@@ -248,8 +248,9 @@
 
 ## 修订历史
 
+- **v11 (2026-05-16)**：修正 T2.4 fixture 状态：clean conversion 显示当前提交的 `small_memory.etl` 不暴露 Pool events，因此 pool-positive fixture 仍是限制项。
+- **v10 (2026-05-16)**：新增 `small_memory.etl` fixture 覆盖 `Memory/ProcessMemInfo` 与 handle events，并实现 observed pool allocation/free delta rows。
 - **v9 (2026-05-16)**：完成 T2.2：文档化半开时间窗语义，锁定边界测试，并要求无时间窗工具说明其 whole-trace 或 lifecycle scope。
-- **v10 (2026-05-16)**：完成 T2.4：新增正向 `small_memory.etl` fixture 覆盖 `Memory/ProcessMemInfo`、handle events 和 Pool events，并实现 observed pool allocation/free delta rows。
 - **v8 (2026-05-15)**：同步 `inspect_trace` 最终 P0 schema：用 orientation tools 与 capability-supported tool hints 取代旧的单一排序推荐字段。
 - **v7 (2026-05-15)**：完成 T2.1 trace quality / system metadata：`inspect_trace` 现在包含 system metadata、driver module summary、provider event counts、stackwalk completeness。CPU model 保持 nullable，并显式标注 limitation，不使用宿主机兜底。
 - **v6 (2026-05-15)**：完成 T0.6 stack response compactness：为所有 `*TopStacks` 增加 `compactStacks` / `summaryOnly`，加入 compact row cap 与 sizing/shape tests。

@@ -4,7 +4,9 @@ Re-capture if WPR profile schemas change or fixtures get corrupted.
 
 **Size target: ≤ 10 MB per fixture, committed directly to git (no LFS).**  Realistic
 WPR captures are 30-200 MB raw; we shrink them via `tools/etlshrink/` (an
-`ETWReloggerTraceEventSource` wrapper) before committing.  Workflow:
+`ETWReloggerTraceEventSource` wrapper) before committing. High-density event
+fixtures may exceed the target when a smaller cut loses required signals; keep
+that exception documented in the per-fixture section. Workflow:
 
 ```powershell
 # Capture (admin shell required) — see per-fixture sections below
@@ -111,11 +113,13 @@ powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtu
 ```
 
 `Refresh-SmallMemoryFixture.ps1` captures to a candidate file first, verifies
-`Memory/ProcessMemInfo`, handle create/close, and `Pool/PoolAllocation` /
-`Pool/PoolFree`, tries shrink cutoffs if the raw candidate exceeds 95 MB, and
-only replaces `small_memory.etl` after the selected candidate passes those
-checks. Use `-AllowMissingPool` only for diagnostics; do not use it for the
-committed fixture refresh.
+`Memory/ProcessMemInfo`, handle create/close, and marker-level
+`Pool/PoolAllocation` / `Pool/PoolFree`, tries shrink cutoffs if the raw
+candidate exceeds 95 MB, and only replaces `small_memory.etl` after the selected
+candidate passes those checks. The script removes the committed `.etlx` cache
+before running fixture tests so stale conversions cannot prove success. Use
+`-AllowMissingPool` only for diagnostics with `-KeepCandidate`; the wrapper
+refuses to overwrite the committed fixture in that mode.
 
 The script starts `MemoryCapture.wprp!MemoryMcp`, allocates 64 MB of private
 memory, repeatedly reads `kernel32.dll` to create handle activity, waits 1
@@ -139,15 +143,18 @@ resulting ETL is re-verified with the `Pool/` marker command above. A previous
 520 ms relogged fixture retained `Memory/ProcessMemInfo` and `Object/*Handle`
 but lost `PoolAllocation` / `PoolFree` when freshly converted from ETL.
 
-Used by: positive-path `MemoryResourceAnalysisTests`. The first local agent
-attempt on 2026-05-16 failed with `0x80070005 Access is denied` because the shell
-was not elevated; WPR kernel capture requires Administrator PowerShell. The
+Used by: positive-path `MemoryResourceAnalysisTests` for `Memory/ProcessMemInfo`
+and Object handle events. The first local agent attempt on 2026-05-16 failed
+with `0x80070005 Access is denied` because the shell was not elevated; WPR
+kernel capture requires Administrator PowerShell.
+
 The current committed fixture was refreshed from Administrator PowerShell on
 2026-05-16. `Refresh-SmallMemoryFixture.ps1` selected the 750 ms shrink cutoff:
-raw capture 741,854,847 bytes to 24,989,947 bytes while preserving
-`Memory/ProcessMemInfo` (409), `Object/CreateHandle` (6,729),
-`Object/CloseHandle` (6,360), `Pool/PoolAllocation` (920,883), and
-`Pool/PoolFree` (920,340).
+raw capture 741,854,847 bytes to 24,989,947 bytes. A clean TraceEvent conversion
+currently exposes `Memory/ProcessMemInfo` and Object handle events, but not
+`Pool/PoolAllocation` / `Pool/PoolFree`. Keep memory-resource pool assertions
+conditional until a committed fixture proves pool rows from a deleted-cache,
+clean-checkout conversion.
 
 ## After capturing all 3 fixtures
 

@@ -119,6 +119,10 @@ try {
         dotnet build WprMcp.sln -c Release --no-restore
     }
 
+    if ($AllowMissingPool -and -not $KeepCandidate) {
+        throw "Refusing to overwrite the committed fixture in -AllowMissingPool mode. Re-run with -KeepCandidate and inspect the candidate manually."
+    }
+
     Remove-Item -LiteralPath $candidatePath -Force -ErrorAction SilentlyContinue
     Remove-TraceCache $candidatePath
 
@@ -179,6 +183,7 @@ try {
     Test-Candidate $outputPath -RequireSize | Out-Null
 
     if (-not $SkipTests) {
+        Remove-TraceCache $outputPath
         Invoke-CommandChecked "Running memory fixture tests..." {
             dotnet test WprMcp.sln -c Release --no-build --filter "FullyQualifiedName~MemoryResourceAnalysisTests|FullyQualifiedName~InspectTraceTests"
         }
