@@ -28,12 +28,17 @@ public sealed class HeapTools
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start")] long? endUs = null,
-        [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0)
+        [Description("Number of equal-width buckets for the time histogram (0 = disabled)")] int whenBuckets = 0,
+        [Description(StackResponseOptions.CompactStacksDescription)]
+        bool compactStacks = false,
+        [Description(StackResponseOptions.SummaryOnlyDescription)]
+        bool summaryOnly = false)
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
-        return HeapAllocStackAnalysis.TopStacks(trace, top, pid, startUs, endUs, Console.Error, whenBuckets);
+        return HeapAllocStackAnalysis.TopStacks(
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
     [McpServerTool, Description(
