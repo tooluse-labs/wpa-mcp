@@ -214,6 +214,34 @@ public sealed record CpuTopFunctionsResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings);
 
+public sealed record CpuCoreBucket(
+    int Core,
+    long CpuUs,
+    double CpuPct);
+
+public sealed record CpuPreciseThreadRow(
+    int Pid,
+    string ProcessName,
+    int Tid,
+    long CpuUs,
+    long ContextSwitches,
+    long ReadyCount,
+    long ReadyLatencyUs,
+    double? AvgReadyLatencyUs,
+    long? MaxReadyLatencyUs,
+    int? PrimaryCore,
+    IReadOnlyList<CpuCoreBucket> TopCores,
+    long QuantumEndSwitches,
+    long PreemptedSwitches);
+
+public sealed record CpuPreciseResponse(
+    IReadOnlyList<CpuPreciseThreadRow> Rows,
+    long TotalCpuUs,
+    long TotalContextSwitches,
+    long TotalReadyCount,
+    long TotalReadyLatencyUs,
+    IReadOnlyList<string> Warnings);
+
 // Caller/callee neighbor of a focus frame. Same shape across all stack sources (CPU samples,
 // blocked μs, hard-fault bytes, etc.); the parent response carries `MetricName` so consumers
 // know what "Metric" is in (samples / microseconds / bytes / loads / ops).

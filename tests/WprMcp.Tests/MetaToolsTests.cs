@@ -114,7 +114,10 @@ public class MetaToolsTests
             Assert.Contains(resp.Warnings, w => w.Code == "missing_cpu_samples");
 
         if (resp.Capabilities.HasCSwitch)
+        {
+            Assert.Contains(resp.CapabilitySupportedTools, r => r.ToolName == "cpu_precise_analysis");
             Assert.Contains(resp.CapabilitySupportedTools, r => r.ToolName == "wait_analysis");
+        }
         else
             Assert.Contains(resp.Warnings, w => w.Code == "missing_context_switches");
 

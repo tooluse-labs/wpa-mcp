@@ -277,7 +277,10 @@ public sealed class MetaTools
             recommendations.Add(("cpu_top_functions", "CPU samples are present; rank hot functions first for CPU-bound investigations.", ["cpu"]));
 
         if (capabilities.HasCSwitch)
+        {
+            recommendations.Add(("cpu_precise_analysis", "Context switch events are present; compute exact on-CPU time, ready latency, and core attribution.", ["cpu", "scheduler"]));
             recommendations.Add(("wait_analysis", "Context switch events are present; identify blocked threads and dominant wait reasons.", ["wait"]));
+        }
 
         if (capabilities.HasCSwitch && capabilities.HasStackWalks)
             recommendations.Add(("wait_top_stacks", "Context switches and stack walks are present; drill into where blocked time resumes.", ["wait", "stacks"]));
@@ -359,6 +362,7 @@ public sealed class MetaTools
 
     private static readonly string[] ContextSwitchToolNames =
     [
+        "cpu_precise_analysis",
         "wait_top_stacks",
         "wait_caller_callee",
         "wait_analysis",

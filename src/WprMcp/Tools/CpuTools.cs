@@ -46,6 +46,24 @@ public sealed class CpuTools
     }
 
     [McpServerTool, Description(
+        "CPU Usage (Precise)-style scheduler summary from CSwitch + ReadyThread events. " +
+        "Use this when sampled CPU is insufficient: it reports actual on-CPU microseconds, " +
+        "ready-to-run latency after a thread is readied, per-core runtime attribution, and " +
+        "quantum/preemption signals. Requires CSwitch for CPU/core data; ReadyThread is needed " +
+        "for ready latency.")]
+    public CpuPreciseResponse CpuPreciseAnalysis(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Top N thread rows by on-CPU microseconds (default 50, max 1000)")] int top = 50,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+    {
+        Validation.RequireTop(top);
+        var trace = _cache.Get(path);
+        return Analyzers.CpuPreciseAnalysis.Analyze(trace, top, pid, startUs, endUs);
+    }
+
+    [McpServerTool, Description(
         "Batch variant: top N hot functions per PID, in a single trace load. " +
         "Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID's samples). " +
         "Use when investigating multiple processes from the same trace — saves N round-trips.")]
