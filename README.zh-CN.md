@@ -16,7 +16,7 @@
 
 一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——开放给任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
-> **状态——PoC。** 54 个工具已上线。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
+> **状态——PoC。** 55 个工具已上线。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
 
 > **看一个真实案例：** [一次完整排查](docs/CASE_STUDIES.md)——进程创建慢到基线的 50 倍，通过 wpa-mcp 工具链根因定位到多套 EDR 在 `PsSetCreateProcessNotifyRoutineEx` 上串行回调。同一份 trace 被两个不同 LLM agent 独立复现得到同样结论。
 
@@ -72,18 +72,18 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
 ```
 
-两条路径做的事一样：从 GitHub Release 下载最新 zip（内含已构建好的 DLL），缓存到 `%LOCALAPPDATA%\wpa-mcp\releases\<tag>\`，执行包内的 `setup.ps1`。脚本会自动检测机器上所有 MCP 客户端（Claude Code / Codex / Claude Desktop）并把 `wpa-mcp` 注册到每个客户端。.NET 8 runtime 缺失时会 user-scope 自动安装。再次运行立即完成（命中缓存）。
+两条路径做的事一样：从 GitHub Releases 下载最新 self-contained `wpa-mcp-win-x64.exe` 到 `%USERPROFILE%\.local\bin\wpa-mcp.exe`，然后直接注册到每个检测到的 MCP 客户端（Claude Code / Codex / Claude Desktop）。不需要本机预装 .NET runtime 或 SDK。
 
 通过一行命令转发额外参数：
 
 ```powershell
 # PowerShell——指定 tag、限定客户端、自定义 symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.0 -InstallArgs @('-Client','claude-desktop','-SymbolPath','SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols')"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.12 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash——`bash -s --` 后面的 flag 会传给 install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.0
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.12
 ```
 
 ### 卸载（一行命令，对称）
@@ -98,12 +98,12 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目。release zip 缓存和符号缓存保留（要清理就删 `%LOCALAPPDATA%\wpa-mcp\` 和 `%LocalAppData%\WprMcp\Symbols\`）。
+会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目，并删除 `%USERPROFILE%\.local\bin\wpa-mcp.exe`。符号缓存保留（要清理就删 `%LocalAppData%\WprMcp\Symbols\`）。
 
 ### 系统要求
 
 - Windows 10 / 11（TraceEvent 内核 API 仅 Windows）
-- .NET 8——installer 在缺失时会用 user-scope 自动安装（走 Microsoft 官方的 `dotnet-install.ps1`，不需要管理员权限）。传 `-SkipDotNetInstall` 可禁用此行为。
+- 一行安装路径不需要 .NET runtime；release 已包含 self-contained Windows executable。
 - 符号解析需要：设置 `_NT_SYMBOL_PATH`，或者在运行时通过 symbol 工具配置（见 [配置 → Symbols](#symbols)）。
 
 <details>
@@ -203,7 +203,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 
 ## 工具
 
-54 个工具分 15 组。底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView，区别在**界面（stdio MCP + JSON 替代 Windows GUI）**和**几个把 PerfView 多步操作打包成一次调用的复合工具**。
+55 个工具分 15 组。底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView，区别在**界面（stdio MCP + JSON 替代 Windows GUI）**和**几个把 PerfView 多步操作打包成一次调用的复合工具**。
 
 ### wpa-mcp 相对 PerfView 加了什么
 
@@ -234,6 +234,7 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | `cpu_top_functions` | 给定窗口 / PID，按 exclusive CPU 采样数返回 top-N 热点函数。可选 `excludeEtwSelfOverhead` 把 `EtwpLogKernelEvent` 等折成单个 `[ETW Overhead]` 桶。过滤调用默认省略 `*PctOfTrace`，避免大 ETL 上额外全 trace CPU 采样计数；确实需要整条 trace 百分比时传 `includeTracePct=true`。 | CPU Stacks → ByName |
+| `cpu_precise_analysis` | CSwitch + ReadyThread scheduler summary：按线程输出精确 on-CPU 微秒数、ready-to-run latency、per-core runtime attribution，以及 quantum/preemption 计数。用于 sampled CPU 回答不了的"实际跑了多久？"和"ready 后等了多久才被调度？"问题。 | CPU Usage (Precise) |
 | `cpu_top_functions_batch` | 同上但一次调用覆盖多个 PID。每个 PID 独立 CallTree（inclusive% 按该 PID 的采样数归一化）。 | **[复合]**——批量变体，省去 N 次 CPU Stacks → ByName 往返 |
 | `cpu_caller_callee` | 给定 focus frame，返回其 caller（调进 focus）和 callee（focus 调出去），按 inclusive 采样数排序。Recursion-safe。 | CPU Stacks → Callers / Callees tab |
 

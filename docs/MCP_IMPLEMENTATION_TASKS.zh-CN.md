@@ -175,6 +175,7 @@
 
 ### T2.3 CPU Usage Precise 与 scheduler 分析
 
+- **状态：** ✅ 已完成 2026-05-16（`cpu_precise_analysis`、`CpuPreciseAnalysis`、`CpuPreciseAnalysisTests`）。
 - **内容：** 基于 CSwitch 计算 on-CPU us、ready latency、per-core attribution、priority / quantum 相关信号。
 - **验收：** 能回答 sampled CPU 无法回答的问题：线程实际运行多久、等了多久才被调度、跑在哪些 core 上。
 
@@ -248,6 +249,7 @@
 
 ## 修订历史
 
+- **v13 (2026-05-16)**：标记 T2.3 完成：`cpu_precise_analysis` 已落地 CSwitch/ReadyThread scheduler evidence、边界裁剪测试和 capture-boundary accumulator 修复。
 - **v12 (2026-05-16)**：完成 T2.4：解析 clean conversion 后的 raw classic Pool task GUID/opcode payload，使当前提交的 `small_memory.etl` 在无 stale `.etlx` cache 时也能证明 pool-positive analyzer path。
 - **v11 (2026-05-16)**：修正 T2.4 fixture 状态：clean conversion 显示当前提交的 `small_memory.etl` 不暴露命名的 Pool events，因此 pool-positive fixture 仍是限制项。
 - **v10 (2026-05-16)**：新增 `small_memory.etl` fixture 覆盖 `Memory/ProcessMemInfo` 与 handle events，并实现 observed pool allocation/free delta rows。

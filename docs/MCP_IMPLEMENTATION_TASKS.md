@@ -175,6 +175,7 @@
 
 ### T2.3 CPU Usage Precise and Scheduler Analysis
 
+- **Status:** ✅ Completed 2026-05-16 (`cpu_precise_analysis`, `CpuPreciseAnalysis`, `CpuPreciseAnalysisTests`).
 - **Work:** Use CSwitch data to compute on-CPU microseconds, ready latency, per-core attribution, and priority / quantum signals.
 - **Acceptance:** The server can answer questions sampled CPU cannot: how long a thread actually ran, how long it waited after becoming ready, and which cores it ran on.
 
@@ -248,6 +249,7 @@
 
 ## Revision history
 
+- **v13 (2026-05-16)**: marked T2.3 complete after `cpu_precise_analysis` landed with CSwitch/ReadyThread scheduler evidence, boundary clipping tests, and capture-boundary accumulator fixes.
 - **v12 (2026-05-16)**: completed T2.4 by parsing clean-conversion raw classic Pool task GUID/opcode payloads, making the committed `small_memory.etl` prove the pool-positive analyzer path without stale `.etlx` caches.
 - **v11 (2026-05-16)**: corrected the T2.4 fixture status after clean conversion showed the committed `small_memory.etl` does not expose named Pool events; restored the documented pool-positive fixture as a remaining limitation.
 - **v10 (2026-05-16)**: added `small_memory.etl` fixture coverage for `Memory/ProcessMemInfo` and handle events plus analyzer support for observed pool allocation/free deltas.
