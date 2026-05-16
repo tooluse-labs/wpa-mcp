@@ -84,6 +84,33 @@ public sealed class InspectTraceTests
     }
 
     [Fact]
+    public void FixtureCapabilities_LockCompositeContractAssumptions()
+    {
+        var meta = new MetaTools(new TraceCache(capacity: 4));
+
+        var cpu = meta.InspectTrace(CpuFixture);
+        Assert.True(cpu.Capabilities.HasCpuSamples);
+        Assert.True(cpu.Capabilities.HasCSwitch);
+        Assert.True(cpu.Capabilities.HasReadyThread);
+        Assert.False(cpu.Capabilities.HasStackWalks);
+
+        var mmap = meta.InspectTrace(MmapFixture);
+        Assert.True(mmap.Capabilities.HasHardFaults);
+        Assert.False(mmap.Capabilities.HasCSwitch);
+        Assert.False(mmap.Capabilities.HasStackWalks);
+
+        var fileIo = meta.InspectTrace(FileIoFixture);
+        Assert.True(fileIo.Capabilities.HasFileIo);
+        Assert.False(fileIo.Capabilities.HasCSwitch);
+        Assert.False(fileIo.Capabilities.HasStackWalks);
+
+        var perfViewGc = meta.InspectTrace(PerfViewGcFixture);
+        Assert.True(perfViewGc.Capabilities.HasClrGc);
+        Assert.False(perfViewGc.Capabilities.HasCSwitch);
+        Assert.False(perfViewGc.Capabilities.HasStackWalks);
+    }
+
+    [Fact]
     public void BuildTraceQualityWarnings_ReportsLostEvents()
     {
         var warnings = MetaTools.BuildTraceQualityWarnings(
@@ -115,7 +142,11 @@ public sealed class InspectTraceTests
 
         Assert.Contains(warnings, w => w.Code == "missing_cpu_samples" && w.AffectedTools.Contains("cpu_top_functions"));
         Assert.Contains(warnings, w => w.Code == "missing_context_switches" && w.AffectedTools.Contains("wait_analysis"));
+        Assert.Contains(warnings, w => w.Code == "missing_context_switches" && w.AffectedTools.Contains("diagnose_high_wait"));
         Assert.Contains(warnings, w => w.Code == "missing_stackwalks" && w.AffectedTools.Contains("wait_top_stacks"));
+        Assert.Contains(warnings, w => w.Code == "missing_stackwalks"
+                                      && w.DegradedTools.Contains("diagnose_high_wait")
+                                      && !w.AffectedTools.Contains("diagnose_high_wait"));
         Assert.Contains(warnings, w => w.Code == "missing_cpu_samples"
                                       && w.DegradedTools.Contains("diagnose_slow_startup")
                                       && !w.AffectedTools.Contains("diagnose_slow_startup"));

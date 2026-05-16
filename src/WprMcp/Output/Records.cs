@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace WprMcp.Output;
 
 public sealed record TraceMeta(
@@ -409,6 +411,95 @@ public sealed record WaitTopStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
 
+// Provenance for composite tools. Every evidence item should point at one of these calls
+// so callers can replay the public query shape, or see explicitly when the composite used
+// an internal-only aggregation that cannot be replayed through the public tool contract.
+public sealed record CompositeToolCall(
+    string CallId,
+    string ToolName,
+    int? Pid,
+    int? AwakenedPid,
+    long? StartUs,
+    long? EndUs,
+    [property: Description("Replayable public MCP top argument; null for audit-only internal aggregation.")]
+    int? Top,
+    bool? CompactStacks,
+    bool? SummaryOnly,
+    int? WhenBuckets,
+    IReadOnlyList<string> Warnings,
+    int? EffectiveTop = null,
+    [property: Description("False = audit-only internal aggregation; do not replay public tool expecting identical output. See InternalNote.")]
+    bool Replayable = true,
+    [property: Description("Internal-only top when Replayable=false; do not pass to public tool.")]
+    int? InternalTop = null,
+    [property: Description("Why Replayable=false.")]
+    string? InternalNote = null);
+
+// Evidence metric values are raw metric amounts in the declared Unit (for example blocked
+// microseconds or ready-thread event count). Do not compare evidence rows across different
+// MetricName/Unit pairs; use them only within the same metric family.
+public sealed record CompositeEvidence(
+    [property: Description("Stable evidence id within this composite response.")]
+    string EvidenceId,
+    [property: Description("CompositeToolCall.CallId that produced this evidence.")]
+    string CallId,
+    [property: Description("Closed set: process_wait_summary | wait_reason | wait_stack_summary | ready_thread_stack_summary.")]
+    string EvidenceType,
+    int? Pid,
+    int? Tid,
+    string? ProcessName,
+    string Label,
+    [property: Description("Metric family; compare only within the same MetricName/Unit.")]
+    string MetricName,
+    [property: Description("Raw amount in Unit, not severity; compare only within the same MetricName/Unit.")]
+    long MetricValue,
+    [property: Description("Unit for MetricValue, for example us or events.")]
+    string Unit,
+    IReadOnlyList<WaitReasonBucket> TopWaitReasons,
+    [property: Description("Per-frame metrics for stack evidence. Empty for process and wait-reason summaries.")]
+    IReadOnlyList<FrameMetric> Frames);
+
+public sealed record FrameMetric(
+    string Function,
+    [property: Description("Exclusive metric for this frame in Unit.")]
+    long ExclusiveMetric,
+    [property: Description("Inclusive metric for this frame in Unit.")]
+    long InclusiveMetric,
+    string Unit);
+
+// Not-concluded metric values describe why a branch was skipped or degraded. MetricValue is
+// the raw observed value when one exists (for example blocked microseconds); ObservedPct is
+// the normalized ratio to compare against ThresholdPct. Unit applies to MetricValue, not to
+// ObservedPct/ThresholdPct.
+public sealed record CompositeNotConcluded(
+    string Code,
+    string Reason,
+    int? Pid,
+    string? BlockingCapability,
+    string? RelatedCallId,
+    [property: Description("Metric family for MetricValue when the skipped/degraded branch has an observed amount.")]
+    string? MetricName = null,
+    [property: Description("Raw amount; if pct fields exist, compare ObservedPct with ThresholdPct instead.")]
+    double? MetricValue = null,
+    [property: Description("Unit for MetricValue. Does not apply to ObservedPct or ThresholdPct.")]
+    string? Unit = null,
+    [property: Description("Normalized observed ratio in [0,1]. Compare this with ThresholdPct when both are present.")]
+    double? ObservedPct = null,
+    [property: Description("Normalized decision threshold in [0,1]. Compare ObservedPct against this value.")]
+    double? ThresholdPct = null);
+
+public sealed record CompositeNextTool(
+    string ToolName,
+    string Reason,
+    int? Pid,
+    int? AwakenedPid,
+    long? StartUs,
+    long? EndUs,
+    bool? CompactStacks,
+    bool? SummaryOnly,
+    [property: Description("Hypothesis tested by this optional follow-up; not an ordered checklist.")]
+    string? TestsHypothesis = null);
+
 // Time-bucketed metric histogram. Length of Buckets == requested bucket count; bucket i covers
 // [StartUs + i*BucketWidthUs, StartUs + (i+1)*BucketWidthUs). Sum of Buckets equals the total
 // metric over the analysis window (modulo bucket-edge rounding).
@@ -487,7 +578,33 @@ public sealed record SlowStartupCandidate(
 
 public sealed record DiagnoseSlowStartupResponse(
     IReadOnlyList<SlowStartupCandidate> Candidates,
+    [property: Obsolete("Use structured Evidence, NotConcluded, ExecutedToolCalls, and NextTools instead.")]
     string Summary,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<CompositeEvidence>? Evidence = null,
+    IReadOnlyList<CompositeNotConcluded>? NotConcluded = null,
+    IReadOnlyList<CompositeToolCall>? ExecutedToolCalls = null,
+    IReadOnlyList<CompositeNextTool>? NextTools = null);
+
+public sealed record HighWaitCandidate(
+    int Pid,
+    string ProcessName,
+    long TotalCpuUs,
+    long TotalBlockedUs,
+    double? WaitRatio,
+    long ContextSwitches,
+    IReadOnlyList<WaitReasonBucket> TopWaitReasons,
+    string WaitAnalysisCallId,
+    string? WaitStacksCallId,
+    string? ReadyThreadCallId);
+
+public sealed record DiagnoseHighWaitResponse(
+    [property: Description("Ordered by total blocked microseconds, not impact, severity, or causality.")]
+    IReadOnlyList<HighWaitCandidate> Candidates,
+    IReadOnlyList<CompositeEvidence> Evidence,
+    IReadOnlyList<CompositeNotConcluded> NotConcluded,
+    IReadOnlyList<CompositeNextTool> NextTools,
+    IReadOnlyList<CompositeToolCall> ExecutedToolCalls,
     IReadOnlyList<string> Warnings);
 
 // Top-N call-tree frames ranked by VirtualMemAlloc/Free byte count.  Useful for "who's

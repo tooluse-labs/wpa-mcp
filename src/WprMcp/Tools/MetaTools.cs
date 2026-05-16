@@ -165,7 +165,7 @@ public sealed class MetaTools
             "warn",
             "Context switch events were not observed.",
             "Recapture with CSwitch enabled before using wait, blocked-time, or ready-thread analysis.",
-            ContextSwitchToolNames,
+            ContextSwitchToolNames.Concat(HighWaitCompositeToolNames).ToArray(),
             CompositeToolNames);
 
         AddMissingCapabilityWarning(
@@ -175,7 +175,8 @@ public sealed class MetaTools
             "warn",
             "StackWalk events were not observed; stack-based tools may return empty or low-value call chains.",
             "Recapture with stack walking enabled for the relevant events.",
-            StackDependentToolNames);
+            StackDependentToolNames,
+            StackWalkDegradedCompositeToolNames);
 
         AddMissingCapabilityWarning(
             warnings,
@@ -368,6 +369,16 @@ public sealed class MetaTools
     private static readonly string[] CompositeToolNames =
     [
         "diagnose_slow_startup",
+    ];
+
+    private static readonly string[] HighWaitCompositeToolNames =
+    [
+        "diagnose_high_wait",
+    ];
+
+    private static readonly string[] StackWalkDegradedCompositeToolNames =
+    [
+        "diagnose_high_wait",
     ];
 
     private static readonly string[] FileIoToolNames =
