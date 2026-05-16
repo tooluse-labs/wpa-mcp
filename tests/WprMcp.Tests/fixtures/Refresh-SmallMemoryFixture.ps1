@@ -189,7 +189,7 @@ try {
             Remove-TraceCache $shrunkPath
 
             Invoke-CommandChecked "Shrinking candidate at ${cutoff}ms..." {
-                dotnet run --project tools\etlshrink -- $candidatePath $shrunkPath $cutoff
+                dotnet run --project tools\etlshrink -- $candidatePath $shrunkPath $cutoff --keep-nonpool-tail
             }
 
             if ((Test-Candidate $shrunkPath -RequireSize) -and (Test-AnalyzerPoolCandidate $shrunkPath)) {

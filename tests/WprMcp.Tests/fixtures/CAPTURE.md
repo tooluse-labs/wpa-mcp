@@ -118,9 +118,11 @@ powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtu
 candidate exceeds 95 MB, and only replaces `small_memory.etl` after the selected
 candidate passes those checks and a strict `memory_resource_analysis` pool-row
 test. The script removes `.etlx` caches before candidate validation and before
-running fixture tests so stale conversions cannot prove success. Use
-`-AllowMissingPool` only for diagnostics with `-KeepCandidate`; the wrapper
-refuses to overwrite the committed fixture in that mode.
+running fixture tests so stale conversions cannot prove success. Shrink attempts
+use `etlshrink --keep-nonpool-tail` to retain late non-Pool/Object metadata that
+TraceEvent may need for a clean conversion. Use `-AllowMissingPool` only for
+diagnostics with `-KeepCandidate`; the wrapper refuses to overwrite the
+committed fixture in that mode.
 
 The script starts `MemoryCapture.wprp!MemoryMcp`, allocates 64 MB of private
 memory, repeatedly reads `kernel32.dll` to create handle activity, waits 1
