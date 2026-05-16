@@ -180,7 +180,7 @@
 
 ### T2.4 Memory Resource Views
 
-- **Status:** In progress 2026-05-16. Existing fixtures lack `Memory/ProcessMemInfo`; `MemoryCapture.wprp` documents the required `MemoryInfoWS` / `Handle` / `Pool` capture. `memory_resource_analysis` exposes process working-set / commit / derived-private snapshots and handle deltas, but paged/non-paged pool current counters and a positive memory fixture are still pending an elevated WPR capture.
+- **Status:** In progress 2026-05-16. `MemoryCapture.wprp` and `small_memory.etl` now cover positive `Memory/ProcessMemInfo` and handle-event paths. `memory_resource_analysis` exposes process working-set / commit / derived-private snapshots and handle deltas, but paged/non-paged pool current counters are still pending implementation or a follow-up scope split.
 - **Verify first (risk gate):** Confirm whether existing wpr profiles actually capture working-set, commit, paged / non-paged pool, and handle counters. If a new wpr keyword is required, this entry drops to **P2.5** and the keyword work precedes the analyzer work. See `CAPABILITY_GAPS.md` v4 A-4 risk note — an analyzer cannot recover events that were never recorded.
 - **Fallback if verification fails:** Author a `MemoryCapture.wprp` beside `MmapCapture.wprp`, capture a passing fixture, and document keyword requirements in `docs/WPR_PROFILE.md` before analyzer implementation.
 - **Work (assuming data source confirmed):** Expose working set, commit, private bytes, paged / non-paged pool, and handle count.
@@ -249,6 +249,7 @@
 ## Revision history
 
 - **v9 (2026-05-16)**: completed T2.2 by documenting half-open window semantics, locking boundary tests, and requiring non-windowed tools to explain their whole-trace or lifecycle scope.
+- **v10 (2026-05-16)**: advanced T2.4 by adding a positive `small_memory.etl` fixture for `Memory/ProcessMemInfo` and handle events; pool current counters remain the open part of the task.
 - **v8 (2026-05-15)**: aligned `inspect_trace` wording with the final P0 schema split: orientation tools and capability-supported tool hints replace the old single ranked recommendation field.
 - **v7 (2026-05-15)**: completed T2.1 trace quality / system metadata: `inspect_trace` now includes system metadata, driver module summary, provider event counts, and stackwalk completeness. CPU model remains nullable with an explicit limitation instead of host fallback.
 - **v6 (2026-05-15)**: completed T0.6 stack response compactness: `compactStacks` / `summaryOnly` options across `*TopStacks`, compact row cap, and sizing/shape tests.

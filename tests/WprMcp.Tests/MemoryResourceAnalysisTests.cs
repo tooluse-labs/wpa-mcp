@@ -10,6 +10,25 @@ namespace WprMcp.Tests;
 public sealed class MemoryResourceAnalysisTests
 {
     private const string MmapFixture = "fixtures/small_mmap.etl";
+    private const string MemoryFixture = "fixtures/small_memory.etl";
+
+    [Fact]
+    public void MemoryResourceAnalysis_ReturnsProcessSnapshotsAndHandleDeltas()
+    {
+        var tools = new VirtualMemoryTools(new TraceCache(capacity: 2));
+
+        var resp = tools.MemoryResourceAnalysis(MemoryFixture);
+
+        Assert.True(resp.ProcessSampleCount > 0);
+        Assert.NotEmpty(resp.Processes);
+        Assert.True(resp.HandleEventCount > 0);
+        Assert.NotEmpty(resp.Handles);
+        Assert.Contains(resp.Handles, row => row.Created > 0 || row.Closed > 0 || row.DuplicatedIn > 0);
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Memory/ProcessMemInfo"));
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Object handle events"));
+        Assert.Contains(resp.Warnings, warning => warning.Contains("Pool keyword"));
+        Assert.Contains(resp.Warnings, warning => warning.Contains("4096-byte pages"));
+    }
 
     [Fact]
     public void MemoryResourceAnalysis_WarnsWhenProcessSnapshotsAreMissing()

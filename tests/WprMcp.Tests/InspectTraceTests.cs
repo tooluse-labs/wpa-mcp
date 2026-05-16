@@ -10,6 +10,7 @@ public sealed class InspectTraceTests
     private const string CpuFixture = "fixtures/small_cpu.etl";
     private const string FileIoFixture = "fixtures/small_fileio.etl";
     private const string MmapFixture = "fixtures/small_mmap.etl";
+    private const string MemoryFixture = "fixtures/small_memory.etl";
     private const string PerfViewGcFixture = "fixtures/perfview_gcevents.etl";
 
     [Fact]
@@ -100,6 +101,11 @@ public sealed class InspectTraceTests
         Assert.False(mmap.Capabilities.HasStackWalks);
         Assert.False(mmap.Capabilities.HasMemoryProcessInfo);
         Assert.False(mmap.Capabilities.HasHandleEvents);
+
+        var memory = meta.InspectTrace(MemoryFixture);
+        Assert.True(memory.Capabilities.HasMemoryProcessInfo);
+        Assert.True(memory.Capabilities.HasHandleEvents);
+        Assert.Contains(memory.CapabilitySupportedTools, r => r.ToolName == "memory_resource_analysis");
 
         var fileIo = meta.InspectTrace(FileIoFixture);
         Assert.True(fileIo.Capabilities.HasFileIo);

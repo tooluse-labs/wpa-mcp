@@ -92,33 +92,36 @@ Current committed size: ~8 MB (compression-only).  If still too large, reduce `<
 
 Used by: HardFaultByFileAnalysisTests + PageFaultStackAnalysisTests + ImageLoad tests (the mmap fixture spawns 8 short-lived processes).
 
-## small_memory.etl (not yet committed)
+## small_memory.etl
 
 Capture with the custom profile `MemoryCapture.wprp` (this folder). The existing
 `MmapCapture.wprp` enables `MemoryInfo` but does not produce `Memory/ProcessMemInfo`;
 `MemoryInfoWS` is required for `memory_resource_analysis` process rows.
 
+Run from Administrator PowerShell:
+
 ```powershell
-cd tests\WprMcp.Tests\fixtures
-wpr.exe -start MemoryCapture.wprp!MemoryMcp -filemode
-
-# Trigger workload — allocate private commit and create handle churn:
-$buffers = 1..64 | ForEach-Object { New-Object byte[] (1MB) }
-$files = 1..50 | ForEach-Object { [System.IO.File]::OpenRead("$env:WINDIR\System32\kernel32.dll") }
-Start-Sleep -Seconds 3
-$files | ForEach-Object Dispose
-
-wpr.exe -stop small_memory.etl
-Get-Item small_memory.etl | Select Length
+powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Capture-SmallMemory.ps1
 ```
 
-After capture, shrink with a cutoff large enough to retain at least one
-`Memory/ProcessMemInfo` sample (it fires about every 500ms):
-`dotnet run --project tools/etlshrink -- small_memory.etl small_memory.shrunk.etl 3000`.
+The script starts `MemoryCapture.wprp!MemoryMcp`, allocates 64 MB of private
+memory, repeatedly reads `kernel32.dll` to create handle activity, waits 4
+seconds, stops WPR to `small_memory.etl`, and prints the captured path and byte
+size. During stop, WPR may print `Press Ctrl+C to cancel`; do not press Ctrl+C
+while it merges the trace. The script uses `-skipPdbGen -compress` to keep stop
+time and fixture size down. If capture fails after WPR starts, the script
+cancels the active WPR session before exiting.
 
-Used by: future positive-path `MemoryResourceAnalysisTests`. Current local agent
+After capture, shrink with the smallest cutoff that retains at least one
+`Memory/ProcessMemInfo` sample. The committed fixture was shrunk with:
+`dotnet run --project tools/etlshrink -- small_memory.raw.etl small_memory.etl 520`.
+
+Used by: positive-path `MemoryResourceAnalysisTests`. The first local agent
 attempt on 2026-05-16 failed with `0x80070005 Access is denied` because the shell
-was not elevated; WPR kernel capture requires Administrator PowerShell.
+was not elevated; WPR kernel capture requires Administrator PowerShell. The
+successful capture was recorded from Administrator PowerShell and shrunk from
+783,161,353 bytes to 19,453,742 bytes while preserving `Memory/ProcessMemInfo`
+and `Object/*Handle` events.
 
 ## After capturing all 3 fixtures
 

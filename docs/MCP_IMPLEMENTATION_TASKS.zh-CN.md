@@ -180,7 +180,7 @@
 
 ### T2.4 Memory resource views
 
-- **状态：** 进行中（2026-05-16）。现有 fixtures 不含 `Memory/ProcessMemInfo`；已新增 `MemoryCapture.wprp` 记录所需的 `MemoryInfoWS` / `Handle` / `Pool` capture。`memory_resource_analysis` 已暴露 process working-set / commit / derived-private snapshots 和 handle deltas，但 paged/non-paged pool current counters 以及正向 memory fixture 仍需要 elevated WPR capture 后补齐。
+- **状态：** 进行中（2026-05-16）。`MemoryCapture.wprp` 和 `small_memory.etl` 已覆盖正向 `Memory/ProcessMemInfo` 与 handle-event 路径。`memory_resource_analysis` 已暴露 process working-set / commit / derived-private snapshots 和 handle deltas，但 paged/non-paged pool current counters 仍待实现或拆成后续 scope。
 - **先验证（风险闸门）：** 确认现有 wpr profile 是否实际采集 working-set、commit、paged / non-paged pool、handle 计数器。如需新增 wpr keyword，本条降到 **P2.5**，且 keyword 工作先于 analyzer 工作。详见 `CAPABILITY_GAPS.md` v4 A-4 风险注脚——analyzer 无法恢复从未被记录的事件。
 - **验证失败时的 fallback：** 在 `MmapCapture.wprp` 旁新增 `MemoryCapture.wprp`，采集能通过的 fixture，并先在 `docs/WPR_PROFILE.md` 记录 keyword 要求，再实现 analyzer。
 - **内容（数据源确认后）：** 暴露 working set、commit、private bytes、paged / non-paged pool、handle count。
@@ -249,6 +249,7 @@
 ## 修订历史
 
 - **v9 (2026-05-16)**：完成 T2.2：文档化半开时间窗语义，锁定边界测试，并要求无时间窗工具说明其 whole-trace 或 lifecycle scope。
+- **v10 (2026-05-16)**：推进 T2.4：新增正向 `small_memory.etl` fixture 覆盖 `Memory/ProcessMemInfo` 和 handle events；pool current counters 仍是未完成部分。
 - **v8 (2026-05-15)**：同步 `inspect_trace` 最终 P0 schema：用 orientation tools 与 capability-supported tool hints 取代旧的单一排序推荐字段。
 - **v7 (2026-05-15)**：完成 T2.1 trace quality / system metadata：`inspect_trace` 现在包含 system metadata、driver module summary、provider event counts、stackwalk completeness。CPU model 保持 nullable，并显式标注 limitation，不使用宿主机兜底。
 - **v6 (2026-05-15)**：完成 T0.6 stack response compactness：为所有 `*TopStacks` 增加 `compactStacks` / `summaryOnly`，加入 compact row cap 与 sizing/shape tests。
