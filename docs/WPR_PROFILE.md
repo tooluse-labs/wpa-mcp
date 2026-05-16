@@ -19,6 +19,11 @@ For memory resource views (`memory_resource_analysis`), use
 | Handle | observed handle create/close/duplicate deltas by process |
 | Pool | observed paged/non-paged pool allocation/free deltas; `memory_resource_analysis` reports captured-window deltas, not absolute current counters |
 
+After aggressive fixture shrinking, TraceEvent may expose Pool data as raw
+classic Pool task GUID/opcode records rather than named `Pool/...` events.
+`memory_resource_analysis` parses that raw shape for the committed fixture, but
+fresh captures should still use the `Pool` keyword.
+
 `MemoryCapture.wprp` intentionally avoids stackwalks and virtual-allocation
 stack capture so the fixture can stay small. Use a stack-enabled profile when
 `virtual_alloc_top_stacks` call-chain evidence is required.

@@ -113,16 +113,17 @@ powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtu
 ```
 
 `Refresh-SmallMemoryFixture.ps1` captures to a candidate file first, verifies
-`Memory/ProcessMemInfo`, handle create/close, and marker-level
-`Pool/PoolAllocation` / `Pool/PoolFree`, tries shrink cutoffs if the raw
-candidate exceeds 95 MB, and only replaces `small_memory.etl` after the selected
-candidate passes those checks and a strict `memory_resource_analysis` pool-row
-test. The script removes `.etlx` caches before candidate validation and before
-running fixture tests so stale conversions cannot prove success. Shrink attempts
-use `etlshrink --keep-nonpool-tail` to retain late non-Pool/Object metadata that
-TraceEvent may need for a clean conversion. Use `-AllowMissingPool` only for
-diagnostics with `-KeepCandidate`; the wrapper refuses to overwrite the
-committed fixture in that mode.
+`Memory/ProcessMemInfo`, handle create/close, and either named
+`Pool/PoolAllocation` / `Pool/PoolFree` or the equivalent raw classic Pool task
+opcodes, tries shrink cutoffs if the raw candidate exceeds 95 MB, and only
+replaces `small_memory.etl` after the selected candidate passes those checks and
+a strict `memory_resource_analysis` pool-row test. The script removes `.etlx`
+caches before candidate validation and before running fixture tests so stale
+conversions cannot prove success. Shrink attempts use a plain time cut; the
+analyzer intentionally handles the raw Pool task GUID/opcode payload shape left
+by clean TraceEvent conversion. Use `-AllowMissingPool` only for diagnostics
+with `-KeepCandidate`; the wrapper refuses to overwrite the committed fixture in
+that mode.
 
 The script starts `MemoryCapture.wprp!MemoryMcp`, allocates 64 MB of private
 memory, repeatedly reads `kernel32.dll` to create handle activity, waits 1
@@ -139,25 +140,27 @@ fixture:
 dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Memory/ProcessMemInfo" count_by_event 10
 dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Object/" count_by_event 10
 dotnet run --project src\WprMcp -- --find-marker small_memory.etl "Pool/" count_by_event 10
+dotnet run --project src\WprMcp -- --find-marker small_memory.etl "0268a8b6-74fd-4302-9dd0-6e8f1795c0cf)/Opcode(32)" count_by_event 10
 ```
 
 Avoid manually replacing the fixture after `tools/etlshrink` unless the
-resulting ETL is re-verified with the `Pool/` marker command above. A previous
-520 ms relogged fixture retained `Memory/ProcessMemInfo` and `Object/*Handle`
-but lost `PoolAllocation` / `PoolFree` when freshly converted from ETL.
+resulting ETL is re-verified with a deleted-cache `memory_resource_analysis`
+strict pool-row test. A clean conversion may expose Pool events as raw
+`0268a8b6-.../Opcode(32|34)` records instead of named `Pool/...` records; the
+analyzer supports that fixture shape.
 
 Used by: positive-path `MemoryResourceAnalysisTests` for `Memory/ProcessMemInfo`
-and Object handle events. The first local agent attempt on 2026-05-16 failed
-with `0x80070005 Access is denied` because the shell was not elevated; WPR
-kernel capture requires Administrator PowerShell.
+Object handle events, and observed Pool allocation/free deltas. The first local
+agent attempt on 2026-05-16 failed with `0x80070005 Access is denied` because
+the shell was not elevated; WPR kernel capture requires Administrator
+PowerShell.
 
 The current committed fixture was refreshed from Administrator PowerShell on
 2026-05-16. `Refresh-SmallMemoryFixture.ps1` selected the 750 ms shrink cutoff:
 raw capture 741,854,847 bytes to 24,989,947 bytes. A clean TraceEvent
-conversion currently exposes `Memory/ProcessMemInfo` and Object handle events,
-but not `Pool/PoolAllocation` / `Pool/PoolFree`. Keep memory-resource pool
-assertions conditional until a committed fixture proves pool rows from a
-deleted-cache, clean-checkout conversion.
+conversion exposes `Memory/ProcessMemInfo` and Object handle events by name;
+Pool events remain as raw classic Pool task GUID/opcode records, which
+`memory_resource_analysis` parses from their 24-byte payload.
 
 ## After capturing all 3 fixtures
 

@@ -81,6 +81,8 @@ function Test-Candidate {
     $closeHandleCount = Get-MarkerCount $TracePath "Object/CloseHandle"
     $poolAllocCount = Get-MarkerCount $TracePath "Pool/PoolAllocation"
     $poolFreeCount = Get-MarkerCount $TracePath "Pool/PoolFree"
+    $rawPoolAllocCount = if ($poolAllocCount -gt 0) { 0 } else { Get-MarkerCount $TracePath "0268a8b6-74fd-4302-9dd0-6e8f1795c0cf)/Opcode(32)" }
+    $rawPoolFreeCount = if ($poolFreeCount -gt 0) { 0 } else { Get-MarkerCount $TracePath "0268a8b6-74fd-4302-9dd0-6e8f1795c0cf)/Opcode(34)" }
     $size = (Get-Item -LiteralPath $TracePath).Length
 
     Write-Host "Candidate: $TracePath"
@@ -90,10 +92,15 @@ function Test-Candidate {
     Write-Host "  Object/CloseHandle: $closeHandleCount"
     Write-Host "  Pool/PoolAllocation: $poolAllocCount"
     Write-Host "  Pool/PoolFree: $poolFreeCount"
+    Write-Host "  Raw Pool Opcode(32): $rawPoolAllocCount"
+    Write-Host "  Raw Pool Opcode(34): $rawPoolFreeCount"
 
     if ($memoryCount -le 0) { return $false }
     if ($createHandleCount -le 0 -and $closeHandleCount -le 0) { return $false }
-    if (-not $AllowMissingPool -and ($poolAllocCount -le 0 -or $poolFreeCount -le 0)) { return $false }
+    if (-not $AllowMissingPool -and
+        (($poolAllocCount + $rawPoolAllocCount) -le 0 -or ($poolFreeCount + $rawPoolFreeCount) -le 0)) {
+        return $false
+    }
     if ($RequireSize -and $size -gt $MaxBytes) { return $false }
     return $true
 }
@@ -110,10 +117,8 @@ function Test-AnalyzerPoolCandidate {
     Remove-TraceCache $validationPath
 
     $oldFixturePath = $env:WPRMCP_MEMORY_FIXTURE_PATH
-    $oldRequirePool = $env:WPRMCP_REQUIRE_POOL_FIXTURE
     try {
         $env:WPRMCP_MEMORY_FIXTURE_PATH = $validationPath
-        $env:WPRMCP_REQUIRE_POOL_FIXTURE = "1"
         Write-Host "Validating analyzer pool rows for candidate..."
         dotnet test WprMcp.sln -c Release --no-build --filter "FullyQualifiedName~MemoryResourceAnalysis_ReturnsProcessSnapshotsAndHandleDeltas" | Out-Host
         $exitCode = $LASTEXITCODE
@@ -122,9 +127,6 @@ function Test-AnalyzerPoolCandidate {
     finally {
         if ($null -eq $oldFixturePath) { Remove-Item Env:\WPRMCP_MEMORY_FIXTURE_PATH -ErrorAction SilentlyContinue }
         else { $env:WPRMCP_MEMORY_FIXTURE_PATH = $oldFixturePath }
-
-        if ($null -eq $oldRequirePool) { Remove-Item Env:\WPRMCP_REQUIRE_POOL_FIXTURE -ErrorAction SilentlyContinue }
-        else { $env:WPRMCP_REQUIRE_POOL_FIXTURE = $oldRequirePool }
 
         Remove-TraceCache $validationPath
         Remove-Item -LiteralPath $validationPath -Force -ErrorAction SilentlyContinue
@@ -189,7 +191,7 @@ try {
             Remove-TraceCache $shrunkPath
 
             Invoke-CommandChecked "Shrinking candidate at ${cutoff}ms..." {
-                dotnet run --project tools\etlshrink -- $candidatePath $shrunkPath $cutoff --keep-nonpool-tail
+                dotnet run --project tools\etlshrink -- $candidatePath $shrunkPath $cutoff
             }
 
             if ((Test-Candidate $shrunkPath -RequireSize) -and (Test-AnalyzerPoolCandidate $shrunkPath)) {

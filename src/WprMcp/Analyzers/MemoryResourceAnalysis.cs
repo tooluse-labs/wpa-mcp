@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
@@ -10,6 +11,7 @@ public static class MemoryResourceAnalysis
     // TraceEvent exposes Memory/ProcessMemInfo values as page counts. We currently convert
     // with the common Windows 4 KB page size and surface that assumption in response warnings.
     private const long PageSizeBytes = 4096;
+    private const string RawPoolTaskGuid = "0268a8b6-74fd-4302-9dd0-6e8f1795c0cf";
     // Keep bounded output useful for the default ~500 ms ProcessMemInfo cadence: 100 samples
     // covers roughly 50 seconds and longer traces get an explicit truncation warning.
     private const int MaxSystemSamples = 100;
@@ -28,6 +30,7 @@ public static class MemoryResourceAnalysis
         long processSampleCount = 0;
         long handleEventCount = 0;
         long poolEventCount = 0;
+        long rawPoolEventCount = 0;
 
         foreach (var ev in trace.Events)
         {
@@ -35,9 +38,10 @@ public static class MemoryResourceAnalysis
             if (!PassesTimeWindow(nowUs, startUs, endUs)) continue;
             if (!IsPoolEvent(ev.EventName)) continue;
             if (pid.HasValue && ev.ProcessID != pid.Value) continue;
-            if (!TryReadPoolEvent(ev, out var poolEvent)) continue;
+            if (!TryReadPoolEvent(ev, out var poolEvent, out var rawPoolEvent)) continue;
 
             poolEventCount++;
+            if (rawPoolEvent) rawPoolEventCount++;
             pools.Add(ev.ProcessID, ev.ProcessName ?? string.Empty, ev.EventName, poolEvent);
         }
 
@@ -142,7 +146,7 @@ public static class MemoryResourceAnalysis
 
         var poolRows = pools.ProcessRows(top);
         var poolTagRows = pools.TagRows(top);
-        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount);
+        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount, rawPoolEventCount);
         var boundedSystemRows = systemRows
             .OrderBy(row => row.TimeUs)
             .TakeLast(MaxSystemSamples)
@@ -163,7 +167,11 @@ public static class MemoryResourceAnalysis
             Warnings: warnings);
     }
 
-    private static List<string> BuildWarnings(long processSampleCount, long handleEventCount, long poolEventCount)
+    private static List<string> BuildWarnings(
+        long processSampleCount,
+        long handleEventCount,
+        long poolEventCount,
+        long rawPoolEventCount)
     {
         var warnings = new List<string>();
         if (processSampleCount == 0)
@@ -188,6 +196,11 @@ public static class MemoryResourceAnalysis
         {
             warnings.Add(
                 "Pool rows are observed allocation/free deltas within the captured window, not absolute current paged/nonpaged pool counters. UnknownFreeCount tracks frees whose allocations predate or fall outside the window.");
+            if (rawPoolEventCount > 0)
+            {
+                warnings.Add(
+                    "Some Pool events were parsed from classic raw Pool task GUID/opcode payloads because clean TraceEvent conversion did not name them as Pool/... events.");
+            }
         }
 
         warnings.Add(
@@ -255,18 +268,26 @@ public static class MemoryResourceAnalysis
 
     private static bool IsPoolEvent(string eventName)
         => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation" or
-           "Pool/PoolFree" or "Pool/SessionPoolFree";
+           "Pool/PoolFree" or "Pool/SessionPoolFree" ||
+           IsRawPoolEvent(eventName);
 
     private static bool IsPoolAllocationEvent(string eventName)
-        => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation";
+        => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation" ||
+           (TryGetRawPoolOpcode(eventName, out var opcode) && opcode is 32 or 33);
 
-    private static bool TryReadPoolEvent(TraceEvent ev, out PoolEvent poolEvent)
+    private static bool TryReadPoolEvent(TraceEvent ev, out PoolEvent poolEvent, out bool rawPoolEvent)
     {
+        rawPoolEvent = false;
         poolEvent = default;
-        if (!TryPayloadLong(ev, "Type", out var type)) return false;
-        if (!TryPayloadUlong(ev, "Tag", out var rawTag)) return false;
-        if (!TryPayloadLong(ev, "NumberOfBytes", out var bytes)) return false;
-        if (!TryPayloadUlong(ev, "Entry", out var entry)) return false;
+        if (!TryPayloadLong(ev, "Type", out var type) ||
+            !TryPayloadUlong(ev, "Tag", out var rawTag) ||
+            !TryPayloadLong(ev, "NumberOfBytes", out var bytes) ||
+            !TryPayloadUlong(ev, "Entry", out var entry))
+        {
+            rawPoolEvent = TryReadRawPoolEvent(ev, out type, out rawTag, out bytes, out entry);
+            if (!rawPoolEvent) return false;
+        }
+
         if (bytes <= 0) return false;
 
         poolEvent = new PoolEvent(
@@ -276,6 +297,46 @@ public static class MemoryResourceAnalysis
             Tag: DecodePoolTag(rawTag),
             PoolKind: ClassifyPoolKind(type));
         return true;
+    }
+
+    private static bool IsRawPoolEvent(string eventName)
+        => TryGetRawPoolOpcode(eventName, out var opcode) && opcode is 32 or 33 or 34 or 35;
+
+    private static bool TryGetRawPoolOpcode(string eventName, out int opcode)
+    {
+        opcode = 0;
+        if (!eventName.Contains(RawPoolTaskGuid, StringComparison.OrdinalIgnoreCase)) return false;
+
+        var marker = eventName.LastIndexOf("Opcode(", StringComparison.Ordinal);
+        if (marker < 0) return false;
+
+        var start = marker + "Opcode(".Length;
+        var end = eventName.IndexOf(')', start);
+        if (end <= start) return false;
+
+        return int.TryParse(eventName.AsSpan(start, end - start), out opcode);
+    }
+
+    private static bool TryReadRawPoolEvent(
+        TraceEvent ev,
+        out long type,
+        out ulong rawTag,
+        out long bytes,
+        out ulong entry)
+    {
+        type = 0;
+        rawTag = 0;
+        bytes = 0;
+        entry = 0;
+        if (!IsRawPoolEvent(ev.EventName)) return false;
+        if (ev.EventDataLength < 24) return false;
+
+        var data = ev.DataStart;
+        type = unchecked((uint)Marshal.ReadInt32(data, 0));
+        rawTag = unchecked((uint)Marshal.ReadInt32(data, 4));
+        bytes = unchecked((uint)Marshal.ReadInt32(data, 8));
+        entry = unchecked((ulong)Marshal.ReadInt64(data, 16));
+        return bytes > 0;
     }
 
     private static bool TryPayloadLong(TraceEvent ev, string name, out long value)
