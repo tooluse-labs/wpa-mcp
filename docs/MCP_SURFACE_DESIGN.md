@@ -1,6 +1,6 @@
 # wpa-mcp — MCP surface design (review draft)
 
-> Working notes, not an RFC. How to organize ~54 (and growing) tools so that LLM consumers don't drown in decision fatigue, without throwing away analytical power.
+> Working notes, not an RFC. How to organize a broad and growing tool surface so that LLM consumers don't drown in decision fatigue, without throwing away analytical power.
 >
 > **Document-set logic** — three active docs in a sequential pipeline:
 >
@@ -12,9 +12,9 @@
 
 ## Why this doc exists
 
-- wpa-mcp ships 54 MCP tools today, and `CAPABILITY_GAPS.md` identifies ~6 high-value additions that, even after preferring parameter expansion over new tools, will push the count to ~60.
-- The 54 are mostly the same "top-N + stacks + caller-callee" triplet replicated per domain (CPU, wait, file IO, disk IO, hard faults, registry, ALPC, CLR, ...).
-- That density isn't fatal — github-mcp has ~30, k8s-mcp has ~50 — but it does start to hurt LLMs through three channels:
+- wpa-mcp already ships a broad MCP tool surface, and `CAPABILITY_GAPS.md` identifies more high-value additions. Even after preferring parameter expansion over new tools, the surface will keep growing.
+- The surface is mostly the same "top-N + stacks + caller-callee" triplet replicated per domain (CPU, wait, file IO, disk IO, hard faults, registry, ALPC, CLR, ...).
+- That density isn't fatal — broad MCP surfaces are common — but it does start to hurt LLMs through three channels:
   1. **Token cost** — `tools/list` is loaded into every session prefix.
   2. **Decision fatigue** — similar tools (`*_top_stacks` family) raise wrong-tool selection rate.
   3. **Schema repetition** — most stack tools repeat `pid`, `top`, `startUs` / `endUs` with near-identical descriptions.
@@ -24,7 +24,7 @@
 
 | Anti-pattern | Why it fails |
 |---|---|
-| Collapse 50 tools into one `analyze_trace(mode=...)` catch-all | Migrates decision fatigue from tool layer to parameter layer. JSON schema can't express conditional-required params cleanly; LLM wrong-arg rate rises. Also a hard breaking change for every existing client config. |
+| Collapse the tool surface into one `analyze_trace(mode=...)` catch-all | Migrates decision fatigue from tool layer to parameter layer. JSON schema can't express conditional-required params cleanly; LLM wrong-arg rate rises. Also a hard breaking change for every existing client config. |
 | Delete low-frequency low-level tools to "simplify" | Cripples expert paths. Frequency ≠ value; the rare tool may be the only one that answers a specific incident. |
 | Dynamic `tools/list` filtering per loaded trace | Breaks prompt-prefix caching on Anthropic / OpenAI / most providers. Client compatibility for `tools/list_changed` is also uneven. |
 | Add a "top + stacks + caller-callee" triplet for every new capability | Multiplies headcount monotonically. Prefer parameter expansion on existing tools. |
@@ -35,7 +35,7 @@
 
 ## Three-layer architecture
 
-### Layer 1 — Base tools (current 54, mostly preserved)
+### Layer 1 — Base tools (current surface, mostly preserved)
 
 Direct, fine-grained access for expert callers and Layer-3 composites that build on them. **Stay structurally stable** so:
 
@@ -50,7 +50,7 @@ Direct, fine-grained access for expert callers and Layer-3 composites that build
 
 ### Layer 2 — Navigation tools (HIGH priority, not yet implemented)
 
-The missing middle. Help an LLM go from "trace loaded" to "the right Layer-1 tool for this trace" without scanning 54 descriptions.
+The missing middle. Help an LLM go from "trace loaded" to "the right Layer-1 tool for this trace" without scanning the full tool list.
 
 | Tool | Returns | Notes |
 |---|---|---|
@@ -79,7 +79,7 @@ The missing middle. Help an LLM go from "trace loaded" to "the right Layer-1 too
 
 | Primitive | Trigger model | Best for | wpa-mcp use |
 |---|---|---|---|
-| **Tools** | Model-controlled, model-invoked | Actions / queries with parameters; runtime computation | The current 54 + Layer 2 navigation + Layer 3 composites |
+| **Tools** | Model-controlled, model-invoked | Actions / queries with parameters; runtime computation | The current base tools + Layer 2 navigation + Layer 3 composites |
 | **Resources** | Client-driven | Stable / semi-stable knowledge; reference docs; static catalogs | Capability matrix, tool catalog, per-trace metadata snapshots |
 | **Prompts** | User-invoked | Reusable workflow templates | Slow startup, missing symbols, GC pressure, baseline regression |
 
@@ -127,7 +127,7 @@ Long-lived reference content. The model may or may not see them automatically de
 
 | Tier | Tools | `readOnlyHint` | `idempotentHint` | `openWorldHint` | Rationale |
 |---|---|---|---|---|---|
-| **A. Pure query (post-first-access)** | All `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols` — ~45 tools | `true` | `true` | **`true`** | Drill-downs can trigger symbol fetch → network + writes to `%LocalAppData%\WprMcp\Symbols`. **`diagnose_symbols` belongs here** (corrected v4 — verified against `SymbolTools.cs:61-90`): it does NOT mutate `_NT_SYMBOL_PATH` and does NOT actively fetch; it only reads `module.PdbName` from already-loaded image events. |
+| **A. Pure query (post-first-access)** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`, and similar query tools | `true` | `true` | **`true`** | Drill-downs can trigger symbol fetch → network + writes to `%LocalAppData%\WprMcp\Symbols`. **`diagnose_symbols` belongs here** (corrected v4 — verified against `SymbolTools.cs:61-90`): it does NOT mutate `_NT_SYMBOL_PATH` and does NOT actively fetch; it only reads `module.PdbName` from already-loaded image events. |
 | **B. Cache generation** | `load_trace` | **`false`** | `true` | `false` | `TraceLog.OpenOrConvert` produces `.etlx` next to the input `.etl` (TraceCache.cs:54). |
 | **C. Environment configuration** | `set_symbol_path`, `add_symbol_server` | **`false`** | `false` | **`true`** | Mutate process-global `_NT_SYMBOL_PATH`. `openWorldHint=true` because these change which servers downstream tools will probe on symbol resolution. |
 | **D. Future file-producing tools** | `shrink_trace`, `slice_trace`, `redact_trace` (when implemented) | `false` | `true` | `false` | Write new `.etl` artifacts. |

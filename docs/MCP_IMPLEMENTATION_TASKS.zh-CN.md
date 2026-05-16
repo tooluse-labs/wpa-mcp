@@ -13,7 +13,7 @@
 
 ## 原则
 
-- **先做导航层，再扩能力面。** 当前已有 55 个工具，继续直接加工具会提高 LLM 选错工具的概率。
+- **先做导航层，再扩能力面。** 当前工具面已经很宽，继续直接加工具会提高 LLM 选错工具的概率。
 - **关键能力必须是 Tool。** LLM 需要自主调用的能力不能只放在 Resource 或 Prompt。
 - **Resources / Prompts 只做增强层。** Resources 放稳定参考材料；Prompts 放人类启动的调查模板。
 - **避免万能工具。** 不引入 `analyze_trace(mode=...)` 这类 catch-all 入口。
@@ -219,7 +219,7 @@
 - 纯 UI 渲染：flamegraph 图片、timeline、heatmap、bar chart、主题、截图、HTML report。
 - 捕获执行：启动 / 停止 ETW session、实时 provider 管理、`wpr -start`。
 - 动态 `tools/list` 过滤：会破坏 prompt prefix caching，客户端兼容性也不稳定。
-- 将现有 55 个工具合并成一个万能入口：这是 breaking change，且会把决策负担转移到参数层。
+- 将现有工具面合并成一个万能入口：这是 breaking change，且会把决策负担转移到参数层。
 - 长期迁移到每个 domain 一个工具，并用 `view=top|stacks|caller_callee` 和 `metric=` 参数切换视图：这是已归档 O6 的 breaking variant。除非使用数据证明值得重开设计，否则只通过 Layer-3 composites 做整合。
 
 ## 推荐实施顺序

@@ -192,4 +192,76 @@ public class CpuPreciseAnalysisTests
         Assert.Equal(40_000, row.MaxReadyLatencyUs);
         Assert.Equal(40_000, resp.TotalReadyLatencyUs);
     }
+
+    [Fact]
+    public void CpuPreciseAccumulator_ClipsReadyLatencyToWindowStart()
+    {
+        var accumulator = new CpuPreciseAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 100_000,
+            endUs: 200_000);
+
+        accumulator.ProcessReady(new CpuPreciseReadyEvent(
+            AwakenedProcessId: 100,
+            AwakenedThreadId: 42,
+            TimeStampRelativeMSec: 90));
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 300,
+            OldProcessName: "runner",
+            OldThreadId: 7,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            ProcessorNumber: 1,
+            TimeStampRelativeMSec: 150));
+
+        var resp = accumulator.BuildResponse();
+
+        var row = Assert.Single(resp.Rows);
+        Assert.Equal(1, row.ReadyCount);
+        Assert.Equal(50_000, row.ReadyLatencyUs);
+        Assert.Equal(50_000, row.AvgReadyLatencyUs);
+        Assert.Equal(50_000, row.MaxReadyLatencyUs);
+        Assert.Equal(50_000, resp.TotalReadyLatencyUs);
+    }
+
+    [Fact]
+    public void CpuPreciseAccumulator_StraddlingRunningIntervalDoesNotEmitEmptyWindowWarning()
+    {
+        var accumulator = new CpuPreciseAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 100_000,
+            endUs: 200_000);
+
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 300,
+            OldProcessName: "runner",
+            OldThreadId: 7,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            ProcessorNumber: 1,
+            TimeStampRelativeMSec: 90));
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 42,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 300,
+            NewProcessName: "runner",
+            NewThreadId: 7,
+            ProcessorNumber: 1,
+            TimeStampRelativeMSec: 250));
+
+        var resp = accumulator.BuildResponse();
+
+        var row = Assert.Single(resp.Rows);
+        Assert.Equal(100_000, row.CpuUs);
+        Assert.Equal(0, resp.TotalContextSwitches);
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("none matched", StringComparison.OrdinalIgnoreCase));
+    }
 }

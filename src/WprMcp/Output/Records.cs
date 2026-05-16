@@ -145,7 +145,8 @@ public sealed record TraceCapabilities(
     bool HasClrContention,
     bool HasNtHeap,
     bool HasMemoryProcessInfo,
-    bool HasHandleEvents);
+    bool HasHandleEvents,
+    bool HasPoolEvents);
 
 public sealed record ProcessRow(
     int Pid,

@@ -147,7 +147,8 @@ internal sealed class CpuPreciseAccumulator
             var newStats = GetStats(newKey, data.NewProcessName);
             if (_pendingReadyUs.Remove(newKey, out var readyUs) && InWindow(nowUs) && MatchesPid(newKey.Pid))
             {
-                var latencyUs = Math.Max(0, nowUs - readyUs);
+                var clippedReadyUs = Math.Max(readyUs, WindowStartUs);
+                var latencyUs = Math.Max(0, nowUs - clippedReadyUs);
                 newStats.ReadyCount++;
                 newStats.ReadyLatencyUs += latencyUs;
                 newStats.MaxReadyLatencyUs = Math.Max(newStats.MaxReadyLatencyUs ?? 0, latencyUs);
@@ -179,7 +180,7 @@ internal sealed class CpuPreciseAccumulator
                 "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
                 "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
         }
-        else if (_windowCSwitches == 0)
+        else if (_windowCSwitches == 0 && rows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
         {
             warnings.Add("CSwitch events were present in the trace, but none matched the requested pid/window filters.");
         }

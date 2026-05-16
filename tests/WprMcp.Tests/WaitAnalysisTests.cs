@@ -142,8 +142,97 @@ public class WaitAnalysisTests
         Assert.Equal(100, row.Pid);
         Assert.Equal("target", row.ProcessName);
         Assert.Equal(42, row.Tid);
-        Assert.Equal(30_000, row.BlockedUs);
+        Assert.Equal(20_000, row.BlockedUs);
         Assert.Equal(1, resp.TotalCSwitches);
+    }
+
+    [Fact]
+    public void WaitAnalysis_ClipsCpuAndBlockedIntervalsToWindowStart()
+    {
+        var accumulator = new WaitAnalysisAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 100_000,
+            endUs: 200_000);
+
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 300,
+            OldProcessName: "runner",
+            OldThreadId: 7,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            TimeStampRelativeMSec: 90));
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 42,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 300,
+            NewProcessName: "runner",
+            NewThreadId: 7,
+            TimeStampRelativeMSec: 120));
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 300,
+            OldProcessName: "runner",
+            OldThreadId: 7,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            TimeStampRelativeMSec: 150));
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 42,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 300,
+            NewProcessName: "runner",
+            NewThreadId: 7,
+            TimeStampRelativeMSec: 250));
+
+        var resp = accumulator.BuildResponse();
+
+        var row = Assert.Single(resp.Rows);
+        Assert.Equal(70_000, row.CpuUs);
+        Assert.Equal(30_000, row.BlockedUs);
+    }
+
+    [Fact]
+    public void WaitAnalysis_StraddlingBlockedIntervalDoesNotEmitEmptyWindowWarning()
+    {
+        var accumulator = new WaitAnalysisAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 100_000,
+            endUs: 200_000);
+
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 42,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 300,
+            NewProcessName: "runner",
+            NewThreadId: 7,
+            TimeStampRelativeMSec: 90));
+        accumulator.Process(new WaitAnalysisSwitchEvent(
+            OldProcessId: 300,
+            OldProcessName: "runner",
+            OldThreadId: 7,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            TimeStampRelativeMSec: 250));
+
+        var resp = accumulator.BuildResponse();
+
+        var row = Assert.Single(resp.Rows);
+        Assert.Equal(100_000, row.BlockedUs);
+        Assert.Equal(0, resp.TotalCSwitches);
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("none landed inside", StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<long> CSwitchTimesUs()

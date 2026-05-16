@@ -36,7 +36,7 @@ public static class MemoryResourceAnalysis
         {
             var nowUs = ToUs(ev);
             if (!PassesTimeWindow(nowUs, startUs, endUs)) continue;
-            if (!IsPoolEvent(ev.EventName)) continue;
+            if (!IsPoolEventName(ev.EventName)) continue;
             if (pid.HasValue && ev.ProcessID != pid.Value) continue;
             if (!TryReadPoolEvent(ev, out var poolEvent, out var rawPoolEvent)) continue;
 
@@ -266,7 +266,7 @@ public static class MemoryResourceAnalysis
         return tag == "...." ? $"0x{rawTag:X8}" : tag;
     }
 
-    private static bool IsPoolEvent(string eventName)
+    internal static bool IsPoolEventName(string eventName)
         => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation" or
            "Pool/PoolFree" or "Pool/SessionPoolFree" ||
            IsRawPoolEvent(eventName);

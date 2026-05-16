@@ -243,6 +243,15 @@ public sealed class MetaTools
             "Recapture with the Handle keyword enabled when handle-leak analysis matters.",
             MemoryResourceToolNames);
 
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasPoolEvents,
+            "missing_pool_events",
+            "info",
+            "Pool allocation/free events were not observed.",
+            "Recapture with the Pool keyword enabled when observed paged/nonpaged pool deltas matter.",
+            MemoryResourceToolNames);
+
         return warnings;
     }
 
@@ -341,8 +350,8 @@ public sealed class MetaTools
         if (capabilities.HasNetConnections)
             recommendations.Add(("net_connections", "Network connection lifecycle events are present; inspect TCP connect/accept/disconnect timing.", ["network", "connections"]));
 
-        if (capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents)
-            recommendations.Add(("memory_resource_analysis", "Memory resource events are present; inspect working set, commit/private bytes, and handle deltas by process.", ["memory"]));
+        if (capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents || capabilities.HasPoolEvents)
+            recommendations.Add(("memory_resource_analysis", BuildMemoryResourceRecommendationReason(capabilities), ["memory"]));
 
         if (capabilities.HasAlpc)
             recommendations.Add(("alpc_top_stacks", "ALPC events are present; rank cross-process IPC message stacks.", ["ipc"]));
@@ -370,6 +379,19 @@ public sealed class MetaTools
         capabilities.HasClrAlloc ||
         capabilities.HasClrException ||
         capabilities.HasClrContention;
+
+    private static string BuildMemoryResourceRecommendationReason(TraceCapabilities capabilities)
+    {
+        var signals = new List<string>();
+        if (capabilities.HasMemoryProcessInfo)
+            signals.Add("working set and commit/private-byte snapshots");
+        if (capabilities.HasHandleEvents)
+            signals.Add("handle create/close deltas");
+        if (capabilities.HasPoolEvents)
+            signals.Add("observed pool allocation/free deltas");
+
+        return $"Memory resource events are present; inspect {string.Join(", ", signals)} by process.";
+    }
 
     private static string DefaultSymbolCacheDir() =>
         Path.Combine(

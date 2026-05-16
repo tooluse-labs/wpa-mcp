@@ -86,7 +86,8 @@ public class MetaToolsTests
                 HasClrContention: false,
                 HasNtHeap: false,
                 HasMemoryProcessInfo: false,
-                HasHandleEvents: false),
+                HasHandleEvents: false,
+                HasPoolEvents: false),
             new InspectSymbolQuality(
                 NtSymbolPath: null,
                 CacheDir: "",

@@ -7,7 +7,8 @@ namespace WprMcp.Analyzers;
 
 // Detects which kernel-keyword event classes are present in the trace, so callers know
 // upfront whether dependent tools will return data. Implementation: subscribe one no-op
-// flag-setting handler per event class, run a single source pass.
+// flag-setting handler per typed event class, then do a bounded raw-name scan for event
+// classes TraceEvent can preserve without dispatching through typed callbacks.
 //
 // We don't use trace.Stats / per-event-count enumeration because (a) the event-name format
 // varies between OS builds and providers — substring matching against "FileIO/Read" vs
@@ -27,7 +28,7 @@ internal static class TraceCapabilitiesDetector
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
         bool hasClrGc = false, hasClrJit = false;
         bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
-        bool hasNtHeap = false, hasMemoryProcessInfo = false, hasHandleEvents = false;
+        bool hasNtHeap = false, hasMemoryProcessInfo = false, hasHandleEvents = false, hasPoolEvents = false;
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -102,6 +103,16 @@ internal static class TraceCapabilitiesDetector
 
         source.Process();
 
+        if (!hasPoolEvents)
+        {
+            foreach (var ev in trace.Events)
+            {
+                if (!MemoryResourceAnalysis.IsPoolEventName(ev.EventName)) continue;
+                hasPoolEvents = true;
+                break;
+            }
+        }
+
         return new TraceCapabilities(
             HasCpuSamples: hasCpuSamples,
             HasCSwitch: hasCSwitch,
@@ -125,6 +136,7 @@ internal static class TraceCapabilitiesDetector
             HasClrContention: hasClrContention,
             HasNtHeap: hasNtHeap,
             HasMemoryProcessInfo: hasMemoryProcessInfo,
-            HasHandleEvents: hasHandleEvents);
+            HasHandleEvents: hasHandleEvents,
+            HasPoolEvents: hasPoolEvents);
     }
 }

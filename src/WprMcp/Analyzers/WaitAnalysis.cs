@@ -183,9 +183,9 @@ internal sealed class WaitAnalysisAccumulator
         {
             if (_lastSwitchInTime.TryGetValue(oldKey, out var inMs))
             {
-                var cpuMs = nowMs - inMs;
-                if (cpuMs > 0 && inWindow)
-                    _threadCpu[oldKey] = _threadCpu.GetValueOrDefault(oldKey) + (long)(cpuMs * 1000);
+                var cpuUs = IntersectUs(inMs, nowMs);
+                if (cpuUs > 0)
+                    _threadCpu[oldKey] = _threadCpu.GetValueOrDefault(oldKey) + cpuUs;
             }
             _lastSwitchOutTime[oldKey] = nowMs;
             _lastWaitReason[oldKey] = WaitAnalysis.WaitReasonName(data.OldThreadWaitReason);
@@ -200,10 +200,9 @@ internal sealed class WaitAnalysisAccumulator
         {
             if (_lastSwitchOutTime.TryGetValue(newKey, out var outMs))
             {
-                var blockedMs = nowMs - outMs;
-                if (blockedMs > 0 && inWindow)
+                var blockedUs = IntersectUs(outMs, nowMs);
+                if (blockedUs > 0)
                 {
-                    var blockedUs = (long)(blockedMs * 1000);
                     _threadBlocked[newKey] = _threadBlocked.GetValueOrDefault(newKey) + blockedUs;
                     var reason = _lastWaitReason.GetValueOrDefault(newKey, "Unknown");
                     if (!_threadWaitReasons.TryGetValue(newKey, out var reasons))
@@ -264,7 +263,7 @@ internal sealed class WaitAnalysisAccumulator
                 "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
                 "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
         }
-        else if (_totalCSwitches == 0)
+        else if (_totalCSwitches == 0 && rows.Count == 0)
         {
             warnings.Add("CSwitch events were present in the trace, but none landed inside the requested time window.");
         }
@@ -276,6 +275,17 @@ internal sealed class WaitAnalysisAccumulator
     {
         key = new ThreadKey(pid, tid);
         return pid > 0 && tid != 0;
+    }
+
+    private long IntersectUs(double startMs, double endMs)
+    {
+        var startUs = (long)(startMs * 1000);
+        var endUs = (long)(endMs * 1000);
+        if (endUs <= startUs) return 0;
+
+        var clippedStart = _startUs.HasValue ? Math.Max(startUs, _startUs.Value) : startUs;
+        var clippedEnd = _endUs.HasValue ? Math.Min(endUs, _endUs.Value) : endUs;
+        return Math.Max(0, clippedEnd - clippedStart);
     }
 
     private readonly record struct ThreadKey(int Pid, int Tid);

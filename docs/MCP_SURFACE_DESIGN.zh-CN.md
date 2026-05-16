@@ -1,6 +1,6 @@
 # wpa-mcp — MCP 工具表面设计（review draft）
 
-> Working notes，不是 RFC。讨论如何组织当前 ~54（且仍在增长的）工具，让 LLM 消费者不被 decision fatigue 淹没，同时不丢分析能力。
+> Working notes，不是 RFC。讨论如何组织当前很宽且仍在增长的工具面，让 LLM 消费者不被 decision fatigue 淹没，同时不丢分析能力。
 >
 > **文档集合的逻辑分工**——三份现行文档，顺序约束的流水线：
 >
@@ -12,9 +12,9 @@
 
 ## 为什么需要这份文档
 
-- wpa-mcp 当前 54 个 MCP 工具，`CAPABILITY_GAPS.md` 识别了 ~6 个高价值补充——即使优先扩参数而非加新工具，最终也会到 ~60。
-- 54 个工具里大部分是同样的"top-N + stacks + caller-callee"三件套按域复制。
-- 这个密度不是致命的——github-mcp 大约 30 个、k8s-mcp 大约 50 个——但对 LLM 开始通过三条通道造成困扰：
+- wpa-mcp 当前已经有很宽的 MCP 工具面，`CAPABILITY_GAPS.md` 还识别了更多高价值补充——即使优先扩参数而非加新工具，工具面仍会继续增长。
+- 当前工具面里大部分是同样的"top-N + stacks + caller-callee"三件套按域复制。
+- 这个密度不是致命的——宽工具面的 MCP server 很常见——但对 LLM 开始通过三条通道造成困扰：
   1. **Token 成本**——`tools/list` 在每个 session 前缀里都被加载
   2. **Decision fatigue**——相似工具（`*_top_stacks` 一族）抬高错选率
   3. **Schema 重复**——多数 stack 工具重复 `pid`、`top`、`startUs` / `endUs`，描述几乎一致
@@ -24,7 +24,7 @@
 
 | 反模式 | 为什么失败 |
 |---|---|
-| 把 50 个工具合成一个 `analyze_trace(mode=...)` 万能入口 | Decision fatigue 从工具层迁移到参数层 |
+| 把整个工具面合成一个 `analyze_trace(mode=...)` 万能入口 | Decision fatigue 从工具层迁移到参数层 |
 | 删除低频底层工具来"简化" | 削弱专家路径。**频率 ≠ 价值** |
 | 按已加载 trace 动态过滤 `tools/list` | 破坏 prompt prefix caching；客户端兼容性参差 |
 | 为每个新能力加"top + stacks + caller-callee"三件套 | 工具数单调爆炸 |
@@ -35,7 +35,7 @@
 
 ## 三层架构
 
-### Layer 1 — 底层工具（当前 54 个，基本保留）
+### Layer 1 — 底层工具（当前工具面，基本保留）
 
 直接、细粒度的访问入口，给专家调用者和 Layer 3 composites 当 building block。**保持结构稳定**：
 
@@ -77,7 +77,7 @@
 
 | Primitive | 触发模型 | 适合 | wpa-mcp 用途 |
 |---|---|---|---|
-| **Tools** | Model-controlled，模型自主调用 | 带参数的动作 / 查询；运行时计算 | 当前 54 个 + Layer 2 导航 + Layer 3 composite |
+| **Tools** | Model-controlled，模型自主调用 | 带参数的动作 / 查询；运行时计算 | 当前底层工具 + Layer 2 导航 + Layer 3 composite |
 | **Resources** | Client-driven | 稳定 / 半稳定的知识；参考文档；静态目录 | Capability matrix、tool catalog、per-trace 元数据快照 |
 | **Prompts** | User-invoked | 可复用的 workflow 模板 | Slow startup、missing symbols、GC pressure、baseline regression |
 
@@ -121,7 +121,7 @@ Resources 和 Prompts 是**附加增强层**，不是 Tools 的替代。**测试
 
 | 档 | 工具 | `readOnlyHint` | `idempotentHint` | `openWorldHint` | 理由 |
 |---|---|---|---|---|---|
-| **A. 纯查询（首次访问后）** | 所有 `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`——约 45 个工具 | `true` | `true` | **`true`** | Drill-down 可能触发 symbol fetch → 网络 + 写 `%LocalAppData%\WprMcp\Symbols`。**`diagnose_symbols` 属于这一档**（v4 修正，经 `SymbolTools.cs:61-90` 核实）：它**不**修改 `_NT_SYMBOL_PATH`、**不**主动 fetch；只读取已加载 image 事件里的 `module.PdbName` |
+| **A. 纯查询（首次访问后）** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`，以及类似查询工具 | `true` | `true` | **`true`** | Drill-down 可能触发 symbol fetch → 网络 + 写 `%LocalAppData%\WprMcp\Symbols`。**`diagnose_symbols` 属于这一档**（v4 修正，经 `SymbolTools.cs:61-90` 核实）：它**不**修改 `_NT_SYMBOL_PATH`、**不**主动 fetch；只读取已加载 image 事件里的 `module.PdbName` |
 | **B. 缓存生成** | `load_trace` | **`false`** | `true` | `false` | `TraceLog.OpenOrConvert` 在输入 `.etl` 旁生成 `.etlx`（TraceCache.cs:54） |
 | **C. 环境配置** | `set_symbol_path`、`add_symbol_server` | **`false`** | `false` | **`true`** | 改进程级 `_NT_SYMBOL_PATH`。`openWorldHint=true` 因为它们改变了下游工具在符号解析时会探测的服务器集合 |
 | **D. 未来的文件生成工具** | `shrink_trace`、`slice_trace`、`redact_trace`（如果实现） | `false` | `true` | `false` | 写新 `.etl` 文件 |

@@ -21,8 +21,8 @@ $candidatePath = Join-Path $fixturesDir $CandidateName
 $toolDll = Join-Path $RepoRoot "src\WprMcp\bin\Release\net8.0\WprMcp.dll"
 
 function Assert-Admin {
-    $cmd = Join-Path $env:WINDIR "System32\cmd.exe"
-    & $cmd /c "net session >nul 2>nul"
+    $fltmc = Join-Path $env:WINDIR "System32\fltmc.exe"
+    & $fltmc > $null 2> $null
     if ($LASTEXITCODE -ne 0) {
         throw "This script must run from Administrator PowerShell."
     }

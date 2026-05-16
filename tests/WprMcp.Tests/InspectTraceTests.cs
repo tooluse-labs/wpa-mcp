@@ -105,6 +105,7 @@ public sealed class InspectTraceTests
         var memory = meta.InspectTrace(MemoryFixture);
         Assert.True(memory.Capabilities.HasMemoryProcessInfo);
         Assert.True(memory.Capabilities.HasHandleEvents);
+        Assert.True(memory.Capabilities.HasPoolEvents);
         Assert.Contains(memory.CapabilitySupportedTools, r => r.ToolName == "memory_resource_analysis");
 
         var fileIo = meta.InspectTrace(FileIoFixture);
@@ -256,6 +257,7 @@ public sealed class InspectTraceTests
         {
             HasMemoryProcessInfo = false,
             HasHandleEvents = false,
+            HasPoolEvents = false,
         };
 
         var warnings = MetaTools.BuildTraceQualityWarnings(
@@ -267,6 +269,34 @@ public sealed class InspectTraceTests
                                       w.AffectedTools.Contains("memory_resource_analysis"));
         Assert.Contains(warnings, w => w.Code == "missing_handle_events" &&
                                       w.AffectedTools.Contains("memory_resource_analysis"));
+        Assert.Contains(warnings, w => w.Code == "missing_pool_events" &&
+                                      w.AffectedTools.Contains("memory_resource_analysis"));
+    }
+
+    [Fact]
+    public void PoolOnlyCapabilityStillRecommendsMemoryResourceAnalysis()
+    {
+        var capabilities = AllCapabilities() with
+        {
+            HasMemoryProcessInfo = false,
+            HasHandleEvents = false,
+            HasPoolEvents = true,
+        };
+
+        var recommendations = MetaTools.BuildCapabilitySupportedTools(capabilities);
+        var warnings = MetaTools.BuildTraceQualityWarnings(
+            eventsLost: 0,
+            capabilities: capabilities,
+            symbolQuality: GoodSymbolQuality());
+
+        Assert.Contains(recommendations, r => r.ToolName == "memory_resource_analysis");
+        var recommendation = Assert.Single(recommendations, r => r.ToolName == "memory_resource_analysis");
+        Assert.Contains("pool allocation/free deltas", recommendation.Reason);
+        Assert.DoesNotContain("working set", recommendation.Reason);
+        Assert.DoesNotContain("handle", recommendation.Reason);
+        Assert.Contains(warnings, w => w.Code == "missing_memory_process_info");
+        Assert.Contains(warnings, w => w.Code == "missing_handle_events");
+        Assert.DoesNotContain(warnings, w => w.Code == "missing_pool_events");
     }
 
     private static InspectSymbolQuality GoodSymbolQuality() =>
@@ -303,5 +333,6 @@ public sealed class InspectTraceTests
             HasClrContention: true,
             HasNtHeap: true,
             HasMemoryProcessInfo: true,
-            HasHandleEvents: true);
+            HasHandleEvents: true,
+            HasPoolEvents: true);
 }
