@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Microsoft.Diagnostics.Tracing.Etlx;
 using ModelContextProtocol.Server;
 using WprMcp.Analyzers;
 using WprMcp.Core;
@@ -19,34 +20,435 @@ public sealed class MetaTools
         [Description("Absolute path to .etl file")] string path)
     {
         var trace = _cache.Get(path);
+        var capabilities = _cache.GetCapabilities(path);
+        return new LoadTraceResponse(BuildTraceMeta(path, trace), BuildSymbolStatus(trace), capabilities);
+    }
+
+    [McpServerTool(
+        ReadOnly = true,
+        Idempotent = true,
+        OpenWorld = false,
+        Destructive = false,
+        UseStructuredContent = true), Description(
+        "Inspects a trace once and returns machine-readable orientation: capture capabilities, " +
+        "system metadata, provider counts, stackwalk completeness, symbol quality, quality " +
+        "warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, " +
+        "the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. " +
+        "Recommendations are capability-driven hints, not goal-specific rankings.")]
+    public InspectTraceResponse InspectTrace(
+        [Description("Absolute path to .etl file")] string path)
+    {
+        var trace = _cache.Get(path);
+        var capabilities = _cache.GetCapabilities(path);
+        var metadata = _cache.GetMetadata(path);
+        var symbolQuality = BuildInspectSymbolQuality(trace);
+        var warnings = BuildTraceQualityWarnings(trace.EventsLost, capabilities, symbolQuality);
+        var orientationTools = BuildOrientationTools(symbolQuality);
+        var capabilitySupportedTools = BuildCapabilitySupportedTools(capabilities);
+
+        return new InspectTraceResponse(
+            BuildTraceMeta(path, trace),
+            capabilities,
+            metadata,
+            symbolQuality,
+            warnings,
+            orientationTools,
+            capabilitySupportedTools);
+    }
+
+    private static TraceMeta BuildTraceMeta(string path, TraceLog trace)
+    {
         var processes = trace.Processes;
-        var meta = new TraceMeta(
+        return new TraceMeta(
             Path: path,
             DurationUs: (long)trace.SessionDuration.TotalMicroseconds,
             EventCount: trace.EventCount,
             EventsLost: trace.EventsLost,
             ProcessCount: processes.Count);
+    }
 
+    private static SymbolStatus BuildSymbolStatus(TraceLog trace)
+    {
         var ntPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
-        var cacheDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WprMcp", "Symbols");
+        var cacheDir = DefaultSymbolCacheDir();
         var warning = string.IsNullOrEmpty(ntPath)
             ? "_NT_SYMBOL_PATH is not set. OS module frames will not resolve. " +
               "Call set_symbol_path or add_symbol_server, or configure env in MCP config."
             : null;
 
-        var recommendations = BuildSymbolRecommendations(trace);
-        var capabilities = _cache.GetCapabilities(path);
-
-        return new LoadTraceResponse(
-            meta,
-            new SymbolStatus(ntPath, cacheDir, warning, recommendations),
-            capabilities);
+        return new SymbolStatus(ntPath, cacheDir, warning, BuildSymbolRecommendations(trace));
     }
 
+    private static InspectSymbolQuality BuildInspectSymbolQuality(TraceLog trace)
+    {
+        var modules = trace.ModuleFiles.ToList();
+        var unresolved = modules
+            .Where(module => string.IsNullOrEmpty(module.PdbName))
+            .OrderBy(module => module.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Select(module =>
+            {
+                var name = module.Name ?? "<unknown>";
+                return new InspectUnresolvedModule(name, SymbolTools.SuggestServerForModule(name));
+            })
+            .Take(20)
+            .ToList();
+
+        var resolvedCount = modules.Count(module => !string.IsNullOrEmpty(module.PdbName));
+        double? rate = modules.Count == 0
+            ? null
+            : resolvedCount / (double)modules.Count;
+
+        return new InspectSymbolQuality(
+            NtSymbolPath: Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"),
+            CacheDir: DefaultSymbolCacheDir(),
+            ModuleCount: modules.Count,
+            ResolvedModuleCount: resolvedCount,
+            ModuleResolutionRate: rate,
+            TopUnresolvedModules: unresolved,
+            Recommendations: BuildSymbolRecommendations(trace));
+    }
+
+    internal static IReadOnlyList<TraceQualityWarning> BuildTraceQualityWarnings(
+        long eventsLost,
+        TraceCapabilities capabilities,
+        InspectSymbolQuality symbolQuality)
+    {
+        var warnings = new List<TraceQualityWarning>();
+
+        if (eventsLost > 0)
+        {
+            warnings.Add(new TraceQualityWarning(
+                Code: "events_lost",
+                Severity: "warn",
+                Message: $"{eventsLost} events were lost during capture; analysis may be incomplete.",
+                NextStep: "Recapture with larger buffers or a narrower profile/window before drawing final conclusions.",
+                AffectedTools: Array.Empty<string>(),
+                DegradedTools: Array.Empty<string>()));
+        }
+
+        if (string.IsNullOrEmpty(symbolQuality.NtSymbolPath))
+        {
+            warnings.Add(new TraceQualityWarning(
+                Code: "symbol_path_unset",
+                Severity: "warn",
+                Message: "_NT_SYMBOL_PATH is not set, so OS and product module frames may remain unresolved.",
+                NextStep: "Run diagnose_symbols, then add_symbol_server or set_symbol_path with the recommended symbol servers.",
+                AffectedTools: StackDependentToolNames,
+                DegradedTools: Array.Empty<string>()));
+        }
+
+        if (symbolQuality.ModuleResolutionRate is < 0.8)
+        {
+            warnings.Add(new TraceQualityWarning(
+                Code: "low_module_symbol_resolution",
+                Severity: "warn",
+                Message: $"{symbolQuality.ModuleResolutionRate.Value * 100:F1}% of loaded modules have resolved PDBs.",
+                NextStep: "Run diagnose_symbols and add the recommended symbol servers or local PDB paths.",
+                AffectedTools: StackDependentToolNames,
+                DegradedTools: Array.Empty<string>()));
+        }
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasCpuSamples,
+            "missing_cpu_samples",
+            "warn",
+            "CPU sample events were not observed.",
+            "Recapture with a CPU or CPU.light WPR profile when CPU attribution matters.",
+            CpuSampleToolNames,
+            CompositeToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasCSwitch,
+            "missing_context_switches",
+            "warn",
+            "Context switch events were not observed.",
+            "Recapture with CSwitch enabled before using wait, blocked-time, or ready-thread analysis.",
+            ContextSwitchToolNames,
+            CompositeToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasStackWalks,
+            "missing_stackwalks",
+            "warn",
+            "StackWalk events were not observed; stack-based tools may return empty or low-value call chains.",
+            "Recapture with stack walking enabled for the relevant events.",
+            StackDependentToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasFileIo,
+            "missing_file_io",
+            "info",
+            "File IO events were not observed.",
+            "Recapture with the FileIO keyword if file activity is part of the investigation.",
+            FileIoToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasDiskIo,
+            "missing_disk_io",
+            "info",
+            "Physical disk IO events were not observed.",
+            "Recapture with the DiskIO keyword if physical media activity is part of the investigation.",
+            DiskIoToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            HasAnyClrCapability(capabilities),
+            "missing_clr_runtime",
+            "info",
+            "CLR runtime events were not observed.",
+            "Recapture with Microsoft-Windows-DotNETRuntime enabled if .NET GC, allocation, exception, or contention analysis matters.",
+            ClrToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasNetIo,
+            "missing_network_io",
+            "info",
+            "Network send/receive byte events were not observed.",
+            "Recapture with NetworkTrace enabled if network byte attribution is part of the investigation.",
+            NetworkByteToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasNetConnections,
+            "missing_network_connections",
+            "info",
+            "Network connection lifecycle events were not observed.",
+            "Recapture with NetworkTrace enabled if TCP connect/accept/disconnect timing is part of the investigation.",
+            NetworkConnectionToolNames);
+
+        return warnings;
+    }
+
+    private static void AddMissingCapabilityWarning(
+        List<TraceQualityWarning> warnings,
+        bool hasCapability,
+        string code,
+        string severity,
+        string message,
+        string nextStep,
+        IReadOnlyList<string> affectedTools,
+        IReadOnlyList<string>? degradedTools = null)
+    {
+        if (hasCapability) return;
+        warnings.Add(new TraceQualityWarning(
+            code,
+            severity,
+            message,
+            nextStep,
+            affectedTools,
+            degradedTools ?? Array.Empty<string>()));
+    }
+
+    internal static IReadOnlyList<ToolRecommendation> BuildOrientationTools(InspectSymbolQuality symbolQuality)
+    {
+        var recommendations = new List<(string ToolName, string Reason, string[] Goals)>
+        {
+            (
+                "list_processes",
+                "Orient on process CPU, wall time, wait ratio, and trace residency when the target process or domain is not already known.",
+                ["orientation"]),
+        };
+
+        if (string.IsNullOrEmpty(symbolQuality.NtSymbolPath) ||
+            symbolQuality.ModuleResolutionRate is < 0.8 ||
+            symbolQuality.Recommendations.Count > 0)
+        {
+            recommendations.Add((
+                "diagnose_symbols",
+                "Symbol path or module resolution needs validation before trusting stack frame names.",
+                ["symbols", "quality"]));
+        }
+
+        return BuildToolRecommendationRecords(recommendations);
+    }
+
+    internal static IReadOnlyList<ToolRecommendation> BuildCapabilitySupportedTools(TraceCapabilities capabilities)
+    {
+        var recommendations = new List<(string ToolName, string Reason, string[] Goals)>();
+
+        if (capabilities.HasCpuSamples)
+            recommendations.Add(("cpu_top_functions", "CPU samples are present; rank hot functions first for CPU-bound investigations.", ["cpu"]));
+
+        if (capabilities.HasCSwitch)
+            recommendations.Add(("wait_analysis", "Context switch events are present; identify blocked threads and dominant wait reasons.", ["wait"]));
+
+        if (capabilities.HasCSwitch && capabilities.HasStackWalks)
+            recommendations.Add(("wait_top_stacks", "Context switches and stack walks are present; drill into where blocked time resumes.", ["wait", "stacks"]));
+
+        if (capabilities.HasImageLoad)
+            recommendations.Add(("image_load_top_gaps", "Image load events are present; rank loader gaps for startup and DLL-load investigations.", ["startup", "image_load"]));
+
+        if (capabilities.HasFileIo)
+            recommendations.Add(("file_io_top_files", "File IO events are present; identify files with the most read/write bytes.", ["io"]));
+
+        if (capabilities.HasFileIo && capabilities.HasStackWalks)
+            recommendations.Add(("file_io_top_stacks", "File IO and stack walks are present; attribute file IO bytes to call stacks.", ["io", "stacks"]));
+
+        if (capabilities.HasDiskIo && capabilities.HasStackWalks)
+            recommendations.Add(("disk_io_top_stacks", "Disk IO and stack walks are present; attribute physical media bytes to call stacks.", ["io", "disk", "stacks"]));
+
+        if (capabilities.HasHardFaults)
+            recommendations.Add(("hard_fault_by_file", "Hard-fault events are present; identify files that caused page-ins.", ["memory", "hard_faults"]));
+
+        if (capabilities.HasClrGc)
+            recommendations.Add(("clr_gc_analysis", "CLR GC events are present; inspect GC duration and stop-the-world pause time.", ["gc", "dotnet"]));
+
+        if (capabilities.HasClrJit)
+            recommendations.Add(("clr_jit_analysis", "CLR JIT events are present; rank methods by JIT compilation duration.", ["jit", "dotnet"]));
+
+        if (capabilities.HasClrAlloc && capabilities.HasStackWalks)
+            recommendations.Add(("clr_alloc_top_stacks", "CLR allocation ticks and stack walks are present; rank managed allocation sources.", ["memory", "dotnet"]));
+
+        if (capabilities.HasClrException)
+            recommendations.Add(("clr_exception_top_stacks", "CLR exception events are present; rank thrown exception sources and top exception types.", ["exceptions", "dotnet"]));
+
+        if (capabilities.HasClrContention)
+            recommendations.Add(("clr_contention_top_stacks", "CLR contention events are present; rank managed Monitor contention call stacks.", ["locks", "dotnet"]));
+
+        if (capabilities.HasNetIo)
+            recommendations.Add(("net_top_stacks", "Network IO events are present; attribute TCP/UDP bytes to call stacks.", ["network"]));
+
+        if (capabilities.HasNetConnections)
+            recommendations.Add(("net_connections", "Network connection lifecycle events are present; inspect TCP connect/accept/disconnect timing.", ["network", "connections"]));
+
+        if (capabilities.HasAlpc)
+            recommendations.Add(("alpc_top_stacks", "ALPC events are present; rank cross-process IPC message stacks.", ["ipc"]));
+
+        return recommendations
+            .Select(recommendation => new ToolRecommendation(
+                recommendation.ToolName,
+                recommendation.Reason,
+                recommendation.Goals))
+            .ToList();
+    }
+
+    private static IReadOnlyList<ToolRecommendation> BuildToolRecommendationRecords(
+        IReadOnlyList<(string ToolName, string Reason, string[] Goals)> recommendations)
+        => recommendations
+            .Select(recommendation => new ToolRecommendation(
+                recommendation.ToolName,
+                recommendation.Reason,
+                recommendation.Goals))
+            .ToList();
+
+    private static bool HasAnyClrCapability(TraceCapabilities capabilities) =>
+        capabilities.HasClrGc ||
+        capabilities.HasClrJit ||
+        capabilities.HasClrAlloc ||
+        capabilities.HasClrException ||
+        capabilities.HasClrContention;
+
+    private static string DefaultSymbolCacheDir() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WprMcp", "Symbols");
+
+    private static readonly string[] CpuSampleToolNames =
+    [
+        "cpu_top_functions",
+        "cpu_top_functions_batch",
+        "cpu_caller_callee",
+    ];
+
+    private static readonly string[] ContextSwitchToolNames =
+    [
+        "wait_top_stacks",
+        "wait_caller_callee",
+        "wait_analysis",
+        "ready_thread_top_stacks",
+        "ready_thread_caller_callee",
+    ];
+
+    private static readonly string[] CompositeToolNames =
+    [
+        "diagnose_slow_startup",
+    ];
+
+    private static readonly string[] FileIoToolNames =
+    [
+        "file_io_top_files",
+        "file_io_top_stacks",
+        "file_io_caller_callee",
+    ];
+
+    private static readonly string[] DiskIoToolNames =
+    [
+        "disk_io_top_stacks",
+        "disk_io_caller_callee",
+    ];
+
+    private static readonly string[] ClrToolNames =
+    [
+        "clr_gc_analysis",
+        "clr_gc_heap_stats",
+        "clr_finalizer_analysis",
+        "clr_jit_analysis",
+        "clr_alloc_top_stacks",
+        "clr_alloc_caller_callee",
+        "clr_exception_top_stacks",
+        "clr_exception_caller_callee",
+        "clr_contention_top_stacks",
+        "clr_contention_caller_callee",
+    ];
+
+    private static readonly string[] NetworkByteToolNames =
+    [
+        "net_top_stacks",
+        "net_caller_callee",
+    ];
+
+    private static readonly string[] NetworkConnectionToolNames =
+    [
+        "net_connections",
+    ];
+
+    private static readonly string[] StackDependentToolNames =
+    [
+        "cpu_top_functions",
+        "cpu_top_functions_batch",
+        "cpu_caller_callee",
+        "wait_top_stacks",
+        "wait_caller_callee",
+        "ready_thread_top_stacks",
+        "ready_thread_caller_callee",
+        "file_io_top_stacks",
+        "file_io_caller_callee",
+        "disk_io_top_stacks",
+        "disk_io_caller_callee",
+        "hard_fault_top_stacks",
+        "hard_fault_caller_callee",
+        "image_load_top_stacks",
+        "image_load_caller_callee",
+        "registry_top_stacks",
+        "registry_caller_callee",
+        "net_top_stacks",
+        "net_caller_callee",
+        "alpc_top_stacks",
+        "alpc_caller_callee",
+        "interrupt_top_stacks",
+        "interrupt_caller_callee",
+        "heap_alloc_top_stacks",
+        "heap_alloc_caller_callee",
+        "virtual_alloc_top_stacks",
+        "virtual_alloc_caller_callee",
+        "clr_alloc_top_stacks",
+        "clr_alloc_caller_callee",
+        "clr_exception_top_stacks",
+        "clr_exception_caller_callee",
+        "clr_contention_top_stacks",
+        "clr_contention_caller_callee",
+        "generic_event_top_stacks",
+        "generic_event_caller_callee",
+    ];
+
     private static IReadOnlyList<SymbolRecommendation> BuildSymbolRecommendations(
-        Microsoft.Diagnostics.Tracing.Etlx.TraceLog trace)
+        TraceLog trace)
     {
         // Catalog entries that recommend a server (skip the no-public-PDB tier — it has no
         // URL to recommend, only diagnose_symbols consumes it).
