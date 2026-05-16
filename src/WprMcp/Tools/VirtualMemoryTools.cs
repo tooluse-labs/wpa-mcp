@@ -15,10 +15,11 @@ public sealed class VirtualMemoryTools
     [McpServerTool, Description(
         "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
         "create/close deltas. Reports working set, commit, derived private bytes, private " +
-        "working set, virtual size, and handle deltas by process. Requires MemoryInfoWS for " +
-        "process snapshots and Handle for handle events; use MemoryCapture.wprp when resident " +
-        "footprint or handle-leak questions matter. Pool capture is called out in warnings " +
-        "because current paged/nonpaged pool counters are not emitted by this response yet. " +
+        "working set, virtual size, handle deltas, and observed pool allocation/free deltas. " +
+        "Pool rows are not absolute current counters; they are captured-window deltas with " +
+        "UnknownFreeCount for frees whose allocation was outside the window. Requires MemoryInfoWS " +
+        "for process snapshots and Handle/Pool for handle or pool events; use MemoryCapture.wprp " +
+        "when resident footprint, handle-leak, or pool-growth questions matter. " +
         "Process rows are ordered by current working set bytes; handle rows by absolute net " +
         "delta. Neither order implies severity or causality.")]
     public MemoryResourceResponse MemoryResourceAnalysis(

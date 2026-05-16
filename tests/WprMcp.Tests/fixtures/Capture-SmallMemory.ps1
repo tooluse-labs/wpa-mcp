@@ -1,6 +1,7 @@
 param(
     [string]$RepoRoot = "D:\wpa-mcp",
-    [string]$OutputName = "small_memory.etl"
+    [string]$OutputName = "small_memory.etl",
+    [int]$SleepSeconds = 1
 )
 
 Set-StrictMode -Version Latest
@@ -56,7 +57,7 @@ try {
         Get-Content -LiteralPath $kernel32 -Encoding Byte -TotalCount 1 | Out-Null
     }
 
-    Start-Sleep -Seconds 4
+    Start-Sleep -Seconds $SleepSeconds
 
     Write-Host "Stopping WPR capture..."
     Write-Host "WPR may print 'Press Ctrl+C to cancel'; do not press Ctrl+C while it merges the trace."

@@ -23,9 +23,23 @@ public static class MemoryResourceAnalysis
     {
         var processes = new Dictionary<int, ProcessAccumulator>();
         var handles = new Dictionary<int, HandleAccumulator>();
+        var pools = new PoolTracker(trace);
         var systemRows = new List<MemoryResourceSystemRow>();
         long processSampleCount = 0;
         long handleEventCount = 0;
+        long poolEventCount = 0;
+
+        foreach (var ev in trace.Events)
+        {
+            var nowUs = ToUs(ev);
+            if (!PassesTimeWindow(nowUs, startUs, endUs)) continue;
+            if (!IsPoolEvent(ev.EventName)) continue;
+            if (pid.HasValue && ev.ProcessID != pid.Value) continue;
+            if (!TryReadPoolEvent(ev, out var poolEvent)) continue;
+
+            poolEventCount++;
+            pools.Add(ev.ProcessID, ev.ProcessName ?? string.Empty, ev.EventName, poolEvent);
+        }
 
         KernelEventWalker.Walk(trace, kernel =>
         {
@@ -126,7 +140,9 @@ public static class MemoryResourceAnalysis
             .Take(top)
             .ToList();
 
-        var warnings = BuildWarnings(processSampleCount, handleEventCount);
+        var poolRows = pools.ProcessRows(top);
+        var poolTagRows = pools.TagRows(top);
+        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount);
         var boundedSystemRows = systemRows
             .OrderBy(row => row.TimeUs)
             .TakeLast(MaxSystemSamples)
@@ -138,13 +154,16 @@ public static class MemoryResourceAnalysis
         return new MemoryResourceResponse(
             Processes: processRows,
             Handles: handleRows,
+            PoolProcesses: poolRows,
+            PoolTags: poolTagRows,
             SystemMemory: boundedSystemRows,
             ProcessSampleCount: processSampleCount,
             HandleEventCount: handleEventCount,
+            PoolEventCount: poolEventCount,
             Warnings: warnings);
     }
 
-    private static List<string> BuildWarnings(long processSampleCount, long handleEventCount)
+    private static List<string> BuildWarnings(long processSampleCount, long handleEventCount, long poolEventCount)
     {
         var warnings = new List<string>();
         if (processSampleCount == 0)
@@ -160,8 +179,17 @@ public static class MemoryResourceAnalysis
                 "No Object handle events matched. Capture with the Handle keyword to estimate handle-create/close deltas.");
         }
 
-        warnings.Add(
-            "Paged/nonpaged pool current counters are not emitted by this response yet. Capture with the Pool keyword for future pool views; do not treat missing pool rows as proof pool usage is healthy.");
+        if (poolEventCount == 0)
+        {
+            warnings.Add(
+                "No PoolAllocation/PoolFree events matched. Capture with the Pool keyword to estimate observed paged/nonpaged pool deltas.");
+        }
+        else
+        {
+            warnings.Add(
+                "Pool rows are observed allocation/free deltas within the captured window, not absolute current paged/nonpaged pool counters. UnknownFreeCount tracks frees whose allocations predate or fall outside the window.");
+        }
+
         warnings.Add(
             $"Page-count memory metrics are converted using {PageSizeBytes}-byte pages; this response does not currently expose trace-specific page size metadata.");
         return warnings;
@@ -207,6 +235,142 @@ public static class MemoryResourceAnalysis
     {
         _ = duplicatedOut; // Duplicating a handle out leaves the source process's handle count unchanged.
         return created + duplicatedIn - closed;
+    }
+
+    internal static string ClassifyPoolKind(long poolType)
+        => (poolType & 1) == 1 ? "paged" : "nonpaged";
+
+    internal static string DecodePoolTag(ulong rawTag)
+    {
+        Span<char> chars = stackalloc char[4];
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var b = (byte)((rawTag >> (i * 8)) & 0xFF);
+            chars[i] = b is >= 32 and <= 126 ? (char)b : '.';
+        }
+
+        var tag = new string(chars);
+        return tag == "...." ? $"0x{rawTag:X8}" : tag;
+    }
+
+    private static bool IsPoolEvent(string eventName)
+        => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation" or
+           "Pool/PoolFree" or "Pool/SessionPoolFree";
+
+    private static bool IsPoolAllocationEvent(string eventName)
+        => eventName is "Pool/PoolAllocation" or "Pool/SessionPoolAllocation";
+
+    private static bool TryReadPoolEvent(TraceEvent ev, out PoolEvent poolEvent)
+    {
+        poolEvent = default;
+        if (!TryPayloadLong(ev, "Type", out var type)) return false;
+        if (!TryPayloadUlong(ev, "Tag", out var rawTag)) return false;
+        if (!TryPayloadLong(ev, "NumberOfBytes", out var bytes)) return false;
+        if (!TryPayloadUlong(ev, "Entry", out var entry)) return false;
+        if (bytes <= 0) return false;
+
+        poolEvent = new PoolEvent(
+            Entry: entry,
+            Bytes: bytes,
+            RawTag: rawTag,
+            Tag: DecodePoolTag(rawTag),
+            PoolKind: ClassifyPoolKind(type));
+        return true;
+    }
+
+    private static bool TryPayloadLong(TraceEvent ev, string name, out long value)
+    {
+        value = 0;
+        var raw = TryPayload(ev, name);
+        switch (raw)
+        {
+            case null:
+                return false;
+            case long l:
+                value = l;
+                return true;
+            case int i:
+                value = i;
+                return true;
+            case short s:
+                value = s;
+                return true;
+            case sbyte b:
+                value = b;
+                return true;
+            case ulong u when u <= long.MaxValue:
+                value = (long)u;
+                return true;
+            case uint u:
+                value = u;
+                return true;
+            case ushort u:
+                value = u;
+                return true;
+            case byte b:
+                value = b;
+                return true;
+            default:
+                return long.TryParse(raw.ToString(), out value);
+        }
+    }
+
+    private static bool TryPayloadUlong(TraceEvent ev, string name, out ulong value)
+    {
+        value = 0;
+        var raw = TryPayload(ev, name);
+        switch (raw)
+        {
+            case null:
+                return false;
+            case ulong u:
+                value = u;
+                return true;
+            case long l:
+                value = unchecked((ulong)l);
+                return true;
+            case uint u:
+                value = u;
+                return true;
+            case int i:
+                value = unchecked((uint)i);
+                return true;
+            case ushort u:
+                value = u;
+                return true;
+            case short s:
+                value = unchecked((ushort)s);
+                return true;
+            case byte b:
+                value = b;
+                return true;
+            case sbyte b:
+                value = unchecked((byte)b);
+                return true;
+            default:
+            {
+                var text = raw.ToString();
+                if (ulong.TryParse(text, out value)) return true;
+                if (long.TryParse(text, out var signed))
+                {
+                    value = unchecked((ulong)signed);
+                    return true;
+                }
+
+                return false;
+            }
+        }
+    }
+
+    private static object? TryPayload(TraceEvent ev, string name)
+    {
+        for (var i = 0; i < ev.PayloadNames.Length; i++)
+        {
+            if (string.Equals(ev.PayloadNames[i], name, StringComparison.Ordinal))
+                return ev.PayloadValue(i);
+        }
+
+        return null;
     }
 
     private sealed class ProcessAccumulator(int pid, string processName)
@@ -286,5 +450,180 @@ public static class MemoryResourceAnalysis
                 DuplicatedIn: DuplicatedIn,
                 DuplicatedOut: DuplicatedOut,
                 NetDelta: CalculateHandleNetDelta(Created, Closed, DuplicatedIn, DuplicatedOut));
+    }
+
+    private readonly record struct PoolEvent(
+        ulong Entry,
+        long Bytes,
+        ulong RawTag,
+        string Tag,
+        string PoolKind);
+
+    private sealed class PoolTracker(TraceLog trace)
+    {
+        private readonly Dictionary<ulong, PoolAllocation> _live = new();
+        private readonly Dictionary<int, PoolProcessAccumulator> _processes = new();
+        private readonly Dictionary<(string Tag, string PoolKind), PoolTagAccumulator> _tags = new();
+
+        public void Add(int pid, string processName, string eventName, PoolEvent poolEvent)
+        {
+            var resolvedProcessName = string.IsNullOrEmpty(processName) ? ProcessName(trace, pid) : processName;
+            if (IsPoolAllocationEvent(eventName))
+            {
+                _live[poolEvent.Entry] = new PoolAllocation(pid, resolvedProcessName, poolEvent);
+                GetProcess(pid, resolvedProcessName).AddAllocation(poolEvent);
+                GetTag(poolEvent.Tag, poolEvent.PoolKind).AddAllocation(poolEvent.Bytes);
+                return;
+            }
+
+            if (_live.Remove(poolEvent.Entry, out var allocation))
+            {
+                GetProcess(allocation.Pid, allocation.ProcessName).AddFree(allocation.Event, unknown: false);
+                GetTag(allocation.Event.Tag, allocation.Event.PoolKind).AddFree(allocation.Event.Bytes, unknown: false);
+            }
+            else
+            {
+                GetProcess(pid, resolvedProcessName).AddFree(poolEvent, unknown: true);
+                GetTag(poolEvent.Tag, poolEvent.PoolKind).AddFree(poolEvent.Bytes, unknown: true);
+            }
+        }
+
+        public IReadOnlyList<MemoryPoolProcessRow> ProcessRows(int top)
+            => _processes.Values
+                .Select(process => process.ToRow())
+                .OrderByDescending(row => row.PagedOutstandingBytes + row.NonPagedOutstandingBytes)
+                .ThenByDescending(row => row.PagedAllocatedBytes + row.NonPagedAllocatedBytes)
+                .Take(top)
+                .ToList();
+
+        public IReadOnlyList<MemoryPoolTagRow> TagRows(int top)
+            => _tags.Values
+                .Select(tag => tag.ToRow())
+                .OrderByDescending(row => row.OutstandingBytes)
+                .ThenByDescending(row => row.AllocatedBytes)
+                .Take(top)
+                .ToList();
+
+        private PoolProcessAccumulator GetProcess(int pid, string processName)
+        {
+            if (!_processes.TryGetValue(pid, out var process))
+            {
+                var name = string.IsNullOrEmpty(processName) ? ProcessName(trace, pid) : processName;
+                process = new PoolProcessAccumulator(pid, name);
+                _processes.Add(pid, process);
+            }
+
+            return process;
+        }
+
+        private PoolTagAccumulator GetTag(string tag, string poolKind)
+        {
+            var key = (tag, poolKind);
+            if (!_tags.TryGetValue(key, out var accumulator))
+            {
+                accumulator = new PoolTagAccumulator(tag, poolKind);
+                _tags.Add(key, accumulator);
+            }
+
+            return accumulator;
+        }
+    }
+
+    private sealed record PoolAllocation(int Pid, string ProcessName, PoolEvent Event);
+
+    private sealed class PoolProcessAccumulator(int pid, string processName)
+    {
+        public long PagedOutstandingBytes { get; private set; }
+        public long NonPagedOutstandingBytes { get; private set; }
+        public long PagedAllocatedBytes { get; private set; }
+        public long NonPagedAllocatedBytes { get; private set; }
+        public long PagedFreedBytes { get; private set; }
+        public long NonPagedFreedBytes { get; private set; }
+        public long AllocationCount { get; private set; }
+        public long FreeCount { get; private set; }
+        public long UnknownFreeCount { get; private set; }
+
+        public void AddAllocation(PoolEvent ev)
+        {
+            AllocationCount++;
+            AddAllocated(ev.PoolKind, ev.Bytes);
+            AddOutstanding(ev.PoolKind, ev.Bytes);
+        }
+
+        public void AddFree(PoolEvent ev, bool unknown)
+        {
+            FreeCount++;
+            if (unknown) UnknownFreeCount++;
+            AddFreed(ev.PoolKind, ev.Bytes);
+            if (!unknown) AddOutstanding(ev.PoolKind, -ev.Bytes);
+        }
+
+        public MemoryPoolProcessRow ToRow() =>
+            new(
+                Pid: pid,
+                ProcessName: processName,
+                PagedOutstandingBytes: PagedOutstandingBytes,
+                NonPagedOutstandingBytes: NonPagedOutstandingBytes,
+                PagedAllocatedBytes: PagedAllocatedBytes,
+                NonPagedAllocatedBytes: NonPagedAllocatedBytes,
+                PagedFreedBytes: PagedFreedBytes,
+                NonPagedFreedBytes: NonPagedFreedBytes,
+                AllocationCount: AllocationCount,
+                FreeCount: FreeCount,
+                UnknownFreeCount: UnknownFreeCount);
+
+        private void AddAllocated(string kind, long bytes)
+        {
+            if (kind == "paged") PagedAllocatedBytes += bytes;
+            else NonPagedAllocatedBytes += bytes;
+        }
+
+        private void AddFreed(string kind, long bytes)
+        {
+            if (kind == "paged") PagedFreedBytes += bytes;
+            else NonPagedFreedBytes += bytes;
+        }
+
+        private void AddOutstanding(string kind, long bytes)
+        {
+            if (kind == "paged") PagedOutstandingBytes += bytes;
+            else NonPagedOutstandingBytes += bytes;
+        }
+    }
+
+    private sealed class PoolTagAccumulator(string tag, string poolKind)
+    {
+        public long OutstandingBytes { get; private set; }
+        public long AllocatedBytes { get; private set; }
+        public long FreedBytes { get; private set; }
+        public long AllocationCount { get; private set; }
+        public long FreeCount { get; private set; }
+        public long UnknownFreeCount { get; private set; }
+
+        public void AddAllocation(long bytes)
+        {
+            AllocationCount++;
+            AllocatedBytes += bytes;
+            OutstandingBytes += bytes;
+        }
+
+        public void AddFree(long bytes, bool unknown)
+        {
+            FreeCount++;
+            FreedBytes += bytes;
+            if (unknown) UnknownFreeCount++;
+            else OutstandingBytes -= bytes;
+        }
+
+        public MemoryPoolTagRow ToRow() =>
+            new(
+                Tag: tag,
+                PoolKind: poolKind,
+                OutstandingBytes: OutstandingBytes,
+                AllocatedBytes: AllocatedBytes,
+                FreedBytes: FreedBytes,
+                AllocationCount: AllocationCount,
+                FreeCount: FreeCount,
+                UnknownFreeCount: UnknownFreeCount);
     }
 }

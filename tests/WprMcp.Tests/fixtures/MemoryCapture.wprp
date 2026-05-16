@@ -12,19 +12,9 @@
         <Keyword Value="Memory"/>
         <Keyword Value="MemoryInfo"/>
         <Keyword Value="MemoryInfoWS"/>
-        <Keyword Value="VirtualAllocation"/>
         <Keyword Value="Handle"/>
         <Keyword Value="Pool"/>
       </Keywords>
-      <Stacks>
-        <Stack Value="VirtualAllocation"/>
-        <Stack Value="VirtualFree"/>
-        <Stack Value="HandleCreate"/>
-        <Stack Value="HandleClose"/>
-        <Stack Value="HandleDuplicate"/>
-        <Stack Value="PoolAllocation"/>
-        <Stack Value="PoolFree"/>
-      </Stacks>
     </SystemProvider>
     <Profile Id="MemoryMcp.Verbose.File" Name="MemoryMcp" Description="Memory resource fixture capture"
              LoggingMode="File" DetailLevel="Verbose">

@@ -26,8 +26,21 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Contains(resp.Handles, row => row.Created > 0 || row.Closed > 0 || row.DuplicatedIn > 0);
         Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Memory/ProcessMemInfo"));
         Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No Object handle events"));
-        Assert.Contains(resp.Warnings, warning => warning.Contains("Pool keyword"));
         Assert.Contains(resp.Warnings, warning => warning.Contains("4096-byte pages"));
+
+        if (resp.PoolEventCount > 0)
+        {
+            Assert.NotEmpty(resp.PoolProcesses);
+            Assert.NotEmpty(resp.PoolTags);
+            Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("No PoolAllocation/PoolFree"));
+            Assert.Contains(resp.Warnings, warning => warning.Contains("not absolute current"));
+        }
+        else
+        {
+            Assert.Empty(resp.PoolProcesses);
+            Assert.Empty(resp.PoolTags);
+            Assert.Contains(resp.Warnings, warning => warning.Contains("Pool keyword"));
+        }
     }
 
     [Fact]
@@ -40,6 +53,9 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Empty(resp.Processes);
         Assert.Equal(0, resp.ProcessSampleCount);
         Assert.NotEmpty(resp.SystemMemory);
+        Assert.Equal(0, resp.PoolEventCount);
+        Assert.Empty(resp.PoolProcesses);
+        Assert.Empty(resp.PoolTags);
         Assert.Contains(resp.Warnings, warning => warning.Contains("Memory/ProcessMemInfo"));
         Assert.Contains(resp.Warnings, warning => warning.Contains("MemoryInfoWS"));
         Assert.Contains(resp.Warnings, warning => warning.Contains("Pool keyword"));
@@ -76,5 +92,26 @@ public sealed class MemoryResourceAnalysisTests
             duplicatedOut: 7);
 
         Assert.Equal(6, delta);
+    }
+
+    [Theory]
+    [InlineData(0, "nonpaged")]
+    [InlineData(1, "paged")]
+    [InlineData(512, "nonpaged")]
+    [InlineData(33, "paged")]
+    [InlineData(268435457, "paged")]
+    [InlineData(268435968, "nonpaged")]
+    public void ClassifyPoolKind_UsesPoolTypeLowBit(long type, string expected)
+    {
+        Assert.Equal(expected, MemoryResourceAnalysis.ClassifyPoolKind(type));
+    }
+
+    [Theory]
+    [InlineData(0x20202041UL, "A   ")]
+    [InlineData(0x67615450UL, "PTag")]
+    [InlineData(0UL, "0x00000000")]
+    public void DecodePoolTag_UsesLittleEndianAscii(ulong rawTag, string expected)
+    {
+        Assert.Equal(expected, MemoryResourceAnalysis.DecodePoolTag(rawTag));
     }
 }

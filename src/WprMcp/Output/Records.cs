@@ -694,12 +694,38 @@ public sealed record MemoryHandleProcessRow(
     long DuplicatedOut,
     long NetDelta);
 
+public sealed record MemoryPoolProcessRow(
+    int Pid,
+    string ProcessName,
+    long PagedOutstandingBytes,
+    long NonPagedOutstandingBytes,
+    long PagedAllocatedBytes,
+    long NonPagedAllocatedBytes,
+    long PagedFreedBytes,
+    long NonPagedFreedBytes,
+    long AllocationCount,
+    long FreeCount,
+    long UnknownFreeCount);
+
+public sealed record MemoryPoolTagRow(
+    string Tag,
+    string PoolKind,
+    long OutstandingBytes,
+    long AllocatedBytes,
+    long FreedBytes,
+    long AllocationCount,
+    long FreeCount,
+    long UnknownFreeCount);
+
 public sealed record MemoryResourceResponse(
     IReadOnlyList<MemoryResourceProcessRow> Processes,
     IReadOnlyList<MemoryHandleProcessRow> Handles,
+    IReadOnlyList<MemoryPoolProcessRow> PoolProcesses,
+    IReadOnlyList<MemoryPoolTagRow> PoolTags,
     IReadOnlyList<MemoryResourceSystemRow> SystemMemory,
     long ProcessSampleCount,
     long HandleEventCount,
+    long PoolEventCount,
     IReadOnlyList<string> Warnings);
 
 // Top-N call-tree frames ranked by TCP+UDP send/receive byte count.  Pairs IPv4 and IPv6

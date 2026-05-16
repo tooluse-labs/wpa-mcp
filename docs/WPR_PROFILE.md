@@ -17,8 +17,11 @@ For memory resource views (`memory_resource_analysis`), use
 |---|---|
 | Memory, MemoryInfo, MemoryInfoWS | working set, commit, derived private bytes, and system free/modified memory samples |
 | Handle | observed handle create/close/duplicate deltas by process |
-| Pool | future paged/non-paged pool views; current `memory_resource_analysis` warns that pool counters are not emitted yet |
-| VirtualAllocation | pairs resource snapshots with virtual-allocation stack analysis |
+| Pool | observed paged/non-paged pool allocation/free deltas; `memory_resource_analysis` reports captured-window deltas, not absolute current counters |
+
+`MemoryCapture.wprp` intentionally avoids stackwalks and virtual-allocation
+stack capture so the fixture can stay small. Use a stack-enabled profile when
+`virtual_alloc_top_stacks` call-chain evidence is required.
 
 For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault analysis).
 
