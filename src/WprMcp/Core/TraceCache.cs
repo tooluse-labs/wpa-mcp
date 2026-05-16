@@ -27,6 +27,8 @@ public sealed class TraceCache
     /// </summary>
     public TraceCapabilities GetCapabilities(string path) => GetEntry(path).Capabilities.Value;
 
+    public TraceMetadata GetMetadata(string path) => GetEntry(path).Metadata.Value;
+
     public bool Unload(string path)
     {
         var canonical = Path.GetFullPath(path);
@@ -44,22 +46,29 @@ public sealed class TraceCache
         lock (_lock)
         {
             if (_cache.TryGet(canonical, out var existing) && existing.MTimeUtc == mtime)
+            {
+                TraceCacheCallContext.RecordHit();
                 return existing;
+            }
             if (_cache.TryGet(canonical, out _))
                 _cache.Remove(canonical);
         }
 
+        TraceCacheCallContext.RecordMiss();
         return _cache.GetOrAdd(canonical, p =>
         {
             var trace = new Lazy<TraceLog>(() => TraceLog.OpenOrConvert(p), isThreadSafe: true);
             var caps = new Lazy<TraceCapabilities>(
                 () => TraceCapabilitiesDetector.Detect(trace.Value), isThreadSafe: true);
-            return new CacheEntry(mtime, trace, caps);
+            var metadata = new Lazy<TraceMetadata>(
+                () => TraceMetadataAnalysis.Analyze(trace.Value, caps.Value), isThreadSafe: true);
+            return new CacheEntry(mtime, trace, caps, metadata);
         });
     }
 
     private sealed record CacheEntry(
         DateTime MTimeUtc,
         Lazy<TraceLog> Trace,
-        Lazy<TraceCapabilities> Capabilities);
+        Lazy<TraceCapabilities> Capabilities,
+        Lazy<TraceMetadata> Metadata);
 }

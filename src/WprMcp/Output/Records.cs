@@ -24,6 +24,94 @@ public sealed record LoadTraceResponse(
     SymbolStatus SymbolStatus,
     TraceCapabilities Capabilities);
 
+public sealed record InspectTraceResponse(
+    TraceMeta Trace,
+    TraceCapabilities Capabilities,
+    TraceMetadata Metadata,
+    InspectSymbolQuality SymbolQuality,
+    IReadOnlyList<TraceQualityWarning> Warnings,
+    IReadOnlyList<ToolRecommendation> OrientationTools,
+    IReadOnlyList<ToolRecommendation> CapabilitySupportedTools);
+
+public sealed record TraceMetadata(
+    TraceSystemConfiguration System,
+    TraceStackwalkSummary Stackwalks,
+    ProviderEventCountSummary ProviderEvents,
+    DriverModuleSummary Drivers,
+    IReadOnlyList<string> Limitations);
+
+public sealed record TraceSystemConfiguration(
+    string? MachineName,
+    string? OsName,
+    string? OsBuild,
+    string? OsVersion,
+    int? ProcessorCount,
+    int? CpuSpeedMhz,
+    string? CpuModel,
+    string? BootTimeUtc,
+    int? UtcOffsetMinutes,
+    string MetadataSource);
+
+public sealed record TraceStackwalkSummary(
+    bool HasStackWalkEvents,
+    long StackWalkEventCount,
+    long EventsWithCallStacks,
+    double? EventStackCoveragePct);
+
+public sealed record ProviderEventCountSummary(
+    int TotalProviderCount,
+    long TotalEventCount,
+    long OtherEventCount,
+    IReadOnlyList<ProviderEventCount> TopProviders);
+
+public sealed record ProviderEventCount(
+    string Provider,
+    long EventCount,
+    long EventsWithCallStacks,
+    double? StackCoveragePct);
+
+public sealed record DriverModuleSummary(
+    int TotalDriverModuleCount,
+    IReadOnlyList<TraceDriverModule> TopDrivers);
+
+public sealed record TraceDriverModule(
+    string Module,
+    string Path,
+    long ImageSizeBytes,
+    string? FileVersion,
+    string? ProductName,
+    string? ProductVersion);
+
+public sealed record InspectSymbolQuality(
+    string? NtSymbolPath,
+    string CacheDir,
+    int ModuleCount,
+    int ResolvedModuleCount,
+    double? ModuleResolutionRate,
+    IReadOnlyList<InspectUnresolvedModule> TopUnresolvedModules,
+    IReadOnlyList<SymbolRecommendation> Recommendations);
+
+public sealed record InspectUnresolvedModule(
+    string Module,
+    string Hint);
+
+/// <summary>
+/// Trace-quality warning. Severity is global to the trace, not relative to a specific
+/// analysis goal; an "info" warning can still block a goal-specific investigation.
+/// </summary>
+public sealed record TraceQualityWarning(
+    string Code,
+    string Severity,
+    string Message,
+    string NextStep,
+    IReadOnlyList<string> AffectedTools,
+    IReadOnlyList<string> DegradedTools);
+
+public sealed record ToolRecommendation(
+    string ToolName,
+    string Reason,
+    IReadOnlyList<string> Goals);
+
 // What kernel keywords were active in the capture, inferred from per-event-name counts in
 // the trace metadata. Lets a client know upfront whether dependent tools will return data:
 // if HasFileIo=false, file_io_top_files / file_io_top_stacks will return empty rows even on
@@ -42,6 +130,7 @@ public sealed record TraceCapabilities(
     bool HasStackWalks,
     bool HasVirtualAlloc,
     bool HasNetIo,
+    bool HasNetConnections,
     bool HasRegistry,
     bool HasReadyThread,
     bool HasInterrupt,

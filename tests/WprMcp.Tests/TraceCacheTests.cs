@@ -6,7 +6,7 @@ namespace WprMcp.Tests;
 
 public class TraceCacheTests
 {
-    private const string FixturePath = "fixtures/small_cpu.etl"; // captured in Task 17
+    private const string FixturePath = "fixtures/small_cpu.etl"; // captured by fixtures/capture_all.ps1
 
     [Fact]
     public void Get_ReturnsSameInstanceAcrossCalls()

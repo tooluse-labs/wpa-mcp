@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WprMcp.Cli;
+using WprMcp.Core;
 
 namespace WprMcp;
 
@@ -30,12 +31,23 @@ public static class Program
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
 
-        builder.Services.AddSingleton<WprMcp.Core.TraceCache>(_ => new WprMcp.Core.TraceCache());
-        builder.Services.AddSingleton<WprMcp.Core.SymbolService>();
+        var telemetry = ToolTelemetry.CreateFromEnvironment();
+        var telemetryFilters = new McpTelemetryFilters(telemetry);
+
+        builder.Services.AddSingleton(telemetry);
+        builder.Services.AddSingleton(telemetryFilters);
+        builder.Services.AddHostedService<ToolListPayloadHostedService>();
+        builder.Services.AddSingleton<TraceCache>(_ => new TraceCache());
+        builder.Services.AddSingleton<SymbolService>();
 
         builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
+            .WithMessageFilters(filters =>
+            {
+                filters.AddIncomingFilter(telemetryFilters.CreateIncomingFilter());
+                filters.AddOutgoingFilter(telemetryFilters.CreateOutgoingFilter());
+            })
             .WithToolsFromAssembly();
 
         await builder.Build().RunAsync();

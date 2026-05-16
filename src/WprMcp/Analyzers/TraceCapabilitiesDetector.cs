@@ -23,7 +23,7 @@ internal static class TraceCapabilitiesDetector
         bool hasCpuSamples = false, hasCSwitch = false, hasFileIo = false;
         bool hasDiskIo = false, hasImageLoad = false, hasHardFaults = false;
         bool hasStackWalks = false;
-        bool hasVirtualAlloc = false, hasNetIo = false, hasRegistry = false;
+        bool hasVirtualAlloc = false, hasNetIo = false, hasNetConnections = false, hasRegistry = false;
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
         bool hasClrGc = false, hasClrJit = false;
         bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
@@ -38,25 +38,55 @@ internal static class TraceCapabilitiesDetector
         var clr = new ClrTraceEventParser(source);
         var heap = new Microsoft.Diagnostics.Tracing.Parsers.Kernel.HeapTraceProviderTraceEventParser(source);
 
-        // For every event group, multiple events fire iff the same kernel keyword is enabled
-        // (e.g. Registry: Query/Open/SetValue all gated by the Registry keyword).  One
-        // representative subscription per group is enough — they always co-occur, and per-event
-        // dispatch isn't free on a multi-GB trace.  Pick a high-volume representative so the
-        // detector flips early in the walk.
+        // Subscribe to the same event family each downstream analyzer consumes. Some captures
+        // can be write-only, receive-only, or free-only, so a single representative event would
+        // incorrectly report "capability absent" while the analyzer can still return rows.
         kernel.PerfInfoSample += _ => hasCpuSamples = true;
         kernel.ThreadCSwitch += _ => hasCSwitch = true;
         kernel.FileIORead += _ => hasFileIo = true;
+        kernel.FileIOWrite += _ => hasFileIo = true;
         kernel.DiskIORead += _ => hasDiskIo = true;
+        kernel.DiskIOWrite += _ => hasDiskIo = true;
         kernel.ImageLoad += _ => hasImageLoad = true;
         kernel.MemoryHardFault += _ => hasHardFaults = true;
         kernel.StackWalkStack += _ => hasStackWalks = true;
         kernel.VirtualMemAlloc += _ => hasVirtualAlloc = true;
+        kernel.VirtualMemFree += _ => hasVirtualAlloc = true;
         kernel.TcpIpSend += _ => hasNetIo = true;
+        kernel.TcpIpRecv += _ => hasNetIo = true;
+        kernel.TcpIpSendIPV6 += _ => hasNetIo = true;
+        kernel.TcpIpRecvIPV6 += _ => hasNetIo = true;
+        kernel.UdpIpSend += _ => hasNetIo = true;
+        kernel.UdpIpRecv += _ => hasNetIo = true;
+        kernel.UdpIpSendIPV6 += _ => hasNetIo = true;
+        kernel.UdpIpRecvIPV6 += _ => hasNetIo = true;
+        kernel.TcpIpConnect += _ => hasNetConnections = true;
+        kernel.TcpIpConnectIPV6 += _ => hasNetConnections = true;
+        kernel.TcpIpAccept += _ => hasNetConnections = true;
+        kernel.TcpIpAcceptIPV6 += _ => hasNetConnections = true;
+        kernel.TcpIpDisconnect += _ => hasNetConnections = true;
+        kernel.TcpIpDisconnectIPV6 += _ => hasNetConnections = true;
+        kernel.TcpIpReconnect += _ => hasNetConnections = true;
+        kernel.TcpIpReconnectIPV6 += _ => hasNetConnections = true;
         kernel.RegistryQueryValue += _ => hasRegistry = true;
+        kernel.RegistryQuery += _ => hasRegistry = true;
+        kernel.RegistryQueryMultipleValue += _ => hasRegistry = true;
+        kernel.RegistryOpen += _ => hasRegistry = true;
+        kernel.RegistryCreate += _ => hasRegistry = true;
+        kernel.RegistrySetValue += _ => hasRegistry = true;
+        kernel.RegistrySetInformation += _ => hasRegistry = true;
+        kernel.RegistryDeleteValue += _ => hasRegistry = true;
+        kernel.RegistryDelete += _ => hasRegistry = true;
+        kernel.RegistryEnumerateKey += _ => hasRegistry = true;
+        kernel.RegistryEnumerateValueKey += _ => hasRegistry = true;
+        kernel.RegistryVirtualize += _ => hasRegistry = true;
         kernel.DispatcherReadyThread += _ => hasReadyThread = true;
         kernel.PerfInfoDPC += _ => hasInterrupt = true;
+        kernel.PerfInfoISR += _ => hasInterrupt = true;
         kernel.ALPCSendMessage += _ => hasAlpc = true;
+        kernel.ALPCReceiveMessage += _ => hasAlpc = true;
         kernel.ThreadStart += _ => hasThreadEvents = true;
+        kernel.ThreadStop += _ => hasThreadEvents = true;
 
         clr.GCStart += _ => hasClrGc = true;
         clr.MethodJittingStarted += _ => hasClrJit = true;
@@ -78,6 +108,7 @@ internal static class TraceCapabilitiesDetector
             HasStackWalks: hasStackWalks,
             HasVirtualAlloc: hasVirtualAlloc,
             HasNetIo: hasNetIo,
+            HasNetConnections: hasNetConnections,
             HasRegistry: hasRegistry,
             HasReadyThread: hasReadyThread,
             HasInterrupt: hasInterrupt,
