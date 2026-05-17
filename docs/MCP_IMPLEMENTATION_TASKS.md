@@ -117,14 +117,15 @@
 
 ### T1.2 Add High-Frequency Composite Tools
 
+- **Status:** 🚧 In progress. `diagnose_high_wait` shipped as a preview diagnostic composite in v0.2.11 and was hardened through v0.2.14 with structured evidence, provenance, no root-cause field, window-consistent calls, replayability metadata, and LLM-facing schema descriptions.
 - **Priority order:**
-  1. `diagnose_high_wait(path, focus="general|lock|io|sync")`
+  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` — preview shipped. Promotion from preview remains benchmark-gated, and the remaining test gap is a committed wait-bound fixture with both CSwitch and StackWalk events to exercise stack / ReadyThread evidence on a real trace.
   2. `diagnose_image_load_blocker`
   3. `diagnose_gc_pressure`
   4. `diagnose_trace_quality` — returns a structured verdict per dimension: capture coverage, symbol resolution, lost events, and stackwalk completeness. Each dimension carries `status: "ok|warn|fail"`, reason, and actionable next step. The overall verdict is derived from the dimension statuses, not free text.
   5. Defer a separate `diagnose_lock_contention` unless data shows the `focus="lock"` path is insufficient. If implemented separately, scope it to CLR managed locks (`clr_contention_top_stacks`) so it does not duplicate `diagnose_high_wait`.
 - **Principle:** Each composite internally orchestrates 3-5 existing Layer-1 tools. Any embedded stack section should default to `summaryOnly=true` or `compactStacks=true`; detailed drill-down remains available through the underlying Layer-1 tools.
-- **Acceptance:** Common investigations take fewer tool-call rounds while the low-level tools remain available.
+- **Acceptance:** Common investigations take fewer tool-call rounds while the low-level tools remain available. `diagnose_high_wait` satisfies the structural contract; composite promotion still requires the T0.5 benchmark to show lower wrong-tool selection or fewer mean calls versus Layer-1-only workflows.
 
 ### T1.3 Add Resources and Prompts
 
@@ -230,10 +231,10 @@
 4. ✅ T0.5 establish the measurement baseline.
 5. ✅ T0.6 add token-compact stack responses.
 6. ✅ T2.1 add trace quality / system metadata.
-7. T1.2 add 2-3 composite tools, starting with `diagnose_high_wait`. Composites ship as "preview" routing targets until the T0.5 benchmark shows lower wrong-tool selection or fewer mean calls per investigation versus the Layer-1-only baseline. `inspect_trace` capability-supported tool hints should include composites alongside the relevant Layer-1 tools only after that threshold is met.
+7. 🚧 T1.2 continue high-frequency composites. `diagnose_high_wait` is complete as a preview; before promotion, add a committed wait-bound fixture with both CSwitch and StackWalk coverage, then run the T0.5 benchmark against the Layer-1-only baseline. Next implementation targets are `diagnose_image_load_blocker`, then `diagnose_gc_pressure` / `diagnose_trace_quality`.
 8. T1.1 implement `list_applicable_tools` only if T0.5 shows `inspect_trace` is insufficient.
 9. ✅ T2.2 unify ROI / time-window semantics.
-10. T2.3 and T2.4 begin CPU Precise and memory resource views (T2.4 contingent on the verify-first gate).
+10. ✅ T2.3 and T2.4 completed CPU Precise / scheduler analysis and memory resource views.
 11. Start P3 items only after usage data and correctness risks are understood.
 
 ## Completion Criteria
@@ -249,6 +250,7 @@
 
 ## Revision history
 
+- **v14 (2026-05-17)**: synchronized the roadmap after v0.2.14: `diagnose_high_wait` is now marked complete-as-preview, T2.3/T2.4 are reflected in the recommended order, and the remaining high-wait promotion gate is the real CSwitch+StackWalk wait-bound fixture plus T0.5 benchmark evidence.
 - **v13 (2026-05-16)**: marked T2.3 complete after `cpu_precise_analysis` landed with CSwitch/ReadyThread scheduler evidence, boundary clipping tests, and capture-boundary accumulator fixes.
 - **v12 (2026-05-16)**: completed T2.4 by parsing clean-conversion raw classic Pool task GUID/opcode payloads, making the committed `small_memory.etl` prove the pool-positive analyzer path without stale `.etlx` caches.
 - **v11 (2026-05-16)**: corrected the T2.4 fixture status after clean conversion showed the committed `small_memory.etl` does not expose named Pool events; restored the documented pool-positive fixture as a remaining limitation.

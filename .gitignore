@@ -26,5 +26,10 @@ tests/**/fixtures/capture_all.log
 tests/manual/*.json
 tests/manual/*.stderr.log
 
+# Local agent coordination and review artifacts
+AGENTS.md
+CLAUDE.md
+docs/*_REVIEW*.md
+
 # Symbol cache
 Symbols/

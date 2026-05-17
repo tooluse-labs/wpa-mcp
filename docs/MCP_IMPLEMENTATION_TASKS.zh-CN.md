@@ -117,14 +117,15 @@
 
 ### T1.2 增加高频 composite tools
 
+- **状态：** 🚧 进行中。`diagnose_high_wait` 已在 v0.2.11 作为 preview diagnostic composite 发布，并在 v0.2.14 之前补齐结构化 evidence、provenance、无 root-cause 字段、时间窗一致调用、replayability metadata 和 LLM-facing schema description。
 - **优先顺序：**
-  1. `diagnose_high_wait(path, focus="general|lock|io|sync")`
+  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` —— preview 已发布。是否从 preview 晋级仍由 benchmark 闸门决定；当前剩余测试缺口是提交一份同时具备 CSwitch 与 StackWalk 的 wait-bound fixture，用真实 trace 覆盖 stack / ReadyThread evidence 正路径。
   2. `diagnose_image_load_blocker`
   3. `diagnose_gc_pressure`
   4. `diagnose_trace_quality` —— 按维度返回结构化 verdict：capture coverage、symbol resolution、lost events、stackwalk completeness。每个维度包含 `status: "ok|warn|fail"`、reason、actionable next step。overall verdict 由各维度 status 推导，而不是自由文本。
   5. 暂缓单独的 `diagnose_lock_contention`，除非数据证明 `focus="lock"` 路径不够。如果单独实现，它只覆盖 CLR managed locks（`clr_contention_top_stacks`），避免和 `diagnose_high_wait` 重复。
 - **原则：** 每个 composite 内部组合 3-5 个现有 Layer-1 工具。任何内嵌 stack section 默认使用 `summaryOnly=true` 或 `compactStacks=true`；详细 drill-down 仍通过底层 Layer-1 工具提供。
-- **验收：** 减少常见调查的工具调用轮次，而不是隐藏底层工具。
+- **验收：** 减少常见调查的工具调用轮次，而不是隐藏底层工具。`diagnose_high_wait` 已满足结构契约；composite 晋级仍需要 T0.5 benchmark 证明相对 Layer-1-only workflow 降低 wrong-tool selection 或 mean calls。
 
 ### T1.3 增加 Resources 与 Prompts
 
@@ -230,10 +231,10 @@
 4. ✅ T0.5 建立度量基线。
 5. ✅ T0.6 增加 token-compact stack responses。
 6. ✅ T2.1 补 trace quality / system metadata。
-7. T1.2 增加 2-3 个 composite tools，从 `diagnose_high_wait` 开始。Composites 先作为 "preview" routing targets 发布；只有 T0.5 benchmark 证明它们相比 Layer-1-only baseline 降低 wrong-tool selection 或 mean calls per investigation 后，`inspect_trace` 的 capability-supported tool hints 才应把 composites 与相关 Layer-1 工具一起列出。
+7. 🚧 T1.2 继续高频 composite tools。`diagnose_high_wait` 已作为 preview 完成；晋级前先补一份同时覆盖 CSwitch 与 StackWalk 的 wait-bound fixture，并用 T0.5 benchmark 对比 Layer-1-only baseline。下一批实现目标是 `diagnose_image_load_blocker`，然后是 `diagnose_gc_pressure` / `diagnose_trace_quality`。
 8. 只有 T0.5 显示 `inspect_trace` 不足时，才实现 T1.1 `list_applicable_tools`。
 9. ✅ T2.2 统一 ROI / time-window 语义。
-10. T2.3 / T2.4 开始补 CPU Precise 和 memory resource views（T2.4 受"先验证"闸门约束）。
+10. ✅ T2.3 / T2.4 已完成 CPU Precise / scheduler analysis 与 memory resource views。
 11. P3 项根据真实使用数据和正确性风险逐项启动。
 
 ## 完成标准
@@ -249,6 +250,7 @@
 
 ## 修订历史
 
+- **v14 (2026-05-17)**：同步 v0.2.14 后的路线图：`diagnose_high_wait` 标记为 preview 完成，推荐顺序反映 T2.3/T2.4 已完成，并把 high-wait 晋级闸门收敛为真实 CSwitch+StackWalk wait-bound fixture 与 T0.5 benchmark 证据。
 - **v13 (2026-05-16)**：标记 T2.3 完成：`cpu_precise_analysis` 已落地 CSwitch/ReadyThread scheduler evidence、边界裁剪测试和 capture-boundary accumulator 修复。
 - **v12 (2026-05-16)**：完成 T2.4：解析 clean conversion 后的 raw classic Pool task GUID/opcode payload，使当前提交的 `small_memory.etl` 在无 stale `.etlx` cache 时也能证明 pool-positive analyzer path。
 - **v11 (2026-05-16)**：修正 T2.4 fixture 状态：clean conversion 显示当前提交的 `small_memory.etl` 不暴露命名的 Pool events，因此 pool-positive fixture 仍是限制项。
