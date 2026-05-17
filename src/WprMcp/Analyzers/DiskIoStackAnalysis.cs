@@ -116,7 +116,8 @@ public static class DiskIoStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -128,7 +129,9 @@ public static class DiskIoStackAnalysis
                 "keyword (default WPR 'CPU' / 'CPU.light' profiles do); use 'FileIO.light' or a custom " +
                 ".wprp that enables it. Alternatively, no IO actually hit physical disk in this window.");
         }
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalOps, warnings);

@@ -147,7 +147,8 @@ public static class GenericEventStackAnalysis
         source.Process();
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -161,7 +162,9 @@ public static class GenericEventStackAnalysis
                 ".  The provider may not be enabled in the capture profile, or no matching " +
                 "event fired in the filter window.  Use find_marker to confirm the provider " +
                 "is present in the trace.");
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalCount, totalCount, topEventNames, warnings);

@@ -62,6 +62,15 @@ public class FileIoStackAnalysisTests
     }
 
     [Fact]
+    public void FileIoTopStacks_DefaultsToFastSymbolSkippedMode()
+    {
+        var tools = new IoTools(new TraceCache(capacity: 2));
+        var resp = tools.FileIoTopStacks(FileIoFixture, top: 10);
+
+        Assert.Contains(resp.Warnings, w => w.Contains("symbol resolution skipped", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void FileIoCallerCallee_ReturnsExpectedShapeForFrameInTrace()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));

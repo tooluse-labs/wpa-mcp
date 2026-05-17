@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   One-line installer for wpa-mcp. Downloads the latest self-contained Windows
-  executable and registers it with detected MCP clients.
+  bundle and registers it with detected MCP clients.
 
 .DESCRIPTION
   Designed to be invoked over the network, no clone and no .NET install needed:
@@ -10,7 +10,9 @@
 
   The script:
     1. Resolves the latest GitHub Release tag, unless -Tag or VERSION is set.
-    2. Downloads wpa-mcp-win-x64.exe to %USERPROFILE%\.local\bin\wpa-mcp.exe.
+    2. Downloads wpa-mcp-win-x64.zip and installs:
+       - %USERPROFILE%\.local\bin\wpa-mcp.exe
+       - %USERPROFILE%\.local\native\amd64\*.dll
     3. Registers the executable directly with Claude Code, Codex, and Claude
        Desktop when those clients are detected.
 
@@ -272,6 +274,66 @@ function Test-InstalledBinaryMatchesRelease {
     return $false
 }
 
+function Get-InstallRoot {
+    param([Parameter(Mandatory)][string]$ResolvedInstallDir)
+
+    $root = Split-Path -Parent $ResolvedInstallDir
+    if (-not $root) {
+        throw "InstallDir '$ResolvedInstallDir' must have a parent directory so native dependencies can be installed beside bin."
+    }
+    return $root
+}
+
+function Test-NativeDependenciesPresent {
+    param([Parameter(Mandatory)][string]$InstallRoot)
+
+    $rootRelativeNativeDir = Join-Path $InstallRoot 'native\amd64'
+    return (Test-Path (Join-Path $rootRelativeNativeDir 'msdia140.dll')) -and
+           (Test-Path (Join-Path $rootRelativeNativeDir 'KernelTraceControl.dll'))
+}
+
+function Test-InstalledBundleMatchesRelease {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        [Parameter(Mandatory)][string]$InstallRoot,
+        $ReleaseAsset
+    )
+
+    if (-not $ReleaseAsset) { return $false }
+    if (-not (Test-UsableBinary -Path $BinaryPath)) { return $false }
+    if (-not (Test-NativeDependenciesPresent -InstallRoot $InstallRoot)) { return $false }
+
+    $digest = $ReleaseAsset.digest
+    if ($digest -and $digest.Length -gt 7 -and $digest.Substring(0, 7).ToLowerInvariant() -eq 'sha256:') {
+        $expectedHash = $digest.Substring(7)
+        $markerPath = Join-Path $InstallRoot '.wpa-mcp-win-x64.sha256'
+        if (-not (Test-Path $markerPath)) { return $false }
+        $actualHash = (Get-Content -LiteralPath $markerPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+        return $actualHash -eq $expectedHash
+    }
+
+    return $false
+}
+
+function Copy-NativeDependencies {
+    param(
+        [Parameter(Mandatory)][string]$SourceRoot,
+        [Parameter(Mandatory)][string]$InstallRoot
+    )
+
+    $sourceNative = Join-Path $SourceRoot 'native'
+    if (-not (Test-Path (Join-Path $sourceNative 'amd64\msdia140.dll'))) {
+        throw "Release bundle is missing native\amd64\msdia140.dll; native PDB symbol resolution would fail."
+    }
+    if (-not (Test-Path (Join-Path $sourceNative 'amd64\KernelTraceControl.dll'))) {
+        throw "Release bundle is missing native\amd64\KernelTraceControl.dll."
+    }
+
+    $targetNative = Join-Path $InstallRoot 'native'
+    New-Item -ItemType Directory -Path $targetNative -Force | Out-Null
+    Copy-Item -Path (Join-Path $sourceNative '*') -Destination $targetNative -Recurse -Force
+}
+
 function Install-Binary {
     $resolvedInstallDir = $InstallDir
     if (-not $resolvedInstallDir) {
@@ -281,7 +343,9 @@ function Install-Binary {
         $resolvedInstallDir = Join-Path $env:USERPROFILE '.local\bin'
     }
 
-    $assetName = 'wpa-mcp-win-x64.exe'
+    $installRoot = Get-InstallRoot -ResolvedInstallDir $resolvedInstallDir
+    $zipAssetName = 'wpa-mcp-win-x64.zip'
+    $exeAssetName = 'wpa-mcp-win-x64.exe'
     $release = $null
     $resolvedTag = $Tag
     if (-not $resolvedTag) {
@@ -304,18 +368,57 @@ function Install-Binary {
     Write-Ok "Tag: $resolvedTag"
 
     New-Item -ItemType Directory -Path $resolvedInstallDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 
-    $releaseAsset = if ($release) { Find-ReleaseAsset -Release $release -AssetName $assetName } else { $null }
-    $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$resolvedTag/$assetName"
+    $zipReleaseAsset = if ($release) { Find-ReleaseAsset -Release $release -AssetName $zipAssetName } else { $null }
+    $exeReleaseAsset = if ($release) { Find-ReleaseAsset -Release $release -AssetName $exeAssetName } else { $null }
     $binaryPath = Join-Path $resolvedInstallDir 'wpa-mcp.exe'
-    $tempPath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.download.exe"
     $force = $ForceDownload -or (Test-TruthyEnv $env:FORCE_DOWNLOAD) -or (Test-TruthyEnv $env:WPA_MCP_FORCE_DOWNLOAD)
 
-    if (-not $force -and (Test-InstalledBinaryMatchesRelease -BinaryPath $binaryPath -ReleaseAsset $releaseAsset)) {
+    if ($zipReleaseAsset) {
+        if (-not $force -and (Test-InstalledBundleMatchesRelease -BinaryPath $binaryPath -InstallRoot $installRoot -ReleaseAsset $zipReleaseAsset)) {
+            Write-Ok "Using existing complete bundle at $installRoot"
+            return $binaryPath
+        }
+
+        $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$resolvedTag/$zipAssetName"
+        $tempPath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.download.zip"
+        $stagePath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.staging"
+        if (Test-Path $stagePath) {
+            Remove-Item -LiteralPath $stagePath -Recurse -Force
+        }
+
+        Write-Info "Downloading $assetUrl..."
+        Invoke-WebRequest -Uri $assetUrl -OutFile $tempPath -UseBasicParsing
+        Expand-Archive -LiteralPath $tempPath -DestinationPath $stagePath -Force
+
+        $stagedBinary = Join-Path $stagePath 'bin\wpa-mcp.exe'
+        if (-not (Test-UsableBinary -Path $stagedBinary)) {
+            throw "Downloaded release bundle does not contain a usable bin\wpa-mcp.exe."
+        }
+
+        Copy-NativeDependencies -SourceRoot $stagePath -InstallRoot $installRoot
+        Move-WithRetry -Source $stagedBinary -Destination $binaryPath
+
+        $digest = $zipReleaseAsset.digest
+        if ($digest -and $digest.Length -gt 7 -and $digest.Substring(0, 7).ToLowerInvariant() -eq 'sha256:') {
+            Set-Content -LiteralPath (Join-Path $installRoot '.wpa-mcp-win-x64.sha256') -Value $digest.Substring(7) -Encoding ASCII
+        }
+
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stagePath -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Ok "Installed $binaryPath"
+
+        return $binaryPath
+    }
+
+    if (-not $force -and (Test-InstalledBinaryMatchesRelease -BinaryPath $binaryPath -ReleaseAsset $exeReleaseAsset)) {
         Write-Ok "Using existing complete $binaryPath"
         return $binaryPath
     }
 
+    $assetUrl = "https://github.com/$Owner/$Repo/releases/download/$resolvedTag/$exeAssetName"
+    $tempPath = Join-Path $resolvedInstallDir "wpa-mcp-$resolvedTag.download.exe"
     Write-Info "Downloading $assetUrl..."
     Invoke-WebRequest -Uri $assetUrl -OutFile $tempPath -UseBasicParsing
     if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
@@ -323,6 +426,9 @@ function Install-Binary {
     }
 
     Move-WithRetry -Source $tempPath -Destination $binaryPath
+    if (-not (Test-NativeDependenciesPresent -InstallRoot $installRoot)) {
+        Write-Warn "Installed legacy single-exe asset without native DIA DLLs; native PDB symbol resolution may fail. Install a release with $zipAssetName when available."
+    }
     Write-Ok "Installed $binaryPath"
 
     return $binaryPath

@@ -1,8 +1,9 @@
 name: release
 
-# Tag pushes (for example v0.2.8) publish a self-contained Windows executable.
-# The web installers are intentionally thin: they download this asset and register
-# it directly with MCP clients, with no user-machine .NET bootstrap.
+# Tag pushes (for example v0.2.8) publish a self-contained Windows executable
+# plus the TraceEvent native DLLs required for Windows PDB/DIA symbol loading.
+# The web installers are intentionally thin: they download this asset and
+# register it directly with MCP clients, with no user-machine .NET bootstrap.
 on:
   push:
     tags:
@@ -43,15 +44,24 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
+          New-Item -ItemType Directory -Path release/root/bin -Force | Out-Null
+          New-Item -ItemType Directory -Path release/root/native/amd64 -Force | Out-Null
+          Copy-Item publish/win-x64/WprMcp.exe release/root/bin/wpa-mcp.exe
+          Copy-Item publish/win-x64/amd64/*.dll release/root/native/amd64/
+          Compress-Archive -Path release/root/* -DestinationPath release/wpa-mcp-win-x64.zip -Force
+
+          # Keep the historical single-exe asset for manual users and older installers.
           Copy-Item publish/win-x64/WprMcp.exe release/wpa-mcp-win-x64.exe
-          .\release\wpa-mcp-win-x64.exe --version
+          .\release\root\bin\wpa-mcp.exe --version
           Get-ChildItem release/
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/wpa-mcp-win-x64.exe
+          files: |
+            release/wpa-mcp-win-x64.zip
+            release/wpa-mcp-win-x64.exe
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

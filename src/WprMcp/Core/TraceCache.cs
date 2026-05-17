@@ -41,6 +41,7 @@ public sealed class TraceCache
             throw new FileNotFoundException($"trace file not found: {path}", path);
 
         var canonical = Path.GetFullPath(path);
+        SymbolPathDefaults.EnsureTraceDirectory(canonical);
         var mtime = File.GetLastWriteTimeUtc(canonical);
 
         lock (_lock)

@@ -3,14 +3,25 @@ namespace WprMcp.Core;
 public sealed class SymbolService
 {
     private readonly object _lock = new();
+    private string? _currentPath;
 
     public SymbolService()
     {
         // Pull initial value from env var so first call to GetPath returns it.
-        CurrentPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+        _currentPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
     }
 
-    public string? CurrentPath { get; private set; }
+    public string? CurrentPath
+    {
+        get
+        {
+            lock (_lock)
+            {
+                _currentPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+                return _currentPath;
+            }
+        }
+    }
 
     public string DefaultCacheDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -20,10 +31,11 @@ public sealed class SymbolService
     {
         lock (_lock)
         {
-            CurrentPath = append && !string.IsNullOrEmpty(CurrentPath)
-                ? $"{CurrentPath};{path}"
+            var current = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+            _currentPath = append && !string.IsNullOrEmpty(current)
+                ? $"{current};{path}"
                 : path;
-            Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", CurrentPath);
+            Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", _currentPath);
         }
     }
 
@@ -36,7 +48,8 @@ public sealed class SymbolService
         // to re-enter, so the dedupe check + append are atomic against concurrent callers.
         lock (_lock)
         {
-            if (CurrentPath != null && PathContainsEntry(CurrentPath, entry))
+            var current = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+            if (current != null && PathContainsEntry(current, entry))
                 return;
             SetPath(entry, append: true);
         }

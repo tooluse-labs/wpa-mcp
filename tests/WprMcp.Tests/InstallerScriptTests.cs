@@ -85,20 +85,21 @@ public class InstallerScriptTests
     }
 
     [Fact]
-    public void InstallScriptDownloadsSelfContainedExeAndDoesNotRunSetup()
+    public void InstallScriptDownloadsSelfContainedBundleAndDoesNotRunSetup()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
 
+        Assert.Contains("wpa-mcp-win-x64.zip", content);
         Assert.Contains("wpa-mcp-win-x64.exe", content);
         Assert.Contains("wpa-mcp.exe", content);
+        Assert.Contains("native\\amd64\\msdia140.dll", content);
+        Assert.Contains("Expand-Archive", content);
         Assert.Contains("claude mcp add-json --scope $ClaudeScope $ServerName $serverJson", content);
         Assert.Contains("claude mcp add $ServerName --scope $ClaudeScope -- $BinaryPath @serverArgs", content);
         Assert.Contains("command = $commandToml", content);
         Assert.Contains("args = [$argsToml]", content);
-        Assert.DoesNotContain("Expand-Archive", content);
         Assert.DoesNotContain("setup.ps1", content);
         Assert.DoesNotContain("dotnet-install.ps1", content);
-        Assert.DoesNotContain("wpa-mcp-$Tag.zip", content);
     }
 
     [Fact]
@@ -133,17 +134,22 @@ public class InstallerScriptTests
     }
 
     [Fact]
-    public void InstallScriptSkipsDownloadWhenInstalledExeMatchesReleaseAsset()
+    public void InstallScriptSkipsDownloadWhenInstalledBundleMatchesReleaseAsset()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
 
         Assert.Contains("function Test-UsableBinary", content);
+        Assert.Contains("function Test-NativeDependenciesPresent", content);
+        Assert.Contains("function Test-InstalledBundleMatchesRelease", content);
         Assert.Contains("function Test-InstalledBinaryMatchesRelease", content);
-        Assert.Contains("Find-ReleaseAsset -Release $release -AssetName $assetName", content);
+        Assert.Contains("Test-NativeDependenciesPresent -InstallRoot", content);
+        Assert.Contains("Find-ReleaseAsset -Release $release -AssetName $zipAssetName", content);
+        Assert.Contains("Find-ReleaseAsset -Release $release -AssetName $exeAssetName", content);
+        Assert.Contains(".wpa-mcp-win-x64.sha256", content);
         Assert.Contains("Get-FileHash -Algorithm SHA256 -LiteralPath $BinaryPath", content);
         Assert.DoesNotContain("$ReleaseAsset.size", content);
-        Assert.Contains("if (-not $force -and (Test-InstalledBinaryMatchesRelease -BinaryPath $binaryPath -ReleaseAsset $releaseAsset))", content);
-        Assert.Contains("Write-Ok \"Using existing complete $binaryPath\"", content);
+        Assert.Contains("Test-InstalledBundleMatchesRelease -BinaryPath $binaryPath -InstallRoot $installRoot -ReleaseAsset $zipReleaseAsset", content);
+        Assert.Contains("Write-Ok \"Using existing complete bundle at $installRoot\"", content);
         Assert.Contains("[switch]$ForceDownload", content);
         Assert.Contains("Test-TruthyEnv $env:WPA_MCP_FORCE_DOWNLOAD", content);
     }
@@ -287,17 +293,20 @@ public class InstallerScriptTests
     }
 
     [Fact]
-    public void ReleaseWorkflowPublishesSelfContainedWindowsExecutable()
+    public void ReleaseWorkflowPublishesZipWithNativeDependencies()
     {
         var content = File.ReadAllText(LocateRepoFile(".github", "workflows", "release.yml"));
 
         Assert.Contains("-r win-x64", content);
         Assert.Contains("--self-contained true", content);
         Assert.Contains("PublishSingleFile=true", content);
+        Assert.Contains("release/root/bin/wpa-mcp.exe", content);
+        Assert.Contains("release/root/native/amd64", content);
+        Assert.Contains("publish/win-x64/amd64/*.dll", content);
+        Assert.Contains("Compress-Archive", content);
+        Assert.Contains("wpa-mcp-win-x64.zip", content);
         Assert.Contains("wpa-mcp-win-x64.exe", content);
         Assert.DoesNotContain("actions/upload-artifact", content);
-        Assert.DoesNotContain("Compress-Archive", content);
-        Assert.DoesNotContain("wpa-mcp-*.zip", content);
     }
 
     [Fact]

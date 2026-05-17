@@ -101,12 +101,12 @@ public class CpuAnalysisTests
         Assert.NotEmpty(pids);
 
         var tools = new CpuTools(new TraceCache(capacity: 2));
-        var batch = tools.CpuTopFunctionsBatch(FixturePath, pids, top: 5, startUs: 0);
+        var batch = tools.CpuTopFunctionsBatch(FixturePath, pids, top: 5, startUs: 0, resolveSymbols: true);
 
         Assert.Empty(batch.Warnings);
         foreach (var pid in pids)
         {
-            var single = tools.CpuTopFunctions(FixturePath, top: 5, pid: pid, startUs: 0);
+            var single = tools.CpuTopFunctions(FixturePath, top: 5, pid: pid, startUs: 0, resolveSymbols: true);
             Assert.True(batch.PerPid.ContainsKey(pid), $"batch missing pid {pid}");
             var batched = batch.PerPid[pid];
 
@@ -116,6 +116,21 @@ public class CpuAnalysisTests
             Assert.Equal(single.Rows.Select(r => r.ExclusiveSamples), batched.Rows.Select(r => r.ExclusiveSamples));
             Assert.Equal(single.Warnings, batched.Warnings);
         }
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_DefaultsToFastSymbolSkippedMode()
+    {
+        var pids = CpuSamplePids().Take(1).ToArray();
+        Assert.NotEmpty(pids);
+
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var batch = tools.CpuTopFunctionsBatch(FixturePath, pids, top: 5);
+
+        Assert.Contains(batch.Warnings, w => w.Contains("Symbol resolution skipped", StringComparison.Ordinal));
+        Assert.False(batch.Partial);
+        Assert.Equal(pids.Length, batch.RequestedPidCount);
+        Assert.Equal(batch.PerPid.Count, batch.CompletedPidCount);
     }
 
     [Fact]

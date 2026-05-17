@@ -119,7 +119,8 @@ public static class PageFaultStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -131,7 +132,9 @@ public static class PageFaultStackAnalysis
                 "keyword (default WPR profiles do); see tests/WprMcp.Tests/fixtures/MmapCapture.wprp " +
                 "for a profile that enables it.");
         }
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalFaults, warnings);

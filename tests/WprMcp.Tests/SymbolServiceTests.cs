@@ -108,6 +108,37 @@ public class SymbolServiceTests
         finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }
     }
 
+    [Fact]
+    public void TraceDirectoryDefault_IsInsertedBeforeSymbolServers()
+    {
+        var localSymbols = Path.Combine(Path.GetTempPath(), "local-symbols");
+        var traceDir = Path.Combine(Path.GetTempPath(), "trace-symbols");
+        var current = $"{localSymbols};SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols";
+
+        var updated = SymbolPathDefaults.AddLocalPathBeforeSymbolServers(current, traceDir);
+
+        Assert.Equal(
+            $"{localSymbols};{traceDir};SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
+            updated);
+    }
+
+    [Fact]
+    public void TraceCache_AddsTraceDirectoryToSymbolPath()
+    {
+        var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols");
+            var cache = new TraceCache(capacity: 2);
+
+            cache.Get("fixtures/small_cpu.etl");
+
+            var traceDir = Path.GetDirectoryName(Path.GetFullPath("fixtures/small_cpu.etl"))!;
+            Assert.StartsWith(traceDir + ";SRV*", Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
+        }
+        finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }
+    }
+
     [Theory]
     [InlineData("ntoskrnl", "msdl.microsoft.com")]
     [InlineData("msedge", "msdl.microsoft.com")]

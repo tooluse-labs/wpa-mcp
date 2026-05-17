@@ -35,11 +35,14 @@ public sealed class ReadyThreadTools
         [Description(StackResponseOptions.CompactStacksDescription)]
         bool compactStacks = false,
         [Description(StackResponseOptions.SummaryOnlyDescription)]
-        bool summaryOnly = false)
+        bool summaryOnly = false,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
@@ -56,11 +59,14 @@ public sealed class ReadyThreadTools
         [Description("Filter to threads readied in this PID (same semantic as in top_stacks).")]
         int? awakenedPid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.CallerCallee(
             trace, function, top, awakenedPid, startUs, endUs, Console.Error);
     }

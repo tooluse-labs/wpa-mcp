@@ -296,7 +296,11 @@ public sealed record CallerCalleeResponse(
 
 public sealed record CpuTopFunctionsBatchResponse(
     IReadOnlyDictionary<int, CpuTopFunctionsResponse> PerPid,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    bool Partial = false,
+    IReadOnlyList<int>? SkippedPids = null,
+    int RequestedPidCount = 0,
+    int CompletedPidCount = 0);
 
 public sealed record FileIoRow(
     string File,

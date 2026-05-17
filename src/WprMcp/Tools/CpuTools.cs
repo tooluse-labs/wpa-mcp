@@ -38,11 +38,13 @@ public sealed class CpuTools
         [Description("Fold known ETW-overhead frames (EtwpLogKernelEvent, RtlpWalkFrameChain, etc.) into a single [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false,
         [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
-        bool includeTracePct = false)
+        bool includeTracePct = false,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct);
+        return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct, resolveSymbols);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -76,15 +78,21 @@ public sealed class CpuTools
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false,
         [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
-        bool includeTracePct = false)
+        bool includeTracePct = false,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false,
+        [Description("Soft budget in milliseconds for batch work after trace loading. Exhaustion returns completed PID results plus skipped PID metadata before the MCP client timeout.")]
+        int timeBudgetMs = 100_000)
     {
         if (pids is null || pids.Length == 0)
             throw new ArgumentException("pids required and must be non-empty", nameof(pids));
         Validation.RequireTop(top);
+        Validation.RequireTimeBudgetMs(timeBudgetMs);
 
         var trace = _cache.Get(path);
         var warnings = new List<string>();
         var distinctPids = pids.Distinct().ToArray();
+        var skippedPids = new List<int>();
         IReadOnlyDictionary<int, CpuTopFunctionsResponse> result;
         try
         {
@@ -97,14 +105,23 @@ public sealed class CpuTools
                 Console.Error,
                 excludeEtwSelfOverhead,
                 includeTracePct,
-                warnings);
+                warnings,
+                resolveSymbols,
+                timeBudgetMs,
+                skippedPids);
         }
         catch (Exception ex)
         {
             result = new Dictionary<int, CpuTopFunctionsResponse>();
             warnings.Add(ex.Message);
         }
-        return new CpuTopFunctionsBatchResponse(result, warnings);
+        return new CpuTopFunctionsBatchResponse(
+            result,
+            warnings,
+            Partial: skippedPids.Count > 0,
+            SkippedPids: skippedPids,
+            RequestedPidCount: distinctPids.Length,
+            CompletedPidCount: result.Count);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -123,12 +140,14 @@ public sealed class CpuTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
-        bool excludeEtwSelfOverhead = false)
+        bool excludeEtwSelfOverhead = false,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
         return CpuAnalysis.CallerCallee(
-            trace, function, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead);
+            trace, function, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, resolveSymbols);
     }
 }

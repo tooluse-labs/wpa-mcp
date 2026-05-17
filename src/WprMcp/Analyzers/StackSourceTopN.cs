@@ -3,6 +3,7 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Microsoft.Diagnostics.Tracing.Stacks;
+using WprMcp.Core;
 using WprMcp.Output;
 // Disambiguate: TraceEvent's stacks namespace also exports a `CallerCalleeNode` type, but
 // our DTO is named the same. Use the WprMcp DTO unconditionally inside this file.
@@ -24,8 +25,10 @@ namespace WprMcp.Analyzers;
 //      a per-module "module!?" bucket via a second MutableTraceEventStackSource. Without
 //      this, any non-symbolicated DLL fills the top-N with hex offsets and the response
 //      is unusable for an LLM.
-//   3. Caller MUST call LookupWarmSymbols on the raw source BEFORE BuildNormalized — once
-//      the source is normalized, real symbol names are no longer recoverable.
+//   3. If a caller chooses native symbol resolution, it MUST call LookupWarmSymbols on the
+//      raw source BEFORE BuildNormalized — once the source is normalized, real symbol names
+//      are no longer recoverable. Broad MCP calls default to skipping symbol lookup to avoid
+//      remote PDB latency; callers can opt in after narrowing pid/window.
 //
 // What this helper does NOT do: build the raw source, decide the metric, run the CallTree.
 // Those are analyzer-specific. Callers fill rawSource themselves (one sample per CPU sample,
@@ -52,6 +55,8 @@ internal readonly record struct StackAnalysisRequest(
     TextWriter SymbolLog,
     StackSourceTopN.WhenHistogram When)
 {
+    public bool ResolveSymbols { get; init; } = StackResponseOptions.CurrentResolveSymbols;
+
     /// <summary>
     /// True iff the caller restricted the analysis with at least one of pid / startUs / endUs.
     /// Gates the PctOfTrace denominator — it only carries meaning when there's a "trace total"
@@ -309,8 +314,9 @@ internal static class StackSourceTopN
     /// Walks every frame in <paramref name="rawSource"/> classifying each as resolved or
     /// unresolved (per PerfView conventions: contains '?', empty symbol, or starts with
     /// "0x"). Returns the count totals + per-module unresolved breakdown for callers to
-    /// surface in their response. MUST be called AFTER <c>LookupWarmSymbols</c> so symbol
-    /// resolution had its chance — and BEFORE the source is normalized.
+    /// surface in their response. When symbol lookup is enabled, call this AFTER
+    /// <c>LookupWarmSymbols</c> so resolution had its chance — and BEFORE the source is
+    /// normalized.
     /// </summary>
     public static SymbolStats ComputeSymbolStats(MutableTraceEventStackSource rawSource)
     {

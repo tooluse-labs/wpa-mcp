@@ -117,14 +117,17 @@ public static class ReadyThreadStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
         var warnings = new List<string>();
         if (totalCount == 0)
             warnings.Add(WarningBuilder.NoEventsInDefaultProfile("DispatcherReadyThread", "CSwitch / ReadyThread"));
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalCount, totalCount, warnings);

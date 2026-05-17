@@ -32,8 +32,8 @@ namespace WprMcp.Analyzers;
 // default for every "blocked time" analysis they do.
 //
 // PerfView-parity invariants are enforced via StackSourceTopN — see that file for the full
-// list. The relevant ones here: synthetic ?!? root for no-stack samples, LookupWarmSymbols
-// before normalization, raw-frame symbol stats, module!? folding.
+// list. The relevant ones here: synthetic ?!? root for no-stack samples, optional
+// LookupWarmSymbols before normalization, raw-frame symbol stats, module!? folding.
 public static class BlockedTimeStackAnalysis
 {
     public static WaitTopStacksResponse TopBlockedStacks(
@@ -156,7 +156,8 @@ public static class BlockedTimeStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -174,7 +175,9 @@ public static class BlockedTimeStackAnalysis
                 "Either the pid/window picked a thread set with no waits, or every thread's first " +
                 "switch-in inside the window had no anchor switch-out (under-counted by design).");
         }
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalBlockedUs, totalBlockedUs, sampleCount, warnings);

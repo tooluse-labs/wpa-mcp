@@ -185,7 +185,7 @@ public class MetaToolsTests
     }
 
     [Fact]
-    public void InspectTrace_EmitsWarningWhenSymbolPathUnset()
+    public void InspectTrace_AddsTraceDirectoryWhenSymbolPathUnset()
     {
         var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
         try
@@ -193,7 +193,10 @@ public class MetaToolsTests
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", null);
             var tools = new MetaTools(new TraceCache(capacity: 2));
             var resp = tools.InspectTrace(FixturePath);
-            Assert.Contains(resp.Warnings, w => w.Code == "symbol_path_unset");
+            Assert.DoesNotContain(resp.Warnings, w => w.Code == "symbol_path_unset");
+            Assert.Contains(
+                Path.GetDirectoryName(Path.GetFullPath(FixturePath))!,
+                resp.SymbolQuality.NtSymbolPath);
             Assert.Contains(resp.OrientationTools, r => r.ToolName == "diagnose_symbols");
         }
         finally
@@ -382,7 +385,7 @@ public class MetaToolsTests
     }
 
     [Fact]
-    public void LoadTrace_EmitsWarningWhenSymbolPathUnset()
+    public void LoadTrace_AddsTraceDirectoryWhenSymbolPathUnset()
     {
         var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
         try
@@ -390,7 +393,10 @@ public class MetaToolsTests
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", null);
             var tools = new MetaTools(new TraceCache(capacity: 2));
             var resp = tools.LoadTrace(FixturePath);
-            Assert.NotNull(resp.SymbolStatus.Warning);
+            Assert.Null(resp.SymbolStatus.Warning);
+            Assert.Contains(
+                Path.GetDirectoryName(Path.GetFullPath(FixturePath))!,
+                resp.SymbolStatus.NtSymbolPath);
         }
         finally
         {

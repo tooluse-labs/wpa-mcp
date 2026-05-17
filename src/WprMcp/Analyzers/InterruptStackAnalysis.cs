@@ -155,7 +155,8 @@ public static class InterruptStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -166,7 +167,9 @@ public static class InterruptStackAnalysis
         // A few long no-stack DPC/ISR events can matter more than many short stacked events.
         else if (ShouldWarnMissingStacks(noStackUs, totalUs))
             warnings.Add(WarningBuilder.MissingInterruptStacks(noStackCount, totalCount, noStackUs, totalUs));
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalUs, totalUs, dpcUs, isrUs, totalCount, warnings);

@@ -116,7 +116,8 @@ public static class ClrAllocStackAnalysis
         ClrEventWalker.Walk(trace, clr => clr.GCAllocationTick += Handle);
         raw.Source.DoneAddingSamples();
 
-        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        if (req.ResolveSymbols)
+            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
 
@@ -126,7 +127,9 @@ public static class ClrAllocStackAnalysis
         if (totalEvents == 0)
             warnings.Add(WarningBuilder.MissingClrKeyword("GC allocation", "GC",
                 "or no managed allocation reached the ~100 KB tick threshold in the window"));
-        if (stats.ResolutionRate < 0.8)
+        if (!req.ResolveSymbols)
+            warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
+        else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalEvents, topTypes, warnings);

@@ -53,11 +53,14 @@ public sealed class WaitTools
         [Description(StackResponseOptions.CompactStacksDescription)]
         bool compactStacks = false,
         [Description(StackResponseOptions.SummaryOnlyDescription)]
-        bool summaryOnly = false)
+        bool summaryOnly = false,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.TopBlockedStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
@@ -74,11 +77,14 @@ public sealed class WaitTools
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description(StackResponseOptions.ResolveSymbolsDescription)]
+        bool resolveSymbols = false)
     {
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.CallerCallee(
             trace, function, top, pid, startUs, endUs, Console.Error);
     }
