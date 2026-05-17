@@ -2,10 +2,14 @@
 
 All notable user-facing changes to `wpa-mcp` are tracked here.
 
-This changelog starts with changes after `v0.2.14`. Older releases remain available
-from GitHub Releases and the git tag history.
+This changelog starts with `v0.2.15`. Older releases remain available from
+GitHub Releases and the git tag history.
 
 ## Unreleased
+
+No user-facing changes yet.
+
+## v0.2.15 - 2026-05-17
 
 ### Added
 
@@ -35,4 +39,4 @@ from GitHub Releases and the git tag history.
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.14...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.15...HEAD

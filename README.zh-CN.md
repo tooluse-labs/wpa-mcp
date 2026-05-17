@@ -80,12 +80,12 @@ curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/i
 
 ```powershell
 # PowerShell——指定 tag、限定客户端、自定义 symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.14 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.15 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash——`bash -s --` 后面的 flag 会传给 install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.14
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.15
 ```
 
 ### 卸载（一行命令，对称）
@@ -162,7 +162,7 @@ dotnet build -c Release
 冒烟测试：
 
 ```powershell
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # 输出 "WprMcp 0.2.14"
+dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # 输出 "WprMcp 0.2.15"
 dotnet test                                                   # 跑 xUnit 套件（需要 fixture，见 CONTRIBUTING.md）
 ```
 
