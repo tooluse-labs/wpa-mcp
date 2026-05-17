@@ -12,7 +12,7 @@ public sealed class ImageLoadTools
     private readonly TraceCache _cache;
     public ImageLoadTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-process DLL/image-load timeline in chronological order — every ImageLoad event " +
         "with absolute timestamp, offset from ProcessStart, and gap from the previous load.  " +
         "PerfView equivalent: filter the 'Events' view to ImageLoad for one PID (no native " +
@@ -33,7 +33,7 @@ public sealed class ImageLoadTools
         return ImageLoadAnalysis.PerProcess(trace, pid, top);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N image loads with the LARGEST gap from the previous load (chronological). Use to " +
         "spot 'loader was frozen for ~Xms between DLL Y and DLL Z' patterns that hint at per-DLL " +
         "minifilter scans / signature checks. Response also carries FirstLoadOffsetUs (kernel-side " +
@@ -50,7 +50,7 @@ public sealed class ImageLoadTools
         return ImageLoadAnalysis.TopGaps(trace, pid, top);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by ImageLoad event count — answers 'which call site is loading " +
         "the most DLLs'. PerfView equivalent: 'Image Load Stacks' view. Use to distinguish eager " +
         "loads (LoadLibraryEx in main initializer) from lazy / cascading loads (CoCreateInstance, " +
@@ -77,7 +77,7 @@ public sealed class ImageLoadTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the image-load-stack data. Metric " +
         "is load count; top-N callers ranked by inclusive loads flowing INTO focus, callees " +
         "by loads flowing OUT to them. Use to ask 'who triggers all these calls into LdrLoadDll'.")]

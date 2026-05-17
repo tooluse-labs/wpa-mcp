@@ -12,7 +12,7 @@ public sealed class NetIoTools
     private readonly TraceCache _cache;
     public NetIoTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by network bytes (TCP + UDP, send + receive, IPv4 + IPv6) — " +
         "answers 'which call chain is doing all the network IO'.  PerfView equivalent: " +
         "'TCP/IP Stacks' + 'UDP/IP Stacks' merged.  Distinguishes 'one socket streaming a big " +
@@ -42,7 +42,7 @@ public sealed class NetIoTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the network-stack data.  Metric is " +
         "network bytes (send + receive, TCP + UDP, IPv4 + IPv6); top-N callers ranked by " +
         "inclusive bytes flowing INTO focus, callees by bytes OUT.")]
@@ -62,7 +62,7 @@ public sealed class NetIoTools
             trace, function, top, pid, startUs, endUs, Console.Error);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-connection TCP lifecycle list — Connect/Accept paired with Disconnect/Reconnect " +
         "by `connid` to give 'connection X opened at T1, closed at T2, lasted T2−T1'.  " +
         "Useful for 'connect-to-disconnect latency outliers' / 'is RPC slow because of " +

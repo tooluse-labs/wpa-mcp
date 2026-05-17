@@ -12,7 +12,7 @@ public sealed class ReadyThreadTools
     private readonly TraceCache _cache;
     public ReadyThreadTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by ReadyThread event count — answers 'who unblocked threads " +
         "in process X'.  PerfView equivalent: ReadyThread Stacks computer.  The stack on each " +
         "event is the READIER's stack (the code that did the SetEvent / ReleaseSemaphore / " +
@@ -44,7 +44,7 @@ public sealed class ReadyThreadTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the ReadyThread-stack data.  Metric " +
         "is ready-event count; top-N callers ranked by inclusive count flowing INTO focus, " +
         "callees by count OUT.")]

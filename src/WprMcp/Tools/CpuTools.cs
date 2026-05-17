@@ -12,7 +12,7 @@ public sealed class CpuTools
     private readonly TraceCache _cache;
     public CpuTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N hot functions by exclusive CPU sample count — the canonical 'where is CPU " +
         "time going' answer.  PerfView equivalent: 'CPU Stacks → ByName'.  Built from " +
         "per-CPU PerfInfoSample events (kernel sampler, default ~1 ms cadence per CPU); " +
@@ -45,7 +45,7 @@ public sealed class CpuTools
         return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "CPU Usage (Precise)-style scheduler summary from CSwitch + ReadyThread events. " +
         "Use this when sampled CPU is insufficient: it reports actual on-CPU microseconds, " +
         "ready-to-run latency after a thread is readied, per-core runtime attribution, and " +
@@ -63,7 +63,7 @@ public sealed class CpuTools
         return Analyzers.CpuPreciseAnalysis.Analyze(trace, top, pid, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Batch variant: top N hot functions per PID, in a single trace load. " +
         "Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID's samples). " +
         "Use when investigating multiple processes from the same trace — saves N round-trips.")]
@@ -83,23 +83,31 @@ public sealed class CpuTools
         Validation.RequireTop(top);
 
         var trace = _cache.Get(path);
-        var result = new Dictionary<int, CpuTopFunctionsResponse>();
         var warnings = new List<string>();
-        foreach (var p in pids.Distinct())
+        var distinctPids = pids.Distinct().ToArray();
+        IReadOnlyDictionary<int, CpuTopFunctionsResponse> result;
+        try
         {
-            try
-            {
-                result[p] = CpuAnalysis.TopFunctions(trace, top, p, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct);
-            }
-            catch (Exception ex)
-            {
-                warnings.Add($"pid {p}: {ex.Message}");
-            }
+            result = CpuAnalysis.TopFunctionsMultiPid(
+                trace,
+                top,
+                distinctPids,
+                startUs,
+                endUs,
+                Console.Error,
+                excludeEtwSelfOverhead,
+                includeTracePct,
+                warnings);
+        }
+        catch (Exception ex)
+        {
+            result = new Dictionary<int, CpuTopFunctionsResponse>();
+            warnings.Add(ex.Message);
         }
         return new CpuTopFunctionsBatchResponse(result, warnings);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function — given a frame name (copy verbatim from " +
         "cpu_top_functions output), returns the immediate callers (frames calling INTO focus) and " +
         "callees (frames focus calls OUT to), each ranked by inclusive samples. PerfView equivalent: " +

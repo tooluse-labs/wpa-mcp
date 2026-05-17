@@ -12,7 +12,7 @@ public sealed class InterruptTools
     private readonly TraceCache _cache;
     public InterruptTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by kernel interrupt time (DPC + ISR), in microseconds — " +
         "answers 'which driver routines are burning CPU at high IRQL'.  PerfView equivalent: " +
         "DPC/ISR Stacks.  ISR (Interrupt Service Routine) is the immediate kernel response to " +
@@ -42,7 +42,7 @@ public sealed class InterruptTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the interrupt-stack data.  Metric is " +
         "interrupt time in microseconds; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]

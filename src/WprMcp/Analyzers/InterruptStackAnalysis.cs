@@ -1,3 +1,4 @@
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
@@ -104,6 +105,8 @@ public static class InterruptStackAnalysis
         long dpcUs = 0;
         long isrUs = 0;
         long totalCount = 0;
+        long noStackCount = 0;
+        long noStackUs = 0;
 
         // No PID filter — these events run in kernel context; "process" attribution is
         // whichever thread happened to be interrupted, which is misleading for diagnostics.
@@ -117,6 +120,11 @@ public static class InterruptStackAnalysis
             totalUs += us;
             dpcUs += us;
             totalCount++;
+            if (data.CallStackIndex() == CallStackIndex.Invalid)
+            {
+                noStackCount++;
+                noStackUs += us;
+            }
             raw.AddSample(data.CallStackIndex(), data, us);
             req.When.Add(nowUs, us);
         }
@@ -131,6 +139,11 @@ public static class InterruptStackAnalysis
             totalUs += us;
             isrUs += us;
             totalCount++;
+            if (data.CallStackIndex() == CallStackIndex.Invalid)
+            {
+                noStackCount++;
+                noStackUs += us;
+            }
             raw.AddSample(data.CallStackIndex(), data, us);
             req.When.Add(nowUs, us);
         }
@@ -149,9 +162,16 @@ public static class InterruptStackAnalysis
         var warnings = new List<string>();
         if (totalCount == 0)
             warnings.Add(WarningBuilder.NoEventsInDefaultProfile("DPC/ISR", "Interrupt + DPC"));
+        // Warn only when missing stacks dominate the metric being ranked: interrupt time.
+        // A few long no-stack DPC/ISR events can matter more than many short stacked events.
+        else if (ShouldWarnMissingStacks(noStackUs, totalUs))
+            warnings.Add(WarningBuilder.MissingInterruptStacks(noStackCount, totalCount, noStackUs, totalUs));
         if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
         return new BuildContext(normalized, stats, traceTotalUs, totalUs, dpcUs, isrUs, totalCount, warnings);
     }
+
+    internal static bool ShouldWarnMissingStacks(long noStackUs, long totalUs)
+        => totalUs > 0 && noStackUs / (double)totalUs >= 0.5;
 }

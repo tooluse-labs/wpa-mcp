@@ -26,6 +26,123 @@ public static class CpuAnalysis
         var (normalized, stats, traceTotalSamples) = BuildNormalized(
             trace, pid, startUs, endUs, symbolLog, excludeEtwSelfOverhead, includeTracePct);
 
+        return BuildTopFunctionsResponse(
+            normalized,
+            stats,
+            traceTotalSamples,
+            top,
+            hasFilter,
+            includeTracePct);
+    }
+
+    public static IReadOnlyDictionary<int, CpuTopFunctionsResponse> TopFunctionsMultiPid(
+        TraceLog trace,
+        int top,
+        IReadOnlyCollection<int> pids,
+        long? startUs,
+        long? endUs,
+        TextWriter symbolLog,
+        bool excludeEtwSelfOverhead = false,
+        bool includeTracePct = false,
+        ICollection<string>? warnings = null)
+    {
+        var distinctPids = pids.Distinct().ToArray();
+        var rawByPid = distinctPids.ToDictionary(pid => pid, _ => StackSourceTopN.CreateRawSource(trace));
+        long traceTotalSamples = 0;
+
+        foreach (var ev in trace.Events)
+        {
+            var usSinceStart = (long)(ev.TimeStampRelativeMSec * 1000);
+            if (!includeTracePct && endUs is { } eUsForBreak && usSinceStart >= eUsForBreak) break;
+
+            if (ev is not SampledProfileTraceData) continue;
+            if (includeTracePct) traceTotalSamples++;
+            if (startUs is { } s && usSinceStart < s) continue;
+            if (endUs is { } eUs && usSinceStart >= eUs) continue;
+            if (rawByPid.TryGetValue(ev.ProcessID, out var raw))
+                raw.AddSample(ev.CallStackIndex(), ev, metric: 1);
+        }
+
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(symbolLog);
+        return BuildTopFunctionsResponsesForRawSources(
+            trace,
+            rawByPid,
+            symbolReader,
+            traceTotalSamples,
+            top,
+            excludeEtwSelfOverhead,
+            hasFilter: true,
+            includeTracePct,
+            warnings);
+    }
+
+    internal static IReadOnlyDictionary<int, CpuTopFunctionsResponse> BuildTopFunctionsResponsesForRawSources(
+        TraceLog trace,
+        IReadOnlyDictionary<int, StackSourceTopN.RawStackSource> rawByPid,
+        Microsoft.Diagnostics.Symbols.SymbolReader symbolReader,
+        long traceTotalSamples,
+        int top,
+        bool excludeEtwSelfOverhead,
+        bool hasFilter,
+        bool includeTracePct,
+        ICollection<string>? warnings = null,
+        Func<int, StackSourceTopN.RawStackSource, CpuTopFunctionsResponse>? project = null)
+    {
+        var result = new Dictionary<int, CpuTopFunctionsResponse>();
+        foreach (var (pid, raw) in rawByPid)
+        {
+            try
+            {
+                result[pid] = project?.Invoke(pid, raw) ?? BuildTopFunctionsResponseForRawSource(
+                    trace,
+                    raw,
+                    symbolReader,
+                    traceTotalSamples,
+                    top,
+                    excludeEtwSelfOverhead,
+                    hasFilter,
+                    includeTracePct);
+            }
+            catch (Exception ex)
+            {
+                warnings?.Add($"pid {pid}: {ex.Message}");
+            }
+        }
+
+        return result;
+    }
+
+    internal static CpuTopFunctionsResponse BuildTopFunctionsResponseForRawSource(
+        TraceLog trace,
+        StackSourceTopN.RawStackSource raw,
+        Microsoft.Diagnostics.Symbols.SymbolReader symbolReader,
+        long traceTotalSamples,
+        int top,
+        bool excludeEtwSelfOverhead,
+        bool hasFilter,
+        bool includeTracePct)
+    {
+        raw.Source.DoneAddingSamples();
+        raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead);
+        return BuildTopFunctionsResponse(
+            normalized,
+            stats,
+            traceTotalSamples,
+            top,
+            hasFilter,
+            includeTracePct);
+    }
+
+    private static CpuTopFunctionsResponse BuildTopFunctionsResponse(
+        MutableTraceEventStackSource normalized,
+        SymbolStats stats,
+        long traceTotalSamples,
+        int top,
+        bool hasFilter,
+        bool includeTracePct)
+    {
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = normalized };
         var totalSamples = (double)Math.Max(1, callTree.Root.InclusiveCount);
 

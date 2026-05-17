@@ -164,7 +164,8 @@ public sealed record TraceCapabilities(
     bool HasHandleEvents,
     bool HasPoolEvents,
     bool HasCSwitchStacks = false,
-    bool HasReadyThreadStacks = false);
+    bool HasReadyThreadStacks = false,
+    bool HasInterruptStacks = false);
 
 public sealed record ProcessRow(
     int Pid,

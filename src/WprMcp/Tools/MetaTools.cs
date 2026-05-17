@@ -10,10 +10,13 @@ namespace WprMcp.Tools;
 [McpServerToolType]
 public sealed class MetaTools
 {
+    private const long MinCpuUsForWaitRatioSort = 5_000;
+    private const double MinCpuShareForWaitRatioSort = 0.00001;
+
     private readonly TraceCache _cache;
     public MetaTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Loads (or returns cached) a Windows ETW .etl trace. First load can take 30s-3min; subsequent calls are instant. " +
         "Response includes symbol-server recommendations based on the modules referenced by the trace. " +
         "No startUs/endUs: this is whole-trace cache/orientation, not event-window analysis.")]
@@ -202,6 +205,15 @@ public sealed class MetaTools
 
         AddMissingCapabilityWarning(
             warnings,
+            !capabilities.HasInterrupt || capabilities.HasInterruptStacks,
+            "missing_interrupt_stacks",
+            "warn",
+            "DPC/ISR interrupt events were observed, but they did not carry call stacks.",
+            "Recapture with stack walking enabled for PerfInfoDPC and PerfInfoISR before using interrupt stack analysis.",
+            InterruptStackToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
             capabilities.HasFileIo,
             "missing_file_io",
             "info",
@@ -379,6 +391,9 @@ public sealed class MetaTools
         if (capabilities.HasAlpc)
             recommendations.Add(("alpc_top_stacks", "ALPC events are present; rank cross-process IPC message stacks.", ["ipc"]));
 
+        if (capabilities.HasInterrupt)
+            recommendations.Add(("interrupt_top_stacks", "DPC/ISR events are present; rank interrupt time, with call stacks when the capture includes them.", ["interrupts", "drivers"]));
+
         return recommendations
             .Select(recommendation => new ToolRecommendation(
                 recommendation.ToolName,
@@ -448,6 +463,12 @@ public sealed class MetaTools
     [
         "ready_thread_top_stacks",
         "ready_thread_caller_callee",
+    ];
+
+    private static readonly string[] InterruptStackToolNames =
+    [
+        "interrupt_top_stacks",
+        "interrupt_caller_callee",
     ];
 
     private static readonly string[] CompositeToolNames =
@@ -586,12 +607,13 @@ public sealed class MetaTools
             .ToList();
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Lists processes in the loaded trace. Default order is CPU time descending. " +
         "WaitRatio = WallUs/CpuUs surfaces 'high wall, low CPU' processes (blocked on minifilter, IPC, etc.). " +
         "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them. " +
         "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
-        "trace end) are pushed to the bottom because their ratio is denominator-saturated. " +
+        "trace end) and processes with near-zero sampled CPU are pushed to the bottom because " +
+        "their ratio is denominator-sensitive noise. " +
         "No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.")]
     public ProcessListResponse ListProcesses(
         [Description("Absolute path to .etl file")] string path,
@@ -623,7 +645,7 @@ public sealed class MetaTools
         return new ProcessListResponse(rows, hidden, totalCount);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-fork timing for a parent process — given a PID, returns every child the kernel " +
         "reported as having that parent, with FirstImageLoadOffsetUs (the kernel-side window " +
         "between ProcessStart and the first DLL load: where AV / process-create callbacks " +
@@ -645,7 +667,7 @@ public sealed class MetaTools
         return ProcessCreateTimingAnalysis.Analyze(trace, parentPid, top);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-process thread-lifecycle list — every ThreadStart / ThreadStop in chronological " +
         "order for one PID, with start time, end time, and lifetime in microseconds.  Useful " +
         "for 'did the thread pool spawn 200 threads in the startup window' / 'is something " +
@@ -666,9 +688,14 @@ public sealed class MetaTools
         return ThreadLifetimeAnalysis.Analyze(trace, pid, top);
     }
 
-    // Trace-resident processes (alive across the whole trace) get ratios like 247638× from
-    // wallUs ≈ trace duration / cpuUs ≈ 0 — pure noise. Sort them to the bottom alongside
-    // null ratios so genuinely-blocked processes with bounded WallUs land at the top.
+    // Trace-resident processes and near-zero-CPU rows get huge ratios from tiny denominators.
+    // Keep the floor low enough that real high-wall/low-CPU IPC waits still surface, while
+    // 1-4ms bookkeeping rows don't dominate the sort.
     private static double WaitRatioSortKey(ProcessRow r)
-        => r.TraceResident ? double.NegativeInfinity : r.WaitRatio ?? double.NegativeInfinity;
+        => r.TraceResident || r.CpuUs < WaitRatioMinCpuUs(r)
+            ? double.NegativeInfinity
+            : r.WaitRatio ?? double.NegativeInfinity;
+
+    private static long WaitRatioMinCpuUs(ProcessRow r)
+        => Math.Max(MinCpuUsForWaitRatioSort, (long)(r.WallUs * MinCpuShareForWaitRatioSort));
 }

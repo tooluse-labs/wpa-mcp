@@ -16,13 +16,15 @@ public sealed class SymbolTools
         _cache = cache;
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = false, Idempotent = false, OpenWorld = false, Destructive = false), Description(
         "Sets the entire _NT_SYMBOL_PATH for symbol resolution in the running server (replaces " +
         "or appends).  Use this when you want to drop in a curated path string (multiple " +
         "servers + caches separated by `;`); for incremental setup of one server at a time, " +
         "prefer add_symbol_server.  PerfView equivalent: File → Set Symbol Path… dialog.  " +
         "Affects all subsequent stack-resolving tool calls until the server restarts or this " +
-        "is called again.  Returns the resulting path so callers can verify what was applied. " +
+        "is called again. Entries are trusted as-is; use only vetted local paths and symbol " +
+        "servers because subsequent stack-resolving tools may fetch PDBs from SRV* URLs and " +
+        "populate the local cache.  Returns the resulting path so callers can verify what was applied. " +
         "No startUs/endUs: symbol-path configuration is process-wide state, not trace-event analysis.")]
     public string SetSymbolPath(
         [Description("New path (e.g. 'SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols')")]
@@ -34,12 +36,14 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Appends a symbol server URL (with optional local cache directory) to the existing " +
         "_NT_SYMBOL_PATH.  Cache defaults to `%LocalAppData%\\WprMcp\\Symbols`.  Use this for " +
         "incremental setup ('add msdl.microsoft.com, then Chromium's symbol server'); for a " +
         "full replacement string, use set_symbol_path.  PerfView equivalent: a single entry in " +
         "the File → Set Symbol Path dialog.  Idempotent — re-adding the same URL is a no-op.  " +
+        "The URL is trusted as-is; add only vetted symbol servers because subsequent " +
+        "stack-resolving tools may fetch PDBs from it and populate the local cache.  " +
         "Returns the path actually in effect after the change. No startUs/endUs: symbol-path " +
         "configuration is process-wide state, not trace-event analysis.")]
     public string AddSymbolServer(
@@ -51,7 +55,7 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-module symbol-resolution status for an already-loaded trace, with auto-suggested " +
         "fixes for unresolved modules (which symbol server to add for which module — e.g., " +
         "msdl.microsoft.com for ntdll/kernelbase, Chromium symbol server for chrome.exe / cef.dll).  " +

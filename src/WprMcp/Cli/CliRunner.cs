@@ -38,6 +38,7 @@ public static class CliRunner
         ["--hard-fault-top-stacks"] = RunHardFaultTopStacks,
         ["--file-io-top-stacks"] = RunFileIoTopStacks,
         ["--disk-io-top-stacks"] = RunDiskIoTopStacks,
+        ["--interrupt-top-stacks"] = RunInterruptTopStacks,
         ["--disk-io-caller-callee"] = RunDiskIoCallerCallee,
         ["--diagnose-slow-startup"] = RunDiagnoseSlowStartup,
         ["--find-marker"] = RunFindMarker,
@@ -238,6 +239,22 @@ public static class CliRunner
         return 0;
     }
 
+    private static int RunInterruptTopStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --interrupt-top-stacks <trace.etl> [top] [startUs] [endUs]");
+            return 2;
+        }
+
+        var top = args.Length >= 3 ? int.Parse(args[2]) : 30;
+        long? startUs = args.Length >= 4 ? long.Parse(args[3]) : (long?)null;
+        long? endUs = args.Length >= 5 ? long.Parse(args[4]) : (long?)null;
+        var tools = new InterruptTools(new TraceCache(capacity: 1));
+        Emit(tools.InterruptTopStacks(args[1], top: top, startUs: startUs, endUs: endUs));
+        return 0;
+    }
+
     private static int RunDiskIoCallerCallee(string[] args) =>
         RunCallerCalleeVerb(args, "--disk-io-caller-callee", (path, fn, pid, top) =>
             new IoTools(new TraceCache(capacity: 1)).DiskIoCallerCallee(path, fn, top, pid));
@@ -333,6 +350,7 @@ public static class CliRunner
         w.WriteLine("  --hard-fault-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --file-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --disk-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --interrupt-top-stacks  <trace.etl> [top=30] [startUs] [endUs]");
         w.WriteLine("  --disk-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --wait-caller-callee    <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --image-load-caller-callee <trace.etl> <function> [pid] [top=20]");

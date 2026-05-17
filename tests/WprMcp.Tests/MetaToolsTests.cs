@@ -314,6 +314,33 @@ public class MetaToolsTests
     }
 
     [Fact]
+    public void ListProcesses_WaitRatioSortDemotesTinyCpuDenominators()
+    {
+        var sortKey = typeof(MetaTools).GetMethod(
+            "WaitRatioSortKey",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(sortKey);
+
+        var tinyCpu = new ProcessRow(
+            Pid: 1,
+            ParentPid: 0,
+            Name: "tiny-cpu",
+            StartUs: 1_000_000,
+            EndUs: 201_000_000,
+            WallUs: 200_000_000,
+            CpuUs: 4_000,
+            WaitRatio: 50_000,
+            ImageLoadCount: 0,
+            TraceResident: false);
+        var legitimateLowCpuWait = tinyCpu with { Pid = 2, CpuUs = 30_000, WaitRatio = 6_667 };
+        var meaningfulCpu = tinyCpu with { Pid = 3, CpuUs = 100_000, WaitRatio = 2_000 };
+
+        Assert.Equal(double.NegativeInfinity, Assert.IsType<double>(sortKey.Invoke(null, new object[] { tinyCpu })));
+        Assert.True(Assert.IsType<double>(sortKey.Invoke(null, new object[] { legitimateLowCpuWait })) > 0);
+        Assert.True(Assert.IsType<double>(sortKey.Invoke(null, new object[] { meaningfulCpu })) > 0);
+    }
+
+    [Fact]
     public void LoadTrace_DetectsCpuSamplesOnCpuFixture()
     {
         // small_cpu was captured with CPU.light. Positive assertion only — content of

@@ -13,7 +13,7 @@ public sealed class MarkerTools
     private readonly TraceCache _cache;
     public MarkerTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Searches all events whose name or task contains the given substring (case-insensitive). " +
         "Default mode 'count_by_event' returns a histogram, which avoids dumping every matching row " +
         "for broad queries like 'Process'. Switch to 'rows' for full event detail. " +

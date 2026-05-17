@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Text;
 using ModelContextProtocol.Server;
 using WprMcp.Analyzers;
@@ -20,7 +21,7 @@ public sealed class DiagnoseTools
     private readonly TraceCache _cache;
     public DiagnoseTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Composite 'why is process X slow to start' analysis. Picks the slowest-by-wait-ratio processes " +
         "(or the ones matching nameSubstring), then runs wait_analysis (top wait reasons), image_load_timing " +
         "(first N DLLs from process start), and cpu_top_functions (top hot functions in the startup window) " +
@@ -226,13 +227,13 @@ public sealed class DiagnoseTools
     [McpServerTool(
         ReadOnly = true,
         Idempotent = true,
-        OpenWorld = false,
+        OpenWorld = true,
         Destructive = false,
         UseStructuredContent = true), Description(
-        "Preview high-wait composite; no root-cause/diagnosis field. Uses one pid/window " +
-        "across subcalls and degrades missing StackWalks to non-stack evidence. Candidates " +
-        "are ordered by total blocked microseconds, not impact or causality. Compare " +
-        "ObservedPct with ThresholdPct; compare metrics only within the same MetricName/Unit. " +
+        "Preview high-wait composite; no root-cause field. One pid/window across subcalls; " +
+        "missing stacks degrade to non-stack evidence. Candidates are ordered by total blocked " +
+        "microseconds, not impact or causality. Compare same MetricName/Unit, and ObservedPct " +
+        "with ThresholdPct. TimeBudgetMs bounds post-wait stack fan-out. " +
         "NextTools are optional hypothesis checks, not an ordered checklist.")]
     public DiagnoseHighWaitResponse DiagnoseHighWait(
         [Description("Absolute path to .etl file")] string path,
@@ -247,12 +248,17 @@ public sealed class DiagnoseTools
         [Description("Top N wait-stack rows for each candidate when stackwalks are available (default 10).")]
         int topStacks = 10,
         [Description("Top N ReadyThread stack rows when scheduler wait reasons justify fan-out (default 10).")]
-        int topReadyStacks = 10)
+        int topReadyStacks = 10,
+        [Description("Run ReadyThread stack fan-out when scheduler wait reasons justify it. Default false keeps preview bounded.")]
+        bool includeReadyStacks = false,
+        [Description("Soft budget in milliseconds for post-wait candidate stack fan-out. Exhaustion returns completed evidence plus partial warnings.")]
+        int timeBudgetMs = 100_000)
     {
         if (maxCandidates <= 0 || maxCandidates > 20)
             throw new ArgumentOutOfRangeException(nameof(maxCandidates), "must be in [1, 20]");
         Validation.RequireTop(topStacks);
         Validation.RequireTop(topReadyStacks);
+        Validation.RequireTimeBudgetMs(timeBudgetMs);
         ValidateWindow(startUs, endUs);
 
         var trace = _cache.Get(path);
@@ -262,7 +268,6 @@ public sealed class DiagnoseTools
         var notConcluded = new List<CompositeNotConcluded>();
         var nextTools = new List<CompositeNextTool>();
         var executedCalls = new List<CompositeToolCall>();
-
         const string waitCallId = "high-wait.wait_analysis";
         var waitResp = WaitAnalysis.Analyze(
             trace,
@@ -286,6 +291,24 @@ public sealed class DiagnoseTools
             internalTop: int.MaxValue,
             internalNote: $"Internal unbounded aggregation; public wait_analysis caps top at {Validation.MaxTop}."));
         warnings.AddRange(PrefixWarnings("wait_analysis", waitResp.Warnings));
+
+        var stackBudget = Stopwatch.StartNew();
+        var budgetExhaustedKeys = new HashSet<string>(StringComparer.Ordinal);
+        bool BudgetExpired() => stackBudget.ElapsedMilliseconds >= timeBudgetMs;
+        void AddBudgetExhausted(int candidatePid, string skippedWork)
+        {
+            if (!budgetExhaustedKeys.Add($"{candidatePid}:{skippedWork}"))
+                return;
+
+            var message = $"diagnose_high_wait reached its {timeBudgetMs} ms post-wait stack budget; skipped {skippedWork} for pid {candidatePid}. Returned evidence is partial, not a complete diagnosis.";
+            warnings.Add(message);
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: "time_budget_exhausted",
+                Reason: message,
+                Pid: candidatePid,
+                BlockingCapability: null,
+                RelatedCallId: waitCallId));
+        }
 
         if (!capabilities.HasCSwitch)
         {
@@ -408,50 +431,57 @@ public sealed class DiagnoseTools
             string? waitStacksCallId = null;
             if (capabilities.HasCSwitch && capabilities.HasCSwitchStacks)
             {
-                waitStacksCallId = $"high-wait.pid-{candidate.Pid}.wait_top_stacks";
-                var effectiveTopStacks = StackResponseOptions.EffectiveTop(
-                    topStacks, compactStacks: false, summaryOnly: true);
-                var stackResp = BlockedTimeStackAnalysis.TopBlockedStacks(
-                    trace,
-                    effectiveTopStacks,
-                    pid: candidate.Pid,
-                    startUs: startUs,
-                    endUs: endUs,
-                    symbolLog: Console.Error);
-                executedCalls.Add(ToolCall(
-                    waitStacksCallId,
-                    "wait_top_stacks",
-                    pid: candidate.Pid,
-                    awakenedPid: null,
-                    startUs,
-                    endUs,
-                    top: topStacks,
-                    compactStacks: false,
-                    summaryOnly: true,
-                    whenBuckets: 0,
-                    warnings: stackResp.Warnings,
-                    effectiveTop: effectiveTopStacks));
-                warnings.AddRange(PrefixWarnings($"wait_top_stacks pid {candidate.Pid}", stackResp.Warnings));
+                if (BudgetExpired())
+                {
+                    AddBudgetExhausted(candidate.Pid, "wait_top_stacks");
+                }
+                else
+                {
+                    waitStacksCallId = $"high-wait.pid-{candidate.Pid}.wait_top_stacks";
+                    var effectiveTopStacks = StackResponseOptions.EffectiveTop(
+                        topStacks, compactStacks: false, summaryOnly: true);
+                    var stackResp = BlockedTimeStackAnalysis.TopBlockedStacks(
+                        trace,
+                        effectiveTopStacks,
+                        pid: candidate.Pid,
+                        startUs: startUs,
+                        endUs: endUs,
+                        symbolLog: Console.Error);
+                    executedCalls.Add(ToolCall(
+                        waitStacksCallId,
+                        "wait_top_stacks",
+                        pid: candidate.Pid,
+                        awakenedPid: null,
+                        startUs,
+                        endUs,
+                        top: topStacks,
+                        compactStacks: false,
+                        summaryOnly: true,
+                        whenBuckets: 0,
+                        warnings: stackResp.Warnings,
+                        effectiveTop: effectiveTopStacks));
+                    warnings.AddRange(PrefixWarnings($"wait_top_stacks pid {candidate.Pid}", stackResp.Warnings));
 
-                evidence.Add(new CompositeEvidence(
-                    EvidenceId: $"high-wait.pid-{candidate.Pid}.wait-stacks",
-                    CallId: waitStacksCallId,
-                    EvidenceType: "wait_stack_summary",
-                    Pid: candidate.Pid,
-                    Tid: null,
-                    ProcessName: candidate.ProcessName,
-                    Label: "Top blocked-time stack frames",
-                    MetricName: "blockedUs",
-                    MetricValue: stackResp.TotalBlockedUs,
-                    Unit: "us",
-                    TopWaitReasons: Array.Empty<WaitReasonBucket>(),
-                    Frames: stackResp.Rows
-                        .Select(row => new FrameMetric(
-                            Function: row.Function,
-                            ExclusiveMetric: row.ExclusiveBlockedUs,
-                            InclusiveMetric: row.InclusiveBlockedUs,
-                            Unit: "us"))
-                        .ToList()));
+                    evidence.Add(new CompositeEvidence(
+                        EvidenceId: $"high-wait.pid-{candidate.Pid}.wait-stacks",
+                        CallId: waitStacksCallId,
+                        EvidenceType: "wait_stack_summary",
+                        Pid: candidate.Pid,
+                        Tid: null,
+                        ProcessName: candidate.ProcessName,
+                        Label: "Top blocked-time stack frames",
+                        MetricName: "blockedUs",
+                        MetricValue: stackResp.TotalBlockedUs,
+                        Unit: "us",
+                        TopWaitReasons: Array.Empty<WaitReasonBucket>(),
+                        Frames: stackResp.Rows
+                            .Select(row => new FrameMetric(
+                                Function: row.Function,
+                                ExclusiveMetric: row.ExclusiveBlockedUs,
+                                InclusiveMetric: row.InclusiveBlockedUs,
+                                Unit: "us"))
+                            .ToList()));
+                }
             }
 
             string? readyThreadCallId = null;
@@ -459,7 +489,21 @@ public sealed class DiagnoseTools
             var shouldRunReadyThread = schedulerWaitPct >= ReadyThreadSchedulerThresholdPct;
             if (shouldRunReadyThread)
             {
-                if (!capabilities.HasReadyThread)
+                if (!includeReadyStacks)
+                {
+                    notConcluded.Add(new CompositeNotConcluded(
+                        Code: "ready_thread_skipped_by_option",
+                        Reason: "Scheduler-dispatch wait reasons met the ReadyThread fan-out threshold, but includeReadyStacks=false kept the preview bounded.",
+                        Pid: candidate.Pid,
+                        BlockingCapability: null,
+                        RelatedCallId: waitCallId,
+                        MetricName: "schedulerWaitBlockedPct",
+                        MetricValue: schedulerWaitPct,
+                        Unit: "ratio",
+                        ObservedPct: schedulerWaitPct,
+                        ThresholdPct: ReadyThreadSchedulerThresholdPct));
+                }
+                else if (!capabilities.HasReadyThread)
                 {
                     notConcluded.Add(new CompositeNotConcluded(
                         Code: "missing_ready_thread",
@@ -486,6 +530,10 @@ public sealed class DiagnoseTools
                         Unit: "ratio",
                         ObservedPct: schedulerWaitPct,
                         ThresholdPct: ReadyThreadSchedulerThresholdPct));
+                }
+                else if (BudgetExpired())
+                {
+                    AddBudgetExhausted(candidate.Pid, "ready_thread_top_stacks");
                 }
                 else
                 {

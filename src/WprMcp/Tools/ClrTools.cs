@@ -12,7 +12,7 @@ public sealed class ClrTools
     private readonly TraceCache _cache;
     public ClrTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR GC analysis — list of garbage collections in the trace, with wall " +
         "duration AND 'stop the world' pause time per GC.  PerfView equivalent: 'GCStats'.  " +
         "Each row carries Generation (0/1/2), Reason (Induced / AllocSmall / AllocLarge / etc.), " +
@@ -31,7 +31,7 @@ public sealed class ClrTools
         return Analyzers.GcAnalysis.Analyze(trace, pid, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR JIT compilation analysis — top-N methods ranked by JIT duration.  PerfView " +
         "equivalent: 'JIT Stats'.  Matches MethodJittingStarted→MethodLoadVerbose by " +
         "(ProcessID, MethodID) to compute per-method JIT μs.  Each row gives full method name " +
@@ -51,7 +51,7 @@ public sealed class ClrTools
         return Analyzers.JitAnalysis.Analyze(trace, pid, top, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by managed-heap allocation bytes.  PerfView equivalent: " +
         "'GC Heap Alloc Stacks'.  Driven by GCAllocationTick events (CLR fires one every " +
         "~100 KB allocated per (heap, generation, type)) — sampled, not exhaustive, but " +
@@ -78,7 +78,7 @@ public sealed class ClrTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the managed-allocation stack source.  " +
         "Metric is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO " +
         "focus, callees by bytes OUT.")]
@@ -96,7 +96,7 @@ public sealed class ClrTools
         return ClrAllocStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by .NET exception throw count.  PerfView equivalent: " +
         "'Exceptions Stacks'.  Fires once per *thrown* exception (rethrows are separate " +
         "events).  Useful for 'is this code path throwing 1000 exceptions per second' / " +
@@ -122,7 +122,7 @@ public sealed class ClrTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the .NET exception stack source.  " +
         "Metric is exception count; top-N callers ranked by inclusive count flowing INTO " +
         "focus, callees by count OUT.")]
@@ -140,7 +140,7 @@ public sealed class ClrTools
         return ClrExceptionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by .NET monitor-contention μs (managed `lock` / " +
         "Monitor.Enter waits).  PerfView equivalent: 'Monitor Contention Stacks'.  Matches " +
         "ContentionStart→ContentionStop by ThreadID; metric is the wait duration in " +
@@ -166,7 +166,7 @@ public sealed class ClrTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the .NET monitor-contention stack " +
         "source.  Metric is blocked μs; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
@@ -184,7 +184,7 @@ public sealed class ClrTools
         return ClrContentionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR managed-heap snapshot timeline — one row per GCHeapStats event (the CLR " +
         "fires this once at the end of each GC), with TotalHeapBytes, Gen0/1/2/LOH/POH " +
         "sizes, PinnedObjectCount, and GcHandleCount.  PerfView surfaces this in 'GCStats' " +
@@ -203,7 +203,7 @@ public sealed class ClrTools
         return GcHeapStatsAnalysis.Analyze(trace, pid, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR finalizer analysis — top types finalized + finalizer-thread pause batches.  " +
         "Two related streams matched here: GCFinalizeObject (per-object, carries TypeName) " +
         "is aggregated to the TopTypes table; GCFinalizersStart/Stop bracket each run of " +

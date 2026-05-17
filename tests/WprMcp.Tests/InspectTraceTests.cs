@@ -381,5 +381,6 @@ public sealed class InspectTraceTests
             HasHandleEvents: true,
             HasPoolEvents: true,
             HasCSwitchStacks: true,
-            HasReadyThreadStacks: true);
+            HasReadyThreadStacks: true,
+            HasInterruptStacks: true);
 }

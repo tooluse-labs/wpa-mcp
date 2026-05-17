@@ -12,7 +12,7 @@ public sealed class GenericProviderTools
     private readonly TraceCache _cache;
     public GenericProviderTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by event count for ANY user-mode ETW provider — PerfView's " +
         "'Any Stacks' view applied to a single provider.  Use this when you need stack-rankable " +
         "data from a provider that doesn't have a dedicated tool: AspNetCore, Kestrel, EFCore, " +
@@ -45,7 +45,7 @@ public sealed class GenericProviderTools
             trace, providerName, eventNameSubstring, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in a generic provider's stack source.  " +
         "Same provider + event-name filtering as generic_event_top_stacks.  Metric is event " +
         "count; top-N callers ranked by inclusive count flowing INTO focus, callees by count OUT.")]

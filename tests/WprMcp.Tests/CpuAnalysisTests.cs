@@ -1,5 +1,7 @@
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WprMcp.Analyzers;
 using WprMcp.Core;
+using WprMcp.Output;
 using WprMcp.Tools;
 using Xunit;
 
@@ -93,6 +95,67 @@ public class CpuAnalysisTests
     }
 
     [Fact]
+    public void CpuTopFunctionsBatch_MatchesSinglePidResponses()
+    {
+        var pids = CpuSamplePids().Take(3).ToArray();
+        Assert.NotEmpty(pids);
+
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var batch = tools.CpuTopFunctionsBatch(FixturePath, pids, top: 5, startUs: 0);
+
+        Assert.Empty(batch.Warnings);
+        foreach (var pid in pids)
+        {
+            var single = tools.CpuTopFunctions(FixturePath, top: 5, pid: pid, startUs: 0);
+            Assert.True(batch.PerPid.ContainsKey(pid), $"batch missing pid {pid}");
+            var batched = batch.PerPid[pid];
+
+            Assert.Equal(single.Stats.Resolved, batched.Stats.Resolved);
+            Assert.Equal(single.Stats.Unresolved, batched.Stats.Unresolved);
+            Assert.Equal(single.Rows.Select(r => r.Function), batched.Rows.Select(r => r.Function));
+            Assert.Equal(single.Rows.Select(r => r.ExclusiveSamples), batched.Rows.Select(r => r.ExclusiveSamples));
+            Assert.Equal(single.Warnings, batched.Warnings);
+        }
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_IsolatesPerPidProjectionFailures()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var raws = new Dictionary<int, StackSourceTopN.RawStackSource>
+        {
+            [101] = StackSourceTopN.CreateRawSource(trace),
+            [202] = StackSourceTopN.CreateRawSource(trace),
+        };
+        var warnings = new List<string>();
+        var okResponse = new CpuTopFunctionsResponse(
+            Array.Empty<CpuFunctionRow>(),
+            new SymbolStats(Resolved: 0, Unresolved: 0, ResolutionRate: 1.0, TopUnresolvedModules: Array.Empty<UnresolvedModule>()),
+            Array.Empty<string>());
+
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(TextWriter.Null);
+        var result = CpuAnalysis.BuildTopFunctionsResponsesForRawSources(
+            trace,
+            raws,
+            symbolReader,
+            traceTotalSamples: 0,
+            top: 5,
+            excludeEtwSelfOverhead: false,
+            hasFilter: true,
+            includeTracePct: false,
+            warnings,
+            project: (pid, _) =>
+            {
+                if (pid == 101) throw new InvalidOperationException("boom");
+                return okResponse;
+            });
+
+        Assert.False(result.ContainsKey(101));
+        Assert.Same(okResponse, result[202]);
+        Assert.Contains("pid 101: boom", warnings);
+    }
+
+    [Fact]
     public void CpuCallerCallee_OnNoStackRootReturnsExpectedShape()
     {
         // small_cpu.etl was captured without Sample-stackwalks enabled, so 100% of CPU
@@ -168,5 +231,17 @@ public class CpuAnalysisTests
                 times.Add((long)(ev.TimeStampRelativeMSec * 1000));
         }
         return times;
+    }
+
+    private static List<int> CpuSamplePids()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var pids = new List<int>();
+        foreach (var ev in trace.Events)
+        {
+            if (ev is SampledProfileTraceData && ev.ProcessID > 0 && !pids.Contains(ev.ProcessID))
+                pids.Add(ev.ProcessID);
+        }
+        return pids;
     }
 }

@@ -24,6 +24,15 @@ internal static class Validation
         return whenBuckets;
     }
 
+    public static int RequireTimeBudgetMs(int timeBudgetMs,
+        [CallerArgumentExpression(nameof(timeBudgetMs))] string? paramName = null)
+    {
+        if (timeBudgetMs <= 0 || timeBudgetMs > 3_600_000)
+            throw new ArgumentOutOfRangeException(paramName ?? nameof(timeBudgetMs),
+                "must be in [1, 3600000]");
+        return timeBudgetMs;
+    }
+
     public static int RequirePositivePid(int pid,
         [CallerArgumentExpression(nameof(pid))] string? paramName = null)
     {

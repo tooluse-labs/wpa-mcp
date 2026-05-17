@@ -9,6 +9,41 @@ GitHub Releases and the git tag history.
 
 No user-facing changes yet.
 
+## v0.2.16 - 2026-05-17
+
+### Added
+
+- Added `cpu_top_functions_batch` shared-pass execution for analyzing multiple
+  PIDs from one trace walk.
+- Added a soft budget and partial-evidence reporting to `diagnose_high_wait` so
+  broad traces can return bounded diagnostic evidence instead of timing out.
+- Added a local interrupt-stack validation helper under `tools/interruptfixture`
+  and documented the real-event missing-stack validation workflow.
+
+### Changed
+
+- Added MCP risk annotations for all tools, including accurate `OpenWorld`
+  hints for stack-resolving tools that may download symbols through
+  `_NT_SYMBOL_PATH`.
+- Kept symbol-path configuration tools closed-world but documented that their
+  configured symbol servers are trusted by subsequent stack-resolving tools.
+
+### Fixed
+
+- Warn when missing DPC/ISR stacks dominate interrupt time, even if they are a
+  minority of interrupt events.
+- Made `cpu_top_functions_batch` isolate per-PID failures and report warnings
+  instead of dropping the whole batch.
+- Tightened `list_processes orderBy=wait_ratio` so tiny CPU denominators do not
+  dominate high-wait rankings.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet build tools/interruptfixture/interruptfixture.csproj -c Release --no-restore`
+- Local real-event validation with ignored manual ETL:
+  `noStackCount=4/11`, `noStackUs=1958/1969us`, warning emitted.
+
 ## v0.2.15 - 2026-05-17
 
 ### Added
@@ -36,7 +71,8 @@ No user-facing changes yet.
 
 ## Previous Releases
 
+- [v0.2.15](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.15)
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.16...HEAD

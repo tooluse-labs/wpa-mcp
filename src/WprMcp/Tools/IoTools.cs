@@ -12,7 +12,7 @@ public sealed class IoTools
     private readonly TraceCache _cache;
     public IoTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top N files by total IO bytes (read + write). No startUs/endUs: this is a whole-trace " +
         "by-file summary; use file_io_top_stacks for windowed attribution.")]
     public FileIoResponse FileIoTopFiles(
@@ -25,7 +25,7 @@ public sealed class IoTools
         return FileIoAnalysis.TopFiles(trace, top, pid);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by file-IO bytes — answers 'which call chain is doing all " +
         "the file IO'. PerfView equivalent: 'File I/O Stacks' view. Pairs with file_io_top_files " +
         "(per-file bucket); this one is per-stack so you can tell streaming-of-one-big-file apart " +
@@ -52,7 +52,7 @@ public sealed class IoTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the file-IO-stack data. Metric is " +
         "IO bytes (read+write); top-N callers ranked by inclusive bytes flowing INTO focus, " +
         "callees by bytes OUT. PerfView equivalent: 'Callers' / 'Callees' tabs of File I/O Stacks.")]
@@ -72,7 +72,7 @@ public sealed class IoTools
             trace, function, top, pid, startUs, endUs, Console.Error);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by PHYSICAL disk-IO bytes — answers 'which call chain " +
         "actually hit the disk'. Different layer from file_io_top_stacks: file IO captures " +
         "all syscalls (cache-served included), disk IO only events that hit physical media. " +
@@ -99,7 +99,7 @@ public sealed class IoTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the disk-IO-stack data. Metric is " +
         "physical disk bytes (TransferSize); top-N callers ranked by inclusive disk bytes " +
         "flowing INTO focus, callees by bytes OUT.")]

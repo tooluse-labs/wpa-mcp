@@ -12,7 +12,7 @@ public sealed class VirtualMemoryTools
     private readonly TraceCache _cache;
     public VirtualMemoryTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
         "create/close deltas. Reports working set, commit, derived private bytes, private " +
         "working set, virtual size, handle deltas, and observed pool allocation/free deltas. " +
@@ -34,7 +34,7 @@ public sealed class VirtualMemoryTools
         return Analyzers.MemoryResourceAnalysis.Analyze(trace, top, pid, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by VirtualAlloc bytes — answers 'who's reserving / committing " +
         "virtual memory'.  PerfView equivalent: 'VirtualAlloc Stacks' view.  Counts both " +
         "VirtualMemAlloc and VirtualMemFree events; the metric is the allocation Length so " +
@@ -62,7 +62,7 @@ public sealed class VirtualMemoryTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the VirtualAlloc-stack data.  Metric " +
         "is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO focus, callees " +
         "by bytes OUT.  PerfView equivalent: 'Callers' / 'Callees' tabs of VirtualAlloc Stacks.")]

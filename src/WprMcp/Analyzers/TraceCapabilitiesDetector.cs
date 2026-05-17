@@ -30,7 +30,7 @@ internal static class TraceCapabilitiesDetector
         bool hasClrGc = false, hasClrJit = false;
         bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
         bool hasNtHeap = false, hasMemoryProcessInfo = false, hasHandleEvents = false, hasPoolEvents = false;
-        bool hasCSwitchStacks = false, hasReadyThreadStacks = false;
+        bool hasCSwitchStacks = false, hasReadyThreadStacks = false, hasInterruptStacks = false;
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -106,8 +106,24 @@ internal static class TraceCapabilitiesDetector
                 hasStackWalks = true;
             }
         };
-        kernel.PerfInfoDPC += data => { hasInterrupt = true; MarkStackIfPresent(data); };
-        kernel.PerfInfoISR += data => { hasInterrupt = true; MarkStackIfPresent(data); };
+        kernel.PerfInfoDPC += data =>
+        {
+            hasInterrupt = true;
+            if (data.CallStackIndex() != CallStackIndex.Invalid)
+            {
+                hasInterruptStacks = true;
+                hasStackWalks = true;
+            }
+        };
+        kernel.PerfInfoISR += data =>
+        {
+            hasInterrupt = true;
+            if (data.CallStackIndex() != CallStackIndex.Invalid)
+            {
+                hasInterruptStacks = true;
+                hasStackWalks = true;
+            }
+        };
         kernel.ALPCSendMessage += data => { hasAlpc = true; MarkStackIfPresent(data); };
         kernel.ALPCReceiveMessage += data => { hasAlpc = true; MarkStackIfPresent(data); };
         kernel.ThreadStart += _ => hasThreadEvents = true;
@@ -165,6 +181,7 @@ internal static class TraceCapabilitiesDetector
             HasHandleEvents: hasHandleEvents,
             HasPoolEvents: hasPoolEvents,
             HasCSwitchStacks: hasCSwitchStacks,
-            HasReadyThreadStacks: hasReadyThreadStacks);
+            HasReadyThreadStacks: hasReadyThreadStacks,
+            HasInterruptStacks: hasInterruptStacks);
     }
 }

@@ -12,7 +12,7 @@ public sealed class HeapTools
     private readonly TraceCache _cache;
     public HeapTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by NT-heap allocation bytes (RtlAllocateHeap / HeapAlloc " +
         "/ malloc / new — anything that lands in the user-mode heap).  PerfView equivalent: " +
         "'HeapAllocStacks'.  The canonical native-leak-finder.  Distinct from " +
@@ -41,7 +41,7 @@ public sealed class HeapTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the NT-heap allocation stack source.  " +
         "Metric is heap-allocation bytes; top-N callers ranked by inclusive bytes flowing " +
         "INTO focus, callees by bytes OUT.")]

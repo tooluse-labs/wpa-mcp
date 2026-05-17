@@ -30,6 +30,16 @@ public static class WarningBuilder
         "dropped the keyword (or its <Stacks> element).";
 
     /// <summary>
+    /// Interrupt-specific stack warning. DPC/ISR events can exist without stack walks, which
+    /// makes driver attribution impossible even though interrupt timing is present.
+    /// </summary>
+    public static string MissingInterruptStacks(long noStackCount, long totalCount, long noStackUs, long totalUs)
+        => $"{noStackUs} of {totalUs} us across {noStackCount} of {totalCount} DPC/ISR events did not carry call stacks; " +
+           "interrupt_top_stacks will collapse those samples into the synthetic ?!? frame. " +
+           "Capture with stack walking enabled for PerfInfoDPC and PerfInfoISR to identify " +
+           "driver routines.";
+
+    /// <summary>
     /// "No CLR events of class X matched" — separate from <see cref="MissingKeyword"/> because
     /// the underlying provider is user-mode (Microsoft-Windows-DotNETRuntime), not a kernel
     /// keyword, and WPR profiles need an explicit &lt;EventCollectorId&gt; to capture it.

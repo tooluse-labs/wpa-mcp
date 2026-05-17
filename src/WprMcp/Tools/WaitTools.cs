@@ -12,7 +12,7 @@ public sealed class WaitTools
     private readonly TraceCache _cache;
     public WaitTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-thread blocked-time analysis — the canonical 'why was this slow' answer when CPU " +
         "usage is low and wall-clock is high.  PerfView equivalent: 'Thread Time' view, " +
         "blocked-time aggregated per thread.  Built from ThreadCSwitch wait→resume intervals: " +
@@ -34,7 +34,7 @@ public sealed class WaitTools
         return Analyzers.WaitAnalysis.Analyze(trace, top, pid, startUs, endUs);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by blocked microseconds — answers 'where in the code is the wait " +
         "happening' (vs wait_analysis which answers 'which thread / which kernel wait reason'). Built " +
         "from the resume-point stack walk on each ThreadCSwitch event, weighted by blocked time. " +
@@ -62,7 +62,7 @@ public sealed class WaitTools
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
     }
 
-    [McpServerTool, Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the wait-stack data. PerfView " +
         "equivalent: 'Callers' / 'Callees' tabs of Thread Time / Wait Time view. Metric is " +
         "blocked microseconds; top-N callers ranked by inclusive blocked μs flowing INTO focus, " +
