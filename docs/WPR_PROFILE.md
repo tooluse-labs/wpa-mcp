@@ -28,6 +28,16 @@ fresh captures should still use the `Pool` keyword.
 stack capture so the fixture can stay small. Use a stack-enabled profile when
 `virtual_alloc_top_stacks` call-chain evidence is required.
 
+For wait-stack fixture refreshes, use
+`tests/WprMcp.Tests/fixtures/WaitBoundCapture.wprp`. It enables:
+
+| Keyword | Used by |
+|---|---|
+| ProcessThread, Loader | process names and image metadata |
+| CSwitch | `wait_analysis`, `wait_top_stacks`, `cpu_precise_analysis` |
+| ReadyThread | `ready_thread_top_stacks` |
+| Stack on ThreadCreate, CSwitch, ReadyThread | positive-path stack evidence |
+
 For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault analysis).
 
 ## Capture commands
@@ -43,6 +53,22 @@ wpr.exe -start MemoryCapture.wprp!MemoryMcp -filemode
 # … workload …
 wpr.exe -stop my_memory_capture.etl
 ```
+
+```powershell
+wpr.exe -start WaitBoundCapture.wprp!WaitBoundMcp -filemode
+# … wait-heavy workload …
+wpr.exe -stop my_wait_capture.etl
+```
+
+For stack-capture sanity checks, use the debug CLI probe:
+
+```powershell
+dotnet run --project src\WprMcp -- --probe-stacks my_wait_capture.etl
+```
+
+It reports both explicit `StackWalkStack` events and event-attached
+`CallStackIndex` counts; the latter is what stack tools actually consume after
+some WPR/TraceEvent conversions.
 
 ## Trace size
 

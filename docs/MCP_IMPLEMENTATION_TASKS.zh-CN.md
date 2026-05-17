@@ -119,7 +119,7 @@
 
 - **状态：** 🚧 进行中。`diagnose_high_wait` 已在 v0.2.11 作为 preview diagnostic composite 发布，并在 v0.2.14 之前补齐结构化 evidence、provenance、无 root-cause 字段、时间窗一致调用、replayability metadata 和 LLM-facing schema description。
 - **优先顺序：**
-  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` —— preview 已发布。是否从 preview 晋级仍由 benchmark 闸门决定；当前剩余测试缺口是提交一份同时具备 CSwitch 与 StackWalk 的 wait-bound fixture，用真实 trace 覆盖 stack / ReadyThread evidence 正路径。
+  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` —— preview 已发布。真实 `small_wait_bound.etl` fixture 已覆盖 CSwitch、ReadyThread 和事件附带 stack evidence；是否从 preview 晋级仍由 benchmark 闸门决定。
   2. `diagnose_image_load_blocker`
   3. `diagnose_gc_pressure`
   4. `diagnose_trace_quality` —— 按维度返回结构化 verdict：capture coverage、symbol resolution、lost events、stackwalk completeness。每个维度包含 `status: "ok|warn|fail"`、reason、actionable next step。overall verdict 由各维度 status 推导，而不是自由文本。
@@ -231,7 +231,7 @@
 4. ✅ T0.5 建立度量基线。
 5. ✅ T0.6 增加 token-compact stack responses。
 6. ✅ T2.1 补 trace quality / system metadata。
-7. 🚧 T1.2 继续高频 composite tools。`diagnose_high_wait` 已作为 preview 完成；晋级前先补一份同时覆盖 CSwitch 与 StackWalk 的 wait-bound fixture，并用 T0.5 benchmark 对比 Layer-1-only baseline。下一批实现目标是 `diagnose_image_load_blocker`，然后是 `diagnose_gc_pressure` / `diagnose_trace_quality`。
+7. 🚧 T1.2 继续高频 composite tools。`diagnose_high_wait` 已作为 preview 完成，并已提交 CSwitch + ReadyThread + stack 的 wait-bound fixture；晋级前还需要用 T0.5 benchmark 对比 Layer-1-only baseline。下一批实现目标是 `diagnose_image_load_blocker`，然后是 `diagnose_gc_pressure` / `diagnose_trace_quality`。
 8. 只有 T0.5 显示 `inspect_trace` 不足时，才实现 T1.1 `list_applicable_tools`。
 9. ✅ T2.2 统一 ROI / time-window 语义。
 10. ✅ T2.3 / T2.4 已完成 CPU Precise / scheduler analysis 与 memory resource views。

@@ -27,6 +27,7 @@ public class CliRunnerTests
         Assert.True(CliRunner.IsCliInvocation(new[] { "--file-io-top-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--diagnose-slow-startup", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--find-marker", "x.etl", "Sample" }));
+        Assert.True(CliRunner.IsCliInvocation(new[] { "--probe-stacks", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--help" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "-h" }));
     }

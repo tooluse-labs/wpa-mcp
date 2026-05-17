@@ -46,6 +46,50 @@ After capture, shrink: `dotnet run --project tools/etlshrink -- small_cpu.etl sm
 
 Used by: SmokeTests, MetaToolsTests, CpuAnalysisTests, MarkerSearchTests, SymbolServiceTests, FileObjectResolverTests.
 
+## small_wait_bound.etl
+
+Captured with the custom profile `WaitBoundCapture.wprp` (this folder). This
+fixture is the positive-path wait-analysis trace: it contains CSwitch,
+ReadyThread, and event-attached call stacks for wait/ready stack tools.
+
+Run from Administrator PowerShell:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Capture-SmallWaitBound.ps1
+```
+
+The script starts `WaitBoundCapture.wprp!WaitBoundMcp`, launches several short
+PowerShell workers that alternate between sleeping and scheduler-heavy CPU work,
+then stops WPR to `small_wait_bound.etl`. During stop, WPR may print
+`Press Ctrl+C to cancel`; do not press Ctrl+C while it merges the trace.
+
+After capture, shrink with:
+
+```powershell
+dotnet run --project tools\etlshrink -- tests\WprMcp.Tests\fixtures\small_wait_bound.etl tests\WprMcp.Tests\fixtures\small_wait_bound.shrunk.etl 500
+```
+
+Then replace `small_wait_bound.etl` with the shrunk candidate after verifying
+`inspect_trace` reports CSwitch, ReadyThread, and stack coverage, and
+`wait_top_stacks` / `ready_thread_top_stacks` return rows for the captured
+PowerShell process. Current committed size: ~8 MB at 500 ms cut.
+
+Use the debug stack probe as the independent TraceEvent cross-check before
+trusting capability output:
+
+```powershell
+dotnet run --project src\WprMcp -- --probe-stacks tests\WprMcp.Tests\fixtures\small_wait_bound.etl
+```
+
+For this fixture, the expected shape is `ExplicitStackWalkEvents = 0` and
+`EventsWithCallStacks > 0`: WPR/TraceEvent preserved usable stacks as event
+`CallStackIndex` values, not as separate StackWalk rows. `CSwitchEvents`,
+`CSwitchEventsWithCallStacks`, `ReadyThreadEvents`, and
+`ReadyThreadEventsWithCallStacks` must all be positive.
+
+Used by: WaitBoundFixtureTests and positive-path `diagnose_high_wait` stack
+evidence tests.
+
 ## small_fileio.etl
 
 Captured with: `wpr.exe -start FileIO -filemode` for ~5 seconds while running

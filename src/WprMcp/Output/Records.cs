@@ -60,6 +60,22 @@ public sealed record TraceStackwalkSummary(
     long EventsWithCallStacks,
     double? EventStackCoveragePct);
 
+public sealed record StackProbeResponse(
+    string Path,
+    long EventCount,
+    long ExplicitStackWalkEvents,
+    long EventsWithCallStacks,
+    double? EventStackCoveragePct,
+    long CSwitchEvents,
+    long CSwitchEventsWithCallStacks,
+    double? CSwitchStackCoveragePct,
+    long ReadyThreadEvents,
+    long ReadyThreadEventsWithCallStacks,
+    double? ReadyThreadStackCoveragePct,
+    bool HasExplicitStackWalkEvents,
+    bool HasUsableEventStacks,
+    IReadOnlyList<string> Notes);
+
 public sealed record ProviderEventCountSummary(
     int TotalProviderCount,
     long TotalEventCount,
@@ -146,7 +162,9 @@ public sealed record TraceCapabilities(
     bool HasNtHeap,
     bool HasMemoryProcessInfo,
     bool HasHandleEvents,
-    bool HasPoolEvents);
+    bool HasPoolEvents,
+    bool HasCSwitchStacks = false,
+    bool HasReadyThreadStacks = false);
 
 public sealed record ProcessRow(
     int Pid,

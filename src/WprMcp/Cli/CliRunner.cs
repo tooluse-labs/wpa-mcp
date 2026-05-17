@@ -12,10 +12,10 @@ namespace WprMcp.Cli;
 //   2. CI smoke tests that exercise the analyzer code path
 //   3. Quick local debugging on a real .etl
 //
-// Every verb here corresponds to a single MCP tool method; the JSON output is the
-// MCP response shape verbatim. If you find yourself adding non-tool features here
-// (interactive prompts, multi-step wizards, etc.), that work probably belongs in
-// the MCP layer instead.
+// Most verbs here correspond to a single MCP tool method; debug probes are allowed
+// when they are explicitly for validating the analyzers or fixture capture pipeline.
+// If you find yourself adding interactive prompts, multi-step wizards, or stable user
+// workflows here, that work probably belongs in the MCP layer instead.
 public static class CliRunner
 {
     private static readonly Dictionary<string, Func<string[], int>> Verbs = new(StringComparer.Ordinal)
@@ -41,6 +41,7 @@ public static class CliRunner
         ["--disk-io-caller-callee"] = RunDiskIoCallerCallee,
         ["--diagnose-slow-startup"] = RunDiagnoseSlowStartup,
         ["--find-marker"] = RunFindMarker,
+        ["--probe-stacks"] = RunProbeStacks,
     };
 
     public static int Run(string[] args)
@@ -292,6 +293,20 @@ public static class CliRunner
         return 0;
     }
 
+    private static int RunProbeStacks(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --probe-stacks <trace.etl>");
+            return 2;
+        }
+
+        var cache = new TraceCache(capacity: 1);
+        var trace = cache.Get(args[1]);
+        Emit(StackProbeAnalysis.Analyze(trace, args[1]));
+        return 0;
+    }
+
     private static void Emit<T>(T value)
     {
         var opts = new JsonSerializerOptions { WriteIndented = true };
@@ -325,6 +340,7 @@ public static class CliRunner
         w.WriteLine("  --file-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --diagnose-slow-startup <trace.etl> [nameSubstring] [minWaitRatio=3.0]");
         w.WriteLine("  --find-marker           <trace.etl> <substring> [mode=count_by_event|count_by_process|rows] [top=50]");
+        w.WriteLine("  --probe-stacks          <trace.etl> (debug: explicit StackWalk vs event CallStackIndex)");
         w.WriteLine();
         w.WriteLine("All verbs emit JSON to stdout, log progress to stderr, and exit 0 on success.");
         w.WriteLine("Run with no args (or no recognized verb) to see this help. --version for build info.");

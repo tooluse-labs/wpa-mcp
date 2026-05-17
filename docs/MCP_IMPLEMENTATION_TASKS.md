@@ -119,7 +119,7 @@
 
 - **Status:** 🚧 In progress. `diagnose_high_wait` shipped as a preview diagnostic composite in v0.2.11 and was hardened through v0.2.14 with structured evidence, provenance, no root-cause field, window-consistent calls, replayability metadata, and LLM-facing schema descriptions.
 - **Priority order:**
-  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` — preview shipped. Promotion from preview remains benchmark-gated, and the remaining test gap is a committed wait-bound fixture with both CSwitch and StackWalk events to exercise stack / ReadyThread evidence on a real trace.
+  1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` — preview shipped. The real `small_wait_bound.etl` fixture now covers CSwitch, ReadyThread, and event-attached stack evidence; promotion from preview remains benchmark-gated.
   2. `diagnose_image_load_blocker`
   3. `diagnose_gc_pressure`
   4. `diagnose_trace_quality` — returns a structured verdict per dimension: capture coverage, symbol resolution, lost events, and stackwalk completeness. Each dimension carries `status: "ok|warn|fail"`, reason, and actionable next step. The overall verdict is derived from the dimension statuses, not free text.
@@ -231,7 +231,7 @@
 4. ✅ T0.5 establish the measurement baseline.
 5. ✅ T0.6 add token-compact stack responses.
 6. ✅ T2.1 add trace quality / system metadata.
-7. 🚧 T1.2 continue high-frequency composites. `diagnose_high_wait` is complete as a preview; before promotion, add a committed wait-bound fixture with both CSwitch and StackWalk coverage, then run the T0.5 benchmark against the Layer-1-only baseline. Next implementation targets are `diagnose_image_load_blocker`, then `diagnose_gc_pressure` / `diagnose_trace_quality`.
+7. 🚧 T1.2 continue high-frequency composites. `diagnose_high_wait` is complete as a preview and now has a committed CSwitch + ReadyThread + stack wait-bound fixture; before promotion, run the T0.5 benchmark against the Layer-1-only baseline. Next implementation targets are `diagnose_image_load_blocker`, then `diagnose_gc_pressure` / `diagnose_trace_quality`.
 8. T1.1 implement `list_applicable_tools` only if T0.5 shows `inspect_trace` is insufficient.
 9. ✅ T2.2 unify ROI / time-window semantics.
 10. ✅ T2.3 and T2.4 completed CPU Precise / scheduler analysis and memory resource views.

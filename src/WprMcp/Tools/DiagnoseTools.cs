@@ -357,11 +357,20 @@ public sealed class DiagnoseTools
                 RelatedCallId: waitCallId));
         }
 
-        if (!capabilities.HasStackWalks)
+        if (capabilities.HasCSwitch && !capabilities.HasCSwitchStacks)
         {
             notConcluded.Add(new CompositeNotConcluded(
                 Code: "missing_stackwalks",
-                Reason: "StackWalk events were not observed; evidence stops at process, thread, and wait-reason level and does not claim a code path.",
+                Reason: "CSwitch events were observed, but they did not carry call stacks; evidence stops at process, thread, and wait-reason level and does not claim a code path.",
+                Pid: pid,
+                BlockingCapability: nameof(TraceCapabilities.HasCSwitchStacks),
+                RelatedCallId: waitCallId));
+        }
+        else if (!capabilities.HasStackWalks)
+        {
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: "missing_stackwalks",
+                Reason: "No usable stack data was observed; evidence stops at process, thread, and wait-reason level and does not claim a code path.",
                 Pid: pid,
                 BlockingCapability: nameof(TraceCapabilities.HasStackWalks),
                 RelatedCallId: waitCallId));
@@ -397,7 +406,7 @@ public sealed class DiagnoseTools
             }
 
             string? waitStacksCallId = null;
-            if (capabilities.HasCSwitch && capabilities.HasStackWalks)
+            if (capabilities.HasCSwitch && capabilities.HasCSwitchStacks)
             {
                 waitStacksCallId = $"high-wait.pid-{candidate.Pid}.wait_top_stacks";
                 var effectiveTopStacks = StackResponseOptions.EffectiveTop(
@@ -464,13 +473,13 @@ public sealed class DiagnoseTools
                         ObservedPct: schedulerWaitPct,
                         ThresholdPct: ReadyThreadSchedulerThresholdPct));
                 }
-                else if (!capabilities.HasStackWalks)
+                else if (!capabilities.HasReadyThreadStacks)
                 {
                     notConcluded.Add(new CompositeNotConcluded(
                         Code: "ready_thread_skipped_missing_stackwalks",
-                        Reason: "Scheduler-dispatch wait reasons were present, but missing StackWalk events prevent ReadyThread call-path evidence.",
+                        Reason: "Scheduler-dispatch wait reasons and ReadyThread events were present, but ReadyThread events did not carry call stacks.",
                         Pid: candidate.Pid,
-                        BlockingCapability: nameof(TraceCapabilities.HasStackWalks),
+                        BlockingCapability: nameof(TraceCapabilities.HasReadyThreadStacks),
                         RelatedCallId: waitCallId,
                         MetricName: "schedulerWaitBlockedPct",
                         MetricValue: schedulerWaitPct,
@@ -552,7 +561,7 @@ public sealed class DiagnoseTools
                 SummaryOnly: null,
                 TestsHypothesis: "Verify whether this candidate's blocked time is concentrated in specific threads or wait reasons."));
 
-            if (capabilities.HasCSwitch && capabilities.HasStackWalks)
+            if (capabilities.HasCSwitch && capabilities.HasCSwitchStacks)
             {
                 nextTools.Add(new CompositeNextTool(
                     ToolName: "wait_top_stacks",
@@ -566,7 +575,7 @@ public sealed class DiagnoseTools
                     TestsHypothesis: "Verify whether blocked time maps to a specific code path or is spread across unrelated waits."));
             }
 
-            if (shouldRunReadyThread && capabilities.HasReadyThread && capabilities.HasStackWalks)
+            if (shouldRunReadyThread && capabilities.HasReadyThread && capabilities.HasReadyThreadStacks)
             {
                 nextTools.Add(new CompositeNextTool(
                     ToolName: "ready_thread_top_stacks",

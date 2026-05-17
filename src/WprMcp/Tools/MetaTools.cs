@@ -182,6 +182,26 @@ public sealed class MetaTools
 
         AddMissingCapabilityWarning(
             warnings,
+            !capabilities.HasCSwitch || capabilities.HasCSwitchStacks,
+            "missing_cswitch_stacks",
+            "warn",
+            "CSwitch events were observed, but they did not carry call stacks.",
+            "Recapture with stack walking enabled for CSwitch before using wait stack analysis.",
+            WaitStackToolNames,
+            HighWaitCompositeToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            !capabilities.HasReadyThread || capabilities.HasReadyThreadStacks,
+            "missing_ready_thread_stacks",
+            "warn",
+            "ReadyThread events were observed, but they did not carry call stacks.",
+            "Recapture with stack walking enabled for ReadyThread before using ready-thread stack analysis.",
+            ReadyThreadStackToolNames,
+            HighWaitCompositeToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
             capabilities.HasFileIo,
             "missing_file_io",
             "info",
@@ -311,8 +331,11 @@ public sealed class MetaTools
             recommendations.Add(("wait_analysis", "Context switch events are present; identify blocked threads and dominant wait reasons.", ["wait"]));
         }
 
-        if (capabilities.HasCSwitch && capabilities.HasStackWalks)
+        if (capabilities.HasCSwitch && capabilities.HasCSwitchStacks)
             recommendations.Add(("wait_top_stacks", "Context switches and stack walks are present; drill into where blocked time resumes.", ["wait", "stacks"]));
+
+        if (capabilities.HasReadyThread && capabilities.HasReadyThreadStacks)
+            recommendations.Add(("ready_thread_top_stacks", "ReadyThread events and stack walks are present; inspect who woke target threads.", ["wait", "scheduler", "stacks"]));
 
         if (capabilities.HasImageLoad)
             recommendations.Add(("image_load_top_gaps", "Image load events are present; rank loader gaps for startup and DLL-load investigations.", ["startup", "image_load"]));
@@ -411,6 +434,18 @@ public sealed class MetaTools
         "wait_top_stacks",
         "wait_caller_callee",
         "wait_analysis",
+        "ready_thread_top_stacks",
+        "ready_thread_caller_callee",
+    ];
+
+    private static readonly string[] WaitStackToolNames =
+    [
+        "wait_top_stacks",
+        "wait_caller_callee",
+    ];
+
+    private static readonly string[] ReadyThreadStackToolNames =
+    [
         "ready_thread_top_stacks",
         "ready_thread_caller_callee",
     ];

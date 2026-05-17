@@ -165,6 +165,32 @@ public sealed class InspectTraceTests
     }
 
     [Fact]
+    public void BuildTraceQualityWarnings_ReportsWaitStackGapsPerEventFamily()
+    {
+        var capabilities = AllCapabilities() with
+        {
+            HasStackWalks = true,
+            HasCSwitch = true,
+            HasCSwitchStacks = false,
+            HasReadyThread = true,
+            HasReadyThreadStacks = false,
+        };
+
+        var warnings = MetaTools.BuildTraceQualityWarnings(
+            eventsLost: 0,
+            capabilities: capabilities,
+            symbolQuality: GoodSymbolQuality());
+
+        Assert.DoesNotContain(warnings, w => w.Code == "missing_stackwalks");
+        Assert.Contains(warnings, w => w.Code == "missing_cswitch_stacks"
+                                      && w.AffectedTools.Contains("wait_top_stacks")
+                                      && w.DegradedTools.Contains("diagnose_high_wait"));
+        Assert.Contains(warnings, w => w.Code == "missing_ready_thread_stacks"
+                                      && w.AffectedTools.Contains("ready_thread_top_stacks")
+                                      && w.DegradedTools.Contains("diagnose_high_wait"));
+    }
+
+    [Fact]
     public void BuildTraceQualityWarnings_TreatsJitAndExceptionsAsClrRuntimeSignals()
     {
         var noClr = AllCapabilities() with
@@ -251,6 +277,25 @@ public sealed class InspectTraceTests
     }
 
     [Fact]
+    public void BuildCapabilitySupportedTools_RequiresWaitEventStacksForStackTools()
+    {
+        var capabilities = AllCapabilities() with
+        {
+            HasStackWalks = true,
+            HasCSwitch = true,
+            HasCSwitchStacks = false,
+            HasReadyThread = true,
+            HasReadyThreadStacks = false,
+        };
+
+        var recommendations = MetaTools.BuildCapabilitySupportedTools(capabilities);
+
+        Assert.Contains(recommendations, r => r.ToolName == "wait_analysis");
+        Assert.DoesNotContain(recommendations, r => r.ToolName == "wait_top_stacks");
+        Assert.DoesNotContain(recommendations, r => r.ToolName == "ready_thread_top_stacks");
+    }
+
+    [Fact]
     public void BuildTraceQualityWarnings_ReportsMissingMemoryResourceSignals()
     {
         var capabilities = AllCapabilities() with
@@ -334,5 +379,7 @@ public sealed class InspectTraceTests
             HasNtHeap: true,
             HasMemoryProcessInfo: true,
             HasHandleEvents: true,
-            HasPoolEvents: true);
+            HasPoolEvents: true,
+            HasCSwitchStacks: true,
+            HasReadyThreadStacks: true);
 }
