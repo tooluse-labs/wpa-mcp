@@ -14,7 +14,7 @@
 
 ---
 
-A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, wait, image-load, file / disk / mmap I/O — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
+A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, scheduler waits, image-loads, file / disk / mmap / network I/O, registry, memory resources, and CLR runtime events — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
 
 > **Status — PoC.** Broad MCP tool surface live. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
@@ -38,21 +38,22 @@ Once installed ([one-liner below](#install)), ask the agent in plain language an
  instant.  Response includes a Capabilities map so you know upfront which
  keywords are present in the trace.)
 
-> Which processes have the highest wait ratio?
-(list_processes orderBy=wait_ratio — trace-resident processes auto-filtered out)
+> Inspect the trace and tell me what it can answer.
+(inspect_trace — capability flags, quality warnings, symbol health, and applicable tools)
+
+> Diagnose high wait in PID <X> between <t0> and <t1>.
+(diagnose_high_wait — one window-consistent call with candidates, evidence,
+ not-concluded reasons, executed-call provenance, and next tools)
 
 > For parent PID <X>, what was each fork's kernel-side gap?
 (process_create_timing — one call gives kernel-window distribution across all
  children of one parent)
 
-> Top wait stacks for PID <X> between <t0> and <t1>, with 20-bucket histogram
-(wait_top_stacks — shows the Filter Manager / driver chain blocking the thread)
-
-> Drill into "<frame!?>": who calls it?
+> Drill into one of the top wait frames from the evidence: who calls it?
 (wait_caller_callee — caller / callee neighbours of the focus frame)
 ```
 
-The same pattern works for CPU (`cpu_top_functions` → `cpu_caller_callee`), file / disk / mmap I/O, image loads, etc.  Each "top" view has a matching "caller-callee" drill-down that takes a focus frame.
+The same pattern works for stack-oriented domains such as CPU (`cpu_top_functions` → `cpu_caller_callee`), file / disk / mmap I/O, image loads, CLR allocation / exception / contention events, network, and registry. Non-stack domains such as memory-resource snapshots and lifecycle timing have their own rows in the tool table below.
 
 For an end-to-end walkthrough — symptoms, tool chain, evidence, root cause, recommendations — see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md).
 
@@ -80,12 +81,12 @@ Forward extra flags through the one-liner:
 
 ```powershell
 # PowerShell — pin tag, force a single client, set custom symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.13 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.14 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash — flags after `bash -s --` go to install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.13
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.14
 ```
 
 ### Uninstall (one-liner, symmetric)
@@ -162,7 +163,7 @@ dotnet build -c Release
 Smoke-check:
 
 ```powershell
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # prints "WprMcp 0.1.0-poc"
+dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # prints "WprMcp 0.2.14"
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
@@ -213,13 +214,17 @@ The MCP surface covers multiple ETW analysis domains.  All built on the same `Mi
 * **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work in PerfView.
 * **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
 
+### Design philosophy
+
+wpa-mcp is built to **avoid misleading the model without limiting what the model can infer**. The orientation and diagnostic layers (`load_trace`, `inspect_trace`, `diagnose_high_wait`, `diagnose_slow_startup`) expose capabilities, quality gaps, provenance, and next tools instead of compressing analysis into unsupported root-cause claims. Layer-1 tools stay close to PerfView-style rows and stacks; interpret empty Layer-1 results against `load_trace` / `inspect_trace` capability signals. Diagnostic composites shorten the call path, but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`, so an LLM can continue the investigation instead of accepting a hidden verdict.
+
 ### Pattern
 
 **Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`, `HasVirtualAlloc`, `HasNetIo`, `HasNetConnections`, `HasRegistry`, `HasReadyThread`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`, `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`, `HasNtHeap`, `HasMemoryProcessInfo`, `HasHandleEvents`, `HasPoolEvents`). Every other tool's behaviour depends on those keywords.
 
 If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_high_wait` and `diagnose_slow_startup` before manually stitching Layer-1 calls together; their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
 
-Most groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
+Many stack-oriented groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
 
 In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI; entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** use raw events that PerfView's Events view exposes but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. Most remaining tools are 1:1 mappings of PerfView views.
 
@@ -238,6 +243,7 @@ Tools without `startUs` / `endUs` are intentionally scoped differently and say s
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
+| **`inspect_trace`** | One-shot orientation: capture capabilities, system metadata, provider counts, stackwalk completeness, symbol quality, quality warnings, and capability-supported next-tool hints. Use when the capture profile or investigation path is unclear. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
 | `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
 | `process_create_timing` | Per-fork timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |

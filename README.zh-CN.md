@@ -14,7 +14,7 @@
 
 ---
 
-一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、wait、image-load、文件 / 磁盘 / mmap I/O——开放给任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
+一个 C# 实现的 MCP server，把 Windows ETW（`.etl`）trace 分析能力——CPU、scheduler wait、image-load、文件 / 磁盘 / mmap / 网络 I/O、注册表、内存资源、CLR runtime 事件——开放给任意 MCP-兼容客户端（Claude Code、Claude Desktop、Codex、Cursor）。设计上**不绑定特定领域**：任何 Windows trace 都能用，常见用途是排查应用启动慢、子进程 fork 延迟、AV 杀毒拖慢系统、磁盘瓶颈回归等。
 
 > **状态——PoC。** MCP 工具面已覆盖多个 ETW 分析域。仅限 Windows（TraceEvent 内核 parser 不可移植）。Apache-2.0。
 
@@ -37,20 +37,21 @@
 （load_trace；首次 30 秒~3 分钟构建 .etlx 索引；后续命中缓存。返回值带
  Capabilities map，让你提前知道这份 trace 里有哪些 keyword。）
 
-> 哪些进程的 wait ratio 最高？
-（list_processes orderBy=wait_ratio——trace-resident 进程会自动过滤掉）
+> 看一下这份 trace 能回答什么问题。
+（inspect_trace——capability flags、quality warnings、symbol health、适用工具提示）
+
+> 诊断 PID <X> 在 <t0> 到 <t1> 的 high wait。
+（diagnose_high_wait——同一时间窗的一次调用，返回 candidates、evidence、
+ not-concluded reasons、executed-call provenance 和 next tools）
 
 > 父 PID <X> 下，每次 fork 的 kernel-side gap 是多少？
 （process_create_timing——一个调用给出该父进程所有子进程的内核窗口分布）
 
-> PID <X> 在 <t0> 到 <t1> 之间的 top wait 栈，附 20 个桶的直方图
-（wait_top_stacks——展示 Filter Manager / driver 链如何阻塞线程）
-
-> 钻进 "<frame!?>"：谁调用了它？
+> 钻进 evidence 里的某个 top wait frame：谁调用了它？
 （wait_caller_callee——focus frame 的 caller / callee 邻居）
 ```
 
-CPU（`cpu_top_functions` → `cpu_caller_callee`）、文件 / 磁盘 / mmap I/O、image load 等都遵循同样模式。每个 "top" 视图都有匹配的 "caller-callee" 钻取。
+CPU（`cpu_top_functions` → `cpu_caller_callee`）、文件 / 磁盘 / mmap I/O、image load、CLR allocation / exception / contention、网络、注册表这类有 stack view 的域都遵循同样模式。内存资源快照、生命周期 timing 等非栈类工具在下面的工具表里单独说明。
 
 完整端到端走查（症状 → 工具链 → 证据 → 根因 → 改进建议）见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）。
 
@@ -78,12 +79,12 @@ curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/i
 
 ```powershell
 # PowerShell——指定 tag、限定客户端、自定义 symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.13 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.14 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash——`bash -s --` 后面的 flag 会传给 install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.13
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.14
 ```
 
 ### 卸载（一行命令，对称）
@@ -160,7 +161,7 @@ dotnet build -c Release
 冒烟测试：
 
 ```powershell
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # 输出 "WprMcp 0.1.0-poc"
+dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # 输出 "WprMcp 0.2.14"
 dotnet test                                                   # 跑 xUnit 套件（需要 fixture，见 CONTRIBUTING.md）
 ```
 
@@ -212,13 +213,17 @@ MCP 工具面覆盖多个 ETW 分析域。底层全部基于 PerfView 同款的 
 * **Capabilities-aware**：每个工具"返回不出数据"的状态都对应到 `load_trace` 的 `Capabilities` map 里某个 keyword bit——不再需要在 PerfView 里"侦探式"排查"这个视图为什么是空"。
 * **per-trace symbol 推荐**：`load_trace` 扫描 trace 里出现的模块、推荐应加哪些 symbol server。在 PerfView 里这要靠用户自己摸索。
 
+### 设计理念
+
+wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理和发挥能力**。`load_trace`、`inspect_trace`、`diagnose_high_wait`、`diagnose_slow_startup` 这一层 orientation / diagnostic 工具会暴露 capability、quality gap、调用 provenance 和 next tools，而不是把分析压缩成没有证据支撑的 root-cause 结论。Layer-1 工具则保持接近 PerfView 的 rows / stacks 输出；解读 Layer-1 空结果时，应结合 `load_trace` / `inspect_trace` 的 capability 信号。诊断 composite 只是压缩调用路径，不压缩证据链；`Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 会保留下游 LLM 继续调查所需的上下文，而不是让它接受一个隐藏 verdict。
+
 ### 调用 pattern
 
 **永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map——按 keyword 列出"有没有"的检查（`HasCpuSamples`、`HasCSwitch`、`HasFileIo`、`HasDiskIo`、`HasImageLoad`、`HasHardFaults`、`HasStackWalks`、`HasVirtualAlloc`、`HasNetIo`、`HasNetConnections`、`HasRegistry`、`HasReadyThread`、`HasInterrupt`、`HasAlpc`、`HasThreadEvents`、`HasClrGc`、`HasClrJit`、`HasClrAlloc`、`HasClrException`、`HasClrContention`、`HasNtHeap`、`HasMemoryProcessInfo`、`HasHandleEvents`、`HasPoolEvents`）。其他每个工具的行为都依赖这些 keyword。
 
 如果不确定 capture profile 覆盖了什么，或者下一步调查路径不清楚，接着调 `inspect_trace`。常见 workflow 优先用 `diagnose_high_wait`、`diagnose_slow_startup` 这类 composite，不要一开始就手工拼 Layer-1 调用；它们的 `Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 会说明跑了什么、哪些结论不能下、下一步该往哪里钻。
 
-大多数工具组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" / "Callees" tab 一致。
+很多 stack-oriented 工具组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" / "Callees" tab 一致。
 
 下面的表格里 "PerfView 对应" 列指 PerfView GUI 中的对应视图；标 **[复合]** 的把多个 PerfView 视图打包成一次调用，标 **[手动过滤]** 的用 PerfView Events 视图能看到但没预聚合的原始事件，标 **[程序化]** 的用结构化 JSON 替代 GUI 对话框。其余大多数工具是 PerfView 视图的 1:1 映射。
 
@@ -227,6 +232,7 @@ MCP 工具面覆盖多个 ETW 分析域。底层全部基于 PerfView 同款的 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
+| **`inspect_trace`** | 一次性 orientation：capture capabilities、system metadata、provider counts、stackwalk completeness、symbol quality、quality warnings、以及 capability-supported next-tool hints。capture profile 或调查路径不清楚时先用它。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
 | `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 找出"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
 | `process_create_timing` | 给定父 PID，列出每次 fork。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
 | `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | **[手动过滤]**——Events 视图，过滤 `Thread/Start` + `Thread/Stop` 后手动配对 |

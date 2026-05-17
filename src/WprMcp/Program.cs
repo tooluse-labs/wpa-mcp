@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +13,13 @@ public static class Program
     {
         if (args.Length == 1 && args[0] == "--version")
         {
-            Console.WriteLine("WprMcp 0.1.0-poc");
+            var version = typeof(Program).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion
+                ?? typeof(Program).Assembly.GetName().Version?.ToString()
+                ?? "unknown";
+
+            Console.WriteLine($"WprMcp {version}");
             return 0;
         }
 
