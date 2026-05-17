@@ -14,11 +14,11 @@
 
 ---
 
-A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, scheduler waits, image-loads, file / disk / mmap / network I/O, registry, memory resources, and CLR runtime events — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; commonly used to debug app startup, slow forks, AV-induced stalls, and disk-bound regressions.
+A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, scheduler waits, image loads, file / disk / mmap / network I/O, registry, memory resources, and CLR runtime events — over any MCP-compatible client (Claude Code, Claude Desktop, Codex, Cursor). Domain-neutral: works on any Windows trace; common uses include diagnosing app startup, slow process creation, AV / EDR-induced stalls, and disk-bound regressions.
 
-> **Status — PoC.** Broad MCP tool surface live. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
+> **Status — PoC.** Broad MCP tool surface available. Windows-only (TraceEvent kernel parsers are not portable). Apache-2.0.
 
-> **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, root-caused via wpa-mcp's tools to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`.  Reproduced independently by two different LLM agents on the same trace.
+> **See it in action:** [a real investigation](docs/CASE_STUDIES.md) — process creation 50× slower than baseline, traced to multiple EDR stacks colliding on `PsSetCreateProcessNotifyRoutineEx`. Reproduced independently by two LLM agents on the same trace.
 
 ---
 
@@ -27,33 +27,34 @@ A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, sched
 <!-- Animated demo. Drop the recorded GIF at assets/quickstart-demo.gif and it
      will render here. Recording recipe: assets/quickstart-demo-recording.md -->
 <p align="center">
-  <img src="assets/quickstart-demo.gif" alt="wpa-mcp Quickstart demo — load a trace, find slow processes, drill into a fork burst" width="800">
+  <img src="assets/quickstart-demo.gif" alt="wpa-mcp Quickstart demo — load a trace, find slow processes, drill into a process-creation burst" width="800">
 </p>
 
 Once installed ([one-liner below](#install)), ask the agent in plain language and it picks the matching tools:
 
 ```
 > Load this trace: C:\path\to\trace.etl
-(load_trace; first call 30 s – 3 min as .etlx index is built; subsequent are
- instant.  Response includes a Capabilities map so you know upfront which
- keywords are present in the trace.)
+(load_trace — first call takes 30 s – 3 min while the .etlx index is built;
+ subsequent calls are instant. Returns trace metadata plus a Capabilities map
+ listing which ETW keywords are present.)
 
 > Inspect the trace and tell me what it can answer.
-(inspect_trace — capability flags, quality warnings, symbol health, and applicable tools)
+(inspect_trace — capability flags, quality warnings, symbol health, and
+ applicable next tools)
 
 > Diagnose high wait in PID <X> between <t0> and <t1>.
-(diagnose_high_wait — one window-consistent call with candidates, evidence,
- not-concluded reasons, executed-call provenance, and next tools)
+(diagnose_high_wait — one window-consistent call returning candidates,
+ evidence, not-concluded reasons, executed-call provenance, and next tools)
 
-> For parent PID <X>, what was each fork's kernel-side gap?
-(process_create_timing — one call gives kernel-window distribution across all
- children of one parent)
+> For parent PID <X>, what was each child's kernel-side gap?
+(process_create_timing — one call gives the kernel-window distribution across
+ every child of one parent)
 
 > Drill into one of the top wait frames from the evidence: who calls it?
-(wait_caller_callee — caller / callee neighbours of the focus frame)
+(wait_caller_callee — caller / callee neighbors of the focus frame)
 ```
 
-The same pattern works for stack-oriented domains such as CPU (`cpu_top_functions` → `cpu_caller_callee`), file / disk / mmap I/O, image loads, CLR allocation / exception / contention events, network, and registry. Non-stack domains such as memory-resource snapshots and lifecycle timing have their own rows in the tool table below.
+The same `summary → stacks → caller/callee` pattern works across stack-oriented domains — CPU (`cpu_top_functions` → `cpu_caller_callee`), file / disk / mmap I/O, image loads, CLR allocation / exception / contention, network, registry. Lifecycle and resource tools that don't fit a stack shape (memory resource snapshots, thread lifetime, process creation) have their own rows in the tables below.
 
 For an end-to-end walkthrough — symptoms, tool chain, evidence, root cause, recommendations — see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md).
 
@@ -205,38 +206,49 @@ claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symb
 
 ## Tools
 
-The MCP surface covers multiple ETW analysis domains.  All built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses, so the underlying analysis quality is identical — what changes is the surface (stdio MCP + JSON instead of a Windows GUI) and the addition of composite tools that package multi-step PerfView workflows into one call.
+The MCP surface covers multiple ETW analysis domains, all built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses — analysis quality matches PerfView. What changes is the surface (stdio MCP + JSON instead of a Windows GUI) plus a small set of composite tools that fold multi-step PerfView workflows into a single call.
 
 ### What wpa-mcp adds vs PerfView
 
-* **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into a CI / regression script.
-* **Composite tools.** `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` package multi-step PerfView workflows into one call.
-* **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work in PerfView.
+* **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into CI / regression scripts.
+* **Composite tools.** `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
+* **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work.
 * **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
 
 ### Design philosophy
 
-wpa-mcp is built to **avoid misleading the model without limiting what the model can infer**. The orientation and diagnostic layers (`load_trace`, `inspect_trace`, `diagnose_high_wait`, `diagnose_slow_startup`) expose capabilities, quality gaps, provenance, and next tools instead of compressing analysis into unsupported root-cause claims. Layer-1 tools stay close to PerfView-style rows and stacks; interpret empty Layer-1 results against `load_trace` / `inspect_trace` capability signals. Diagnostic composites shorten the call path, but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`, so an LLM can continue the investigation instead of accepting a hidden verdict.
+wpa-mcp is built to **avoid misleading the model without constraining what the model can infer**.
 
-### Pattern
+* **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, quality gaps, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
+* **Diagnostic composites** (`diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
+* **Per-domain row and stack tools** stay close to the PerfView shape. When they return empty, the capability signals from `load_trace` / `inspect_trace` distinguish "the data isn't in this trace" from "no work matched the query".
 
-**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map — a per-keyword presence check (`HasCpuSamples`, `HasCSwitch`, `HasFileIo`, `HasDiskIo`, `HasImageLoad`, `HasHardFaults`, `HasStackWalks`, `HasVirtualAlloc`, `HasNetIo`, `HasNetConnections`, `HasRegistry`, `HasReadyThread`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`, `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`, `HasNtHeap`, `HasMemoryProcessInfo`, `HasHandleEvents`, `HasPoolEvents`). Every other tool's behaviour depends on those keywords.
+### Usage pattern
 
-If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_high_wait` and `diagnose_slow_startup` before manually stitching Layer-1 calls together; their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
+**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map showing which ETW keywords are present. Every other tool's behavior depends on those keywords. The map covers:
 
-Many stack-oriented groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbours weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
+* **CPU sampling and scheduling** — `HasCpuSamples`, `HasCSwitch`, `HasReadyThread`, `HasStackWalks`
+* **File / disk / mmap I/O and loader** — `HasFileIo`, `HasDiskIo`, `HasHardFaults`, `HasImageLoad`
+* **Memory** — `HasVirtualAlloc`, `HasNtHeap`, `HasMemoryProcessInfo`, `HasHandleEvents`, `HasPoolEvents`
+* **Network** — `HasNetIo`, `HasNetConnections`
+* **Kernel infrastructure** — `HasRegistry`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`
+* **CLR runtime** — `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`
 
-In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI; entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** use raw events that PerfView's Events view exposes but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. Most remaining tools are 1:1 mappings of PerfView views.
+If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_high_wait` and `diagnose_slow_startup` before manually stitching individual calls together — their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
+
+Most stack-oriented groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbors weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
+
+In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI. Entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** expose raw events that PerfView's Events view shows but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. Most other tools are 1:1 mappings of PerfView views.
 
 ### Time-window semantics
 
 Tools that accept `startUs` and `endUs` use a half-open interval: an event is included only when `startUs <= timestamp < endUs`. A null boundary means the trace start or trace end respectively.
 
-Tools without `startUs` / `endUs` are intentionally scoped differently and say so in their MCP description:
+Tools without `startUs` / `endUs` operate on intentionally different scopes; each tool's MCP description states which:
 
-* **Whole-trace orientation/configuration:** `load_trace`, `inspect_trace`, `list_processes`, `find_marker`, `diagnose_symbols`, `set_symbol_path`, `add_symbol_server`.
-* **Lifecycle views:** `process_create_timing`, `thread_lifetime`, `image_load_timing`, `image_load_top_gaps`, and `diagnose_slow_startup` use process-start or lifecycle-relative windows instead of an arbitrary trace window.
-* **Whole-trace by-file summaries:** `file_io_top_files` and `hard_fault_by_file` summarize file names over the trace. Use the corresponding stack tools when you need a time-windowed attribution view.
+* **Whole-trace orientation / configuration** — `load_trace`, `inspect_trace`, `list_processes`, `find_marker`, `diagnose_symbols`, `set_symbol_path`, `add_symbol_server`.
+* **Lifecycle views** — `process_create_timing`, `thread_lifetime`, `image_load_timing`, `image_load_top_gaps`, and `diagnose_slow_startup` use process-start or lifecycle-relative windows instead of an arbitrary trace window.
+* **Whole-trace by-file summaries** — `file_io_top_files` and `hard_fault_by_file` aggregate over file names across the whole trace. Use the corresponding stack tools when you need windowed attribution.
 
 ### Meta
 
@@ -245,7 +257,7 @@ Tools without `startUs` / `endUs` are intentionally scoped differently and say s
 | **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
 | **`inspect_trace`** | One-shot orientation: capture capabilities, system metadata, provider counts, stackwalk completeness, symbol quality, quality warnings, and capability-supported next-tool hints. Use when the capture profile or investigation path is unclear. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
 | `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
-| `process_create_timing` | Per-fork timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
+| `process_create_timing` | Per-child timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |
 
 ### CPU stacks
@@ -254,7 +266,7 @@ Tools without `startUs` / `endUs` are intentionally scoped differently and say s
 |---|---|---|
 | `cpu_top_functions` | Top-N hot functions by exclusive CPU samples in a window / for a PID.  Optional `excludeEtwSelfOverhead` folds `EtwpLogKernelEvent` etc. into a single `[ETW Overhead]` bucket. Filtered calls omit `*PctOfTrace` by default to avoid an extra whole-trace CPU sample-count pass; set `includeTracePct=true` when those columns matter. | CPU Stacks → ByName |
 | `cpu_precise_analysis` | CSwitch + ReadyThread scheduler summary: exact on-CPU microseconds, ready-to-run latency, per-core runtime attribution, and quantum/preemption counters by thread. Use when sampled CPU cannot answer "how long did it actually run?" or "how long was it ready before dispatch?" | CPU Usage (Precise) |
-| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalises to that PID's samples). | **[Composite]** — batch variant, saves N round-trips through CPU Stacks → ByName |
+| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalizes to that PID's samples). | **[Composite]** — batch variant, saves N round-trips through CPU Stacks → ByName |
 | `cpu_caller_callee` | Drill into a focus frame: callers (frames calling INTO it) and callees (frames it calls OUT to), each ranked by inclusive CPU samples. Recursion-safe. | CPU Stacks → Callers / Callees tabs |
 
 ### Wait / blocked time (CSwitch-derived)
