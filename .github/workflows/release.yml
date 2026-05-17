@@ -37,7 +37,7 @@ jobs:
             --no-restore `
             -p:PublishSingleFile=true `
             -p:EnableCompressionInSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:IncludeNativeLibrariesForSelfExtract=false `
             -o publish/win-x64
 
       - name: Stage release assets
