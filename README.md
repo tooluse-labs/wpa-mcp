@@ -236,18 +236,30 @@ wpa-mcp is built to **avoid misleading the model without constraining what the m
 
 The full call flow:
 
-```mermaid
-flowchart TD
-    Start([.etl trace]) --> Load[<b>load_trace</b><br/>Capabilities map]
-    Load --> Caps{Capabilities<br/>cover the<br/>question?}
-    Caps -- "no / unsure" --> Inspect[<b>inspect_trace</b><br/>orientation,<br/>quality, symbols]
-    Caps -- "yes" --> Path{Workflow path}
-    Inspect --> Path
-    Path -- "Known workflow" --> Composite[<b>Composite</b><br/>diagnose_slow_startup<br/>diagnose_high_wait]
-    Path -- "Custom drill" --> Summary[<b>Domain summary</b><br/>top-N rows]
-    Composite -. "NextTools" .-> Summary
-    Summary --> Stacks[<b>Domain stacks</b><br/>top-N call chains]
-    Stacks --> CC[<b>Domain caller_callee</b><br/>focus-frame drill]
+```
+.etl trace
+    │
+    ▼
+load_trace  ──►  returns Capabilities map
+    │
+    │  (optional: inspect_trace if capture profile / path unclear)
+    ▼
+
+  Composite  (recommended for known workflows)
+  ─────────────────────────────────────────────
+  diagnose_slow_startup, diagnose_high_wait
+  returns Evidence + NotConcluded + ExecutedToolCalls + NextTools
+                                                          │
+                                                          │  via NextTools
+                                                          ▼
+
+  Domain drill  (custom investigation or composite follow-up)
+  ────────────────────────────────────────────────────────────
+  summary  ──►  stacks  ──►  caller_callee
+  top-N         top-N         focus-frame
+  rows          call chains   drill
+
+  Example: cpu_top_functions  ──►  cpu_top_stacks  ──►  cpu_caller_callee
 ```
 
 If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_high_wait` and `diagnose_slow_startup` before manually stitching individual calls together — their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
