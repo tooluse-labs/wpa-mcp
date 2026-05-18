@@ -7,7 +7,18 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
-No user-facing changes yet.
+### Added
+
+- Added `orderBy` to `hard_fault_by_file` with `bytes`, `count`, and
+  `max_latency` modes, so one-off hard-fault stalls can be surfaced even when
+  they do not dominate total page-in bytes.
+
+### Fixed
+
+- Fixed `cpu_precise_analysis` over-counting by tracking open running intervals
+  per logical processor instead of per thread. Values from prior versions could
+  be inflated by multiples on traces with dropped, missing, or inconsistent
+  CSwitch events.
 
 ## v0.2.20 - 2026-05-18
 
