@@ -1,4 +1,5 @@
 using WprMcp.Core;
+using WprMcp.Output;
 using WprMcp.Tools;
 using Xunit;
 
@@ -162,5 +163,190 @@ public class SymbolServiceTests
         var tools = new WprMcp.Tools.SymbolTools(svc, cache);
         var resp = tools.DiagnoseSymbols("fixtures/small_cpu.etl");
         Assert.NotEmpty(resp.Modules);
+        Assert.NotNull(resp.NativeSymbolSupport);
+        Assert.Contains(resp.NativeSymbolSupport.Dependencies, dep => dep.Name == "msdia140.dll");
+        Assert.Equal(
+            Path.GetDirectoryName(Path.GetFullPath("fixtures/small_cpu.etl")),
+            resp.TraceDirectory);
+        Assert.True(resp.TraceDirectoryInSymbolPath);
+        Assert.All(resp.Modules, module => Assert.False(string.IsNullOrWhiteSpace(module.LookupStatus)));
     }
+
+    [Fact]
+    public void FindLocalSymbolCandidates_FindsFlatPdbAndSymbolStoreLayout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-diag-{Guid.NewGuid():N}");
+        try
+        {
+            var signature = Guid.Parse("4b025cce-b6d2-5baf-4c4c-44205044422e");
+            var flatPdb = Path.Combine(root, "flat", "quark.dll.pdb");
+            var storePdb = Path.Combine(
+                root,
+                "store",
+                "quark.dll.pdb",
+                "4B025CCEB6D25BAF4C4C44205044422E1",
+                "quark.dll.pdb");
+            Directory.CreateDirectory(Path.GetDirectoryName(flatPdb)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
+            File.WriteAllText(flatPdb, "");
+            File.WriteAllText(storePdb, "");
+
+            var symbolPath = $"{Path.Combine(root, "flat")};SRV*C:\\Symbols*{Path.Combine(root, "store")};SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols";
+            var candidates = SymbolTools.FindLocalSymbolCandidates(symbolPath, "quark.dll.pdb", signature, 1);
+
+            Assert.Contains(flatPdb, candidates);
+            Assert.Contains(storePdb, candidates);
+            Assert.DoesNotContain(candidates, candidate => candidate.Contains("https://", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindLocalSymbolCandidates_ProbesCacheEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-cache-{Guid.NewGuid():N}");
+        try
+        {
+            var signature = Guid.Parse("4b025cce-b6d2-5baf-4c4c-44205044422e");
+            var storePdb = Path.Combine(
+                root,
+                "quark.dll.pdb",
+                "4B025CCEB6D25BAF4C4C44205044422E1",
+                "quark.dll.pdb");
+            Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
+            File.WriteAllText(storePdb, "");
+
+            var candidates = SymbolTools.FindLocalSymbolCandidates(
+                $"cache*{root};srv*https://msdl.microsoft.com/download/symbols",
+                "quark.dll.pdb",
+                signature,
+                1);
+
+            Assert.Contains(storePdb, candidates);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_DoesNotResolveFlatNameOnlyCandidate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-flat-{Guid.NewGuid():N}");
+        try
+        {
+            var module = FirstModuleWithPdbIdentity();
+            var pdbName = Path.GetFileName(module.PdbName);
+            var flatPdb = Path.Combine(root, pdbName);
+            Directory.CreateDirectory(root);
+            File.WriteAllText(flatPdb, "");
+
+            var status = SymbolTools.DiagnoseModule(module, root, NativeSupportReady());
+
+            Assert.False(status.Resolved);
+            Assert.Equal("found_flat_candidate_identity_unverified", status.LookupStatus);
+            Assert.Contains(flatPdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_ResolvesCacheSymbolStoreMatch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-store-{Guid.NewGuid():N}");
+        try
+        {
+            var module = FirstModuleWithPdbIdentity();
+            var pdbName = Path.GetFileName(module.PdbName);
+            var storePdb = Path.Combine(
+                root,
+                pdbName,
+                SymbolStoreKey(module.PdbSignature, module.PdbAge),
+                pdbName);
+            Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
+            File.WriteAllText(storePdb, "");
+
+            var status = SymbolTools.DiagnoseModule(module, $"cache*{root}", NativeSupportReady());
+
+            Assert.True(status.Resolved);
+            Assert.Equal("found_in_local_symbol_path", status.LookupStatus);
+            Assert.Contains(storePdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindLocalSymbolCandidates_SkipsMalformedAndUncSymbolPathEntries()
+    {
+        var malformed = "C:\\bad" + '\0' + "path";
+        var symbolPath = $"{malformed};\\\\server\\share\\symbols;SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols";
+
+        var candidates = SymbolTools.FindLocalSymbolCandidates(
+            symbolPath,
+            "quark.dll.pdb",
+            Guid.NewGuid(),
+            1);
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void BuildSymbolPathEntryWarnings_ReportsMalformedAndUncEntries()
+    {
+        var malformed = "C:\\bad" + '\0' + "path";
+        var symbolPath = $"{malformed};\\\\server\\share\\symbols;SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols";
+
+        var warnings = SymbolTools.BuildSymbolPathEntryWarnings(symbolPath);
+
+        Assert.Contains(warnings, warning => warning.Contains("malformed", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(warnings, warning => warning.Contains("UNC", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(warnings, warning => warning.Contains("https://", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildSymbolPathEntryWarnings_ReportsMissingRelativeEntries()
+    {
+        var relativePath = $"missing-symbols-{Guid.NewGuid():N}";
+
+        var warnings = SymbolTools.BuildSymbolPathEntryWarnings(relativePath);
+
+        Assert.Contains(warnings, warning =>
+            warning.Contains("relative", StringComparison.OrdinalIgnoreCase) &&
+            warning.Contains(relativePath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static Microsoft.Diagnostics.Tracing.Etlx.TraceModuleFile FirstModuleWithPdbIdentity()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        return trace.ModuleFiles.First(module =>
+            !string.IsNullOrWhiteSpace(Path.GetFileName(module.PdbName)) &&
+            module.PdbSignature != Guid.Empty &&
+            module.PdbAge > 0);
+    }
+
+    private static NativeSymbolSupportStatus NativeSupportReady()
+        => new(
+            Architecture: "amd64",
+            Msdia140Present: true,
+            KernelTraceControlPresent: true,
+            Status: "ready",
+            Dependencies: Array.Empty<NativeDependencyStatus>(),
+            Suggestion: null);
+
+    private static string SymbolStoreKey(Guid signature, int age)
+        => signature.ToString("N").ToUpperInvariant() + age.ToString("X");
 }

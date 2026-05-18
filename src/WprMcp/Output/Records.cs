@@ -414,13 +414,37 @@ public sealed record ModuleSymbolStatus(
     string Module,
     long FrameCount,
     bool Resolved,
-    string Suggestion);
+    string Suggestion,
+    string? FilePath = null,
+    string? ExpectedPdbName = null,
+    string? PdbSignature = null,
+    int? PdbAge = null,
+    string? BinaryFormat = null,
+    string LookupStatus = "unknown",
+    string? FailureReason = null,
+    IReadOnlyList<string>? LocalSymbolCandidates = null);
+
+public sealed record NativeSymbolSupportStatus(
+    string Architecture,
+    bool Msdia140Present,
+    bool KernelTraceControlPresent,
+    string Status,
+    IReadOnlyList<NativeDependencyStatus> Dependencies,
+    string? Suggestion);
+
+public sealed record NativeDependencyStatus(
+    string Name,
+    string ExpectedPath,
+    bool Present);
 
 public sealed record DiagnoseSymbolsResponse(
     string CurrentSymbolPath,
     string CacheDir,
     IReadOnlyList<ModuleSymbolStatus> Modules,
-    IReadOnlyList<string> Suggestions);
+    IReadOnlyList<string> Suggestions,
+    string TraceDirectory,
+    bool TraceDirectoryInSymbolPath,
+    NativeSymbolSupportStatus NativeSymbolSupport);
 
 public sealed record WaitReasonBucket(string Reason, long BlockedUs, long Count);
 
