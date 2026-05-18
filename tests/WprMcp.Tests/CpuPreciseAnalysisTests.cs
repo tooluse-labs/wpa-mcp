@@ -137,7 +137,8 @@ public class CpuPreciseAnalysisTests
         Assert.Equal(50_000, resp.TotalCpuUs);
         Assert.Contains(resp.Rows, row => row.Tid == 42 && row.CpuUs == 50_000);
         Assert.Contains(resp.Rows, row => row.Tid == 43 && row.CpuUs == 0);
-        Assert.Contains(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(resp.Warnings, warning => warning.Contains("stale per-core", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -176,6 +177,37 @@ public class CpuPreciseAnalysisTests
         Assert.Equal(50_000, row.CpuUs);
         Assert.Equal(50_000, resp.TotalCpuUs);
         Assert.Contains(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CpuPreciseAccumulator_WarnsForUnmatchedPreviouslyReadiedSwitchOut()
+    {
+        var accumulator = new CpuPreciseAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 0,
+            endUs: 200_000);
+
+        accumulator.ProcessReady(new CpuPreciseReadyEvent(
+            AwakenedProcessId: 100,
+            AwakenedThreadId: 42,
+            TimeStampRelativeMSec: 10));
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 42,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 300,
+            NewProcessName: "runner",
+            NewThreadId: 7,
+            ProcessorNumber: 2,
+            TimeStampRelativeMSec: 50));
+
+        var resp = accumulator.BuildResponse();
+
+        Assert.Contains(resp.Rows, row => row.Tid == 42 && row.CpuUs == 0);
+        Assert.Contains(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("stale per-core", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -232,6 +264,85 @@ public class CpuPreciseAnalysisTests
         Assert.Equal(50_000, row.CpuUs);
         Assert.Equal(4, row.PrimaryCore);
         Assert.Equal(50_000, resp.TotalCpuUs);
+    }
+
+    [Fact]
+    public void CpuPreciseAccumulator_FlushesOnlyOneRunningThreadPerCore()
+    {
+        var accumulator = new CpuPreciseAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 0,
+            endUs: 100_000);
+
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 0,
+            OldProcessName: "Idle",
+            OldThreadId: 0,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            ProcessorNumber: 4,
+            TimeStampRelativeMSec: 10));
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 0,
+            OldProcessName: "Idle",
+            OldThreadId: 0,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 43,
+            ProcessorNumber: 4,
+            TimeStampRelativeMSec: 50));
+
+        var resp = accumulator.BuildResponse();
+
+        Assert.Equal(50_000, resp.TotalCpuUs);
+        Assert.Contains(resp.Rows, row => row.Tid == 42 && row.CpuUs == 0);
+        Assert.Contains(resp.Rows, row => row.Tid == 43 && row.CpuUs == 50_000);
+        Assert.Contains(resp.Warnings, warning => warning.Contains("stale per-core", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CpuPreciseAccumulator_DropsStaleThreadWhenCoreOldThreadDiffers()
+    {
+        var accumulator = new CpuPreciseAccumulator(
+            top: 10,
+            pid: 100,
+            startUs: 0,
+            endUs: 100_000);
+
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 0,
+            OldProcessName: "Idle",
+            OldThreadId: 0,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 42,
+            ProcessorNumber: 4,
+            TimeStampRelativeMSec: 10));
+        accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
+            OldProcessId: 100,
+            OldProcessName: "target",
+            OldThreadId: 43,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewProcessId: 100,
+            NewProcessName: "target",
+            NewThreadId: 44,
+            ProcessorNumber: 4,
+            TimeStampRelativeMSec: 50));
+
+        var resp = accumulator.BuildResponse();
+
+        Assert.Equal(50_000, resp.TotalCpuUs);
+        Assert.Contains(resp.Rows, row => row.Tid == 42 && row.CpuUs == 0);
+        Assert.Contains(resp.Rows, row => row.Tid == 43 && row.CpuUs == 0);
+        Assert.Contains(resp.Rows, row => row.Tid == 44 && row.CpuUs == 50_000);
+        Assert.Contains(resp.Warnings, warning => warning.Contains("stale per-core", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("unmatched CSwitch", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

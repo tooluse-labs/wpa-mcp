@@ -77,8 +77,9 @@ internal sealed class CpuPreciseAccumulator
     private readonly long _traceEndUs;
 
     private readonly Dictionary<ThreadKey, ThreadStats> _threads = new();
-    private readonly Dictionary<ThreadKey, long> _lastSwitchInUs = new();
-    private readonly Dictionary<ThreadKey, int> _lastRunningCore = new();
+    // At any instant each logical processor has at most one running thread. Tracking
+    // open run intervals per core keeps CPU accounting bounded to scheduler semantics.
+    private readonly Dictionary<int, RunningThread> _runningByCore = new();
     private readonly Dictionary<ThreadKey, long> _pendingReadyUs = new();
     private readonly HashSet<ThreadKey> _seenThreads = new();
     private readonly HashSet<int> _seenSwitchOutCores = new();
@@ -88,6 +89,7 @@ internal sealed class CpuPreciseAccumulator
     private long _traceReadyEvents;
     private long _windowReadyEvents;
     private long _skippedUnmatchedSwitchOuts;
+    private long _droppedStaleCoreIntervals;
     private bool _flushed;
 
     public CpuPreciseAccumulator(int top, int? pid, long? startUs, long? endUs, long? traceEndUs = null)
@@ -123,30 +125,47 @@ internal sealed class CpuPreciseAccumulator
         if (InWindow(nowUs) && (MatchesPid(data.OldProcessId) || MatchesPid(data.NewProcessId)))
             _windowCSwitches++;
 
-        var canSeedFromWindowStart = _seenSwitchOutCores.Add(data.ProcessorNumber);
+        var core = data.ProcessorNumber;
+        var canSeedFromWindowStart = _seenSwitchOutCores.Add(core);
         if (TryMakeKey(data.OldProcessId, data.OldThreadId, out var oldKey))
         {
             var firstObservedThread = _seenThreads.Add(oldKey);
             var oldStats = GetStats(oldKey, data.OldProcessName);
-            if (!_lastSwitchInUs.Remove(oldKey, out var switchInUs))
+            var shouldAttributeCpu = false;
+            var switchInUs = nowUs;
+
+            if (_runningByCore.TryGetValue(core, out var running))
             {
-                if (canSeedFromWindowStart && firstObservedThread)
+                if (running.Key == oldKey)
                 {
-                    switchInUs = WindowStartUs;
+                    switchInUs = running.SwitchInUs;
+                    shouldAttributeCpu = true;
                 }
                 else
                 {
-                    _skippedUnmatchedSwitchOuts++;
-                    switchInUs = nowUs;
+                    _droppedStaleCoreIntervals++;
                 }
             }
-
-            var cpuUs = IntersectUs(switchInUs, nowUs);
-            if (cpuUs > 0 && MatchesPid(oldKey.Pid))
+            else if (canSeedFromWindowStart && firstObservedThread)
             {
-                AddCpu(oldStats, cpuUs, data.ProcessorNumber);
+                switchInUs = WindowStartUs;
+                shouldAttributeCpu = true;
             }
-            _lastRunningCore.Remove(oldKey);
+            else
+            {
+                _skippedUnmatchedSwitchOuts++;
+            }
+
+            _runningByCore.Remove(core);
+
+            if (shouldAttributeCpu)
+            {
+                var cpuUs = IntersectUs(switchInUs, nowUs);
+                if (cpuUs > 0 && MatchesPid(oldKey.Pid))
+                {
+                    AddCpu(oldStats, cpuUs, core);
+                }
+            }
 
             if (InWindow(nowUs) && MatchesPid(oldKey.Pid))
             {
@@ -157,6 +176,10 @@ internal sealed class CpuPreciseAccumulator
                 if (reason is "WrPreempted" or "WrDeferredPreempt")
                     oldStats.PreemptedSwitches++;
             }
+        }
+        else if (_runningByCore.Remove(core))
+        {
+            _droppedStaleCoreIntervals++;
         }
 
         if (TryMakeKey(data.NewProcessId, data.NewThreadId, out var newKey))
@@ -172,8 +195,7 @@ internal sealed class CpuPreciseAccumulator
                 newStats.MaxReadyLatencyUs = Math.Max(newStats.MaxReadyLatencyUs ?? 0, latencyUs);
             }
 
-            _lastSwitchInUs[newKey] = nowUs;
-            _lastRunningCore[newKey] = data.ProcessorNumber;
+            _runningByCore[core] = new RunningThread(newKey, nowUs);
             if (InWindow(nowUs) && MatchesPid(newKey.Pid))
                 newStats.ContextSwitches++;
         }
@@ -218,6 +240,12 @@ internal sealed class CpuPreciseAccumulator
                 $"Skipped {_skippedUnmatchedSwitchOuts:N0} unmatched CSwitch old-thread interval(s) that could not be tied to a prior switch-in or a unique trace-start seed. " +
                 "This avoids over-counting CPU time when scheduler state is incomplete or thread IDs are reused.");
         }
+        if (_droppedStaleCoreIntervals > 0)
+        {
+            warnings.Add(
+                $"Dropped {_droppedStaleCoreIntervals:N0} stale per-core running interval(s) after later CSwitch data showed a different old thread on that processor. " +
+                "This keeps CPU accounting bounded to one running thread per processor.");
+        }
 
         return new CpuPreciseResponse(
             Rows: rows,
@@ -236,20 +264,19 @@ internal sealed class CpuPreciseAccumulator
         var flushEndUs = _endUs ?? _traceEndUs;
         if (flushEndUs <= WindowStartUs) return;
 
-        foreach (var (key, switchInUs) in _lastSwitchInUs.ToArray())
+        foreach (var (core, running) in _runningByCore.ToArray())
         {
+            var key = running.Key;
             if (!MatchesPid(key.Pid)) continue;
 
-            var cpuUs = IntersectUs(switchInUs, flushEndUs);
+            var cpuUs = IntersectUs(running.SwitchInUs, flushEndUs);
             if (cpuUs <= 0) continue;
 
             var stats = GetStats(key, processName: string.Empty);
-            var core = _lastRunningCore.GetValueOrDefault(key, -1);
             AddCpu(stats, cpuUs, core);
         }
 
-        _lastSwitchInUs.Clear();
-        _lastRunningCore.Clear();
+        _runningByCore.Clear();
     }
 
     private ThreadStats GetStats(ThreadKey key, string processName)
@@ -321,6 +348,8 @@ internal sealed class CpuPreciseAccumulator
     }
 
     private readonly record struct ThreadKey(int Pid, int Tid);
+
+    private readonly record struct RunningThread(ThreadKey Key, long SwitchInUs);
 
     private sealed class ThreadStats
     {
