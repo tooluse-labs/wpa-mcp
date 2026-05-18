@@ -80,11 +80,14 @@ internal sealed class CpuPreciseAccumulator
     private readonly Dictionary<ThreadKey, long> _lastSwitchInUs = new();
     private readonly Dictionary<ThreadKey, int> _lastRunningCore = new();
     private readonly Dictionary<ThreadKey, long> _pendingReadyUs = new();
+    private readonly HashSet<ThreadKey> _seenThreads = new();
+    private readonly HashSet<int> _seenSwitchOutCores = new();
 
     private long _traceCSwitches;
     private long _windowCSwitches;
     private long _traceReadyEvents;
     private long _windowReadyEvents;
+    private long _skippedUnmatchedSwitchOuts;
     private bool _flushed;
 
     public CpuPreciseAccumulator(int top, int? pid, long? startUs, long? endUs, long? traceEndUs = null)
@@ -105,6 +108,7 @@ internal sealed class CpuPreciseAccumulator
 
         if (!TryMakeKey(data.AwakenedProcessId, data.AwakenedThreadId, out var key))
             return;
+        _seenThreads.Add(key);
 
         // Keep the earliest unconsumed ready timestamp so repeated ReadyThread events do
         // not hide the full ready-to-run delay before the next CSwitch-in.
@@ -119,16 +123,29 @@ internal sealed class CpuPreciseAccumulator
         if (InWindow(nowUs) && (MatchesPid(data.OldProcessId) || MatchesPid(data.NewProcessId)))
             _windowCSwitches++;
 
+        var canSeedFromWindowStart = _seenSwitchOutCores.Add(data.ProcessorNumber);
         if (TryMakeKey(data.OldProcessId, data.OldThreadId, out var oldKey))
         {
+            var firstObservedThread = _seenThreads.Add(oldKey);
             var oldStats = GetStats(oldKey, data.OldProcessName);
-            var switchInUs = _lastSwitchInUs.GetValueOrDefault(oldKey, WindowStartUs);
+            if (!_lastSwitchInUs.Remove(oldKey, out var switchInUs))
+            {
+                if (canSeedFromWindowStart && firstObservedThread)
+                {
+                    switchInUs = WindowStartUs;
+                }
+                else
+                {
+                    _skippedUnmatchedSwitchOuts++;
+                    switchInUs = nowUs;
+                }
+            }
+
             var cpuUs = IntersectUs(switchInUs, nowUs);
             if (cpuUs > 0 && MatchesPid(oldKey.Pid))
             {
                 AddCpu(oldStats, cpuUs, data.ProcessorNumber);
             }
-            _lastSwitchInUs.Remove(oldKey);
             _lastRunningCore.Remove(oldKey);
 
             if (InWindow(nowUs) && MatchesPid(oldKey.Pid))
@@ -144,6 +161,7 @@ internal sealed class CpuPreciseAccumulator
 
         if (TryMakeKey(data.NewProcessId, data.NewThreadId, out var newKey))
         {
+            _seenThreads.Add(newKey);
             var newStats = GetStats(newKey, data.NewProcessName);
             if (_pendingReadyUs.Remove(newKey, out var readyUs) && InWindow(nowUs) && MatchesPid(newKey.Pid))
             {
@@ -193,6 +211,12 @@ internal sealed class CpuPreciseAccumulator
         else if (_windowReadyEvents == 0 && rows.All(row => row.ReadyCount == 0))
         {
             warnings.Add("ReadyThread events were present in the trace, but none matched the requested pid/window filters.");
+        }
+        if (_skippedUnmatchedSwitchOuts > 0)
+        {
+            warnings.Add(
+                $"Skipped {_skippedUnmatchedSwitchOuts:N0} unmatched CSwitch old-thread interval(s) that could not be tied to a prior switch-in or a unique trace-start seed. " +
+                "This avoids over-counting CPU time when scheduler state is incomplete or thread IDs are reused.");
         }
 
         return new CpuPreciseResponse(
@@ -275,14 +299,16 @@ internal sealed class CpuPreciseAccumulator
 
     private long WindowStartUs => _startUs ?? 0;
 
+    private long WindowEndUs =>
+        _endUs ?? (_traceEndUs > 0 ? _traceEndUs : long.MaxValue);
+
     private bool InWindow(long nowUs) =>
-        (!_startUs.HasValue || nowUs >= _startUs.Value) &&
-        (!_endUs.HasValue || nowUs < _endUs.Value);
+        nowUs >= WindowStartUs && nowUs < WindowEndUs;
 
     private long IntersectUs(long startUs, long endUs)
     {
-        var clippedStart = Math.Max(startUs, _startUs ?? long.MinValue);
-        var clippedEnd = Math.Min(endUs, _endUs ?? long.MaxValue);
+        var clippedStart = Math.Max(startUs, WindowStartUs);
+        var clippedEnd = Math.Min(endUs, WindowEndUs);
         return Math.Max(0, clippedEnd - clippedStart);
     }
 
