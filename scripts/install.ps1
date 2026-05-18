@@ -292,6 +292,39 @@ function Test-NativeDependenciesPresent {
            (Test-Path (Join-Path $rootRelativeNativeDir 'KernelTraceControl.dll'))
 }
 
+function Test-SameFileHash {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    if (-not (Test-Path $Destination)) { return $false }
+
+    try {
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Source).Hash
+        $destinationHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Destination).Hash
+        return $sourceHash -eq $destinationHash
+    } catch {
+        return $false
+    }
+}
+
+function Copy-FileIfDifferent {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    if (Test-SameFileHash -Source $Source -Destination $Destination) { return }
+
+    try {
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    } catch {
+        if (Test-SameFileHash -Source $Source -Destination $Destination) { return }
+        throw "Could not replace native dependency $Destination. Close MCP clients using wpa-mcp and re-run the installer. Last error: $_"
+    }
+}
+
 function Test-InstalledBundleMatchesRelease {
     param(
         [Parameter(Mandatory)][string]$BinaryPath,
@@ -329,9 +362,13 @@ function Copy-NativeDependencies {
         throw "Release bundle is missing native\amd64\KernelTraceControl.dll."
     }
 
-    $targetNative = Join-Path $InstallRoot 'native'
-    New-Item -ItemType Directory -Path $targetNative -Force | Out-Null
-    Copy-Item -Path (Join-Path $sourceNative '*') -Destination $targetNative -Recurse -Force
+    $sourceArch = Join-Path $sourceNative 'amd64'
+    $targetArch = Join-Path $InstallRoot 'native\amd64'
+    New-Item -ItemType Directory -Path $targetArch -Force | Out-Null
+    foreach ($sourceFile in Get-ChildItem -LiteralPath $sourceArch -File) {
+        $targetPath = Join-Path $targetArch $sourceFile.Name
+        Copy-FileIfDifferent -Source $sourceFile.FullName -Destination $targetPath
+    }
 }
 
 function Install-Binary {

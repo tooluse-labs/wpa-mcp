@@ -166,6 +166,21 @@ public class InstallerScriptTests
     }
 
     [Fact]
+    public void InstallScriptSkipsUnchangedNativeDllsBeforeCopy()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("function Test-SameFileHash", content);
+        Assert.Contains("function Copy-FileIfDifferent", content);
+        Assert.Contains("Get-FileHash -Algorithm SHA256 -LiteralPath $Source", content);
+        Assert.Contains("Get-FileHash -Algorithm SHA256 -LiteralPath $Destination", content);
+        Assert.Contains("if (Test-SameFileHash -Source $Source -Destination $Destination) { return }", content);
+        Assert.Contains("Copy-FileIfDifferent -Source $sourceFile.FullName -Destination $targetPath", content);
+        Assert.Contains("Close MCP clients using wpa-mcp and re-run the installer", content);
+        Assert.DoesNotContain("Copy-Item -Path (Join-Path $sourceNative '*') -Destination $targetNative -Recurse -Force", content);
+    }
+
+    [Fact]
     public void InstallScriptDoesNotUseScriptScopeForResolvedTagOrInstallDir()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
