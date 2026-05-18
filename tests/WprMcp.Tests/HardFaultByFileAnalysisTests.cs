@@ -25,10 +25,27 @@ public class HardFaultByFileAnalysisTests
     }
 
     [Fact]
+    public void HardFaultByFile_CanSortByMaxLatency()
+    {
+        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        var resp = tools.HardFaultByFile(FixturePath, top: 100, orderBy: "max_latency");
+
+        Assert.NotEmpty(resp.Rows);
+        Assert.True(resp.Rows.Zip(resp.Rows.Skip(1), (a, b) => a.MaxLatencyUs >= b.MaxLatencyUs).All(v => v));
+    }
+
+    [Fact]
     public void HardFaultByFile_RejectsBadTop()
     {
         var tools = new HardFaultTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.HardFaultByFile("nonexistent.etl", top: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.HardFaultByFile("nonexistent.etl", top: 1001));
+    }
+
+    [Fact]
+    public void HardFaultByFile_RejectsBadOrderBy()
+    {
+        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        Assert.Throws<ArgumentException>(() => tools.HardFaultByFile("nonexistent.etl", orderBy: "duration"));
     }
 }

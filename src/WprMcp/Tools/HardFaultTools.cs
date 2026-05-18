@@ -18,16 +18,20 @@ public sealed class HardFaultTools
         "'Memory Hard Fault → ByFile'.  Most hard faults are mmap'd files being touched for " +
         "the first time; some also come from paged-out heap/stack pages and the page file.  " +
         "Requires the HardFaults kernel keyword in the capture profile (NOT in default WPR " +
-        "'CPU' / 'CPU.light' profiles). No startUs/endUs: this is a whole-trace by-file summary; " +
+        "'CPU' / 'CPU.light' profiles). Set orderBy='max_latency' to surface one-off stalls " +
+        "that do not dominate total bytes. No startUs/endUs: this is a whole-trace by-file summary; " +
         "use hard_fault_top_stacks for windowed attribution.")]
     public HardFaultByFileResponse HardFaultByFile(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
-        [Description("Filter to a single process ID")] int? pid = null)
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Sort key: bytes (default), count, or max_latency")]
+        string orderBy = "bytes")
     {
         Validation.RequireTop(top);
+        orderBy = HardFaultByFileAnalysis.NormalizeOrderBy(orderBy);
         var trace = _cache.Get(path);
-        return HardFaultByFileAnalysis.Analyze(trace, top, pid);
+        return HardFaultByFileAnalysis.Analyze(trace, top, pid, orderBy);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(

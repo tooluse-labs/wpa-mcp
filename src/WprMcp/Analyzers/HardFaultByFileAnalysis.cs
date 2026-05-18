@@ -32,8 +32,10 @@ namespace WprMcp.Analyzers;
 // the ordering hazard where a fault arrives before the Rundown that names its key.
 public static class HardFaultByFileAnalysis
 {
-    public static HardFaultByFileResponse Analyze(TraceLog trace, int top, int? pid)
+    public static HardFaultByFileResponse Analyze(TraceLog trace, int top, int? pid, string orderBy = "bytes")
     {
+        var normalizedOrderBy = NormalizeOrderBy(orderBy);
+
         // Pass 1: build FileKey -> FileName map from FileIONameTraceData events.
         var fileNames = BuildFileKeyMap(trace);
 
@@ -60,13 +62,40 @@ public static class HardFaultByFileAnalysis
 
         var rows = agg
             .Select(kv => new HardFaultFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
-            .OrderByDescending(r => r.PageInBytes)
+            .OrderByDescending(r => SortMetric(r, normalizedOrderBy))
+            .ThenByDescending(r => r.PageInBytes)
+            .ThenByDescending(r => r.PageInCount)
             .Take(top)
             .ToList();
 
         var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
         return new HardFaultByFileResponse(rows, warnings);
     }
+
+    internal static string NormalizeOrderBy(string? orderBy)
+    {
+        var normalized = string.IsNullOrWhiteSpace(orderBy)
+            ? "bytes"
+            : orderBy.Trim().ToLowerInvariant().Replace("-", "_");
+
+        return normalized switch
+        {
+            "bytes" or "page_in_bytes" => "bytes",
+            "count" or "faults" or "page_in_count" => "count",
+            "latency" or "max_latency" or "max_latency_us" => "max_latency",
+            _ => throw new ArgumentException(
+                "orderBy must be one of: bytes, count, max_latency.",
+                nameof(orderBy))
+        };
+    }
+
+    private static long SortMetric(HardFaultFileRow row, string orderBy) =>
+        orderBy switch
+        {
+            "count" => row.PageInCount,
+            "max_latency" => row.MaxLatencyUs,
+            _ => row.PageInBytes
+        };
 
     private static Dictionary<ulong, string> BuildFileKeyMap(TraceLog trace)
     {
