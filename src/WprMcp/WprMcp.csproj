@@ -8,6 +8,10 @@
     <Version>0.2.17</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AssemblyTitle>wpa-mcp</AssemblyTitle>
+    <Product>wpa-mcp</Product>
+    <Description>ETW trace analysis for MCP clients</Description>
+    <ApplicationIcon>..\..\assets\wpa-mcp-avatar.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
