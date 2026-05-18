@@ -7,11 +7,19 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+No user-facing changes yet.
+
+## v0.2.21 - 2026-05-18
+
 ### Added
 
 - Added `orderBy` to `hard_fault_by_file` with `bytes`, `count`, and
   `max_latency` modes, so one-off hard-fault stalls can be surfaced even when
   they do not dominate total page-in bytes.
+
+### Changed
+
+- Bumped the executable/package version to `0.2.21` for the release tag.
 
 ### Fixed
 
@@ -19,6 +27,13 @@ GitHub Releases and the git tag history.
   per logical processor instead of per thread. Values from prior versions could
   be inflated by multiples on traces with dropped, missing, or inconsistent
   CSwitch events.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
+- Real ETL probe confirmed the `187s-214s` analysis window stays below the
+  16-core physical CPU-time limit after the per-core accounting fix.
 
 ## v0.2.20 - 2026-05-18
 
@@ -169,6 +184,7 @@ GitHub Releases and the git tag history.
 
 ## Previous Releases
 
+- [v0.2.20](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.20)
 - [v0.2.19](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.19)
 - [v0.2.18](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.18)
 - [v0.2.17](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.17)
@@ -177,4 +193,5 @@ GitHub Releases and the git tag history.
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.21...HEAD
+[v0.2.21]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...v0.2.21
