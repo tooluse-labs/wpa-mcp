@@ -204,8 +204,8 @@ public static class CpuAnalysis
                 Function: n.Name,
                 ExclusiveSamples: (long)n.ExclusiveCount,
                 InclusiveSamples: (long)n.InclusiveCount,
-                ExclusivePct: 100.0 * n.ExclusiveCount / totalSamples,
-                InclusivePct: 100.0 * n.InclusiveCount / totalSamples,
+                ExclusivePct: StackSourceTopN.Pct(totalSamples, n.ExclusiveCount),
+                InclusivePct: StackSourceTopN.Pct(totalSamples, n.InclusiveCount),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, traceTotalSamples, n.ExclusiveCount),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, traceTotalSamples, n.InclusiveCount)))
             .ToList();

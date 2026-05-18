@@ -43,8 +43,8 @@ public static class RegistryStackAnalysis
                 Function: n.Name,
                 ExclusiveOps: (long)n.ExclusiveMetric,
                 InclusiveOps: (long)n.InclusiveMetric,
-                ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
-                InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalOps, n.ExclusiveMetric),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalOps, n.InclusiveMetric)))
             .ToList();

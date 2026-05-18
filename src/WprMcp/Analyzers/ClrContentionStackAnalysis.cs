@@ -48,8 +48,8 @@ public static class ClrContentionStackAnalysis
                 InclusiveBlockedUs: (long)n.InclusiveMetric,
                 ExclusiveCount: (long)n.ExclusiveCount,
                 InclusiveCount: (long)n.InclusiveCount,
-                ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
-                InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.InclusiveMetric)))
             .ToList();

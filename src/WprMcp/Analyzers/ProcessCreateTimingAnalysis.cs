@@ -25,6 +25,9 @@ namespace WprMcp.Analyzers;
 // analyzer is original to wpa-mcp.
 public static class ProcessCreateTimingAnalysis
 {
+    internal const long SlowFirstImageLoadGapUs = 1_000_000;
+    internal const long VerySlowFirstImageLoadGapUs = 5_000_000;
+
     public static ProcessCreateTimingResponse Analyze(TraceLog trace, int parentPid, int top)
     {
         if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
@@ -94,6 +97,7 @@ public static class ProcessCreateTimingAnalysis
         long? avgSpawnGap = spawnGaps.Count > 0 ? (long)spawnGaps.Average() : (long?)null;
 
         var truncated = rows.Take(top).ToList();
+        AddKernelGapWarnings(rows, warnings);
         if (rows.Count > truncated.Count)
         {
             warnings.Add(
@@ -113,6 +117,26 @@ public static class ProcessCreateTimingAnalysis
             MaxKernelGapUs: max,
             Children: truncated,
             Warnings: warnings);
+    }
+
+    internal static void AddKernelGapWarnings(IReadOnlyList<ChildSpawnTiming> rows, IList<string> warnings)
+    {
+        var slowRows = rows
+            .Where(row => row.FirstImageLoadOffsetUs >= SlowFirstImageLoadGapUs)
+            .OrderByDescending(row => row.FirstImageLoadOffsetUs)
+            .ToList();
+        if (slowRows.Count == 0)
+            return;
+
+        var max = slowRows[0].FirstImageLoadOffsetUs!.Value;
+        var thresholdMs = SlowFirstImageLoadGapUs / 1000;
+        var severity = max >= VerySlowFirstImageLoadGapUs ? "very slow" : "slow";
+        var examples = string.Join(", ", slowRows.Take(5).Select(row =>
+            $"{row.Name}({row.Pid})={row.FirstImageLoadOffsetUs!.Value / 1000}ms"));
+        warnings.Add(
+            $"Detected {slowRows.Count} {severity} child process first-image-load gap(s) >= {thresholdMs}ms " +
+            $"(max {max / 1000}ms; examples: {examples}). " +
+            "This gap is before user-mode code can run and usually points to process-creation callbacks, AV/EDR scanning, or minifilter contention.");
     }
 
     private static ProcessCreateTimingResponse Empty(int parentPid, string? parentName, List<string> warnings)

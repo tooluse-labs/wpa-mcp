@@ -62,8 +62,8 @@ public static class BlockedTimeStackAnalysis
                 Function: n.Name,
                 ExclusiveBlockedUs: (long)n.ExclusiveMetric,
                 InclusiveBlockedUs: (long)n.InclusiveMetric,
-                ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
-                InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.ExclusiveMetric),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.InclusiveMetric)))
             .ToList();

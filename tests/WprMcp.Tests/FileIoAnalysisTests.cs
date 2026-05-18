@@ -1,4 +1,5 @@
 using WprMcp.Core;
+using WprMcp.Analyzers;
 using WprMcp.Tools;
 using Xunit;
 
@@ -30,10 +31,39 @@ public class FileIoAnalysisTests
     }
 
     [Fact]
+    public void FileIoTopFiles_FiltersHalfOpenTimeWindow()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var trace = cache.Get(FixturePath);
+        var eventTimes = new List<long>();
+        KernelEventWalker.Walk(trace, kernel =>
+        {
+            kernel.FileIORead += data => eventTimes.Add(ToUs(data.TimeStampRelativeMSec));
+            kernel.FileIOWrite += data => eventTimes.Add(ToUs(data.TimeStampRelativeMSec));
+        });
+        if (eventTimes.Count == 0) return;
+
+        var firstUs = eventTimes.Min();
+        var lastUs = eventTimes.Max();
+        var tools = new IoTools(cache);
+
+        var emptyAtBoundary = tools.FileIoTopFiles(FixturePath, top: 50, startUs: firstUs, endUs: firstUs);
+        var firstTick = tools.FileIoTopFiles(FixturePath, top: 50, startUs: firstUs, endUs: firstUs + 1);
+        var afterTraceIo = tools.FileIoTopFiles(FixturePath, top: 50, startUs: lastUs + 1, endUs: lastUs + 2);
+
+        Assert.Empty(emptyAtBoundary.Rows);
+        Assert.NotEmpty(firstTick.Rows);
+        Assert.True(firstTick.Rows.Sum(row => row.ReadCount + row.WriteCount) >= 1);
+        Assert.Empty(afterTraceIo.Rows);
+    }
+
+    [Fact]
     public void FileIoTopFiles_RejectsBadTop()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.FileIoTopFiles("nonexistent.etl", top: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.FileIoTopFiles("nonexistent.etl", top: 1001));
     }
+
+    private static long ToUs(double timeStampRelativeMSec) => (long)(timeStampRelativeMSec * 1000);
 }

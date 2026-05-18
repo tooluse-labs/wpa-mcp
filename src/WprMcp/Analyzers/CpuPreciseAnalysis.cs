@@ -276,7 +276,7 @@ internal sealed class CpuPreciseAccumulator
             .Select(kv => new CpuCoreBucket(
                 Core: kv.Key,
                 CpuUs: kv.Value,
-                CpuPct: stats.CpuUs > 0 ? 100.0 * kv.Value / stats.CpuUs : 0))
+                CpuPct: StackSourceTopN.Pct(stats.CpuUs, kv.Value)))
             .ToList();
 
         return new CpuPreciseThreadRow(

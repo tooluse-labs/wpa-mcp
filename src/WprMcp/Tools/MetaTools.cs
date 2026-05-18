@@ -353,7 +353,7 @@ public sealed class MetaTools
             recommendations.Add(("image_load_top_gaps", "Image load events are present; rank loader gaps for startup and DLL-load investigations.", ["startup", "image_load"]));
 
         if (capabilities.HasFileIo)
-            recommendations.Add(("file_io_top_files", "File IO events are present; identify files with the most read/write bytes.", ["io"]));
+            recommendations.Add(("file_io_top_files", "File IO events are present; identify files with the most read/write bytes, optionally narrowed by pid/startUs/endUs.", ["io"]));
 
         if (capabilities.HasFileIo && capabilities.HasStackWalks)
             recommendations.Add(("file_io_top_stacks", "File IO and stack walks are present; attribute file IO bytes to call stacks.", ["io", "stacks"]));

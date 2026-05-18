@@ -49,8 +49,8 @@ public static class ReadyThreadStackAnalysis
                 Function: n.Name,
                 ExclusiveReadyCount: (long)n.ExclusiveMetric,
                 InclusiveReadyCount: (long)n.InclusiveMetric,
-                ExclusivePct: 100.0 * n.ExclusiveMetric / totalMetric,
-                InclusivePct: 100.0 * n.InclusiveMetric / totalMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.InclusiveMetric)))
             .ToList();

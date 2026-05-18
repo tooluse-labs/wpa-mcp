@@ -56,8 +56,8 @@ public static class PageFaultStackAnalysis
                 InclusivePageInBytes: (long)n.InclusiveMetric,
                 ExclusiveFaultCount: (long)n.ExclusiveCount,
                 InclusiveFaultCount: (long)n.InclusiveCount,
-                ExclusivePct: 100.0 * n.ExclusiveMetric / totalBytesMetric,
-                InclusivePct: 100.0 * n.InclusiveMetric / totalBytesMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
                 InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.InclusiveMetric)))
             .ToList();

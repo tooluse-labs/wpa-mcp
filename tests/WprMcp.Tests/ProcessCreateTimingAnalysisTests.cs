@@ -1,4 +1,6 @@
 using WprMcp.Core;
+using WprMcp.Analyzers;
+using WprMcp.Output;
 using WprMcp.Tools;
 using Xunit;
 
@@ -55,6 +57,45 @@ public class ProcessCreateTimingAnalysisTests
         Assert.Equal(0, resp.SpawnCount);
         Assert.Empty(resp.Children);
         Assert.Contains(resp.Warnings, w => w.Contains("No children found", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ProcessCreateTiming_WarnsOnSlowFirstImageLoadGaps()
+    {
+        var rows = new[]
+        {
+            new ChildSpawnTiming(
+                Pid: 100,
+                Name: "child-a",
+                StartTimeUs: 10_000,
+                FirstImageLoadOffsetUs: ProcessCreateTimingAnalysis.VerySlowFirstImageLoadGapUs,
+                ImageLoadCount: 4,
+                GapFromPreviousSpawnUs: null),
+            new ChildSpawnTiming(
+                Pid: 101,
+                Name: "child-b",
+                StartTimeUs: 20_000,
+                FirstImageLoadOffsetUs: ProcessCreateTimingAnalysis.SlowFirstImageLoadGapUs,
+                ImageLoadCount: 3,
+                GapFromPreviousSpawnUs: 10_000),
+            new ChildSpawnTiming(
+                Pid: 102,
+                Name: "child-c",
+                StartTimeUs: 30_000,
+                FirstImageLoadOffsetUs: ProcessCreateTimingAnalysis.SlowFirstImageLoadGapUs - 1,
+                ImageLoadCount: 3,
+                GapFromPreviousSpawnUs: 10_000)
+        };
+        var warnings = new List<string>();
+
+        ProcessCreateTimingAnalysis.AddKernelGapWarnings(rows, warnings);
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("2 very slow child process first-image-load gap", warning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("child-a(100)=5000ms", warning, StringComparison.Ordinal);
+        Assert.Contains("child-b(101)=1000ms", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("child-c", warning, StringComparison.Ordinal);
+        Assert.Contains("AV/EDR", warning, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

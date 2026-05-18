@@ -147,7 +147,18 @@ internal static class StackSourceTopN
     /// drifting between sites.
     /// </summary>
     public static double? PctOfTrace(bool hasFilter, double traceTotal, double n)
-        => hasFilter && traceTotal > 0 ? 100.0 * n / traceTotal : (double?)null;
+        => hasFilter && traceTotal > 0 ? Pct(traceTotal, n) : (double?)null;
+
+    public static double Pct(double total, double n)
+    {
+        if (total <= 0 || n <= 0)
+            return 0;
+
+        var pct = 100.0 * n / total;
+        if (double.IsNaN(pct) || double.IsInfinity(pct))
+            return 0;
+        return Math.Clamp(pct, 0, 100);
+    }
 
     /// <summary>
     /// Caller/callee drill-down: scan every sample in <paramref name="normalized"/>, locate
@@ -224,8 +235,8 @@ internal static class StackSourceTopN
         var totalDouble = Math.Max(1.0, totalMetric);
         CallerCalleeNode Project(KeyValuePair<string, (long excl, long incl)> kv)
             => new(kv.Key, kv.Value.excl, kv.Value.incl,
-                   100.0 * kv.Value.excl / totalDouble,
-                   100.0 * kv.Value.incl / totalDouble);
+                   Pct(totalDouble, kv.Value.excl),
+                   Pct(totalDouble, kv.Value.incl));
 
         var topCallers = callers.OrderByDescending(kv => kv.Value.incl).Take(top).Select(Project).ToList();
         var topCallees = callees.OrderByDescending(kv => kv.Value.incl).Take(top).Select(Project).ToList();
@@ -243,8 +254,8 @@ internal static class StackSourceTopN
             FocusFunction: focusFunction,
             FocusExclusiveMetric: focusExclusive,
             FocusInclusiveMetric: focusInclusive,
-            FocusExclusivePct: 100.0 * focusExclusive / totalDouble,
-            FocusInclusivePct: 100.0 * focusInclusive / totalDouble,
+            FocusExclusivePct: Pct(totalDouble, focusExclusive),
+            FocusInclusivePct: Pct(totalDouble, focusInclusive),
             MetricName: metricName,
             Callers: topCallers,
             Callees: topCallees,

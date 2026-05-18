@@ -13,7 +13,7 @@ namespace WprMcp.Analyzers;
 // first so Resolve never falls back to <unmapped> for a file that did get named.
 public static class FileIoAnalysis
 {
-    public static FileIoResponse TopFiles(TraceLog trace, int top, int? pid)
+    public static FileIoResponse TopFiles(TraceLog trace, int top, int? pid, long? startUs = null, long? endUs = null)
     {
         var resolver = FileObjectResolver.Build(trace);
         var agg = new Dictionary<string, (long ReadBytes, long ReadCount, long WriteBytes, long WriteCount)>();
@@ -23,6 +23,7 @@ public static class FileIoAnalysis
             kernel.FileIORead += data =>
             {
                 if (pid is { } p && data.ProcessID != p) return;
+                if (!InWindow(data.TimeStampRelativeMSec, startUs, endUs)) return;
                 var name = resolver.Resolve(data.FileObject);
                 var cur = agg.GetValueOrDefault(name);
                 agg[name] = (cur.ReadBytes + data.IoSize, cur.ReadCount + 1, cur.WriteBytes, cur.WriteCount);
@@ -30,6 +31,7 @@ public static class FileIoAnalysis
             kernel.FileIOWrite += data =>
             {
                 if (pid is { } p && data.ProcessID != p) return;
+                if (!InWindow(data.TimeStampRelativeMSec, startUs, endUs)) return;
                 var name = resolver.Resolve(data.FileObject);
                 var cur = agg.GetValueOrDefault(name);
                 agg[name] = (cur.ReadBytes, cur.ReadCount, cur.WriteBytes + data.IoSize, cur.WriteCount + 1);
@@ -43,5 +45,12 @@ public static class FileIoAnalysis
             .ToList();
 
         return new FileIoResponse(rows);
+    }
+
+    private static bool InWindow(double timeStampRelativeMSec, long? startUs, long? endUs)
+    {
+        var nowUs = (long)(timeStampRelativeMSec * 1000);
+        return (!startUs.HasValue || nowUs >= startUs.Value) &&
+               (!endUs.HasValue || nowUs < endUs.Value);
     }
 }

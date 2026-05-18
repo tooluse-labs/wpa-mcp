@@ -55,7 +55,6 @@ public class TimeWindowSemanticsTests
             $"{nameof(HardFaultTools)}.{nameof(HardFaultTools.HardFaultByFile)}",
             $"{nameof(ImageLoadTools)}.{nameof(ImageLoadTools.ImageLoadTiming)}",
             $"{nameof(ImageLoadTools)}.{nameof(ImageLoadTools.ImageLoadTopGaps)}",
-            $"{nameof(IoTools)}.{nameof(IoTools.FileIoTopFiles)}",
             $"{nameof(MarkerTools)}.{nameof(MarkerTools.FindMarker)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.LoadTrace)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.InspectTrace)}",

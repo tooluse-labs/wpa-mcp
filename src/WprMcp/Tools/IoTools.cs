@@ -13,16 +13,18 @@ public sealed class IoTools
     public IoTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
-        "Top N files by total IO bytes (read + write). No startUs/endUs: this is a whole-trace " +
-        "by-file summary; use file_io_top_stacks for windowed attribution.")]
+        "Top N files by total IO bytes (read + write). Supports pid/startUs/endUs filters " +
+        "so a noisy trace can be narrowed to the process or startup window under investigation.")]
     public FileIoResponse FileIoTopFiles(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
-        [Description("Filter to a single process ID")] int? pid = null)
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return FileIoAnalysis.TopFiles(trace, top, pid);
+        return FileIoAnalysis.TopFiles(trace, top, pid, startUs, endUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
