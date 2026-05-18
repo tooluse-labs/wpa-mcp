@@ -9,6 +9,93 @@ GitHub Releases and the git tag history.
 
 No user-facing changes yet.
 
+## v0.2.20 - 2026-05-18
+
+### Added
+
+- Added `process_create_timing` warnings for child processes with slow
+  first-image-load gaps before user-mode code can run, pointing users toward
+  process-creation callbacks, AV/EDR scanning, or minifilter contention.
+- Added `startUs` and `endUs` filters to `file_io_top_files`, matching the
+  half-open `[startUs, endUs)` semantics used by stack analyzers.
+
+### Fixed
+
+- Centralized stack percentage calculation across stack analyzers and clamped
+  display percentages to `[0, 100]`, preventing floating-point or CallTree
+  overshoot from producing values such as `100.006%`.
+- Added a development assertion for unexpectedly large percentage overshoot so
+  real metric accounting bugs are still visible during debug builds.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+
+## v0.2.19 - 2026-05-18
+
+### Changed
+
+- Updated Windows executable metadata so Task Manager and version resources show
+  `wpa-mcp` branding, and embedded the existing project avatar as the
+  application icon.
+- Updated the zip installer to skip unchanged native TraceEvent DLLs by SHA256,
+  avoiding unnecessary failures when an active MCP process has the same native
+  dependency loaded.
+- Bumped the executable/package version to `0.2.19` for the release tag.
+
+### Fixed
+
+- Fixed `cpu_precise_analysis` interval accounting so scheduler gaps and thread
+  identity reuse cannot inflate per-thread CPU time beyond the analyzed window.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
+- Real ETL probe confirmed no per-thread CPU duration exceeded trace duration
+  after the scheduler-gap fix.
+
+## v0.2.18 - 2026-05-17
+
+### Changed
+
+- Expanded `diagnose_symbols` with local symbol-path parsing for cache entries
+  and shared warning/root handling.
+
+### Fixed
+
+- Prevented `diagnose_symbols` from reporting stale flat same-name PDB files as
+  resolved unless a symbol-store GUID/Age match or real DIA verification proves
+  the PDB identity.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet test WprMcp.sln -c Release --no-restore --filter FullyQualifiedName~SymbolServiceTests`
+
+## v0.2.17 - 2026-05-17
+
+### Changed
+
+- Made broad stack-heavy MCP calls skip native symbol downloads by default, with
+  `resolveSymbols=true` available after narrowing a query by PID or time window.
+- Added the trace directory as a local symbol lookup path so colocated PDBs are
+  found without remote downloads.
+- Updated release and installer staging so TraceEvent DIA native DLLs remain
+  available in zip installs.
+
+### Fixed
+
+- Fixed release zip packaging for native TraceEvent dependencies by publishing
+  native libraries externally instead of embedding them into the single-file
+  executable.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- Manual Quark symbol rerun improved frame resolution and removed the
+  `msdia140.dll` load failure.
+
 ## v0.2.16 - 2026-05-17
 
 ### Added
@@ -71,8 +158,12 @@ No user-facing changes yet.
 
 ## Previous Releases
 
+- [v0.2.19](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.19)
+- [v0.2.18](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.18)
+- [v0.2.17](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.17)
+- [v0.2.16](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.16)
 - [v0.2.15](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.15)
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.16...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...HEAD

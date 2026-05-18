@@ -18,6 +18,6 @@ public class StackSourceTopNTests
     {
         Assert.Null(StackSourceTopN.PctOfTrace(hasFilter: false, traceTotal: 100, n: 50));
         Assert.Equal(50.0, StackSourceTopN.PctOfTrace(hasFilter: true, traceTotal: 100, n: 50));
-        Assert.Equal(100.0, StackSourceTopN.PctOfTrace(hasFilter: true, traceTotal: 100, n: 101));
+        Assert.Equal(100.0, StackSourceTopN.PctOfTrace(hasFilter: true, traceTotal: 100, n: 100.01));
     }
 }

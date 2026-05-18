@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Diagnostics.Symbols;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -157,6 +158,7 @@ internal static class StackSourceTopN
         var pct = 100.0 * n / total;
         if (double.IsNaN(pct) || double.IsInfinity(pct))
             return 0;
+        Debug.Assert(pct <= 100.5, $"Unexpected percentage overshoot: total={total}, n={n}, pct={pct}");
         return Math.Clamp(pct, 0, 100);
     }
 
@@ -232,7 +234,7 @@ internal static class StackSourceTopN
             }
         }
 
-        var totalDouble = Math.Max(1.0, totalMetric);
+        var totalDouble = totalMetric;
         CallerCalleeNode Project(KeyValuePair<string, (long excl, long incl)> kv)
             => new(kv.Key, kv.Value.excl, kv.Value.incl,
                    Pct(totalDouble, kv.Value.excl),
