@@ -42,6 +42,25 @@ public sealed class MemoryResourceAnalysisTests
     }
 
     [Fact]
+    public void MemoryResourceAnalysis_DeduplicatesPressureSnapshotsWithinTimeBatch()
+    {
+        var tools = new VirtualMemoryTools(new TraceCache(capacity: 2));
+
+        var resp = tools.MemoryResourceAnalysis(MemoryFixturePath(), top: 1000);
+
+        Assert.Equal(resp.Processes.Count, resp.Pressure.TopPeakWorkingSetProcesses.Count);
+        Assert.True(
+            resp.Pressure.MaxObservedTotalWorkingSetBytes <=
+            resp.Pressure.TopPeakWorkingSetProcesses.Sum(row => row.PeakWorkingSetBytes));
+        Assert.True(
+            resp.Pressure.MaxObservedTotalCommitBytes <=
+            resp.Pressure.TopPeakCommitProcesses.Sum(row => row.PeakCommitBytes));
+        Assert.True(
+            resp.Pressure.MaxObservedTotalPrivateBytes <=
+            resp.Pressure.TopPeakCommitProcesses.Sum(row => row.PeakPrivateBytes));
+    }
+
+    [Fact]
     public void MemoryResourceAnalysis_WarnsWhenProcessSnapshotsAreMissing()
     {
         var tools = new VirtualMemoryTools(new TraceCache(capacity: 2));
@@ -53,6 +72,8 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Equal(0, resp.Pressure.ProcessSnapshotBatchCount);
         Assert.True(resp.Pressure.SystemSampleCount > 0);
         Assert.True(resp.Pressure.MinFreeBytes >= 0);
+        Assert.Null(resp.Pressure.MinAvailableBytes);
+        Assert.Null(resp.Pressure.MinAvailableTimeUs);
         Assert.NotEmpty(resp.SystemMemory);
         Assert.Equal(0, resp.PoolEventCount);
         Assert.Empty(resp.PoolProcesses);

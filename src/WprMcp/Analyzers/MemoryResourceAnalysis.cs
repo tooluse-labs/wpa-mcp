@@ -62,6 +62,7 @@ public static class MemoryResourceAnalysis
                     processSampleCount++;
                     pressure.AddProcessSnapshot(
                         nowUs,
+                        values.ProcessID,
                         workingSetBytes: PagesToBytes(values.WorkingSetPageCount),
                         commitBytes: PagesToBytes(values.CommitPageCount),
                         privateBytes: PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages)));
@@ -219,6 +220,9 @@ public static class MemoryResourceAnalysis
 
         warnings.Add(
             $"Page-count memory metrics are converted using {PageSizeBytes}-byte pages; this response does not currently expose trace-specific page size metadata.");
+        warnings.Add(
+            "Memory-pressure process totals are observed ETW sample-batch totals, not complete whole-system memory accounting. " +
+            "MinAvailableBytes is free+zero memory when zero-page data is present and excludes standby pages.");
 
         if (pressure.MinFreeBytes == 0)
         {
@@ -582,8 +586,8 @@ public static class MemoryResourceAnalysis
             SystemSampleCount++;
             TrackMin(row.FreeBytes, row.TimeUs, ref _minFreeBytes, ref _minFreeTimeUs);
 
-            long? availableBytes = row.FreeBytes.HasValue
-                ? row.FreeBytes.Value + (row.ZeroBytes ?? 0)
+            long? availableBytes = row.FreeBytes.HasValue && row.ZeroBytes.HasValue
+                ? row.FreeBytes.Value + row.ZeroBytes.Value
                 : null;
             TrackMin(availableBytes, row.TimeUs, ref _minAvailableBytes, ref _minAvailableTimeUs);
             TrackMax(row.ModifiedBytes, row.TimeUs, ref _maxModifiedBytes, ref _maxModifiedTimeUs);
@@ -591,16 +595,20 @@ public static class MemoryResourceAnalysis
 
         public void AddProcessSnapshot(
             long timeUs,
+            int pid,
             long workingSetBytes,
             long commitBytes,
             long privateBytes)
         {
             if (!_processBatches.TryGetValue(timeUs, out var batch))
-                batch = default;
+                batch = new ProcessSnapshotBatch();
 
-            batch.WorkingSetBytes += workingSetBytes;
-            batch.CommitBytes += commitBytes;
-            batch.PrivateBytes += privateBytes;
+            // ProcessMemInfo can repeat the same PID within one timestamped batch.
+            // Keep the last row for that PID so aggregate pressure totals are not inflated.
+            batch.Processes[pid] = new ProcessSnapshot(
+                WorkingSetBytes: workingSetBytes,
+                CommitBytes: commitBytes,
+                PrivateBytes: privateBytes);
             _processBatches[timeUs] = batch;
         }
 
@@ -608,9 +616,10 @@ public static class MemoryResourceAnalysis
         {
             foreach (var (timeUs, batch) in _processBatches)
             {
-                TrackMax(batch.WorkingSetBytes, timeUs, ref _maxTotalWorkingSetBytes, ref _maxTotalWorkingSetTimeUs);
-                TrackMax(batch.CommitBytes, timeUs, ref _maxTotalCommitBytes, ref _maxTotalCommitTimeUs);
-                TrackMax(batch.PrivateBytes, timeUs, ref _maxTotalPrivateBytes, ref _maxTotalPrivateTimeUs);
+                var totals = batch.Totals();
+                TrackMax(totals.WorkingSetBytes, timeUs, ref _maxTotalWorkingSetBytes, ref _maxTotalWorkingSetTimeUs);
+                TrackMax(totals.CommitBytes, timeUs, ref _maxTotalCommitBytes, ref _maxTotalCommitTimeUs);
+                TrackMax(totals.PrivateBytes, timeUs, ref _maxTotalPrivateBytes, ref _maxTotalPrivateTimeUs);
             }
 
             var pressureRows = processes
@@ -644,12 +653,21 @@ public static class MemoryResourceAnalysis
                     .ToList());
         }
 
-        private struct ProcessSnapshotBatch
+        private sealed class ProcessSnapshotBatch
         {
-            public long WorkingSetBytes;
-            public long CommitBytes;
-            public long PrivateBytes;
+            public readonly Dictionary<int, ProcessSnapshot> Processes = new();
+
+            public ProcessSnapshot Totals() =>
+                new(
+                    WorkingSetBytes: Processes.Values.Sum(process => process.WorkingSetBytes),
+                    CommitBytes: Processes.Values.Sum(process => process.CommitBytes),
+                    PrivateBytes: Processes.Values.Sum(process => process.PrivateBytes));
         }
+
+        private readonly record struct ProcessSnapshot(
+            long WorkingSetBytes,
+            long CommitBytes,
+            long PrivateBytes);
     }
 
     private sealed class HandleAccumulator(int pid, string processName)

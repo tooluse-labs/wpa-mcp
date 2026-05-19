@@ -16,8 +16,10 @@ public sealed class VirtualMemoryTools
         "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
         "create/close deltas. Reports working set, commit, derived private bytes, private " +
         "working set, virtual size, handle deltas, observed pool allocation/free deltas, and " +
-        "a memory-pressure summary with minimum free/available bytes plus peak observed " +
-        "process working set and commit across the selected window. " +
+        "a memory-pressure summary with minimum free bytes, minimum free+zero bytes when " +
+        "zero-page data is present, plus peak observed sampled-process batch totals across " +
+        "the selected window. These pressure totals are ETW sample-batch evidence, not " +
+        "complete whole-system memory accounting. " +
         "Pool rows are not absolute current counters; they are captured-window deltas with " +
         "UnknownFreeCount for frees whose allocation was outside the window. Requires MemoryInfoWS " +
         "for process snapshots and Handle/Pool for handle or pool events; use MemoryCapture.wprp " +

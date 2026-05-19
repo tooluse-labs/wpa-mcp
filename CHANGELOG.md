@@ -23,6 +23,9 @@ GitHub Releases and the git tag history.
 - Added a memory-pressure summary to `memory_resource_analysis`, including
   minimum free/available memory, peak modified memory, peak observed aggregate
   process working set/commit/private bytes, and top peak memory consumers.
+- Fixed the memory-pressure summary to de-duplicate duplicate process snapshots
+  within the same timestamped batch and to leave `MinAvailableBytes` unknown
+  when zero-page counts are not present.
 
 ## v0.2.21 - 2026-05-18
 
