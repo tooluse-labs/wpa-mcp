@@ -36,6 +36,20 @@ public class WprProfileRecipeTests
         Assert.Equal("0x18", runtimeProvider.Attribute("Keywords")?.Value);
         Assert.Equal("5", runtimeProvider.Attribute("Level")?.Value);
 
+        var profileElementOrder = doc.Root!
+            .Element("Profiles")!
+            .Elements()
+            .Select(e => e.Name.LocalName)
+            .ToArray();
+        Assert.Equal(new[]
+        {
+            "SystemCollector",
+            "EventCollector",
+            "SystemProvider",
+            "EventProvider",
+            "Profile"
+        }, profileElementOrder);
+
         var systemKeywords = doc.Descendants("SystemProvider")
             .Descendants("Keyword")
             .Select(k => k.Attribute("Value")?.Value)

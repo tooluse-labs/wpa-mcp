@@ -5,17 +5,17 @@
       <BufferSize Value="256"/>
       <Buffers Value="16"/>
     </SystemCollector>
+    <EventCollector Id="EC" Name="WpaMcpJitOnlyEC">
+      <BufferSize Value="256"/>
+      <Buffers Value="16"/>
+    </EventCollector>
+
     <SystemProvider Id="SP">
       <Keywords>
         <Keyword Value="ProcessThread"/>
         <Keyword Value="Loader"/>
       </Keywords>
     </SystemProvider>
-
-    <EventCollector Id="EC" Name="WpaMcpJitOnlyEC">
-      <BufferSize Value="256"/>
-      <Buffers Value="16"/>
-    </EventCollector>
     <!-- 0x18 = CLR Loader (0x8) + JIT (0x10). Loader is included so
          clr_jit_analysis can pair MethodJittingStarted with MethodLoadVerbose;
          GC/allocation/exception/contention runtime keywords are intentionally omitted. -->
