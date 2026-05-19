@@ -7,6 +7,8 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## v0.2.22 - 2026-05-19
+
 ### Added
 
 - Added `security_scan_analysis` to aggregate AV/EDR scan activity across
@@ -23,9 +25,23 @@ GitHub Releases and the git tag history.
 - Added a memory-pressure summary to `memory_resource_analysis`, including
   minimum free/available memory, peak modified memory, peak observed aggregate
   process working set/commit/private bytes, and top peak memory consumers.
+
+### Changed
+
+- Bumped the executable/package version to `0.2.22` for the release tag.
+- Clarified that `memory_resource_analysis` pressure totals are ETW sampled
+  batch evidence, not complete whole-system memory accounting.
+
+### Fixed
+
 - Fixed the memory-pressure summary to de-duplicate duplicate process snapshots
   within the same timestamped batch and to leave `MinAvailableBytes` unknown
   when zero-page counts are not present.
+
+### Verification
+
+- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
 
 ## v0.2.21 - 2026-05-18
 
@@ -202,6 +218,7 @@ GitHub Releases and the git tag history.
 
 ## Previous Releases
 
+- [v0.2.21](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.21)
 - [v0.2.20](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.20)
 - [v0.2.19](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.19)
 - [v0.2.18](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.18)
@@ -211,5 +228,6 @@ GitHub Releases and the git tag history.
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.21...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.22...HEAD
+[v0.2.22]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.21...v0.2.22
 [v0.2.21]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...v0.2.21
