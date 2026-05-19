@@ -704,6 +704,14 @@ public sealed record SlowStartupCandidate(
     IReadOnlyList<ImageLoadRow>? FirstImageLoads,
     IReadOnlyList<CpuFunctionRow>? TopCpuFunctions);
 
+public sealed record StartupGapEvidenceRow(
+    int Pid,
+    string ProcessName,
+    long ProcessStartUs,
+    long FirstImageLoadTimeUs,
+    long FirstImageLoadOffsetUs,
+    DiagnoseWindowResponse Window);
+
 public sealed record DiagnoseSlowStartupResponse(
     IReadOnlyList<SlowStartupCandidate> Candidates,
     [property: Obsolete("Use structured Evidence, NotConcluded, ExecutedToolCalls, and NextTools instead.")]
@@ -712,7 +720,8 @@ public sealed record DiagnoseSlowStartupResponse(
     IReadOnlyList<CompositeEvidence>? Evidence = null,
     IReadOnlyList<CompositeNotConcluded>? NotConcluded = null,
     IReadOnlyList<CompositeToolCall>? ExecutedToolCalls = null,
-    IReadOnlyList<CompositeNextTool>? NextTools = null);
+    IReadOnlyList<CompositeNextTool>? NextTools = null,
+    IReadOnlyList<StartupGapEvidenceRow>? FirstImageLoadGapEvidence = null);
 
 public sealed record HighWaitCandidate(
     int Pid,

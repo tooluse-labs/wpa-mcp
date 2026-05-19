@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Diagnostics.Tracing.Etlx;
 using ModelContextProtocol.Server;
 using WprMcp.Analyzers;
 using WprMcp.Core;
@@ -53,6 +54,19 @@ public sealed class DiagnoseTools
         if (maxWindowDurationUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
+        var trace = _cache.Get(path);
+        return BuildDiagnoseWindow(trace, startUs, endUs, pid, top, maxWindowDurationUs, callPrefix: "diagnose-window");
+    }
+
+    private static DiagnoseWindowResponse BuildDiagnoseWindow(
+        TraceLog trace,
+        long startUs,
+        long endUs,
+        int? pid,
+        int top,
+        long maxWindowDurationUs,
+        string callPrefix)
+    {
         var durationUs = endUs - startUs;
         var warnings = new List<string>();
         var notConcluded = new List<CompositeNotConcluded>();
@@ -78,10 +92,8 @@ public sealed class DiagnoseTools
             return EmptyDiagnoseWindow(startUs, endUs, pid, evidence, notConcluded, nextTools, executedCalls, warnings);
         }
 
-        var trace = _cache.Get(path);
-
         var hardFaultBytes = HardFaultByFileAnalysis.Analyze(trace, top, pid, "bytes", startUs, endUs);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.hard_fault_by_file.bytes", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultBytes.Warnings, orderBy: "bytes");
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.hard_fault_by_file.bytes", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultBytes.Warnings, orderBy: "bytes");
         if (hardFaultBytes.Rows.FirstOrDefault() is { } topHardFaultBytes)
         {
             evidence.Add(new WindowEvidenceRow(
@@ -102,11 +114,11 @@ public sealed class DiagnoseTools
         }
         else
         {
-            AddNoSignal(notConcluded, "no_hard_fault_bytes", "No hard-fault page-in bytes matched this pid/window.", pid, "diagnose-window.hard_fault_by_file.bytes");
+            AddNoSignal(notConcluded, "no_hard_fault_bytes", "No hard-fault page-in bytes matched this pid/window.", pid, $"{callPrefix}.hard_fault_by_file.bytes");
         }
 
         var hardFaultLatency = HardFaultByFileAnalysis.Analyze(trace, top, pid, "max_latency", startUs, endUs);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.hard_fault_by_file.max_latency", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultLatency.Warnings, orderBy: "max_latency");
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.hard_fault_by_file.max_latency", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultLatency.Warnings, orderBy: "max_latency");
         if (hardFaultLatency.Rows.FirstOrDefault() is { } topHardFaultLatency)
         {
             evidence.Add(new WindowEvidenceRow(
@@ -139,11 +151,11 @@ public sealed class DiagnoseTools
         }
         else
         {
-            AddNoSignal(notConcluded, "no_hard_fault_latency", "No hard-fault latency rows matched this pid/window.", pid, "diagnose-window.hard_fault_by_file.max_latency");
+            AddNoSignal(notConcluded, "no_hard_fault_latency", "No hard-fault latency rows matched this pid/window.", pid, $"{callPrefix}.hard_fault_by_file.max_latency");
         }
 
         var fileIo = FileIoAnalysis.TopFiles(trace, top, pid, startUs, endUs);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.file_io_top_files", "file_io_top_files", pid, startUs, endUs, top, Array.Empty<string>());
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.file_io_top_files", "file_io_top_files", pid, startUs, endUs, top, Array.Empty<string>());
         if (fileIo.Rows.FirstOrDefault() is { } topFile)
         {
             var bytes = topFile.ReadBytes + topFile.WriteBytes;
@@ -167,11 +179,11 @@ public sealed class DiagnoseTools
         }
         else
         {
-            AddNoSignal(notConcluded, "no_file_io", "No file IO rows matched this pid/window.", pid, "diagnose-window.file_io_top_files");
+            AddNoSignal(notConcluded, "no_file_io", "No file IO rows matched this pid/window.", pid, $"{callPrefix}.file_io_top_files");
         }
 
         var memory = MemoryResourceAnalysis.Analyze(trace, top, pid, startUs, endUs);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.memory_resource_analysis", "memory_resource_analysis", pid, startUs, endUs, top, memory.Warnings);
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.memory_resource_analysis", "memory_resource_analysis", pid, startUs, endUs, top, memory.Warnings);
         if (memory.Pressure.MinFreeBytes is { } minFreeBytes)
         {
             evidence.Add(new WindowEvidenceRow(
@@ -191,11 +203,11 @@ public sealed class DiagnoseTools
         }
         else if (memory.Pressure.ProcessSnapshotBatchCount == 0 && memory.Pressure.SystemSampleCount == 0)
         {
-            AddNoSignal(notConcluded, "no_memory_samples", "No memory resource samples matched this pid/window.", pid, "diagnose-window.memory_resource_analysis");
+            AddNoSignal(notConcluded, "no_memory_samples", "No memory resource samples matched this pid/window.", pid, $"{callPrefix}.memory_resource_analysis");
         }
 
         var security = SecurityScanAnalysis.Analyze(trace, top, pid, startUs, endUs, processSubstring: null, pathSubstring: null, providerSubstring: null);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.security_scan_analysis", "security_scan_analysis", pid, startUs, endUs, top, security.Warnings);
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.security_scan_analysis", "security_scan_analysis", pid, startUs, endUs, top, security.Warnings);
         if (security.PairedScanCount > 0)
         {
             evidence.Add(new WindowEvidenceRow(
@@ -230,11 +242,11 @@ public sealed class DiagnoseTools
         }
         else
         {
-            AddNoSignal(notConcluded, "no_security_scan_events", "No security scan-like events matched this pid/window.", pid, "diagnose-window.security_scan_analysis");
+            AddNoSignal(notConcluded, "no_security_scan_events", "No security scan-like events matched this pid/window.", pid, $"{callPrefix}.security_scan_analysis");
         }
 
         var waits = WaitAnalysis.Analyze(trace, top, pid, startUs, endUs);
-        AddWindowCall(executedCalls, warnings, "diagnose-window.wait_analysis", "wait_analysis", pid, startUs, endUs, top, waits.Warnings);
+        AddWindowCall(executedCalls, warnings, $"{callPrefix}.wait_analysis", "wait_analysis", pid, startUs, endUs, top, waits.Warnings);
         var totalBlockedUs = waits.Rows.Sum(row => row.BlockedUs);
         if (totalBlockedUs > 0)
         {
@@ -265,7 +277,7 @@ public sealed class DiagnoseTools
         }
         else
         {
-            AddNoSignal(notConcluded, "no_wait_rows", "No wait_analysis rows with blocked time matched this pid/window.", pid, "diagnose-window.wait_analysis");
+            AddNoSignal(notConcluded, "no_wait_rows", "No wait_analysis rows with blocked time matched this pid/window.", pid, $"{callPrefix}.wait_analysis");
         }
 
         return new DiagnoseWindowResponse(
@@ -293,9 +305,10 @@ public sealed class DiagnoseTools
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Composite 'why is process X slow to start' analysis. Picks the slowest-by-wait-ratio processes " +
         "(or the ones matching nameSubstring), then runs wait_analysis (top wait reasons), image_load_timing " +
-        "(first N DLLs from process start), and cpu_top_functions (top hot functions in the startup window) " +
+        "(first N DLLs from process start), cpu_top_functions (top hot functions in the startup window), " +
+        "and diagnose_window for slow ProcessStart→first-ImageLoad gaps " +
         "for each. Equivalent to manually composing list_processes + wait_analysis + image_load_timing + " +
-        "cpu_top_functions but with a single tool call. No startUs/endUs: this composite derives each " +
+        "cpu_top_functions + diagnose_window but with a single tool call. No startUs/endUs: this composite derives each " +
         "candidate window from ProcessStart plus startupWindowUs.")]
     public DiagnoseSlowStartupResponse DiagnoseSlowStartup(
         [Description("Absolute path to .etl file")] string path,
@@ -308,7 +321,13 @@ public sealed class DiagnoseTools
         [Description("Startup window width from ProcessStart, in microseconds (default 5_000_000 = 5s)")]
         long startupWindowUs = 5_000_000,
         [Description("Top N image-loads per candidate (default 30)")] int topImageLoads = 30,
-        [Description("Top N CPU functions per candidate (default 15)")] int topCpu = 15)
+        [Description("Top N CPU functions per candidate (default 15)")] int topCpu = 15,
+        [Description("Minimum ProcessStart→first ImageLoad gap, in microseconds, before running diagnose_window (default 1s).")]
+        long slowFirstImageLoadThresholdUs = 1_000_000,
+        [Description("Top N rows per diagnose_window section for slow first-image-load gaps (default 10).")]
+        int topWindowEvidence = 10,
+        [Description("Maximum diagnose_window width for first-image-load gap evidence, in microseconds (default 60s).")]
+        long maxWindowDurationUs = DefaultDiagnoseWindowLimitUs)
     {
         if (maxCandidates <= 0 || maxCandidates > 20)
             throw new ArgumentOutOfRangeException(nameof(maxCandidates));
@@ -316,11 +335,18 @@ public sealed class DiagnoseTools
             throw new ArgumentOutOfRangeException(nameof(minWaitRatio));
         if (startupWindowUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(startupWindowUs));
+        if (slowFirstImageLoadThresholdUs < 0)
+            throw new ArgumentOutOfRangeException(nameof(slowFirstImageLoadThresholdUs));
+        Validation.RequireTop(topWindowEvidence);
+        if (maxWindowDurationUs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
         var trace = _cache.Get(path);
         var warnings = new List<string>();
         var evidence = new List<CompositeEvidence>();
         var notConcluded = new List<CompositeNotConcluded>();
+        var nextTools = new List<CompositeNextTool>();
+        var firstImageLoadGapEvidence = new List<StartupGapEvidenceRow>();
         var executedCalls = new List<CompositeToolCall>
         {
             ToolCall(
@@ -368,7 +394,8 @@ public sealed class DiagnoseTools
                 Evidence: evidence,
                 NotConcluded: notConcluded,
                 ExecutedToolCalls: executedCalls,
-                NextTools: Array.Empty<CompositeNextTool>());
+                NextTools: nextTools,
+                FirstImageLoadGapEvidence: firstImageLoadGapEvidence);
         }
 
         var candidatePids = new HashSet<int>(ranked.Select(r => r.Pid));
@@ -414,8 +441,9 @@ public sealed class DiagnoseTools
             var collapsedReasons = CollapseWaitReasons(rowsForPid, top: 5);
             var totalBlockedUs = rowsForPid.Sum(row => row.BlockedUs);
 
-            var firstLoads = imageLoadsByPid.TryGetValue(c.Pid, out var loads)
-                ? (IReadOnlyList<ImageLoadRow>)loads.Take(topImageLoads).ToList()
+            var hasImageLoads = imageLoadsByPid.TryGetValue(c.Pid, out var loads);
+            var firstLoads = hasImageLoads
+                ? (IReadOnlyList<ImageLoadRow>)loads!.Take(topImageLoads).ToList()
                 : null;
             executedCalls.Add(ToolCall(
                 $"slow-startup.pid-{c.Pid}.image_load_timing",
@@ -429,6 +457,48 @@ public sealed class DiagnoseTools
                 summaryOnly: null,
                 whenBuckets: null,
                 warnings: Array.Empty<string>()));
+
+            if (hasImageLoads && loads!.Count > 0)
+            {
+                var firstLoad = loads[0];
+                var firstImageLoadOffsetUs = Math.Max(0, firstLoad.TimeUs - c.StartUs);
+                if (firstImageLoadOffsetUs >= slowFirstImageLoadThresholdUs)
+                {
+                    var windowStartUs = c.StartUs;
+                    var windowEndUs = Math.Max(windowStartUs, firstLoad.TimeUs + 1);
+                    var callId = $"slow-startup.pid-{c.Pid}.diagnose_window";
+                    var window = BuildDiagnoseWindow(
+                        trace,
+                        windowStartUs,
+                        windowEndUs,
+                        c.Pid,
+                        topWindowEvidence,
+                        maxWindowDurationUs,
+                        callPrefix: $"slow-startup.pid-{c.Pid}.first-image-load-gap");
+
+                    executedCalls.Add(ToolCall(
+                        callId,
+                        "diagnose_window",
+                        pid: c.Pid,
+                        awakenedPid: null,
+                        startUs: windowStartUs,
+                        endUs: windowEndUs,
+                        top: topWindowEvidence,
+                        compactStacks: null,
+                        summaryOnly: null,
+                        whenBuckets: null,
+                        warnings: window.Warnings));
+                    warnings.AddRange(PrefixWarnings($"diagnose_window pid {c.Pid}", window.Warnings));
+                    nextTools.AddRange(window.NextTools);
+                    firstImageLoadGapEvidence.Add(new StartupGapEvidenceRow(
+                        Pid: c.Pid,
+                        ProcessName: c.Name,
+                        ProcessStartUs: c.StartUs,
+                        FirstImageLoadTimeUs: firstLoad.TimeUs,
+                        FirstImageLoadOffsetUs: firstImageLoadOffsetUs,
+                        Window: window));
+                }
+            }
 
             IReadOnlyList<CpuFunctionRow>? topCpuRows = null;
             var cpuWarnings = new List<string>();
@@ -483,6 +553,19 @@ public sealed class DiagnoseTools
                 waitReasons: collapsedReasons));
         }
 
+        if (firstImageLoadGapEvidence.Count == 0)
+        {
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: "no_slow_first_image_load_gaps",
+                Reason: "No candidate had a ProcessStart-to-first-ImageLoad gap meeting slowFirstImageLoadThresholdUs, so diagnose_window gap evidence was not run.",
+                Pid: null,
+                BlockingCapability: null,
+                RelatedCallId: null,
+                MetricName: "slowFirstImageLoadThresholdUs",
+                MetricValue: slowFirstImageLoadThresholdUs,
+                Unit: "us"));
+        }
+
         return new DiagnoseSlowStartupResponse(
             Candidates: candidates,
             Summary: BuildSummary(candidates),
@@ -490,7 +573,8 @@ public sealed class DiagnoseTools
             Evidence: evidence,
             NotConcluded: notConcluded,
             ExecutedToolCalls: executedCalls,
-            NextTools: Array.Empty<CompositeNextTool>());
+            NextTools: nextTools,
+            FirstImageLoadGapEvidence: firstImageLoadGapEvidence);
     }
 
     [McpServerTool(

@@ -24,6 +24,12 @@ public class DiagnoseToolsTests
             tools.DiagnoseSlowStartup("nonexistent.etl", minWaitRatio: -1));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             tools.DiagnoseSlowStartup("nonexistent.etl", startupWindowUs: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            tools.DiagnoseSlowStartup("nonexistent.etl", slowFirstImageLoadThresholdUs: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            tools.DiagnoseSlowStartup("nonexistent.etl", topWindowEvidence: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            tools.DiagnoseSlowStartup("nonexistent.etl", maxWindowDurationUs: 0));
     }
 
     [Fact]
@@ -91,6 +97,38 @@ public class DiagnoseToolsTests
             Assert.Equal(expected, evidence.MetricValue);
             Assert.True(evidence.MetricValue >= evidence.TopWaitReasons.Sum(reason => reason.BlockedUs));
         }
+    }
+
+    [Fact]
+    public void DiagnoseSlowStartup_AttachesWindowEvidenceForFirstImageLoadGaps()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var resp = tools.DiagnoseSlowStartup(
+            MmapFixturePath,
+            minWaitRatio: 0.0,
+            maxCandidates: 10,
+            topImageLoads: 5,
+            topCpu: 1,
+            slowFirstImageLoadThresholdUs: 0,
+            topWindowEvidence: 3);
+
+        Assert.NotNull(resp.FirstImageLoadGapEvidence);
+        if (resp.Candidates.Count == 0) return;
+        Assert.NotEmpty(resp.FirstImageLoadGapEvidence!);
+        var gap = resp.FirstImageLoadGapEvidence![0];
+        Assert.True(gap.FirstImageLoadTimeUs >= gap.ProcessStartUs);
+        Assert.Equal(gap.FirstImageLoadTimeUs - gap.ProcessStartUs, gap.FirstImageLoadOffsetUs);
+        Assert.Equal(gap.Pid, gap.Window.Pid);
+        Assert.Equal(gap.ProcessStartUs, gap.Window.WindowStartUs);
+        Assert.Equal(gap.FirstImageLoadTimeUs + 1, gap.Window.WindowEndUs);
+        Assert.NotEmpty(gap.Window.ExecutedToolCalls);
+        Assert.Contains(gap.Window.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file");
+        Assert.Contains(resp.ExecutedToolCalls!, call =>
+            call.ToolName == "diagnose_window" &&
+            call.Pid == gap.Pid &&
+            call.StartUs == gap.ProcessStartUs &&
+            call.EndUs == gap.FirstImageLoadTimeUs + 1);
     }
 
     [Fact]

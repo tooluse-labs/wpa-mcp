@@ -15,6 +15,10 @@ GitHub Releases and the git tag history.
   hard-fault by-file rows, file IO top files, memory-pressure samples,
   security-scan evidence, and waits for the same `pid` / `startUs` / `endUs`
   without returning a synthesized root-cause verdict.
+- Extended `diagnose_slow_startup` with `FirstImageLoadGapEvidence`, which
+  reuses `diagnose_window` for slow `ProcessStart -> first ImageLoad` gaps so
+  startup analysis carries hard-fault, file IO, memory, scan, and wait evidence
+  for the pre-user-mode gap.
 
 ## v0.2.22 - 2026-05-19
 
