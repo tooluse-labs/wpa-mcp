@@ -320,6 +320,31 @@ public sealed class InspectTraceTests
     }
 
     [Fact]
+    public void BuildRecommendedDiagnosticFlows_UsesOnlyEnabledClrTools()
+    {
+        var jitOnly = AllCapabilities() with
+        {
+            HasClrGc = false,
+            HasClrAlloc = false,
+            HasClrException = false,
+            HasClrContention = false,
+            HasClrJit = true,
+        };
+
+        var flows = MetaTools.BuildRecommendedDiagnosticFlows(jitOnly);
+
+        var dotnet = Assert.Single(flows, flow => flow.FlowName == "dotnet_runtime");
+        Assert.Equal(new[] { "clr_jit_analysis" }, dotnet.ToolSequence);
+        Assert.Contains("jit", dotnet.Goals);
+        Assert.Contains("clr_jit", dotnet.EnabledCapabilities);
+        Assert.Contains("clr_gc", dotnet.MissingCapabilities);
+        Assert.DoesNotContain("clr_gc_analysis", dotnet.ToolSequence);
+        Assert.DoesNotContain("clr_alloc_top_stacks", dotnet.ToolSequence);
+        Assert.DoesNotContain("clr_exception_top_stacks", dotnet.ToolSequence);
+        Assert.DoesNotContain("clr_contention_top_stacks", dotnet.ToolSequence);
+    }
+
+    [Fact]
     public void BuildCapabilitySupportedTools_RequiresWaitEventStacksForStackTools()
     {
         var capabilities = AllCapabilities() with

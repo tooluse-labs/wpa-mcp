@@ -568,8 +568,8 @@ public sealed class MetaTools
             flows.Add(Flow(
                 "dotnet_runtime",
                 "Use CLR-specific tools only for the runtime signals present in this trace; missing CLR providers cannot be reconstructed after capture.",
-                ["clr_gc_analysis", "clr_gc_heap_stats", "clr_alloc_top_stacks", "clr_exception_top_stacks", "clr_contention_top_stacks"],
-                ["dotnet", "gc", "allocations", "exceptions", "locks"],
+                BuildClrRuntimeToolSequence(capabilities),
+                BuildClrRuntimeGoals(capabilities),
                 [
                     (capabilities.HasClrGc, "clr_gc"),
                     (capabilities.HasClrAlloc, "clr_alloc"),
@@ -629,6 +629,41 @@ public sealed class MetaTools
             .Where(caveat => caveat.Applies)
             .Select(caveat => caveat.Message)
             .ToList();
+
+    private static IReadOnlyList<string> BuildClrRuntimeToolSequence(TraceCapabilities capabilities)
+    {
+        var tools = new List<string>();
+        if (capabilities.HasClrGc)
+        {
+            tools.Add("clr_gc_analysis");
+            tools.Add("clr_gc_heap_stats");
+        }
+        if (capabilities.HasClrJit)
+            tools.Add("clr_jit_analysis");
+        if (capabilities.HasClrAlloc)
+            tools.Add("clr_alloc_top_stacks");
+        if (capabilities.HasClrException)
+            tools.Add("clr_exception_top_stacks");
+        if (capabilities.HasClrContention)
+            tools.Add("clr_contention_top_stacks");
+        return tools;
+    }
+
+    private static IReadOnlyList<string> BuildClrRuntimeGoals(TraceCapabilities capabilities)
+    {
+        var goals = new List<string> { "dotnet" };
+        if (capabilities.HasClrGc)
+            goals.Add("gc");
+        if (capabilities.HasClrJit)
+            goals.Add("jit");
+        if (capabilities.HasClrAlloc)
+            goals.Add("allocations");
+        if (capabilities.HasClrException)
+            goals.Add("exceptions");
+        if (capabilities.HasClrContention)
+            goals.Add("locks");
+        return goals;
+    }
 
     private static IReadOnlyList<ToolRecommendation> BuildToolRecommendationRecords(
         IReadOnlyList<(string ToolName, string Reason, string[] Goals)> recommendations)
