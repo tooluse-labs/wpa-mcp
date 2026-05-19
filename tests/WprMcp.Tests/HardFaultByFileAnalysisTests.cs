@@ -35,6 +35,18 @@ public class HardFaultByFileAnalysisTests
     }
 
     [Fact]
+    public void HardFaultByFile_AppliesHalfOpenWindow()
+    {
+        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        var fullTrace = tools.HardFaultByFile(FixturePath, top: 100);
+        Assert.NotEmpty(fullTrace.Rows);
+
+        var emptyWindow = tools.HardFaultByFile(FixturePath, top: 100, startUs: long.MaxValue - 1, endUs: long.MaxValue);
+
+        Assert.Empty(emptyWindow.Rows);
+    }
+
+    [Fact]
     public void HardFaultByFile_RejectsBadTop()
     {
         var tools = new HardFaultTools(new TraceCache(capacity: 2));

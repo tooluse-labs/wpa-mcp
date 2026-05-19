@@ -17,6 +17,12 @@ GitHub Releases and the git tag history.
   when their ETW provider or event names expose scan/security terms. Vendor
   names classify matched events but do not by themselves turn all vendor
   activity into scans.
+- Added `startUs` and `endUs` filters to `hard_fault_by_file`, so page-in files
+  can be ranked inside a startup or interaction window instead of only across
+  the whole trace.
+- Added a memory-pressure summary to `memory_resource_analysis`, including
+  minimum free/available memory, peak modified memory, peak observed aggregate
+  process working set/commit/private bytes, and top peak memory consumers.
 
 ## v0.2.21 - 2026-05-18
 

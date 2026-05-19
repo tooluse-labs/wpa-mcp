@@ -362,7 +362,7 @@ public sealed class MetaTools
             recommendations.Add(("disk_io_top_stacks", "Disk IO and stack walks are present; attribute physical media bytes to call stacks.", ["io", "disk", "stacks"]));
 
         if (capabilities.HasHardFaults)
-            recommendations.Add(("hard_fault_by_file", "Hard-fault events are present; identify files that caused page-ins.", ["memory", "hard_faults"]));
+            recommendations.Add(("hard_fault_by_file", "Hard-fault events are present; identify files that caused page-ins, optionally narrowed by pid/startUs/endUs.", ["memory", "hard_faults"]));
 
         if (capabilities.HasClrGc)
             recommendations.Add(("clr_gc_analysis", "CLR GC events are present; inspect GC duration and stop-the-world pause time.", ["gc", "dotnet"]));

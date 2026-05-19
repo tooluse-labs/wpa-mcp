@@ -15,6 +15,7 @@ public static class MemoryResourceAnalysis
     // Keep bounded output useful for the default ~500 ms ProcessMemInfo cadence: 100 samples
     // covers roughly 50 seconds and longer traces get an explicit truncation warning.
     private const int MaxSystemSamples = 100;
+    private const long LowFreeMemoryWarningThresholdBytes = 128L * 1024 * 1024;
 
     public static MemoryResourceResponse Analyze(
         TraceLog trace,
@@ -27,6 +28,7 @@ public static class MemoryResourceAnalysis
         var handles = new Dictionary<int, HandleAccumulator>();
         var pools = new PoolTracker(trace);
         var systemRows = new List<MemoryResourceSystemRow>();
+        var pressure = new MemoryPressureAccumulator();
         long processSampleCount = 0;
         long handleEventCount = 0;
         long poolEventCount = 0;
@@ -58,6 +60,11 @@ public static class MemoryResourceAnalysis
                     if (pid.HasValue && values.ProcessID != pid.Value) continue;
 
                     processSampleCount++;
+                    pressure.AddProcessSnapshot(
+                        nowUs,
+                        workingSetBytes: PagesToBytes(values.WorkingSetPageCount),
+                        commitBytes: PagesToBytes(values.CommitPageCount),
+                        privateBytes: PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages)));
                     GetProcess(processes, values.ProcessID, trace).Add(nowUs, values);
                 }
             };
@@ -67,13 +74,15 @@ public static class MemoryResourceAnalysis
                 var nowUs = ToUs(data);
                 if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
 
-                systemRows.Add(new MemoryResourceSystemRow(
+                var row = new MemoryResourceSystemRow(
                     TimeUs: nowUs,
                     FreeBytes: PagesToBytes(data.FreePages),
                     ZeroBytes: null,
                     ModifiedBytes: null,
                     ModifiedNoWriteBytes: null,
-                    BadBytes: null));
+                    BadBytes: null);
+                systemRows.Add(row);
+                pressure.AddSystem(row);
             };
 
             kernel.MemoryMemInfo += data =>
@@ -81,13 +90,15 @@ public static class MemoryResourceAnalysis
                 var nowUs = ToUs(data);
                 if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
 
-                systemRows.Add(new MemoryResourceSystemRow(
+                var row = new MemoryResourceSystemRow(
                     TimeUs: nowUs,
                     FreeBytes: PagesToBytes(data.FreePageCount),
                     ZeroBytes: PagesToBytes(data.ZeroPageCount),
                     ModifiedBytes: PagesToBytes(data.ModifiedPageCount),
                     ModifiedNoWriteBytes: PagesToBytes(data.ModifiedNoWritePageCount),
-                    BadBytes: PagesToBytes(data.BadPageCount)));
+                    BadBytes: PagesToBytes(data.BadPageCount));
+                systemRows.Add(row);
+                pressure.AddSystem(row);
             };
 
             kernel.ObjectCreateHandle += data =>
@@ -146,7 +157,8 @@ public static class MemoryResourceAnalysis
 
         var poolRows = pools.ProcessRows(top);
         var poolTagRows = pools.TagRows(top);
-        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount, rawPoolEventCount);
+        var pressureSummary = pressure.ToSummary(processes.Values, top);
+        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount, rawPoolEventCount, pressureSummary);
         var boundedSystemRows = systemRows
             .OrderBy(row => row.TimeUs)
             .TakeLast(MaxSystemSamples)
@@ -160,6 +172,7 @@ public static class MemoryResourceAnalysis
             Handles: handleRows,
             PoolProcesses: poolRows,
             PoolTags: poolTagRows,
+            Pressure: pressureSummary,
             SystemMemory: boundedSystemRows,
             ProcessSampleCount: processSampleCount,
             HandleEventCount: handleEventCount,
@@ -171,7 +184,8 @@ public static class MemoryResourceAnalysis
         long processSampleCount,
         long handleEventCount,
         long poolEventCount,
-        long rawPoolEventCount)
+        long rawPoolEventCount,
+        MemoryPressureSummary pressure)
     {
         var warnings = new List<string>();
         if (processSampleCount == 0)
@@ -205,6 +219,16 @@ public static class MemoryResourceAnalysis
 
         warnings.Add(
             $"Page-count memory metrics are converted using {PageSizeBytes}-byte pages; this response does not currently expose trace-specific page size metadata.");
+
+        if (pressure.MinFreeBytes == 0)
+        {
+            warnings.Add("System free memory reached 0 bytes in the selected window; cross-check hard faults and top working-set processes for memory-pressure stalls.");
+        }
+        else if (pressure.MinFreeBytes is > 0 and < LowFreeMemoryWarningThresholdBytes)
+        {
+            warnings.Add($"System free memory fell below {LowFreeMemoryWarningThresholdBytes} bytes in the selected window; hard faults and cold-load stalls are more likely under memory pressure.");
+        }
+
         return warnings;
     }
 
@@ -243,6 +267,38 @@ public static class MemoryResourceAnalysis
         => trace.Processes.LastOrDefault(process => process.ProcessID == pid)?.Name ?? $"Process({pid})";
 
     private static long PagesToBytes(long pages) => pages <= 0 ? 0 : pages * PageSizeBytes;
+
+    private static void TrackMin(
+        long? value,
+        long timeUs,
+        ref long? minValue,
+        ref long? minTimeUs)
+    {
+        if (!value.HasValue)
+            return;
+
+        if (!minValue.HasValue || value.Value < minValue.Value)
+        {
+            minValue = value.Value;
+            minTimeUs = timeUs;
+        }
+    }
+
+    private static void TrackMax(
+        long? value,
+        long timeUs,
+        ref long? maxValue,
+        ref long? maxTimeUs)
+    {
+        if (!value.HasValue)
+            return;
+
+        if (!maxValue.HasValue || value.Value > maxValue.Value)
+        {
+            maxValue = value.Value;
+            maxTimeUs = timeUs;
+        }
+    }
 
     internal static long CalculateHandleNetDelta(long created, long closed, long duplicatedIn, long duplicatedOut)
     {
@@ -493,6 +549,107 @@ public static class MemoryResourceAnalysis
                 VirtualSizeBytes: _virtualSizeBytes,
                 CommitDebtBytes: _commitDebtBytes,
                 StoreBytes: _storeBytes);
+
+        public MemoryPressureProcessRow ToPressureRow() =>
+            new(
+                Pid: pid,
+                ProcessName: processName,
+                PeakWorkingSetBytes: PeakWorkingSetBytes,
+                PeakCommitBytes: PeakCommitBytes,
+                PeakPrivateBytes: PeakPrivateBytes);
+    }
+
+    private sealed class MemoryPressureAccumulator
+    {
+        private long? _minFreeBytes;
+        private long? _minFreeTimeUs;
+        private long? _minAvailableBytes;
+        private long? _minAvailableTimeUs;
+        private long? _maxModifiedBytes;
+        private long? _maxModifiedTimeUs;
+        private long? _maxTotalWorkingSetBytes;
+        private long? _maxTotalWorkingSetTimeUs;
+        private long? _maxTotalCommitBytes;
+        private long? _maxTotalCommitTimeUs;
+        private long? _maxTotalPrivateBytes;
+        private long? _maxTotalPrivateTimeUs;
+        private readonly Dictionary<long, ProcessSnapshotBatch> _processBatches = new();
+
+        public long SystemSampleCount { get; private set; }
+
+        public void AddSystem(MemoryResourceSystemRow row)
+        {
+            SystemSampleCount++;
+            TrackMin(row.FreeBytes, row.TimeUs, ref _minFreeBytes, ref _minFreeTimeUs);
+
+            long? availableBytes = row.FreeBytes.HasValue
+                ? row.FreeBytes.Value + (row.ZeroBytes ?? 0)
+                : null;
+            TrackMin(availableBytes, row.TimeUs, ref _minAvailableBytes, ref _minAvailableTimeUs);
+            TrackMax(row.ModifiedBytes, row.TimeUs, ref _maxModifiedBytes, ref _maxModifiedTimeUs);
+        }
+
+        public void AddProcessSnapshot(
+            long timeUs,
+            long workingSetBytes,
+            long commitBytes,
+            long privateBytes)
+        {
+            if (!_processBatches.TryGetValue(timeUs, out var batch))
+                batch = default;
+
+            batch.WorkingSetBytes += workingSetBytes;
+            batch.CommitBytes += commitBytes;
+            batch.PrivateBytes += privateBytes;
+            _processBatches[timeUs] = batch;
+        }
+
+        public MemoryPressureSummary ToSummary(IEnumerable<ProcessAccumulator> processes, int top)
+        {
+            foreach (var (timeUs, batch) in _processBatches)
+            {
+                TrackMax(batch.WorkingSetBytes, timeUs, ref _maxTotalWorkingSetBytes, ref _maxTotalWorkingSetTimeUs);
+                TrackMax(batch.CommitBytes, timeUs, ref _maxTotalCommitBytes, ref _maxTotalCommitTimeUs);
+                TrackMax(batch.PrivateBytes, timeUs, ref _maxTotalPrivateBytes, ref _maxTotalPrivateTimeUs);
+            }
+
+            var pressureRows = processes
+                .Select(process => process.ToPressureRow())
+                .ToList();
+
+            return new MemoryPressureSummary(
+                SystemSampleCount: SystemSampleCount,
+                ProcessSnapshotBatchCount: _processBatches.Count,
+                MinFreeBytes: _minFreeBytes,
+                MinFreeTimeUs: _minFreeTimeUs,
+                MinAvailableBytes: _minAvailableBytes,
+                MinAvailableTimeUs: _minAvailableTimeUs,
+                MaxModifiedBytes: _maxModifiedBytes,
+                MaxModifiedTimeUs: _maxModifiedTimeUs,
+                MaxObservedTotalWorkingSetBytes: _maxTotalWorkingSetBytes,
+                MaxObservedTotalWorkingSetTimeUs: _maxTotalWorkingSetTimeUs,
+                MaxObservedTotalCommitBytes: _maxTotalCommitBytes,
+                MaxObservedTotalCommitTimeUs: _maxTotalCommitTimeUs,
+                MaxObservedTotalPrivateBytes: _maxTotalPrivateBytes,
+                MaxObservedTotalPrivateTimeUs: _maxTotalPrivateTimeUs,
+                TopPeakWorkingSetProcesses: pressureRows
+                    .OrderByDescending(row => row.PeakWorkingSetBytes)
+                    .ThenByDescending(row => row.PeakCommitBytes)
+                    .Take(top)
+                    .ToList(),
+                TopPeakCommitProcesses: pressureRows
+                    .OrderByDescending(row => row.PeakCommitBytes)
+                    .ThenByDescending(row => row.PeakWorkingSetBytes)
+                    .Take(top)
+                    .ToList());
+        }
+
+        private struct ProcessSnapshotBatch
+        {
+            public long WorkingSetBytes;
+            public long CommitBytes;
+            public long PrivateBytes;
+        }
     }
 
     private sealed class HandleAccumulator(int pid, string processName)

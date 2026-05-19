@@ -35,7 +35,9 @@ public static class CliRunner
         ["--image-load-timing"] = RunImageLoadTiming,
         ["--image-load-top-stacks"] = RunImageLoadTopStacks,
         ["--image-load-top-gaps"] = RunImageLoadTopGaps,
+        ["--hard-fault-by-file"] = RunHardFaultByFile,
         ["--hard-fault-top-stacks"] = RunHardFaultTopStacks,
+        ["--memory-resource-analysis"] = RunMemoryResourceAnalysis,
         ["--file-io-top-stacks"] = RunFileIoTopStacks,
         ["--disk-io-top-stacks"] = RunDiskIoTopStacks,
         ["--interrupt-top-stacks"] = RunInterruptTopStacks,
@@ -189,6 +191,41 @@ public static class CliRunner
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
         var tools = new HardFaultTools(new TraceCache(capacity: 1));
         Emit(tools.HardFaultTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
+        return 0;
+    }
+
+    private static int RunHardFaultByFile(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --hard-fault-by-file <trace.etl> [top=50] [pid|-] [startUs|-] [endUs|-] [orderBy=bytes|count|max_latency]");
+            return 2;
+        }
+
+        var top = args.Length >= 3 ? int.Parse(args[2]) : 50;
+        int? pid = HasOptionalArg(args, 3) ? int.Parse(args[3]) : null;
+        long? startUs = HasOptionalArg(args, 4) ? long.Parse(args[4]) : null;
+        long? endUs = HasOptionalArg(args, 5) ? long.Parse(args[5]) : null;
+        var orderBy = HasOptionalArg(args, 6) ? args[6] : "bytes";
+        var tools = new HardFaultTools(new TraceCache(capacity: 1));
+        Emit(tools.HardFaultByFile(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs, orderBy: orderBy));
+        return 0;
+    }
+
+    private static int RunMemoryResourceAnalysis(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --memory-resource-analysis <trace.etl> [top=50] [pid|-] [startUs|-] [endUs|-]");
+            return 2;
+        }
+
+        var top = args.Length >= 3 ? int.Parse(args[2]) : 50;
+        int? pid = HasOptionalArg(args, 3) ? int.Parse(args[3]) : null;
+        long? startUs = HasOptionalArg(args, 4) ? long.Parse(args[4]) : null;
+        long? endUs = HasOptionalArg(args, 5) ? long.Parse(args[5]) : null;
+        var tools = new VirtualMemoryTools(new TraceCache(capacity: 1));
+        Emit(tools.MemoryResourceAnalysis(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs));
         return 0;
     }
 
@@ -377,7 +414,9 @@ public static class CliRunner
         w.WriteLine("  --image-load-timing     <trace.etl> <pid> [top=100]");
         w.WriteLine("  --image-load-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --image-load-top-gaps   <trace.etl> <pid> [top=20]");
+        w.WriteLine("  --hard-fault-by-file    <trace.etl> [top=50] [pid|-] [startUs|-] [endUs|-] [orderBy=bytes|count|max_latency]");
         w.WriteLine("  --hard-fault-top-stacks <trace.etl> [pid] [top=30] [whenBuckets=0]");
+        w.WriteLine("  --memory-resource-analysis <trace.etl> [top=50] [pid|-] [startUs|-] [endUs|-]");
         w.WriteLine("  --file-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --disk-io-top-stacks    <trace.etl> [pid] [top=30] [whenBuckets=0]");
         w.WriteLine("  --interrupt-top-stacks  <trace.etl> [top=30] [startUs] [endUs]");

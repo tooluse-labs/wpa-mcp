@@ -812,11 +812,37 @@ public sealed record MemoryPoolTagRow(
     long FreeCount,
     long UnknownFreeCount);
 
+public sealed record MemoryPressureProcessRow(
+    int Pid,
+    string ProcessName,
+    long PeakWorkingSetBytes,
+    long PeakCommitBytes,
+    long PeakPrivateBytes);
+
+public sealed record MemoryPressureSummary(
+    long SystemSampleCount,
+    long ProcessSnapshotBatchCount,
+    long? MinFreeBytes,
+    long? MinFreeTimeUs,
+    long? MinAvailableBytes,
+    long? MinAvailableTimeUs,
+    long? MaxModifiedBytes,
+    long? MaxModifiedTimeUs,
+    long? MaxObservedTotalWorkingSetBytes,
+    long? MaxObservedTotalWorkingSetTimeUs,
+    long? MaxObservedTotalCommitBytes,
+    long? MaxObservedTotalCommitTimeUs,
+    long? MaxObservedTotalPrivateBytes,
+    long? MaxObservedTotalPrivateTimeUs,
+    IReadOnlyList<MemoryPressureProcessRow> TopPeakWorkingSetProcesses,
+    IReadOnlyList<MemoryPressureProcessRow> TopPeakCommitProcesses);
+
 public sealed record MemoryResourceResponse(
     IReadOnlyList<MemoryResourceProcessRow> Processes,
     IReadOnlyList<MemoryHandleProcessRow> Handles,
     IReadOnlyList<MemoryPoolProcessRow> PoolProcesses,
     IReadOnlyList<MemoryPoolTagRow> PoolTags,
+    MemoryPressureSummary Pressure,
     IReadOnlyList<MemoryResourceSystemRow> SystemMemory,
     long ProcessSampleCount,
     long HandleEventCount,

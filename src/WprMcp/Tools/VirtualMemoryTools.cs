@@ -15,7 +15,9 @@ public sealed class VirtualMemoryTools
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
         "create/close deltas. Reports working set, commit, derived private bytes, private " +
-        "working set, virtual size, handle deltas, and observed pool allocation/free deltas. " +
+        "working set, virtual size, handle deltas, observed pool allocation/free deltas, and " +
+        "a memory-pressure summary with minimum free/available bytes plus peak observed " +
+        "process working set and commit across the selected window. " +
         "Pool rows are not absolute current counters; they are captured-window deltas with " +
         "UnknownFreeCount for frees whose allocation was outside the window. Requires MemoryInfoWS " +
         "for process snapshots and Handle/Pool for handle or pool events; use MemoryCapture.wprp " +

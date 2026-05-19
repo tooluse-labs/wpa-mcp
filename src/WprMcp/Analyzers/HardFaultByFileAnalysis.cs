@@ -32,7 +32,13 @@ namespace WprMcp.Analyzers;
 // the ordering hazard where a fault arrives before the Rundown that names its key.
 public static class HardFaultByFileAnalysis
 {
-    public static HardFaultByFileResponse Analyze(TraceLog trace, int top, int? pid, string orderBy = "bytes")
+    public static HardFaultByFileResponse Analyze(
+        TraceLog trace,
+        int top,
+        int? pid,
+        string orderBy = "bytes",
+        long? startUs = null,
+        long? endUs = null)
     {
         var normalizedOrderBy = NormalizeOrderBy(orderBy);
 
@@ -45,6 +51,8 @@ public static class HardFaultByFileAnalysis
         {
             kernel.MemoryHardFault += data =>
             {
+                var nowUs = ToUs(data);
+                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
                 if (pid is { } p && data.ProcessID != p) return;
 
                 // Prefer the FileName the event carries; otherwise fall back to the FileKey map.
@@ -71,6 +79,13 @@ public static class HardFaultByFileAnalysis
         var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
         return new HardFaultByFileResponse(rows, warnings);
     }
+
+    private static bool PassesTimeWindow(long nowUs, long? startUs, long? endUs)
+        => (!startUs.HasValue || nowUs >= startUs.Value) &&
+           (!endUs.HasValue || nowUs < endUs.Value);
+
+    private static long ToUs(Microsoft.Diagnostics.Tracing.TraceEvent data) =>
+        (long)(data.TimeStampRelativeMSec * 1000);
 
     internal static string NormalizeOrderBy(string? orderBy)
     {

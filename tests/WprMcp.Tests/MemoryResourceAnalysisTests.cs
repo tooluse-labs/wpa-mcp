@@ -22,6 +22,11 @@ public sealed class MemoryResourceAnalysisTests
 
         Assert.True(resp.ProcessSampleCount > 0);
         Assert.NotEmpty(resp.Processes);
+        Assert.True(resp.Pressure.ProcessSnapshotBatchCount > 0);
+        Assert.NotEmpty(resp.Pressure.TopPeakWorkingSetProcesses);
+        Assert.NotEmpty(resp.Pressure.TopPeakCommitProcesses);
+        Assert.True(resp.Pressure.MaxObservedTotalWorkingSetBytes > 0);
+        Assert.True(resp.Pressure.MaxObservedTotalCommitBytes > 0);
         Assert.True(resp.HandleEventCount > 0);
         Assert.NotEmpty(resp.Handles);
         Assert.Contains(resp.Handles, row => row.Created > 0 || row.Closed > 0 || row.DuplicatedIn > 0);
@@ -45,6 +50,9 @@ public sealed class MemoryResourceAnalysisTests
 
         Assert.Empty(resp.Processes);
         Assert.Equal(0, resp.ProcessSampleCount);
+        Assert.Equal(0, resp.Pressure.ProcessSnapshotBatchCount);
+        Assert.True(resp.Pressure.SystemSampleCount > 0);
+        Assert.True(resp.Pressure.MinFreeBytes >= 0);
         Assert.NotEmpty(resp.SystemMemory);
         Assert.Equal(0, resp.PoolEventCount);
         Assert.Empty(resp.PoolProcesses);
