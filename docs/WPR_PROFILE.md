@@ -38,6 +38,17 @@ For wait-stack fixture refreshes, use
 | ReadyThread | `ready_thread_top_stacks` |
 | Stack on ThreadCreate, CSwitch, ReadyThread | positive-path stack evidence |
 
+For .NET JIT-only investigations, use
+`tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp`. It enables:
+
+| Keyword | Used by |
+|---|---|
+| Microsoft-Windows-DotNETRuntime 0x18 | `clr_jit_analysis`; this is CLR Loader (0x8) + JIT (0x10), enough to pair `MethodJittingStarted` with `MethodLoadVerbose` |
+| ProcessThread, Loader | process names and image metadata |
+
+`JitOnlyCapture.wprp` intentionally omits CLR GC, allocation, exception, and
+contention keywords. Use a broader CLR profile when those tools matter.
+
 For CPU-only focus, `wpr.exe -start CPU -filemode` is sufficient (no hard-fault analysis).
 
 ## Capture commands
@@ -58,6 +69,12 @@ wpr.exe -stop my_memory_capture.etl
 wpr.exe -start WaitBoundCapture.wprp!WaitBoundMcp -filemode
 # … wait-heavy workload …
 wpr.exe -stop my_wait_capture.etl
+```
+
+```powershell
+wpr.exe -start JitOnlyCapture.wprp!ClrJitOnly -filemode
+# … start the .NET process or scenario whose JIT cost matters …
+wpr.exe -stop my_jit_capture.etl
 ```
 
 For stack-capture sanity checks, use the debug CLI probe:

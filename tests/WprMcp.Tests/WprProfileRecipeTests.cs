@@ -1,0 +1,63 @@
+using System.Xml.Linq;
+
+namespace WprMcp.Tests;
+
+public class WprProfileRecipeTests
+{
+    private static string LocateRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "WprMcp.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
+
+    private static string LocateRepoFile(params string[] parts)
+    {
+        var path = Path.Combine(new[] { LocateRepoRoot() }.Concat(parts).ToArray());
+        Assert.True(File.Exists(path), $"Expected file at {path}");
+        return path;
+    }
+
+    [Fact]
+    public void JitOnlyProfileCapturesClrJitWithoutBroadClrRuntimeKeywords()
+    {
+        var path = LocateRepoFile("tests", "WprMcp.Tests", "fixtures", "JitOnlyCapture.wprp");
+        var doc = XDocument.Load(path);
+
+        var profile = Assert.Single(doc.Descendants("Profile"));
+        Assert.Equal("ClrJitOnly.Verbose.File", profile.Attribute("Id")?.Value);
+        Assert.Equal("ClrJitOnly", profile.Attribute("Name")?.Value);
+
+        var runtimeProvider = Assert.Single(doc.Descendants("EventProvider"));
+        Assert.Equal("ClrRuntimeJitProvider", runtimeProvider.Attribute("Id")?.Value);
+        Assert.Equal("Microsoft-Windows-DotNETRuntime", runtimeProvider.Attribute("Name")?.Value);
+        Assert.Equal("0x18", runtimeProvider.Attribute("Keywords")?.Value);
+        Assert.Equal("5", runtimeProvider.Attribute("Level")?.Value);
+
+        var systemKeywords = doc.Descendants("SystemProvider")
+            .Descendants("Keyword")
+            .Select(k => k.Attribute("Value")?.Value)
+            .ToArray();
+        Assert.Equal(new[] { "ProcessThread", "Loader" }, systemKeywords);
+
+        Assert.Contains(doc.Descendants("EventProviderId"),
+            p => p.Attribute("Value")?.Value == "ClrRuntimeJitProvider");
+    }
+
+    [Fact]
+    public void DocsReferenceTheJitOnlyCaptureRecipe()
+    {
+        var wprProfile = File.ReadAllText(LocateRepoFile("docs", "WPR_PROFILE.md"));
+        var capture = File.ReadAllText(LocateRepoFile("tests", "WprMcp.Tests", "fixtures", "CAPTURE.md"));
+        var readme = File.ReadAllText(LocateRepoFile("README.md"));
+        var readmeZh = File.ReadAllText(LocateRepoFile("README.zh-CN.md"));
+
+        Assert.Contains("JitOnlyCapture.wprp", wprProfile);
+        Assert.Contains("ClrJitOnly", wprProfile);
+        Assert.Contains("JitOnlyCapture.wprp", capture);
+        Assert.Contains("JitOnlyCapture.wprp", readme);
+        Assert.Contains("JitOnlyCapture.wprp", readmeZh);
+    }
+}

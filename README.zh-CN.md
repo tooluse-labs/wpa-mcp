@@ -378,6 +378,7 @@ load_trace  ──►  返回 Capabilities map
 ### CLR（.NET runtime）
 
 需要 `Microsoft-Windows-DotNETRuntime` ETW provider（WPR `.wprp` 文件需要显式 `<EventCollectorId>`）。
+如果只看 JIT，使用 `tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp!ClrJitOnly`；它只开启 `clr_jit_analysis` 需要的 CLR JIT + Loader bits，不开启 GC / allocation / exception / contention runtime keywords。
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|

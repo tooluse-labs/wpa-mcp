@@ -206,6 +206,33 @@ conversion exposes `Memory/ProcessMemInfo` and Object handle events by name;
 Pool events remain as raw classic Pool task GUID/opcode records, which
 `memory_resource_analysis` parses from their 24-byte payload.
 
+## JIT-only CLR recipe
+
+`JitOnlyCapture.wprp` is a capture recipe, not a committed ETL fixture. It is
+for minimal `clr_jit_analysis` traces when the investigation is only "which
+methods spent time in the JIT?" and GC/allocation/exception/contention evidence
+would just add size and noise.
+
+Run from Administrator PowerShell:
+
+```powershell
+cd tests\WprMcp.Tests\fixtures
+wpr.exe -start JitOnlyCapture.wprp!ClrJitOnly -filemode
+
+# Run the .NET workload whose first-run or tiered-JIT cost matters.
+# A simple smoke workload is any local dotnet app launch that executes managed code.
+
+wpr.exe -stop jit_only.etl
+```
+
+The profile enables CLR JIT plus the CLR Loader bit only so
+`clr_jit_analysis` can pair `MethodJittingStarted` with `MethodLoadVerbose`.
+It intentionally does not enable CLR GC, allocation, exception, or contention
+keywords. After capture, verify through MCP that `inspect_trace` reports
+`clr_jit` and recommends `clr_jit_analysis`, then run `clr_jit_analysis` on the
+captured ETL. Do not use this recipe when validating GC pause, allocation,
+exception, or monitor-contention tools.
+
 ## After capturing all 3 fixtures
 
 Notify the controller (or run yourself):

@@ -240,7 +240,7 @@ public sealed class MetaTools
             "missing_clr_runtime",
             "info",
             "CLR runtime events were not observed.",
-            "Recapture with Microsoft-Windows-DotNETRuntime enabled if .NET GC, allocation, exception, or contention analysis matters.",
+            "Recapture with Microsoft-Windows-DotNETRuntime enabled if .NET JIT, GC, allocation, exception, or contention analysis matters. Use tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp for minimal JIT-only traces.",
             ClrToolNames);
 
         AddMissingCapabilityWarning(

@@ -22,6 +22,9 @@ GitHub Releases and the git tag history.
 - Added `EnabledCapabilities` and `RecommendedDiagnosticFlows` to
   `inspect_trace`, so agents can choose viable composite workflows without
   manually reducing every capability flag.
+- Added `JitOnlyCapture.wprp`, a minimal CLR JIT-only capture recipe for
+  `clr_jit_analysis` traces without broader CLR GC/allocation/exception/
+  contention runtime keywords.
 
 ### Fixed
 
