@@ -25,9 +25,9 @@ GitHub Releases and the git tag history.
 - Added `JitOnlyCapture.wprp`, a minimal CLR JIT-only capture recipe for
   `clr_jit_analysis` traces without broader CLR GC/allocation/exception/
   contention runtime keywords.
-- Added `Capture-JitOnly.ps1`, an Administrator PowerShell helper that captures
-  a minimal JIT trace and validates CLR JIT start/load markers when the Release
-  MCP DLL is available.
+- Added `Capture-JitOnly.ps1`, an Administrator PowerShell helper that builds a
+  temporary .NET JIT workload, captures a minimal JIT trace, and validates CLR
+  JIT start/load markers when the Release MCP DLL is available.
 
 ### Fixed
 

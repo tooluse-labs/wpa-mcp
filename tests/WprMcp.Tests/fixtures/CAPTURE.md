@@ -219,9 +219,10 @@ Run from Administrator PowerShell:
 powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Capture-JitOnly.ps1
 ```
 
-The script starts `JitOnlyCapture.wprp!ClrJitOnly`, runs a generated C# workload
-with many first-call methods to force JIT events, stops WPR to `jit_only.etl`,
-and validates `JittingStarted` / `LoadVerbose` markers when the Release MCP DLL
+The script builds a temporary .NET console workload before tracing, starts
+`JitOnlyCapture.wprp!ClrJitOnly`, runs the compiled workload with many
+first-call methods to force JIT events, stops WPR to `jit_only.etl`, and
+validates `JittingStarted` / `LoadVerbose` markers when the Release MCP DLL
 already exists. Use `-OutputName`, `-MethodCount`, or `-InvocationRounds` to
 adjust the capture without editing the script.
 

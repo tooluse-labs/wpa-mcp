@@ -94,6 +94,9 @@ public class WprProfileRecipeTests
         Assert.Contains("ClrJitOnly", script);
         Assert.Contains("JittingStarted", script);
         Assert.Contains("LoadVerbose", script);
+        Assert.Contains("dotnet build", script);
+        Assert.DoesNotContain("Add-Type", script);
+        Assert.DoesNotContain("New-Object System.Text.StringBuilder", script);
         Assert.Contains("Microsoft-Windows-DotNETRuntime", File.ReadAllText(LocateRepoFile(
             "tests", "WprMcp.Tests", "fixtures", "JitOnlyCapture.wprp")));
     }
