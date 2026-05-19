@@ -46,7 +46,7 @@ public static class HardFaultByFileAnalysis
         var fileNames = BuildFileKeyMap(trace);
 
         // Pass 2: aggregate MemoryHardFault events.
-        var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs)>();
+        var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs, long maxLatencyTimeUs)>();
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.MemoryHardFault += data =>
@@ -62,14 +62,28 @@ public static class HardFaultByFileAnalysis
 
                 var cur = agg.GetValueOrDefault(name);
                 var latencyUs = (long)(data.ElapsedTimeMSec * 1000);
+                var maxLatencyUs = cur.maxLatencyUs;
+                var maxLatencyTimeUs = cur.maxLatencyTimeUs;
+                if (cur.count == 0 || latencyUs > cur.maxLatencyUs)
+                {
+                    maxLatencyUs = latencyUs;
+                    maxLatencyTimeUs = nowUs;
+                }
+
                 agg[name] = (cur.bytes + data.ByteCount,
                              cur.count + 1,
-                             Math.Max(cur.maxLatencyUs, latencyUs));
+                             maxLatencyUs,
+                             maxLatencyTimeUs);
             };
         });
 
         var rows = agg
-            .Select(kv => new HardFaultFileRow(kv.Key, kv.Value.bytes, kv.Value.count, kv.Value.maxLatencyUs))
+            .Select(kv => new HardFaultFileRow(
+                kv.Key,
+                kv.Value.bytes,
+                kv.Value.count,
+                kv.Value.maxLatencyUs,
+                kv.Value.maxLatencyTimeUs))
             .OrderByDescending(r => SortMetric(r, normalizedOrderBy))
             .ThenByDescending(r => r.PageInBytes)
             .ThenByDescending(r => r.PageInCount)

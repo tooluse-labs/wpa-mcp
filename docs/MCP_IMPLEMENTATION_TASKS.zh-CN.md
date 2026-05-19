@@ -118,13 +118,19 @@
 ### T1.2 增加高频 composite tools
 
 - **状态：** 🚧 进行中。`diagnose_high_wait` 已在 v0.2.11 作为 preview diagnostic composite 发布，并在 v0.2.14 之前补齐结构化 evidence、provenance、无 root-cause 字段、时间窗一致调用、replayability metadata 和 LLM-facing schema description。
+- **2026-05-19 慢启动分析更新：** 一份真实 Quark/PDF 启动 trace 需要约 29 次工具调用，因为 LLM 必须手动对齐 process-create gap、image-load gap、file IO、hard fault、memory pressure 和 AV/EDR scan evidence。下一轮 composite 工作应压缩这种重复的 windowed cross-tool 模式，而不是继续增加孤立 analyzer。
 - **优先顺序：**
   1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` —— preview 已发布。真实 `small_wait_bound.etl` fixture 已覆盖 CSwitch、ReadyThread 和事件附带 stack evidence；是否从 preview 晋级仍由 benchmark 闸门决定。
-  2. `diagnose_image_load_blocker`
-  3. `diagnose_gc_pressure`
-  4. `diagnose_trace_quality` —— 按维度返回结构化 verdict：capture coverage、symbol resolution、lost events、stackwalk completeness。每个维度包含 `status: "ok|warn|fail"`、reason、actionable next step。overall verdict 由各维度 status 推导，而不是自由文本。
-  5. 暂缓单独的 `diagnose_lock_contention`，除非数据证明 `focus="lock"` 路径不够。如果单独实现，它只覆盖 CLR managed locks（`clr_contention_top_stacks`），避免和 `diagnose_high_wait` 重复。
+  2. ✅ `hard_fault_by_file.MaxLatencyTimeUs` —— `diagnose_window` 的 P0 前置锚点。每个 by-file hard-fault row 必须包含最大 page-in latency 的发生时间，让 composite 能围绕真实 stall 锚点 zoom-in，而不是从 process start 猜窗口。
+  3. `diagnose_window(path, startUs, endUs, pid?)` —— 共享 window evidence 引擎。在 composite 层统一字段名和单位（`StartUs`、`EndUs`、`DurationUs`、`Pid`、`ProcessName`），但不强迫现有 Layer-1 DTO 大范围 churn。最小 evidence 集：hard faults by file（bytes 与 max latency）、file IO top files、memory pressure、security scan evidence、waits。增加 `maxWindowDurationUs` 守卫，窗口过宽时返回明确 warning 或要求调用底层 Layer-1 工具。
+  4. 基于 `diagnose_window` 的 startup-specific sugar：增强 `diagnose_slow_startup`，对慢 `ProcessStart -> first ImageLoad` gap 调用共享 window 引擎。`process_create_timing` 保持轻量 timing rows，最多附一个小型 `GapEvidence` 摘要或引用；不能复制完整 orchestration 逻辑。
+  5. `diagnose_image_load_blocker`
+  6. `diagnose_gc_pressure`
+  7. `diagnose_trace_quality` —— 按维度返回结构化 verdict：capture coverage、symbol resolution、lost events、stackwalk completeness。每个维度包含 `status: "ok|warn|fail"`、reason、actionable next step。overall verdict 由各维度 status 推导，而不是自由文本。
+  8. 暂缓单独的 `diagnose_lock_contention`，除非数据证明 `focus="lock"` 路径不够。如果单独实现，它只覆盖 CLR managed locks（`clr_contention_top_stacks`），避免和 `diagnose_high_wait` 重复。
 - **原则：** 每个 composite 内部组合 3-5 个现有 Layer-1 工具。任何内嵌 stack section 默认使用 `summaryOnly=true` 或 `compactStacks=true`；详细 drill-down 仍通过底层 Layer-1 工具提供。
+- **Verdict 纪律：** Window 与 startup composite 只有在附带支撑 count / row 时才能输出 `possible_*` label，并且必须有 `insufficient_evidence` 或 `no_signal` 状态。避免 `pressureLevel=high` 这类 ordinal pressure verdict；输出 evidence、contributors、caveats。
+- **可靠性 fixture：** 每个新 label 或 evidence summary 都需要至少一个 fixture-backed 回归测试；如果暂时不能提交 synthetic/real fixture，必须记录原因。
 - **验收：** 减少常见调查的工具调用轮次，而不是隐藏底层工具。`diagnose_high_wait` 已满足结构契约；composite 晋级仍需要 T0.5 benchmark 证明相对 Layer-1-only workflow 降低 wrong-tool selection 或 mean calls。
 
 ### T1.3 增加 Resources 与 Prompts
@@ -250,6 +256,7 @@
 
 ## 修订历史
 
+- **v15 (2026-05-19)**：将 Quark/PDF 慢启动 evidence-compression 路线加入 T1.2，把 `hard_fault_by_file.MaxLatencyTimeUs` 提升为 `diagnose_window` 的第一个 P0 前置，并记录未来 window/startup composite 的 verdict 纪律与 fixture 要求。
 - **v14 (2026-05-17)**：同步 v0.2.14 后的路线图：`diagnose_high_wait` 标记为 preview 完成，推荐顺序反映 T2.3/T2.4 已完成，并把 high-wait 晋级闸门收敛为真实 CSwitch+StackWalk wait-bound fixture 与 T0.5 benchmark 证据。
 - **v13 (2026-05-16)**：标记 T2.3 完成：`cpu_precise_analysis` 已落地 CSwitch/ReadyThread scheduler evidence、边界裁剪测试和 capture-boundary accumulator 修复。
 - **v12 (2026-05-16)**：完成 T2.4：解析 clean conversion 后的 raw classic Pool task GUID/opcode payload，使当前提交的 `small_memory.etl` 在无 stale `.etlx` cache 时也能证明 pool-positive analyzer path。

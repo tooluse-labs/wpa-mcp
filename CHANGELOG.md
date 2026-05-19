@@ -7,6 +7,11 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+### Added
+
+- Added `MaxLatencyTimeUs` to `hard_fault_by_file` rows, giving follow-up
+  analysis an exact timestamp for the observed worst page-in stall.
+
 ## v0.2.22 - 2026-05-19
 
 ### Added

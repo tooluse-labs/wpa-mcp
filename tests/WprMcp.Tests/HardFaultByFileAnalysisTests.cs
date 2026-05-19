@@ -32,6 +32,26 @@ public class HardFaultByFileAnalysisTests
 
         Assert.NotEmpty(resp.Rows);
         Assert.True(resp.Rows.Zip(resp.Rows.Skip(1), (a, b) => a.MaxLatencyUs >= b.MaxLatencyUs).All(v => v));
+        Assert.All(resp.Rows, row => Assert.True(row.MaxLatencyTimeUs >= 0));
+    }
+
+    [Fact]
+    public void HardFaultByFile_ReportsMaxLatencyTimestamp()
+    {
+        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        var fullTrace = tools.HardFaultByFile(FixturePath, top: 100, orderBy: "max_latency");
+        var slowest = fullTrace.Rows[0];
+
+        var singleTimestampWindow = tools.HardFaultByFile(
+            FixturePath,
+            top: 100,
+            startUs: slowest.MaxLatencyTimeUs,
+            endUs: slowest.MaxLatencyTimeUs + 1,
+            orderBy: "max_latency");
+
+        var row = Assert.Single(singleTimestampWindow.Rows.Where(row => row.File == slowest.File));
+        Assert.Equal(slowest.MaxLatencyUs, row.MaxLatencyUs);
+        Assert.Equal(slowest.MaxLatencyTimeUs, row.MaxLatencyTimeUs);
     }
 
     [Fact]

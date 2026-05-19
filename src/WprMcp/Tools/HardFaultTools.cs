@@ -19,8 +19,9 @@ public sealed class HardFaultTools
         "the first time; some also come from paged-out heap/stack pages and the page file.  " +
         "Requires the HardFaults kernel keyword in the capture profile (NOT in default WPR " +
         "'CPU' / 'CPU.light' profiles). Set orderBy='max_latency' to surface one-off stalls " +
-        "that do not dominate total bytes. Supports startUs/endUs filters to isolate a startup " +
-        "or interaction window before ranking files.")]
+        "that do not dominate total bytes; each row includes MaxLatencyTimeUs so follow-up " +
+        "analysis can zoom into the exact stall window. Supports startUs/endUs filters to " +
+        "isolate a startup or interaction window before ranking files.")]
     public HardFaultByFileResponse HardFaultByFile(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,

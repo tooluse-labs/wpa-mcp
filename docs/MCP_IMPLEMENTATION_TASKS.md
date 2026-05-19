@@ -118,13 +118,19 @@
 ### T1.2 Add High-Frequency Composite Tools
 
 - **Status:** 🚧 In progress. `diagnose_high_wait` shipped as a preview diagnostic composite in v0.2.11 and was hardened through v0.2.14 with structured evidence, provenance, no root-cause field, window-consistent calls, replayability metadata, and LLM-facing schema descriptions.
+- **2026-05-19 slow-startup analysis update:** A real Quark/PDF startup trace required roughly 29 tool calls because the LLM had to manually align process-create gaps, image-load gaps, file IO, hard faults, memory pressure, and AV/EDR scan evidence. The next composite work should compress that repeated windowed cross-tool pattern rather than add more isolated analyzers.
 - **Priority order:**
   1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` — preview shipped. The real `small_wait_bound.etl` fixture now covers CSwitch, ReadyThread, and event-attached stack evidence; promotion from preview remains benchmark-gated.
-  2. `diagnose_image_load_blocker`
-  3. `diagnose_gc_pressure`
-  4. `diagnose_trace_quality` — returns a structured verdict per dimension: capture coverage, symbol resolution, lost events, and stackwalk completeness. Each dimension carries `status: "ok|warn|fail"`, reason, and actionable next step. The overall verdict is derived from the dimension statuses, not free text.
-  5. Defer a separate `diagnose_lock_contention` unless data shows the `focus="lock"` path is insufficient. If implemented separately, scope it to CLR managed locks (`clr_contention_top_stacks`) so it does not duplicate `diagnose_high_wait`.
+  2. ✅ `hard_fault_by_file.MaxLatencyTimeUs` — P0 precursor for window zoom-in. Each by-file hard-fault row must include the timestamp of the observed maximum page-in latency so a composite can run `diagnose_window` around the true stall anchor instead of guessing from process start time.
+  3. `diagnose_window(path, startUs, endUs, pid?)` — shared window-evidence engine. It should normalize composite-level field names and units (`StartUs`, `EndUs`, `DurationUs`, `Pid`, `ProcessName`) without forcing DTO churn in existing Layer-1 tools. Minimum evidence set: hard faults by file (bytes and max latency), file IO top files, memory pressure, security scan evidence, and waits. Add a `maxWindowDurationUs` guard so wide windows return an explicit warning or require underlying Layer-1 tools.
+  4. Startup-specific sugar on top of `diagnose_window`: enhance `diagnose_slow_startup` to run the shared window engine for slow `ProcessStart -> first ImageLoad` gaps. `process_create_timing` should keep lightweight timing rows and, at most, attach a small `GapEvidence` summary or reference; it must not duplicate the full orchestration logic.
+  5. `diagnose_image_load_blocker`
+  6. `diagnose_gc_pressure`
+  7. `diagnose_trace_quality` — returns a structured verdict per dimension: capture coverage, symbol resolution, lost events, and stackwalk completeness. Each dimension carries `status: "ok|warn|fail"`, reason, and actionable next step. The overall verdict is derived from the dimension statuses, not free text.
+  8. Defer a separate `diagnose_lock_contention` unless data shows the `focus="lock"` path is insufficient. If implemented separately, scope it to CLR managed locks (`clr_contention_top_stacks`) so it does not duplicate `diagnose_high_wait`.
 - **Principle:** Each composite internally orchestrates 3-5 existing Layer-1 tools. Any embedded stack section should default to `summaryOnly=true` or `compactStacks=true`; detailed drill-down remains available through the underlying Layer-1 tools.
+- **Verdict discipline:** Window and startup composites may emit `possible_*` labels only when accompanied by supporting counts / rows and an `insufficient_evidence` or `no_signal` state. Avoid ordinal pressure verdicts such as `pressureLevel=high`; expose evidence, contributors, and caveats instead.
+- **Reliability fixtures:** Any new label or evidence summary needs at least one fixture-backed regression test, or a documented reason why a synthetic/real fixture cannot yet be committed.
 - **Acceptance:** Common investigations take fewer tool-call rounds while the low-level tools remain available. `diagnose_high_wait` satisfies the structural contract; composite promotion still requires the T0.5 benchmark to show lower wrong-tool selection or fewer mean calls versus Layer-1-only workflows.
 
 ### T1.3 Add Resources and Prompts
@@ -250,6 +256,7 @@
 
 ## Revision history
 
+- **v15 (2026-05-19)**: added the Quark/PDF slow-startup evidence-compression roadmap to T1.2, promoted `hard_fault_by_file.MaxLatencyTimeUs` as the first P0 precursor for `diagnose_window`, and documented verdict discipline plus fixture requirements for future window/startup composites.
 - **v14 (2026-05-17)**: synchronized the roadmap after v0.2.14: `diagnose_high_wait` is now marked complete-as-preview, T2.3/T2.4 are reflected in the recommended order, and the remaining high-wait promotion gate is the real CSwitch+StackWalk wait-bound fixture plus T0.5 benchmark evidence.
 - **v13 (2026-05-16)**: marked T2.3 complete after `cpu_precise_analysis` landed with CSwitch/ReadyThread scheduler evidence, boundary clipping tests, and capture-boundary accumulator fixes.
 - **v12 (2026-05-16)**: completed T2.4 by parsing clean-conversion raw classic Pool task GUID/opcode payloads, making the committed `small_memory.etl` prove the pool-positive analyzer path without stale `.etlx` caches.

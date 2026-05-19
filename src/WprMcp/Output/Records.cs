@@ -364,7 +364,8 @@ public sealed record HardFaultFileRow(
     string File,
     long PageInBytes,
     long PageInCount,
-    long MaxLatencyUs);
+    long MaxLatencyUs,
+    long MaxLatencyTimeUs);
 
 public sealed record HardFaultByFileResponse(
     IReadOnlyList<HardFaultFileRow> Rows,
