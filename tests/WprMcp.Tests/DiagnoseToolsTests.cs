@@ -105,16 +105,17 @@ public class DiagnoseToolsTests
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
         var resp = tools.DiagnoseSlowStartup(
-            MmapFixturePath,
+            FixturePath,
+            nameSubstring: "taskhostw",
             minWaitRatio: 0.0,
-            maxCandidates: 10,
+            maxCandidates: 1,
             topImageLoads: 5,
             topCpu: 1,
             slowFirstImageLoadThresholdUs: 0,
             topWindowEvidence: 3);
 
         Assert.NotNull(resp.FirstImageLoadGapEvidence);
-        if (resp.Candidates.Count == 0) return;
+        Assert.NotEmpty(resp.Candidates);
         Assert.NotEmpty(resp.FirstImageLoadGapEvidence!);
         var gap = resp.FirstImageLoadGapEvidence![0];
         Assert.True(gap.FirstImageLoadTimeUs >= gap.ProcessStartUs);
@@ -129,6 +130,41 @@ public class DiagnoseToolsTests
             call.Pid == gap.Pid &&
             call.StartUs == gap.ProcessStartUs &&
             call.EndUs == gap.FirstImageLoadTimeUs + 1);
+    }
+
+    [Fact]
+    public void DiagnoseSlowStartup_SkipsFirstImageLoadGapEvidenceForTraceResidentProcesses()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var meta = new MetaTools(cache);
+        var tools = new DiagnoseTools(cache);
+        var processes = meta.ListProcesses(FixturePath, top: 1000).Rows;
+        var target = processes
+            .Where(row => row.TraceResident && row.WaitRatio.HasValue && !string.IsNullOrWhiteSpace(row.Name))
+            .GroupBy(row => row.Name)
+            .OrderBy(group => group.Count())
+            .Select(group => group.First())
+            .FirstOrDefault();
+        Assert.NotNull(target);
+
+        var resp = tools.DiagnoseSlowStartup(
+            FixturePath,
+            nameSubstring: target!.Name,
+            minWaitRatio: 0.0,
+            maxCandidates: 20,
+            topImageLoads: 5,
+            topCpu: 1,
+            slowFirstImageLoadThresholdUs: 0,
+            topWindowEvidence: 3);
+
+        Assert.Contains(resp.Candidates, candidate => candidate.Pid == target.Pid);
+        Assert.DoesNotContain(
+            resp.FirstImageLoadGapEvidence ?? Array.Empty<StartupGapEvidenceRow>(),
+            gap => gap.Pid == target.Pid);
+        Assert.Contains(resp.NotConcluded!, item =>
+            item.Code == "startup_gap_skipped_trace_resident" &&
+            item.Pid == target.Pid &&
+            item.RelatedCallId == $"slow-startup.pid-{target.Pid}.image_load_timing");
     }
 
     [Fact]
@@ -162,7 +198,7 @@ public class DiagnoseToolsTests
     {
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
-        var resp = tools.DiagnoseWindow(MmapFixturePath, startUs: 0, endUs: 1_000_000, maxWindowDurationUs: 999_999);
+        var resp = tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1_000_000, maxWindowDurationUs: 999_999);
 
         Assert.Empty(resp.ExecutedToolCalls);
         Assert.Null(resp.Pressure);

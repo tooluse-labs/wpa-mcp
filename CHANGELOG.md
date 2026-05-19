@@ -20,6 +20,13 @@ GitHub Releases and the git tag history.
   startup analysis carries hard-fault, file IO, memory, scan, and wait evidence
   for the pre-user-mode gap.
 
+### Fixed
+
+- Fixed `diagnose_window` wide-window guard to reject too-wide windows before
+  loading an uncached trace.
+- Fixed `diagnose_slow_startup` gap evidence to skip trace-resident processes
+  whose real `ProcessStart -> first ImageLoad` interval was not captured.
+
 ## v0.2.22 - 2026-05-19
 
 ### Added

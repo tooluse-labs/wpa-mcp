@@ -54,8 +54,46 @@ public sealed class DiagnoseTools
         if (maxWindowDurationUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
+        if (BuildWideWindowGuard(startUs, endUs, pid, maxWindowDurationUs) is { } guarded)
+            return guarded;
+
         var trace = _cache.Get(path);
         return BuildDiagnoseWindow(trace, startUs, endUs, pid, top, maxWindowDurationUs, callPrefix: "diagnose-window");
+    }
+
+    private static DiagnoseWindowResponse? BuildWideWindowGuard(
+        long startUs,
+        long endUs,
+        int? pid,
+        long maxWindowDurationUs)
+    {
+        var durationUs = endUs - startUs;
+        if (durationUs <= maxWindowDurationUs)
+            return null;
+
+        var warning = $"diagnose_window window is {durationUs}us, above maxWindowDurationUs={maxWindowDurationUs}; narrow the window or call analyzers individually.";
+        return EmptyDiagnoseWindow(
+            startUs,
+            endUs,
+            pid,
+            Array.Empty<WindowEvidenceRow>(),
+            new[]
+            {
+                new CompositeNotConcluded(
+                    Code: "window_too_wide",
+                    Reason: warning,
+                    Pid: pid,
+                    BlockingCapability: null,
+                    RelatedCallId: null,
+                    MetricName: "windowDurationUs",
+                    MetricValue: durationUs,
+                    Unit: "us",
+                    ObservedPct: durationUs / (double)maxWindowDurationUs,
+                    ThresholdPct: 1.0),
+            },
+            Array.Empty<CompositeNextTool>(),
+            Array.Empty<CompositeToolCall>(),
+            new[] { warning });
     }
 
     private static DiagnoseWindowResponse BuildDiagnoseWindow(
@@ -74,23 +112,8 @@ public sealed class DiagnoseTools
         var executedCalls = new List<CompositeToolCall>();
         var evidence = new List<WindowEvidenceRow>();
 
-        if (durationUs > maxWindowDurationUs)
-        {
-            var warning = $"diagnose_window window is {durationUs}us, above maxWindowDurationUs={maxWindowDurationUs}; narrow the window or call analyzers individually.";
-            warnings.Add(warning);
-            notConcluded.Add(new CompositeNotConcluded(
-                Code: "window_too_wide",
-                Reason: warning,
-                Pid: pid,
-                BlockingCapability: null,
-                RelatedCallId: null,
-                MetricName: "windowDurationUs",
-                MetricValue: durationUs,
-                Unit: "us",
-                ObservedPct: durationUs / (double)maxWindowDurationUs,
-                ThresholdPct: 1.0));
-            return EmptyDiagnoseWindow(startUs, endUs, pid, evidence, notConcluded, nextTools, executedCalls, warnings);
-        }
+        if (BuildWideWindowGuard(startUs, endUs, pid, maxWindowDurationUs) is { } guarded)
+            return guarded;
 
         var hardFaultBytes = HardFaultByFileAnalysis.Analyze(trace, top, pid, "bytes", startUs, endUs);
         AddWindowCall(executedCalls, warnings, $"{callPrefix}.hard_fault_by_file.bytes", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultBytes.Warnings, orderBy: "bytes");
@@ -458,7 +481,22 @@ public sealed class DiagnoseTools
                 whenBuckets: null,
                 warnings: Array.Empty<string>()));
 
-            if (hasImageLoads && loads!.Count > 0)
+            if (c.TraceResident)
+            {
+                var firstObservedImageLoadOffsetUs = hasImageLoads && loads!.Count > 0
+                    ? Math.Max(0, loads[0].TimeUs - c.StartUs)
+                    : (long?)null;
+                notConcluded.Add(new CompositeNotConcluded(
+                    Code: "startup_gap_skipped_trace_resident",
+                    Reason: "Process was already alive at trace start, so ProcessStart-to-first-ImageLoad gap evidence is not available.",
+                    Pid: c.Pid,
+                    BlockingCapability: null,
+                    RelatedCallId: $"slow-startup.pid-{c.Pid}.image_load_timing",
+                    MetricName: firstObservedImageLoadOffsetUs.HasValue ? "firstObservedImageLoadOffsetUs" : null,
+                    MetricValue: firstObservedImageLoadOffsetUs,
+                    Unit: firstObservedImageLoadOffsetUs.HasValue ? "us" : null));
+            }
+            else if (hasImageLoads && loads!.Count > 0)
             {
                 var firstLoad = loads[0];
                 var firstImageLoadOffsetUs = Math.Max(0, firstLoad.TimeUs - c.StartUs);
