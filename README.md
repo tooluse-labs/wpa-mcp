@@ -380,7 +380,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 ### CLR (.NET runtime)
 
 Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profile (WPR `.wprp` files need an explicit `<EventCollectorId>` for it).
-For minimal JIT-only traces, use `tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp!ClrJitOnly`; it enables the CLR JIT + Loader bits needed by `clr_jit_analysis` without GC/allocation/exception/contention runtime keywords.
+For minimal JIT-only traces, run `tests/WprMcp.Tests/fixtures/Capture-JitOnly.ps1` or use `JitOnlyCapture.wprp!ClrJitOnly`; it enables the CLR JIT + Loader bits needed by `clr_jit_analysis` without GC/allocation/exception/contention runtime keywords.
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|

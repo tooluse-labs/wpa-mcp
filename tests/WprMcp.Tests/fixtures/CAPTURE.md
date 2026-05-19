@@ -216,14 +216,14 @@ would just add size and noise.
 Run from Administrator PowerShell:
 
 ```powershell
-cd tests\WprMcp.Tests\fixtures
-wpr.exe -start JitOnlyCapture.wprp!ClrJitOnly -filemode
-
-# Run the .NET workload whose first-run or tiered-JIT cost matters.
-# A simple smoke workload is any local dotnet app launch that executes managed code.
-
-wpr.exe -stop jit_only.etl
+powershell.exe -ExecutionPolicy Bypass -File D:\wpa-mcp\tests\WprMcp.Tests\fixtures\Capture-JitOnly.ps1
 ```
+
+The script starts `JitOnlyCapture.wprp!ClrJitOnly`, runs a generated C# workload
+with many first-call methods to force JIT events, stops WPR to `jit_only.etl`,
+and validates `JittingStarted` / `LoadVerbose` markers when the Release MCP DLL
+already exists. Use `-OutputName`, `-MethodCount`, or `-InvocationRounds` to
+adjust the capture without editing the script.
 
 The profile enables CLR JIT plus the CLR Loader bit only so
 `clr_jit_analysis` can pair `MethodJittingStarted` with `MethodLoadVerbose`.

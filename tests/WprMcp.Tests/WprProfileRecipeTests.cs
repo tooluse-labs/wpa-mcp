@@ -55,9 +55,27 @@ public class WprProfileRecipeTests
         var readmeZh = File.ReadAllText(LocateRepoFile("README.zh-CN.md"));
 
         Assert.Contains("JitOnlyCapture.wprp", wprProfile);
+        Assert.Contains("Capture-JitOnly.ps1", wprProfile);
         Assert.Contains("ClrJitOnly", wprProfile);
         Assert.Contains("JitOnlyCapture.wprp", capture);
+        Assert.Contains("Capture-JitOnly.ps1", capture);
         Assert.Contains("JitOnlyCapture.wprp", readme);
+        Assert.Contains("Capture-JitOnly.ps1", readme);
         Assert.Contains("JitOnlyCapture.wprp", readmeZh);
+        Assert.Contains("Capture-JitOnly.ps1", readmeZh);
+    }
+
+    [Fact]
+    public void JitOnlyCaptureScriptUsesTheJitProfileAndMarkerValidation()
+    {
+        var script = File.ReadAllText(LocateRepoFile(
+            "tests", "WprMcp.Tests", "fixtures", "Capture-JitOnly.ps1"));
+
+        Assert.Contains("JitOnlyCapture.wprp", script);
+        Assert.Contains("ClrJitOnly", script);
+        Assert.Contains("JittingStarted", script);
+        Assert.Contains("LoadVerbose", script);
+        Assert.Contains("Microsoft-Windows-DotNETRuntime", File.ReadAllText(LocateRepoFile(
+            "tests", "WprMcp.Tests", "fixtures", "JitOnlyCapture.wprp")));
     }
 }

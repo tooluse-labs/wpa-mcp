@@ -39,7 +39,7 @@ For wait-stack fixture refreshes, use
 | Stack on ThreadCreate, CSwitch, ReadyThread | positive-path stack evidence |
 
 For .NET JIT-only investigations, use
-`tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp`. It enables:
+`tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp!ClrJitOnly`. It enables:
 
 | Keyword | Used by |
 |---|---|
@@ -72,9 +72,7 @@ wpr.exe -stop my_wait_capture.etl
 ```
 
 ```powershell
-wpr.exe -start JitOnlyCapture.wprp!ClrJitOnly -filemode
-# … start the .NET process or scenario whose JIT cost matters …
-wpr.exe -stop my_jit_capture.etl
+powershell.exe -ExecutionPolicy Bypass -File tests\WprMcp.Tests\fixtures\Capture-JitOnly.ps1
 ```
 
 For stack-capture sanity checks, use the debug CLI probe:
