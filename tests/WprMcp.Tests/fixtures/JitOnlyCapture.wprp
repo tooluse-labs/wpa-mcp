@@ -19,8 +19,14 @@
     <!-- 0x18 = CLR Loader (0x8) + JIT (0x10). Loader is included so
          clr_jit_analysis can pair MethodJittingStarted with MethodLoadVerbose;
          GC/allocation/exception/contention runtime keywords are intentionally omitted. -->
-    <EventProvider Id="ClrRuntimeJitProvider" Name="Microsoft-Windows-DotNETRuntime"
-                   Keywords="0x18" Level="5"/>
+    <EventProvider Id="ClrRuntimeJitProvider"
+                   Name="Microsoft-Windows-DotNETRuntime"
+                   Level="5"
+                   NonPagedMemory="true">
+      <Keywords>
+        <Keyword Value="0x18"/>
+      </Keywords>
+    </EventProvider>
 
     <Profile Id="ClrJitOnly.Verbose.File" Name="ClrJitOnly"
              Description="Minimal CLR JIT analysis capture"

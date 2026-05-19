@@ -33,8 +33,13 @@ public class WprProfileRecipeTests
         var runtimeProvider = Assert.Single(doc.Descendants("EventProvider"));
         Assert.Equal("ClrRuntimeJitProvider", runtimeProvider.Attribute("Id")?.Value);
         Assert.Equal("Microsoft-Windows-DotNETRuntime", runtimeProvider.Attribute("Name")?.Value);
-        Assert.Equal("0x18", runtimeProvider.Attribute("Keywords")?.Value);
         Assert.Equal("5", runtimeProvider.Attribute("Level")?.Value);
+        Assert.Equal("true", runtimeProvider.Attribute("NonPagedMemory")?.Value);
+        Assert.Null(runtimeProvider.Attribute("Keywords"));
+        Assert.Equal("0x18", Assert.Single(runtimeProvider
+            .Element("Keywords")!
+            .Elements("Keyword"))
+            .Attribute("Value")?.Value);
 
         var profileElementOrder = doc.Root!
             .Element("Profiles")!
