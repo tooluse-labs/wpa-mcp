@@ -11,6 +11,10 @@ GitHub Releases and the git tag history.
 
 - Added `MaxLatencyTimeUs` to `hard_fault_by_file` rows, giving follow-up
   analysis an exact timestamp for the observed worst page-in stall.
+- Added `diagnose_window`, a guarded window-evidence composite that aggregates
+  hard-fault by-file rows, file IO top files, memory-pressure samples,
+  security-scan evidence, and waits for the same `pid` / `startUs` / `endUs`
+  without returning a synthesized root-cause verdict.
 
 ## v0.2.22 - 2026-05-19
 

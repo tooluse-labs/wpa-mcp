@@ -122,7 +122,7 @@
 - **Priority order:**
   1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` — preview shipped. The real `small_wait_bound.etl` fixture now covers CSwitch, ReadyThread, and event-attached stack evidence; promotion from preview remains benchmark-gated.
   2. ✅ `hard_fault_by_file.MaxLatencyTimeUs` — P0 precursor for window zoom-in. Each by-file hard-fault row must include the timestamp of the observed maximum page-in latency so a composite can run `diagnose_window` around the true stall anchor instead of guessing from process start time.
-  3. `diagnose_window(path, startUs, endUs, pid?)` — shared window-evidence engine. It should normalize composite-level field names and units (`StartUs`, `EndUs`, `DurationUs`, `Pid`, `ProcessName`) without forcing DTO churn in existing Layer-1 tools. Minimum evidence set: hard faults by file (bytes and max latency), file IO top files, memory pressure, security scan evidence, and waits. Add a `maxWindowDurationUs` guard so wide windows return an explicit warning or require underlying Layer-1 tools.
+  3. ✅ `diagnose_window(path, startUs, endUs, pid?)` — shared window-evidence engine. Minimum preview shipped with normalized composite-level `WindowStartUs`, `WindowEndUs`, `DurationUs`, `Pid`, hard faults by file (bytes and max latency), file IO top files, memory pressure, security scan evidence, waits, provenance, not-concluded rows, and a `maxWindowDurationUs` guard. Remaining work: add benchmark evidence, consider stack summaries behind budget gates, and reuse it from startup-specific composites.
   4. Startup-specific sugar on top of `diagnose_window`: enhance `diagnose_slow_startup` to run the shared window engine for slow `ProcessStart -> first ImageLoad` gaps. `process_create_timing` should keep lightweight timing rows and, at most, attach a small `GapEvidence` summary or reference; it must not duplicate the full orchestration logic.
   5. `diagnose_image_load_blocker`
   6. `diagnose_gc_pressure`
@@ -237,7 +237,7 @@
 4. ✅ T0.5 establish the measurement baseline.
 5. ✅ T0.6 add token-compact stack responses.
 6. ✅ T2.1 add trace quality / system metadata.
-7. 🚧 T1.2 continue high-frequency composites. `diagnose_high_wait` is complete as a preview and now has a committed CSwitch + ReadyThread + stack wait-bound fixture; before promotion, run the T0.5 benchmark against the Layer-1-only baseline. Next implementation targets are `diagnose_image_load_blocker`, then `diagnose_gc_pressure` / `diagnose_trace_quality`.
+7. 🚧 T1.2 continue high-frequency composites. `diagnose_high_wait` and minimum `diagnose_window` are complete as previews; before promotion, run the T0.5 benchmark against the Layer-1-only baseline. Next implementation targets are startup-specific reuse of `diagnose_window`, then `diagnose_image_load_blocker` / `diagnose_gc_pressure` / `diagnose_trace_quality`.
 8. T1.1 implement `list_applicable_tools` only if T0.5 shows `inspect_trace` is insufficient.
 9. ✅ T2.2 unify ROI / time-window semantics.
 10. ✅ T2.3 and T2.4 completed CPU Precise / scheduler analysis and memory resource views.
@@ -256,6 +256,7 @@
 
 ## Revision history
 
+- **v16 (2026-05-19)**: marked the minimum `diagnose_window` preview as shipped in T1.2, including the same-window evidence set and wide-window guard; follow-up work is now startup-specific sugar and benchmark-gated promotion.
 - **v15 (2026-05-19)**: added the Quark/PDF slow-startup evidence-compression roadmap to T1.2, promoted `hard_fault_by_file.MaxLatencyTimeUs` as the first P0 precursor for `diagnose_window`, and documented verdict discipline plus fixture requirements for future window/startup composites.
 - **v14 (2026-05-17)**: synchronized the roadmap after v0.2.14: `diagnose_high_wait` is now marked complete-as-preview, T2.3/T2.4 are reflected in the recommended order, and the remaining high-wait promotion gate is the real CSwitch+StackWalk wait-bound fixture plus T0.5 benchmark evidence.
 - **v13 (2026-05-16)**: marked T2.3 complete after `cpu_precise_analysis` landed with CSwitch/ReadyThread scheduler evidence, boundary clipping tests, and capture-boundary accumulator fixes.

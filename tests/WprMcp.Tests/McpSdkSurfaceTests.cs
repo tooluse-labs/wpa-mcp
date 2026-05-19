@@ -73,6 +73,7 @@ public sealed class McpSdkSurfaceTests
             $"{nameof(CpuTools)}.{nameof(CpuTools.CpuTopFunctions)}",
             $"{nameof(CpuTools)}.{nameof(CpuTools.CpuTopFunctionsBatch)}",
             $"{nameof(CpuTools)}.{nameof(CpuTools.CpuCallerCallee)}",
+            $"{nameof(DiagnoseTools)}.{nameof(DiagnoseTools.DiagnoseWindow)}",
             $"{nameof(DiagnoseTools)}.{nameof(DiagnoseTools.DiagnoseSlowStartup)}",
             $"{nameof(DiagnoseTools)}.{nameof(DiagnoseTools.DiagnoseHighWait)}",
             $"{nameof(GenericProviderTools)}.{nameof(GenericProviderTools.GenericEventTopStacks)}",

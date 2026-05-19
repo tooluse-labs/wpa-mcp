@@ -17,9 +17,278 @@ public sealed class DiagnoseTools
     // Preview fan-out should stay conservative: ReadyThread stacks are useful when scheduler
     // waits dominate, but can drown the evidence chain when they are only a minority signal.
     private const double ReadyThreadSchedulerThresholdPct = 0.50;
+    private const long DefaultDiagnoseWindowLimitUs = 60_000_000;
+    private const long PageInZoomBeforeUs = 3_000_000;
+    private const long PageInZoomAfterUs = 1_000_000;
 
     private readonly TraceCache _cache;
     public DiagnoseTools(TraceCache cache) => _cache = cache;
+
+    [McpServerTool(
+        ReadOnly = true,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = false,
+        UseStructuredContent = true), Description(
+        "Windowed evidence composite for a specific trace interval. Aggregates per-file hard faults " +
+        "by bytes and max latency, top file IO, memory-pressure samples, security-scan evidence, " +
+        "and wait_analysis rows for the same pid/startUs/endUs. No root-cause verdict: compare " +
+        "the facts and use NextTools for zoom-in. Guarded by maxWindowDurationUs so this is not " +
+        "mistaken for a whole-trace dashboard.")]
+    public DiagnoseWindowResponse DiagnoseWindow(
+        [Description("Absolute path to .etl file")] string path,
+        [Description("Window start in microseconds since trace start. Required.")]
+        long startUs,
+        [Description("Window end in microseconds since trace start (exclusive). Required.")]
+        long endUs,
+        [Description("Optional process ID filter. Null aggregates all processes in the window.")]
+        int? pid = null,
+        [Description("Top N rows per evidence section (default 10, max 1000).")]
+        int top = 10,
+        [Description("Maximum allowed window width in microseconds (default 60s). Wider windows return a guard warning.")]
+        long maxWindowDurationUs = DefaultDiagnoseWindowLimitUs)
+    {
+        Validation.RequireTop(top);
+        ValidateWindow(startUs, endUs);
+        if (maxWindowDurationUs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
+
+        var durationUs = endUs - startUs;
+        var warnings = new List<string>();
+        var notConcluded = new List<CompositeNotConcluded>();
+        var nextTools = new List<CompositeNextTool>();
+        var executedCalls = new List<CompositeToolCall>();
+        var evidence = new List<WindowEvidenceRow>();
+
+        if (durationUs > maxWindowDurationUs)
+        {
+            var warning = $"diagnose_window window is {durationUs}us, above maxWindowDurationUs={maxWindowDurationUs}; narrow the window or call analyzers individually.";
+            warnings.Add(warning);
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: "window_too_wide",
+                Reason: warning,
+                Pid: pid,
+                BlockingCapability: null,
+                RelatedCallId: null,
+                MetricName: "windowDurationUs",
+                MetricValue: durationUs,
+                Unit: "us",
+                ObservedPct: durationUs / (double)maxWindowDurationUs,
+                ThresholdPct: 1.0));
+            return EmptyDiagnoseWindow(startUs, endUs, pid, evidence, notConcluded, nextTools, executedCalls, warnings);
+        }
+
+        var trace = _cache.Get(path);
+
+        var hardFaultBytes = HardFaultByFileAnalysis.Analyze(trace, top, pid, "bytes", startUs, endUs);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.hard_fault_by_file.bytes", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultBytes.Warnings, orderBy: "bytes");
+        if (hardFaultBytes.Rows.FirstOrDefault() is { } topHardFaultBytes)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "hard_fault_bytes",
+                Label: "Top hard-fault page-in file by bytes",
+                MetricName: "pageInBytes",
+                MetricValue: topHardFaultBytes.PageInBytes,
+                Unit: "bytes",
+                Pid: pid,
+                ProcessName: null,
+                File: topHardFaultBytes.File,
+                TimeUs: topHardFaultBytes.MaxLatencyTimeUs,
+                Details: new[]
+                {
+                    $"pageInCount={topHardFaultBytes.PageInCount}",
+                    $"maxLatencyUs={topHardFaultBytes.MaxLatencyUs}",
+                }));
+        }
+        else
+        {
+            AddNoSignal(notConcluded, "no_hard_fault_bytes", "No hard-fault page-in bytes matched this pid/window.", pid, "diagnose-window.hard_fault_by_file.bytes");
+        }
+
+        var hardFaultLatency = HardFaultByFileAnalysis.Analyze(trace, top, pid, "max_latency", startUs, endUs);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.hard_fault_by_file.max_latency", "hard_fault_by_file", pid, startUs, endUs, top, hardFaultLatency.Warnings, orderBy: "max_latency");
+        if (hardFaultLatency.Rows.FirstOrDefault() is { } topHardFaultLatency)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "hard_fault_max_latency",
+                Label: "Worst hard-fault page-in latency",
+                MetricName: "maxLatencyUs",
+                MetricValue: topHardFaultLatency.MaxLatencyUs,
+                Unit: "us",
+                Pid: pid,
+                ProcessName: null,
+                File: topHardFaultLatency.File,
+                TimeUs: topHardFaultLatency.MaxLatencyTimeUs,
+                Details: new[]
+                {
+                    $"pageInBytes={topHardFaultLatency.PageInBytes}",
+                    $"pageInCount={topHardFaultLatency.PageInCount}",
+                }));
+
+            var zoomStartUs = Math.Max(0, topHardFaultLatency.MaxLatencyTimeUs - PageInZoomBeforeUs);
+            nextTools.Add(new CompositeNextTool(
+                ToolName: "diagnose_window",
+                Reason: "Zoom around the worst hard-fault latency timestamp.",
+                Pid: pid,
+                AwakenedPid: null,
+                StartUs: zoomStartUs,
+                EndUs: topHardFaultLatency.MaxLatencyTimeUs + PageInZoomAfterUs,
+                CompactStacks: null,
+                SummaryOnly: null,
+                TestsHypothesis: "Check whether file IO, waits, memory pressure, or scan events cluster around the page-in stall."));
+        }
+        else
+        {
+            AddNoSignal(notConcluded, "no_hard_fault_latency", "No hard-fault latency rows matched this pid/window.", pid, "diagnose-window.hard_fault_by_file.max_latency");
+        }
+
+        var fileIo = FileIoAnalysis.TopFiles(trace, top, pid, startUs, endUs);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.file_io_top_files", "file_io_top_files", pid, startUs, endUs, top, Array.Empty<string>());
+        if (fileIo.Rows.FirstOrDefault() is { } topFile)
+        {
+            var bytes = topFile.ReadBytes + topFile.WriteBytes;
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "file_io_top_file",
+                Label: "Top file IO path by read+write bytes",
+                MetricName: "ioBytes",
+                MetricValue: bytes,
+                Unit: "bytes",
+                Pid: pid,
+                ProcessName: null,
+                File: topFile.File,
+                TimeUs: null,
+                Details: new[]
+                {
+                    $"readBytes={topFile.ReadBytes}",
+                    $"writeBytes={topFile.WriteBytes}",
+                    $"readCount={topFile.ReadCount}",
+                    $"writeCount={topFile.WriteCount}",
+                }));
+        }
+        else
+        {
+            AddNoSignal(notConcluded, "no_file_io", "No file IO rows matched this pid/window.", pid, "diagnose-window.file_io_top_files");
+        }
+
+        var memory = MemoryResourceAnalysis.Analyze(trace, top, pid, startUs, endUs);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.memory_resource_analysis", "memory_resource_analysis", pid, startUs, endUs, top, memory.Warnings);
+        if (memory.Pressure.MinFreeBytes is { } minFreeBytes)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "memory_pressure",
+                Label: "Minimum observed free memory in the window",
+                MetricName: "minFreeBytes",
+                MetricValue: minFreeBytes,
+                Unit: "bytes",
+                Pid: pid,
+                ProcessName: null,
+                File: null,
+                TimeUs: memory.Pressure.MinFreeTimeUs,
+                Details: memory.Pressure.TopPeakWorkingSetProcesses
+                    .Take(3)
+                    .Select(row => $"topWorkingSet pid={row.Pid} {row.ProcessName} peakWorkingSetBytes={row.PeakWorkingSetBytes}")
+                    .ToList()));
+        }
+        else if (memory.Pressure.ProcessSnapshotBatchCount == 0 && memory.Pressure.SystemSampleCount == 0)
+        {
+            AddNoSignal(notConcluded, "no_memory_samples", "No memory resource samples matched this pid/window.", pid, "diagnose-window.memory_resource_analysis");
+        }
+
+        var security = SecurityScanAnalysis.Analyze(trace, top, pid, startUs, endUs, processSubstring: null, pathSubstring: null, providerSubstring: null);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.security_scan_analysis", "security_scan_analysis", pid, startUs, endUs, top, security.Warnings);
+        if (security.PairedScanCount > 0)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "security_scan_duration",
+                Label: "Paired security scan duration in the window",
+                MetricName: "scanDurationUs",
+                MetricValue: security.TotalDurationUs,
+                Unit: "us",
+                Pid: pid,
+                ProcessName: security.Rows.FirstOrDefault()?.Process,
+                File: security.Rows.FirstOrDefault()?.Path,
+                TimeUs: security.SlowScans.FirstOrDefault()?.StartUs,
+                Details: new[]
+                {
+                    $"pairedScanCount={security.PairedScanCount}",
+                    $"matchedEventCount={security.MatchedEventCount}",
+                }));
+        }
+        else if (security.MatchedEventCount > 0)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "security_scan_presence",
+                Label: "Security scan-like events were present but not paired into durations",
+                MetricName: "matchedSecurityEvents",
+                MetricValue: security.MatchedEventCount,
+                Unit: "events",
+                Pid: pid,
+                ProcessName: security.Rows.FirstOrDefault()?.Process,
+                File: security.Rows.FirstOrDefault()?.Path,
+                TimeUs: null,
+                Details: security.Providers.Take(3).Select(provider => $"{provider.ProviderName}:{provider.EventCount}").ToList()));
+        }
+        else
+        {
+            AddNoSignal(notConcluded, "no_security_scan_events", "No security scan-like events matched this pid/window.", pid, "diagnose-window.security_scan_analysis");
+        }
+
+        var waits = WaitAnalysis.Analyze(trace, top, pid, startUs, endUs);
+        AddWindowCall(executedCalls, warnings, "diagnose-window.wait_analysis", "wait_analysis", pid, startUs, endUs, top, waits.Warnings);
+        var totalBlockedUs = waits.Rows.Sum(row => row.BlockedUs);
+        if (totalBlockedUs > 0)
+        {
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "wait_summary",
+                Label: "Total blocked time across returned wait rows",
+                MetricName: "blockedUs",
+                MetricValue: totalBlockedUs,
+                Unit: "us",
+                Pid: pid,
+                ProcessName: waits.Rows.FirstOrDefault()?.ProcessName,
+                File: null,
+                TimeUs: null,
+                Details: CollapseWaitReasons(waits.Rows, top: 3)
+                    .Select(reason => $"{reason.Reason}={reason.BlockedUs}us/{reason.Count}")
+                    .ToList()));
+
+            nextTools.Add(new CompositeNextTool(
+                ToolName: "wait_top_stacks",
+                Reason: "Expand the window's blocked-time evidence into stack rows when CSwitch stackwalks are present.",
+                Pid: pid,
+                AwakenedPid: null,
+                StartUs: startUs,
+                EndUs: endUs,
+                CompactStacks: false,
+                SummaryOnly: false,
+                TestsHypothesis: "Check whether blocked time maps to a specific code path rather than a broad wait-state total."));
+        }
+        else
+        {
+            AddNoSignal(notConcluded, "no_wait_rows", "No wait_analysis rows with blocked time matched this pid/window.", pid, "diagnose-window.wait_analysis");
+        }
+
+        return new DiagnoseWindowResponse(
+            WindowStartUs: startUs,
+            WindowEndUs: endUs,
+            DurationUs: durationUs,
+            Pid: pid,
+            HardFaultsByBytes: hardFaultBytes.Rows,
+            HardFaultsByMaxLatency: hardFaultLatency.Rows,
+            FileIoTopFiles: fileIo.Rows,
+            Pressure: memory.Pressure,
+            SecurityScanTargets: security.Rows,
+            SlowScans: security.SlowScans,
+            SecurityMatchedEventCount: security.MatchedEventCount,
+            SecurityPairedScanCount: security.PairedScanCount,
+            SecurityTotalDurationUs: security.TotalDurationUs,
+            Waits: waits.Rows,
+            Evidence: evidence,
+            NotConcluded: notConcluded,
+            NextTools: nextTools,
+            ExecutedToolCalls: executedCalls,
+            Warnings: warnings);
+    }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Composite 'why is process X slow to start' analysis. Picks the slowest-by-wait-ratio processes " +
@@ -659,6 +928,77 @@ public sealed class DiagnoseTools
             Warnings: warnings);
     }
 
+    private static DiagnoseWindowResponse EmptyDiagnoseWindow(
+        long startUs,
+        long endUs,
+        int? pid,
+        IReadOnlyList<WindowEvidenceRow> evidence,
+        IReadOnlyList<CompositeNotConcluded> notConcluded,
+        IReadOnlyList<CompositeNextTool> nextTools,
+        IReadOnlyList<CompositeToolCall> executedCalls,
+        IReadOnlyList<string> warnings)
+        => new(
+            WindowStartUs: startUs,
+            WindowEndUs: endUs,
+            DurationUs: endUs - startUs,
+            Pid: pid,
+            HardFaultsByBytes: Array.Empty<HardFaultFileRow>(),
+            HardFaultsByMaxLatency: Array.Empty<HardFaultFileRow>(),
+            FileIoTopFiles: Array.Empty<FileIoRow>(),
+            Pressure: null,
+            SecurityScanTargets: Array.Empty<SecurityScanTargetRow>(),
+            SlowScans: Array.Empty<SecurityScanRequestRow>(),
+            SecurityMatchedEventCount: 0,
+            SecurityPairedScanCount: 0,
+            SecurityTotalDurationUs: 0,
+            Waits: Array.Empty<WaitAnalysisRow>(),
+            Evidence: evidence,
+            NotConcluded: notConcluded,
+            NextTools: nextTools,
+            ExecutedToolCalls: executedCalls,
+            Warnings: warnings);
+
+    private static void AddWindowCall(
+        List<CompositeToolCall> executedCalls,
+        List<string> warnings,
+        string callId,
+        string toolName,
+        int? pid,
+        long startUs,
+        long endUs,
+        int top,
+        IReadOnlyList<string> toolWarnings,
+        string? orderBy = null)
+    {
+        executedCalls.Add(ToolCall(
+            callId,
+            toolName,
+            pid,
+            awakenedPid: null,
+            startUs,
+            endUs,
+            top,
+            compactStacks: null,
+            summaryOnly: null,
+            whenBuckets: null,
+            warnings: toolWarnings,
+            orderBy: orderBy));
+        warnings.AddRange(PrefixWarnings(toolName, toolWarnings));
+    }
+
+    private static void AddNoSignal(
+        List<CompositeNotConcluded> notConcluded,
+        string code,
+        string reason,
+        int? pid,
+        string relatedCallId)
+        => notConcluded.Add(new CompositeNotConcluded(
+            Code: code,
+            Reason: reason,
+            Pid: pid,
+            BlockingCapability: null,
+            RelatedCallId: relatedCallId));
+
     private static string BuildSummary(IReadOnlyList<SlowStartupCandidate> candidates)
     {
         if (candidates.Count == 0) return "No candidates.";
@@ -693,7 +1033,8 @@ public sealed class DiagnoseTools
         int? effectiveTop = null,
         bool replayable = true,
         int? internalTop = null,
-        string? internalNote = null)
+        string? internalNote = null,
+        string? orderBy = null)
         => new(
             CallId: callId,
             ToolName: toolName,
@@ -709,7 +1050,8 @@ public sealed class DiagnoseTools
             EffectiveTop: effectiveTop,
             Replayable: replayable,
             InternalTop: internalTop,
-            InternalNote: internalNote);
+            InternalNote: internalNote,
+            OrderBy: orderBy);
 
     private static CompositeEvidence ProcessWaitEvidence(
         string evidenceId,

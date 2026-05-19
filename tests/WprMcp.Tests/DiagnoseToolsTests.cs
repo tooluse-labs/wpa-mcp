@@ -10,6 +10,7 @@ namespace WprMcp.Tests;
 public class DiagnoseToolsTests
 {
     private const string FixturePath = "fixtures/small_cpu.etl";
+    private const string MmapFixturePath = "fixtures/small_mmap.etl";
 
     [Fact]
     public void DiagnoseSlowStartup_RejectsBadArguments()
@@ -107,6 +108,84 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void DiagnoseWindow_RejectsBadArguments()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, top: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, top: 1001));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: -1, endUs: 1));
+        Assert.Throws<ArgumentException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 2, endUs: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, maxWindowDurationUs: 0));
+    }
+
+    [Fact]
+    public void DiagnoseWindow_GuardsWideWindowsBeforeRunningSubtools()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var resp = tools.DiagnoseWindow(MmapFixturePath, startUs: 0, endUs: 1_000_000, maxWindowDurationUs: 999_999);
+
+        Assert.Empty(resp.ExecutedToolCalls);
+        Assert.Null(resp.Pressure);
+        Assert.Contains(resp.Warnings, warning => warning.Contains("window is"));
+        Assert.Contains(resp.NotConcluded, item => item.Code == "window_too_wide");
+    }
+
+    [Fact]
+    public void DiagnoseWindow_AggregatesHardFaultEvidenceAroundLatencyTimestamp()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var hardFaultTools = new HardFaultTools(cache);
+        var diagnoseTools = new DiagnoseTools(cache);
+        var slowest = hardFaultTools.HardFaultByFile(MmapFixturePath, top: 100, orderBy: "max_latency").Rows[0];
+
+        var resp = diagnoseTools.DiagnoseWindow(
+            MmapFixturePath,
+            startUs: slowest.MaxLatencyTimeUs,
+            endUs: slowest.MaxLatencyTimeUs + 1,
+            top: 10);
+
+        Assert.Equal(slowest.MaxLatencyTimeUs, resp.WindowStartUs);
+        Assert.Equal(slowest.MaxLatencyTimeUs + 1, resp.WindowEndUs);
+        Assert.Contains(resp.HardFaultsByMaxLatency, row =>
+            row.File == slowest.File &&
+            row.MaxLatencyUs == slowest.MaxLatencyUs &&
+            row.MaxLatencyTimeUs == slowest.MaxLatencyTimeUs);
+        Assert.Contains(resp.Evidence, item =>
+            item.EvidenceType == "hard_fault_max_latency" &&
+            item.MetricValue == slowest.MaxLatencyUs &&
+            item.TimeUs == slowest.MaxLatencyTimeUs);
+        Assert.Contains(resp.NextTools, tool =>
+            tool.ToolName == "diagnose_window" &&
+            tool.StartUs <= slowest.MaxLatencyTimeUs &&
+            tool.EndUs > slowest.MaxLatencyTimeUs);
+    }
+
+    [Fact]
+    public void DiagnoseWindow_PropagatesOneWindowToEveryExecutedCall()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var resp = tools.DiagnoseWindow(MmapFixturePath, startUs: 0, endUs: 100_000, top: 5);
+
+        Assert.NotEmpty(resp.ExecutedToolCalls);
+        Assert.All(resp.ExecutedToolCalls, call =>
+        {
+            Assert.Equal(0, call.StartUs);
+            Assert.Equal(100_000, call.EndUs);
+            Assert.Equal(5, call.Top);
+        });
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file" && call.OrderBy == "bytes");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file" && call.OrderBy == "max_latency");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "file_io_top_files");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "memory_resource_analysis");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "security_scan_analysis");
+        Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "wait_analysis");
+    }
+
+    [Fact]
     public void DiagnoseHighWait_HasNoConclusionFields()
     {
         var propertyNames = typeof(DiagnoseHighWaitResponse)
@@ -168,6 +247,7 @@ public class DiagnoseToolsTests
         var toolCallTopDescription = DescriptionOf<CompositeToolCall>("Top");
         var toolCallReplayableDescription = DescriptionOf<CompositeToolCall>("Replayable");
         var toolCallInternalTopDescription = DescriptionOf<CompositeToolCall>("InternalTop");
+        var toolCallOrderByDescription = DescriptionOf<CompositeToolCall>("OrderBy");
         var toolDescription = DescriptionOf(typeof(DiagnoseTools).GetMethod(nameof(DiagnoseTools.DiagnoseHighWait))!);
         var fieldDescriptions = new[]
         {
@@ -180,6 +260,7 @@ public class DiagnoseToolsTests
             toolCallTopDescription,
             toolCallReplayableDescription,
             toolCallInternalTopDescription,
+            toolCallOrderByDescription,
         };
 
         Assert.Contains("process_wait_summary", evidenceTypeDescription);
@@ -198,6 +279,7 @@ public class DiagnoseToolsTests
         Assert.Contains("do not replay public tool expecting identical output", toolCallReplayableDescription);
         Assert.Contains("Internal-only top", toolCallInternalTopDescription);
         Assert.Contains("do not pass to public tool", toolCallInternalTopDescription);
+        Assert.Contains("orderBy", toolCallOrderByDescription);
         Assert.Contains("Candidates are ordered by total blocked microseconds", toolDescription);
         Assert.Contains("NextTools are optional hypothesis checks", toolDescription);
         Assert.All(fieldDescriptions, description => Assert.True(

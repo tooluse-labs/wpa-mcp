@@ -211,7 +211,7 @@ The MCP surface covers multiple ETW analysis domains, all built on the same `Mic
 ### What wpa-mcp adds vs PerfView
 
 * **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into CI / regression scripts.
-* **Composite tools.** `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
+* **Composite tools.** `diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
 * **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work.
 * **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
 
@@ -220,7 +220,7 @@ The MCP surface covers multiple ETW analysis domains, all built on the same `Mic
 wpa-mcp is built to **avoid misleading the model without constraining what the model can infer**.
 
 * **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, quality gaps, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
-* **Diagnostic composites** (`diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
+* **Diagnostic composites** (`diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
 * **Per-domain row and stack tools** stay close to the PerfView shape. When they return empty, the capability signals from `load_trace` / `inspect_trace` distinguish "the data isn't in this trace" from "no work matched the query".
 
 ### Usage pattern
@@ -247,7 +247,7 @@ load_trace  ──►  returns Capabilities map
 
   Composite  (recommended for known workflows)
   ─────────────────────────────────────────────
-  diagnose_slow_startup, diagnose_high_wait
+  diagnose_window, diagnose_slow_startup, diagnose_high_wait
   returns Evidence + NotConcluded + ExecutedToolCalls + NextTools
                                                           │
                                                           │  via NextTools
@@ -262,7 +262,7 @@ load_trace  ──►  returns Capabilities map
   Example: cpu_top_functions  ──►  cpu_top_stacks  ──►  cpu_caller_callee
 ```
 
-If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_high_wait` and `diagnose_slow_startup` before manually stitching individual calls together — their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
+If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_window`, `diagnose_high_wait`, and `diagnose_slow_startup` before manually stitching individual calls together — their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
 
 Most stack-oriented groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbors weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
 
@@ -406,6 +406,7 @@ Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profi
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
+| `diagnose_window` | Windowed evidence composite for one `startUs` / `endUs` interval, optionally scoped to one PID. It returns hard-fault by-file rows sorted by bytes and max latency, file IO top files, memory-pressure summary, security-scan evidence, wait rows, executed-call provenance, not-concluded reasons, and optional zoom-in tools. It has a `maxWindowDurationUs` guard and intentionally returns no root-cause verdict. | **[Composite]** — wraps hard faults, file IO, memory, security scan, and wait views |
 | `diagnose_high_wait` | Preview composite for high blocked-time investigations. It runs one window-consistent `wait_analysis`, adds stack evidence when StackWalks are present, conditionally fans out to ReadyThread evidence when scheduler waits dominate, and returns candidates, evidence, not-concluded reasons, executed-call provenance, and optional next tools without a root-cause field. | **[Composite]** — wraps wait, stack, and ReadyThread views with evidence provenance |
 | `diagnose_slow_startup` | Picks slowest-by-wait-ratio processes (or matches `nameSubstring`), then runs `wait_analysis` + `image_load_timing` + `cpu_top_functions` for each in the startup window — one call instead of orchestrating four. | **[Composite]** — wraps four PerfView views in one call |
 

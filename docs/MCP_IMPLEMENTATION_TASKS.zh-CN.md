@@ -122,7 +122,7 @@
 - **优先顺序：**
   1. ✅ `diagnose_high_wait(path, focus="general|lock|io|sync")` —— preview 已发布。真实 `small_wait_bound.etl` fixture 已覆盖 CSwitch、ReadyThread 和事件附带 stack evidence；是否从 preview 晋级仍由 benchmark 闸门决定。
   2. ✅ `hard_fault_by_file.MaxLatencyTimeUs` —— `diagnose_window` 的 P0 前置锚点。每个 by-file hard-fault row 必须包含最大 page-in latency 的发生时间，让 composite 能围绕真实 stall 锚点 zoom-in，而不是从 process start 猜窗口。
-  3. `diagnose_window(path, startUs, endUs, pid?)` —— 共享 window evidence 引擎。在 composite 层统一字段名和单位（`StartUs`、`EndUs`、`DurationUs`、`Pid`、`ProcessName`），但不强迫现有 Layer-1 DTO 大范围 churn。最小 evidence 集：hard faults by file（bytes 与 max latency）、file IO top files、memory pressure、security scan evidence、waits。增加 `maxWindowDurationUs` 守卫，窗口过宽时返回明确 warning 或要求调用底层 Layer-1 工具。
+  3. ✅ `diagnose_window(path, startUs, endUs, pid?)` —— 共享 window evidence 引擎。最小 preview 已发布，包含 composite 层面的 `WindowStartUs`、`WindowEndUs`、`DurationUs`、`Pid`，以及 hard faults by file（bytes 与 max latency）、file IO top files、memory pressure、security scan evidence、waits、provenance、not-concluded rows 和 `maxWindowDurationUs` 守卫。剩余工作：补 benchmark 证据、按预算门控考虑 stack summaries，并让 startup-specific composite 复用它。
   4. 基于 `diagnose_window` 的 startup-specific sugar：增强 `diagnose_slow_startup`，对慢 `ProcessStart -> first ImageLoad` gap 调用共享 window 引擎。`process_create_timing` 保持轻量 timing rows，最多附一个小型 `GapEvidence` 摘要或引用；不能复制完整 orchestration 逻辑。
   5. `diagnose_image_load_blocker`
   6. `diagnose_gc_pressure`
@@ -237,7 +237,7 @@
 4. ✅ T0.5 建立度量基线。
 5. ✅ T0.6 增加 token-compact stack responses。
 6. ✅ T2.1 补 trace quality / system metadata。
-7. 🚧 T1.2 继续高频 composite tools。`diagnose_high_wait` 已作为 preview 完成，并已提交 CSwitch + ReadyThread + stack 的 wait-bound fixture；晋级前还需要用 T0.5 benchmark 对比 Layer-1-only baseline。下一批实现目标是 `diagnose_image_load_blocker`，然后是 `diagnose_gc_pressure` / `diagnose_trace_quality`。
+7. 🚧 T1.2 继续高频 composite tools。`diagnose_high_wait` 和最小 `diagnose_window` 都已作为 preview 完成；晋级前还需要用 T0.5 benchmark 对比 Layer-1-only baseline。下一批实现目标是让 startup-specific composite 复用 `diagnose_window`，然后是 `diagnose_image_load_blocker` / `diagnose_gc_pressure` / `diagnose_trace_quality`。
 8. 只有 T0.5 显示 `inspect_trace` 不足时，才实现 T1.1 `list_applicable_tools`。
 9. ✅ T2.2 统一 ROI / time-window 语义。
 10. ✅ T2.3 / T2.4 已完成 CPU Precise / scheduler analysis 与 memory resource views。
@@ -256,6 +256,7 @@
 
 ## 修订历史
 
+- **v16 (2026-05-19)**：将最小 `diagnose_window` preview 标记为已发布，包含同窗口 evidence 集合和宽窗口守卫；后续工作转向 startup-specific sugar 与 benchmark-gated promotion。
 - **v15 (2026-05-19)**：将 Quark/PDF 慢启动 evidence-compression 路线加入 T1.2，把 `hard_fault_by_file.MaxLatencyTimeUs` 提升为 `diagnose_window` 的第一个 P0 前置，并记录未来 window/startup composite 的 verdict 纪律与 fixture 要求。
 - **v14 (2026-05-17)**：同步 v0.2.14 后的路线图：`diagnose_high_wait` 标记为 preview 完成，推荐顺序反映 T2.3/T2.4 已完成，并把 high-wait 晋级闸门收敛为真实 CSwitch+StackWalk wait-bound fixture 与 T0.5 benchmark 证据。
 - **v13 (2026-05-16)**：标记 T2.3 完成：`cpu_precise_analysis` 已落地 CSwitch/ReadyThread scheduler evidence、边界裁剪测试和 capture-boundary accumulator 修复。

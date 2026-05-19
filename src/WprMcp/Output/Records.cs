@@ -559,7 +559,9 @@ public sealed record CompositeToolCall(
     [property: Description("Internal-only top when Replayable=false; do not pass to public tool.")]
     int? InternalTop = null,
     [property: Description("Why Replayable=false.")]
-    string? InternalNote = null);
+    string? InternalNote = null,
+    [property: Description("Optional public orderBy argument when replaying tools that support sorted views.")]
+    string? OrderBy = null);
 
 // Evidence metric values are raw metric amounts in the declared Unit (for example blocked
 // microseconds or ready-thread event count). Do not compare evidence rows across different
@@ -728,6 +730,44 @@ public sealed record DiagnoseHighWaitResponse(
     [property: Description("Ordered by total blocked microseconds, not impact, severity, or causality.")]
     IReadOnlyList<HighWaitCandidate> Candidates,
     IReadOnlyList<CompositeEvidence> Evidence,
+    IReadOnlyList<CompositeNotConcluded> NotConcluded,
+    IReadOnlyList<CompositeNextTool> NextTools,
+    IReadOnlyList<CompositeToolCall> ExecutedToolCalls,
+    IReadOnlyList<string> Warnings);
+
+public sealed record WindowEvidenceRow(
+    [property: Description("Evidence class such as hard_fault_max_latency, file_io_top_file, memory_pressure, security_scan, or wait_summary.")]
+    string EvidenceType,
+    string Label,
+    [property: Description("Metric family; compare only within the same MetricName/Unit.")]
+    string MetricName,
+    [property: Description("Raw amount in Unit, not a severity verdict.")]
+    long MetricValue,
+    [property: Description("Unit for MetricValue, for example bytes, us, events, or count.")]
+    string Unit,
+    int? Pid,
+    string? ProcessName,
+    string? File,
+    [property: Description("Microseconds since trace start for point-in-time evidence when known.")]
+    long? TimeUs,
+    IReadOnlyList<string> Details);
+
+public sealed record DiagnoseWindowResponse(
+    long WindowStartUs,
+    long WindowEndUs,
+    long DurationUs,
+    int? Pid,
+    IReadOnlyList<HardFaultFileRow> HardFaultsByBytes,
+    IReadOnlyList<HardFaultFileRow> HardFaultsByMaxLatency,
+    IReadOnlyList<FileIoRow> FileIoTopFiles,
+    MemoryPressureSummary? Pressure,
+    IReadOnlyList<SecurityScanTargetRow> SecurityScanTargets,
+    IReadOnlyList<SecurityScanRequestRow> SlowScans,
+    long SecurityMatchedEventCount,
+    long SecurityPairedScanCount,
+    long SecurityTotalDurationUs,
+    IReadOnlyList<WaitAnalysisRow> Waits,
+    IReadOnlyList<WindowEvidenceRow> Evidence,
     IReadOnlyList<CompositeNotConcluded> NotConcluded,
     IReadOnlyList<CompositeNextTool> NextTools,
     IReadOnlyList<CompositeToolCall> ExecutedToolCalls,
