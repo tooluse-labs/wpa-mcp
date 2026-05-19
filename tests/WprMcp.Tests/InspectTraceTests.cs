@@ -277,6 +277,49 @@ public sealed class InspectTraceTests
     }
 
     [Fact]
+    public void InspectTrace_ReportsEnabledCapabilitiesWithoutForcingBoolScanning()
+    {
+        var meta = new MetaTools(new TraceCache(capacity: 4));
+
+        var cpu = meta.InspectTrace(CpuFixture);
+        Assert.Contains("cpu_samples", cpu.EnabledCapabilities);
+        Assert.Contains("context_switches", cpu.EnabledCapabilities);
+        Assert.DoesNotContain("file_io", cpu.EnabledCapabilities);
+
+        var mmap = meta.InspectTrace(MmapFixture);
+        Assert.Contains("hard_faults", mmap.EnabledCapabilities);
+        Assert.Contains("image_load", mmap.EnabledCapabilities);
+        Assert.DoesNotContain("memory_process_info", mmap.EnabledCapabilities);
+    }
+
+    [Fact]
+    public void BuildRecommendedDiagnosticFlows_FollowsCapabilityDrivenEvidence()
+    {
+        var capabilities = AllCapabilities() with
+        {
+            HasFileIo = false,
+            HasMemoryProcessInfo = false,
+            HasNetIo = false,
+            HasNetConnections = false,
+        };
+
+        var flows = MetaTools.BuildRecommendedDiagnosticFlows(capabilities);
+
+        var startup = Assert.Single(flows, flow => flow.FlowName == "slow_startup");
+        Assert.Contains("diagnose_slow_startup", startup.ToolSequence);
+        Assert.Contains("image_load", startup.EnabledCapabilities);
+        Assert.Contains("file_io", startup.MissingCapabilities);
+
+        var window = Assert.Single(flows, flow => flow.FlowName == "window_triage");
+        Assert.Contains("diagnose_window", window.ToolSequence);
+        Assert.Contains("hard_faults", window.EnabledCapabilities);
+        Assert.Contains("file_io", window.MissingCapabilities);
+        Assert.Contains(window.Caveats, caveat => caveat.Contains("File IO evidence"));
+
+        Assert.DoesNotContain(flows, flow => flow.FlowName == "network_activity");
+    }
+
+    [Fact]
     public void BuildCapabilitySupportedTools_RequiresWaitEventStacksForStackTools()
     {
         var capabilities = AllCapabilities() with

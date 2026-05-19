@@ -50,6 +50,8 @@ public sealed class MetaTools
         var warnings = BuildTraceQualityWarnings(trace.EventsLost, capabilities, symbolQuality);
         var orientationTools = BuildOrientationTools(symbolQuality);
         var capabilitySupportedTools = BuildCapabilitySupportedTools(capabilities);
+        var enabledCapabilities = BuildEnabledCapabilities(capabilities);
+        var recommendedFlows = BuildRecommendedDiagnosticFlows(capabilities);
 
         return new InspectTraceResponse(
             BuildTraceMeta(path, trace),
@@ -58,7 +60,9 @@ public sealed class MetaTools
             symbolQuality,
             warnings,
             orientationTools,
-            capabilitySupportedTools);
+            capabilitySupportedTools,
+            enabledCapabilities,
+            recommendedFlows);
     }
 
     private static TraceMeta BuildTraceMeta(string path, TraceLog trace)
@@ -401,6 +405,230 @@ public sealed class MetaTools
                 recommendation.Goals))
             .ToList();
     }
+
+    internal static IReadOnlyList<string> BuildEnabledCapabilities(TraceCapabilities capabilities)
+    {
+        var enabled = new List<string>();
+        AddCapability(enabled, capabilities.HasCpuSamples, "cpu_samples");
+        AddCapability(enabled, capabilities.HasCSwitch, "context_switches");
+        AddCapability(enabled, capabilities.HasFileIo, "file_io");
+        AddCapability(enabled, capabilities.HasDiskIo, "disk_io");
+        AddCapability(enabled, capabilities.HasImageLoad, "image_load");
+        AddCapability(enabled, capabilities.HasHardFaults, "hard_faults");
+        AddCapability(enabled, capabilities.HasStackWalks, "stack_walks");
+        AddCapability(enabled, capabilities.HasVirtualAlloc, "virtual_alloc");
+        AddCapability(enabled, capabilities.HasNetIo, "network_io");
+        AddCapability(enabled, capabilities.HasNetConnections, "network_connections");
+        AddCapability(enabled, capabilities.HasRegistry, "registry");
+        AddCapability(enabled, capabilities.HasReadyThread, "ready_thread");
+        AddCapability(enabled, capabilities.HasInterrupt, "interrupts");
+        AddCapability(enabled, capabilities.HasAlpc, "alpc");
+        AddCapability(enabled, capabilities.HasThreadEvents, "thread_events");
+        AddCapability(enabled, capabilities.HasClrGc, "clr_gc");
+        AddCapability(enabled, capabilities.HasClrJit, "clr_jit");
+        AddCapability(enabled, capabilities.HasClrAlloc, "clr_alloc");
+        AddCapability(enabled, capabilities.HasClrException, "clr_exception");
+        AddCapability(enabled, capabilities.HasClrContention, "clr_contention");
+        AddCapability(enabled, capabilities.HasNtHeap, "nt_heap");
+        AddCapability(enabled, capabilities.HasMemoryProcessInfo, "memory_process_info");
+        AddCapability(enabled, capabilities.HasHandleEvents, "handle_events");
+        AddCapability(enabled, capabilities.HasPoolEvents, "pool_events");
+        AddCapability(enabled, capabilities.HasCSwitchStacks, "cswitch_stacks");
+        AddCapability(enabled, capabilities.HasReadyThreadStacks, "ready_thread_stacks");
+        AddCapability(enabled, capabilities.HasInterruptStacks, "interrupt_stacks");
+        return enabled;
+    }
+
+    internal static IReadOnlyList<DiagnosticFlowRecommendation> BuildRecommendedDiagnosticFlows(TraceCapabilities capabilities)
+    {
+        var flows = new List<DiagnosticFlowRecommendation>();
+
+        if (capabilities.HasImageLoad || capabilities.HasCSwitch || capabilities.HasCpuSamples)
+        {
+            flows.Add(Flow(
+                "slow_startup",
+                "Use the startup composite when investigating process launch, child-process gaps, or first-DLL delays; it preserves evidence instead of forcing a manual wait/load/CPU reconstruction.",
+                ["list_processes", "diagnose_slow_startup"],
+                ["startup", "process_creation"],
+                [
+                    (capabilities.HasImageLoad, "image_load"),
+                    (capabilities.HasCSwitch, "context_switches"),
+                    (capabilities.HasCpuSamples, "cpu_samples"),
+                    (capabilities.HasHardFaults, "hard_faults"),
+                    (capabilities.HasFileIo, "file_io"),
+                    (capabilities.HasMemoryProcessInfo, "memory_process_info"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasImageLoad, "No ImageLoad events were observed; first-image-load gap evidence will be absent."),
+                    (!capabilities.HasCSwitch, "No context switches were observed; wait evidence will be absent."),
+                    (!capabilities.HasCpuSamples, "No CPU samples were observed; startup CPU attribution will be absent."))));
+        }
+
+        if (capabilities.HasHardFaults || capabilities.HasFileIo || capabilities.HasCSwitch || capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents || capabilities.HasPoolEvents)
+        {
+            flows.Add(Flow(
+                "window_triage",
+                "Use diagnose_window after a timestamp, interaction, or page-in stall is known; it aggregates hard faults, file IO, memory, security scan events, and waits for the same interval.",
+                ["diagnose_window"],
+                ["window", "triage"],
+                [
+                    (capabilities.HasHardFaults, "hard_faults"),
+                    (capabilities.HasFileIo, "file_io"),
+                    (capabilities.HasCSwitch, "context_switches"),
+                    (capabilities.HasMemoryProcessInfo, "memory_process_info"),
+                    (capabilities.HasHandleEvents, "handle_events"),
+                    (capabilities.HasPoolEvents, "pool_events"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasHardFaults, "Hard-fault by-file evidence will be empty without HardFaults events."),
+                    (!capabilities.HasCSwitch, "Wait evidence will be empty without context switches."),
+                    (!capabilities.HasFileIo, "File IO evidence will be empty without FileIO events."))));
+        }
+
+        if (capabilities.HasHardFaults)
+        {
+            flows.Add(Flow(
+                "page_in_stall",
+                "Use hard_fault_by_file ordered by max_latency to find cold-page stalls, then zoom around MaxLatencyTimeUs with diagnose_window.",
+                ["hard_fault_by_file", "diagnose_window"],
+                ["memory", "hard_faults", "window"],
+                [(true, "hard_faults")],
+                []));
+        }
+
+        if (capabilities.HasCSwitch)
+        {
+            flows.Add(Flow(
+                "high_wait",
+                "Use diagnose_high_wait for high-wall/low-CPU traces before expanding into detailed wait or ready-thread stacks.",
+                ["diagnose_high_wait", "wait_analysis", "wait_top_stacks"],
+                ["wait", "scheduler"],
+                [
+                    (capabilities.HasCSwitch, "context_switches"),
+                    (capabilities.HasCSwitchStacks, "cswitch_stacks"),
+                    (capabilities.HasReadyThread, "ready_thread"),
+                    (capabilities.HasReadyThreadStacks, "ready_thread_stacks"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasCSwitchStacks, "wait_top_stacks will be unavailable or degraded without CSwitch stackwalks."),
+                    (capabilities.HasReadyThread && !capabilities.HasReadyThreadStacks, "ready_thread_top_stacks will be unavailable or degraded without ReadyThread stackwalks."))));
+        }
+
+        if (capabilities.HasCpuSamples || capabilities.HasCSwitch)
+        {
+            flows.Add(Flow(
+                "cpu_hotspot",
+                "Use sampled CPU for hot functions and precise CPU when context switches are present; compare sampled hotspots with exact on-CPU time before blaming a process.",
+                ["cpu_top_functions", "cpu_precise_analysis"],
+                ["cpu", "scheduler"],
+                [
+                    (capabilities.HasCpuSamples, "cpu_samples"),
+                    (capabilities.HasCSwitch, "context_switches"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasCpuSamples, "cpu_top_functions will be unavailable without CPU samples."),
+                    (!capabilities.HasCSwitch, "cpu_precise_analysis will be unavailable without context switches."))));
+        }
+
+        if (capabilities.HasFileIo || capabilities.HasDiskIo)
+        {
+            flows.Add(Flow(
+                "io_contention",
+                "Use file IO by-file rows for path attribution, then stack views only when stackwalks are present; compare file IO with disk IO to separate cache-served activity from physical media.",
+                ["file_io_top_files", "file_io_top_stacks", "disk_io_top_stacks"],
+                ["io", "disk"],
+                [
+                    (capabilities.HasFileIo, "file_io"),
+                    (capabilities.HasDiskIo, "disk_io"),
+                    (capabilities.HasStackWalks, "stack_walks"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasFileIo, "file_io_top_files will be empty without FileIO events."),
+                    (!capabilities.HasStackWalks, "IO stack attribution will be unavailable without stackwalks."))));
+        }
+
+        if (capabilities.HasMemoryProcessInfo || capabilities.HasHardFaults)
+        {
+            flows.Add(Flow(
+                "memory_pressure",
+                "Use memory_resource_analysis for sampled process pressure and hard_fault_by_file for page-in evidence; use timestamps from both to choose a diagnose_window interval.",
+                ["memory_resource_analysis", "hard_fault_by_file", "diagnose_window"],
+                ["memory", "hard_faults"],
+                [
+                    (capabilities.HasMemoryProcessInfo, "memory_process_info"),
+                    (capabilities.HasHardFaults, "hard_faults"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasMemoryProcessInfo, "memory_resource_analysis will not include working set or commit snapshots without MemoryInfoWS events."),
+                    (!capabilities.HasHardFaults, "hard_fault_by_file will be empty without HardFaults events."))));
+        }
+
+        if (HasAnyClrCapability(capabilities))
+        {
+            flows.Add(Flow(
+                "dotnet_runtime",
+                "Use CLR-specific tools only for the runtime signals present in this trace; missing CLR providers cannot be reconstructed after capture.",
+                ["clr_gc_analysis", "clr_gc_heap_stats", "clr_alloc_top_stacks", "clr_exception_top_stacks", "clr_contention_top_stacks"],
+                ["dotnet", "gc", "allocations", "exceptions", "locks"],
+                [
+                    (capabilities.HasClrGc, "clr_gc"),
+                    (capabilities.HasClrAlloc, "clr_alloc"),
+                    (capabilities.HasClrException, "clr_exception"),
+                    (capabilities.HasClrContention, "clr_contention"),
+                    (capabilities.HasClrJit, "clr_jit"),
+                    (capabilities.HasStackWalks, "stack_walks"),
+                ],
+                BuildFlowCaveats((!capabilities.HasStackWalks, "CLR stack views will be degraded without stackwalks."))));
+        }
+
+        if (capabilities.HasNetIo || capabilities.HasNetConnections)
+        {
+            flows.Add(Flow(
+                "network_activity",
+                "Use connection lifecycle rows for setup timing and network stack rows for byte attribution; either signal can exist without the other.",
+                ["net_connections", "net_top_stacks"],
+                ["network"],
+                [
+                    (capabilities.HasNetConnections, "network_connections"),
+                    (capabilities.HasNetIo, "network_io"),
+                    (capabilities.HasStackWalks, "stack_walks"),
+                ],
+                BuildFlowCaveats(
+                    (!capabilities.HasNetConnections, "net_connections will be empty without connection lifecycle events."),
+                    (!capabilities.HasNetIo, "net_top_stacks will be empty without network byte events."),
+                    (!capabilities.HasStackWalks, "network stack attribution will be unavailable without stackwalks."))));
+        }
+
+        return flows;
+    }
+
+    private static void AddCapability(List<string> enabled, bool isEnabled, string name)
+    {
+        if (isEnabled)
+            enabled.Add(name);
+    }
+
+    private static DiagnosticFlowRecommendation Flow(
+        string name,
+        string reason,
+        IReadOnlyList<string> toolSequence,
+        IReadOnlyList<string> goals,
+        IReadOnlyList<(bool IsEnabled, string Name)> capabilities,
+        IReadOnlyList<string> caveats)
+        => new(
+            FlowName: name,
+            Reason: reason,
+            ToolSequence: toolSequence,
+            Goals: goals,
+            EnabledCapabilities: capabilities.Where(capability => capability.IsEnabled).Select(capability => capability.Name).ToList(),
+            MissingCapabilities: capabilities.Where(capability => !capability.IsEnabled).Select(capability => capability.Name).ToList(),
+            Caveats: caveats);
+
+    private static IReadOnlyList<string> BuildFlowCaveats(params (bool Applies, string Message)[] caveats)
+        => caveats
+            .Where(caveat => caveat.Applies)
+            .Select(caveat => caveat.Message)
+            .ToList();
 
     private static IReadOnlyList<ToolRecommendation> BuildToolRecommendationRecords(
         IReadOnlyList<(string ToolName, string Reason, string[] Goals)> recommendations)

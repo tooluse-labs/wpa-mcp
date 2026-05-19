@@ -41,6 +41,9 @@ public class MetaToolsTests
             unresolvedModules);
         Assert.Contains(resp.OrientationTools, r => r.ToolName == "list_processes");
         Assert.DoesNotContain(resp.CapabilitySupportedTools, r => r.ToolName == "list_processes");
+        Assert.NotEmpty(resp.EnabledCapabilities);
+        Assert.DoesNotContain(resp.EnabledCapabilities, capability => capability.StartsWith("missing_", StringComparison.OrdinalIgnoreCase));
+        Assert.NotEmpty(resp.RecommendedDiagnosticFlows);
     }
 
     [Fact]
@@ -54,6 +57,9 @@ public class MetaToolsTests
         Assert.NotEmpty(registeredToolNames);
         foreach (var recommendation in resp.OrientationTools.Concat(resp.CapabilitySupportedTools))
             Assert.Contains(recommendation.ToolName, registeredToolNames);
+
+        foreach (var toolName in resp.RecommendedDiagnosticFlows.SelectMany(flow => flow.ToolSequence).Distinct())
+            Assert.Contains(toolName, registeredToolNames);
     }
 
     [Fact]

@@ -19,6 +19,9 @@ GitHub Releases and the git tag history.
   reuses `diagnose_window` for slow `ProcessStart -> first ImageLoad` gaps so
   startup analysis carries hard-fault, file IO, memory, scan, and wait evidence
   for the pre-user-mode gap.
+- Added `EnabledCapabilities` and `RecommendedDiagnosticFlows` to
+  `inspect_trace`, so agents can choose viable composite workflows without
+  manually reducing every capability flag.
 
 ### Fixed
 

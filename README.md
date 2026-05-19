@@ -219,7 +219,7 @@ The MCP surface covers multiple ETW analysis domains, all built on the same `Mic
 
 wpa-mcp is built to **avoid misleading the model without constraining what the model can infer**.
 
-* **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, quality gaps, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
+* **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, enabled-signal lists, quality gaps, recommended diagnostic flows, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
 * **Diagnostic composites** (`diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
 * **Per-domain row and stack tools** stay close to the PerfView shape. When they return empty, the capability signals from `load_trace` / `inspect_trace` distinguish "the data isn't in this trace" from "no work matched the query".
 
@@ -283,7 +283,7 @@ Tools without `startUs` / `endUs` operate on intentionally different scopes; eac
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
-| **`inspect_trace`** | One-shot orientation: capture capabilities, system metadata, provider counts, stackwalk completeness, symbol quality, quality warnings, and capability-supported next-tool hints. Use when the capture profile or investigation path is unclear. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
+| **`inspect_trace`** | One-shot orientation: capture capabilities, enabled-signal names, system metadata, provider counts, stackwalk completeness, symbol quality, quality warnings, capability-supported next-tool hints, and recommended diagnostic flows. Use when the capture profile or investigation path is unclear. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
 | `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
 | `process_create_timing` | Per-child timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |

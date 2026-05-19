@@ -218,7 +218,7 @@ MCP 工具面覆盖多个 ETW 分析域，底层全部基于 PerfView 同款的 
 
 wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理**。
 
-* **Orientation 工具**（`load_trace`、`inspect_trace`）提前暴露 capability、quality gap、symbol 健康度，让模型从真实信号选下一步，而不是从空结果反推。
+* **Orientation 工具**（`load_trace`、`inspect_trace`）提前暴露 capability、已启用信号列表、quality gap、推荐诊断路径、symbol 健康度，让模型从真实信号选下一步，而不是从空结果反推。
 * **Diagnostic composite**（`diagnose_high_wait`、`diagnose_slow_startup`）压缩调用路径但保留证据链——通过 `Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 字段输出，故意不返回综合出的 "root cause" 字段。
 * **Per-domain 行 / 栈工具**贴近 PerfView 形态。返回空结果时，配合 `load_trace` / `inspect_trace` 的 capability 信号能区分"这份 trace 里没有这类数据"和"查询条件没匹配到任何 work"。
 
@@ -282,7 +282,7 @@ load_trace  ──►  返回 Capabilities map
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
-| **`inspect_trace`** | 一次性 orientation：capture capabilities、system metadata、provider counts、stackwalk completeness、symbol quality、quality warnings、以及 capability-supported next-tool hints。capture profile 或调查路径不清楚时先用它。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
+| **`inspect_trace`** | 一次性 orientation：capture capabilities、已启用信号名、system metadata、provider counts、stackwalk completeness、symbol quality、quality warnings、capability-supported next-tool hints、以及推荐诊断路径。capture profile 或调查路径不清楚时先用它。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
 | `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 找出"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
 | `process_create_timing` | 给定父 PID，列出每个子进程的创建时序。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
 | `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | **[手动过滤]**——Events 视图，过滤 `Thread/Start` + `Thread/Stop` 后手动配对 |

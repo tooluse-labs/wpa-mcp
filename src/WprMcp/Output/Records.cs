@@ -33,7 +33,18 @@ public sealed record InspectTraceResponse(
     InspectSymbolQuality SymbolQuality,
     IReadOnlyList<TraceQualityWarning> Warnings,
     IReadOnlyList<ToolRecommendation> OrientationTools,
-    IReadOnlyList<ToolRecommendation> CapabilitySupportedTools);
+    IReadOnlyList<ToolRecommendation> CapabilitySupportedTools,
+    IReadOnlyList<string> EnabledCapabilities,
+    IReadOnlyList<DiagnosticFlowRecommendation> RecommendedDiagnosticFlows);
+
+public sealed record DiagnosticFlowRecommendation(
+    string FlowName,
+    string Reason,
+    IReadOnlyList<string> ToolSequence,
+    IReadOnlyList<string> Goals,
+    IReadOnlyList<string> EnabledCapabilities,
+    IReadOnlyList<string> MissingCapabilities,
+    IReadOnlyList<string> Caveats);
 
 public sealed record TraceMetadata(
     TraceSystemConfiguration System,
