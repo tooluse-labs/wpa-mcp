@@ -41,6 +41,7 @@ public static class CliRunner
         ["--interrupt-top-stacks"] = RunInterruptTopStacks,
         ["--disk-io-caller-callee"] = RunDiskIoCallerCallee,
         ["--diagnose-slow-startup"] = RunDiagnoseSlowStartup,
+        ["--security-scan-analysis"] = RunSecurityScanAnalysis,
         ["--find-marker"] = RunFindMarker,
         ["--probe-stacks"] = RunProbeStacks,
     };
@@ -296,6 +297,35 @@ public static class CliRunner
         return 0;
     }
 
+    private static int RunSecurityScanAnalysis(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --security-scan-analysis <trace.etl> [top] [pid] [startUs] [endUs] [processSubstring] [pathSubstring] [providerSubstring]");
+            return 2;
+        }
+
+        var top = args.Length >= 3 ? int.Parse(args[2]) : 50;
+        int? pid = HasOptionalArg(args, 3) ? int.Parse(args[3]) : null;
+        long? startUs = HasOptionalArg(args, 4) ? long.Parse(args[4]) : null;
+        long? endUs = HasOptionalArg(args, 5) ? long.Parse(args[5]) : null;
+        var processSubstring = HasOptionalArg(args, 6) ? args[6] : null;
+        var pathSubstring = HasOptionalArg(args, 7) ? args[7] : null;
+        var providerSubstring = HasOptionalArg(args, 8) ? args[8] : null;
+
+        var tools = new SecurityTools(new TraceCache(capacity: 1));
+        Emit(tools.SecurityScanAnalysis(
+            args[1],
+            top: top,
+            pid: pid,
+            startUs: startUs,
+            endUs: endUs,
+            processSubstring: processSubstring,
+            pathSubstring: pathSubstring,
+            providerSubstring: providerSubstring));
+        return 0;
+    }
+
     private static int RunFindMarker(string[] args)
     {
         if (args.Length < 3)
@@ -357,6 +387,7 @@ public static class CliRunner
         w.WriteLine("  --hard-fault-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --file-io-caller-callee <trace.etl> <function> [pid] [top=20]");
         w.WriteLine("  --diagnose-slow-startup <trace.etl> [nameSubstring] [minWaitRatio=3.0]");
+        w.WriteLine("  --security-scan-analysis <trace.etl> [top=50] [pid|-] [startUs|-] [endUs|-] [processSubstring|-] [pathSubstring|-] [providerSubstring|-]");
         w.WriteLine("  --find-marker           <trace.etl> <substring> [mode=count_by_event|count_by_process|rows] [top=50]");
         w.WriteLine("  --probe-stacks          <trace.etl> (debug: explicit StackWalk vs event CallStackIndex)");
         w.WriteLine();
@@ -371,4 +402,7 @@ public static class CliRunner
     /// </summary>
     public static bool IsCliInvocation(string[] args)
         => args.Length > 0 && Verbs.ContainsKey(args[0]);
+
+    private static bool HasOptionalArg(string[] args, int index) =>
+        args.Length > index && !string.IsNullOrWhiteSpace(args[index]) && args[index] != "-";
 }

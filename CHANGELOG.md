@@ -7,7 +7,16 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
-No user-facing changes yet.
+### Added
+
+- Added `security_scan_analysis` to aggregate AV/EDR scan activity across
+  Microsoft Defender/Antimalware and scan-like third-party security events.
+  Defender exposes paired scan durations when StreamScanRequestTask start/stop
+  events are present; other providers such as Aliedr/Alibaba, 360/Qihoo,
+  PCManager, Sense, and CrowdStrike degrade to provider/event/path evidence
+  when their ETW provider or event names expose scan/security terms. Vendor
+  names classify matched events but do not by themselves turn all vendor
+  activity into scans.
 
 ## v0.2.21 - 2026-05-18
 

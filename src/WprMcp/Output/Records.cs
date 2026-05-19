@@ -410,6 +410,53 @@ public sealed record MarkerSearchResponse(
     IReadOnlyList<MarkerCountRow>? Counts,
     IReadOnlyList<MarkerRow>? Rows);
 
+public sealed record SecurityScanTargetRow(
+    string Source,
+    string ProviderName,
+    string Process,
+    int? Pid,
+    string Path,
+    long PairedScanCount,
+    long TotalDurationUs,
+    double? AvgDurationUs,
+    long? MaxDurationUs,
+    long EventCount,
+    long StartEventCount,
+    long StopEventCount,
+    long ResultEventCount,
+    IReadOnlyList<string> EventNames,
+    IReadOnlyList<string> Reasons,
+    IReadOnlyList<string> Statuses);
+
+public sealed record SecurityScanRequestRow(
+    string Source,
+    string ProviderName,
+    string Id,
+    long StartUs,
+    long StopUs,
+    long DurationUs,
+    string Process,
+    int? Pid,
+    string Path,
+    string? Reason);
+
+public sealed record SecurityScanProviderRow(
+    string Source,
+    string ProviderName,
+    long EventCount,
+    IReadOnlyList<string> EventNames);
+
+public sealed record SecurityScanAnalysisResponse(
+    IReadOnlyList<SecurityScanTargetRow> Rows,
+    IReadOnlyList<SecurityScanRequestRow> SlowScans,
+    IReadOnlyList<SecurityScanProviderRow> Providers,
+    long MatchedEventCount,
+    long PairedScanCount,
+    long TotalDurationUs,
+    long UnmatchedStartCount,
+    long UnmatchedStopCount,
+    IReadOnlyList<string> Warnings);
+
 public sealed record ModuleSymbolStatus(
     string Module,
     long FrameCount,
