@@ -7,6 +7,8 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## v0.2.23 - 2026-05-19
+
 ### Added
 
 - Added `MaxLatencyTimeUs` to `hard_fault_by_file` rows, giving follow-up
@@ -35,6 +37,17 @@ GitHub Releases and the git tag history.
   loading an uncached trace.
 - Fixed `diagnose_slow_startup` gap evidence to skip trace-resident processes
   whose real `ProcessStart -> first ImageLoad` interval was not captured.
+
+### Changed
+
+- Bumped the executable/package version to `0.2.23` for the release tag.
+
+### Verification
+
+- `dotnet build WprMcp.sln -c Release --no-restore`
+- `dotnet test WprMcp.sln -c Release --no-build --no-restore`
+- Administrator WPR validation with `Capture-JitOnly.ps1` produced
+  `jit_probe.etl` with `JittingStarted=6272` and `LoadVerbose=6271`.
 
 ## v0.2.22 - 2026-05-19
 
@@ -247,6 +260,7 @@ GitHub Releases and the git tag history.
 
 ## Previous Releases
 
+- [v0.2.22](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.22)
 - [v0.2.21](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.21)
 - [v0.2.20](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.20)
 - [v0.2.19](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.19)
@@ -257,6 +271,7 @@ GitHub Releases and the git tag history.
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.22...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.23...HEAD
+[v0.2.23]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.22...v0.2.23
 [v0.2.22]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.21...v0.2.22
 [v0.2.21]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...v0.2.21
