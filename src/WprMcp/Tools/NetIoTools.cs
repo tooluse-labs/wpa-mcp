@@ -37,12 +37,18 @@ public sealed class NetIoTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -60,12 +66,16 @@ public sealed class NetIoTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.CallerCallee(
-            trace, function, top, pid, startUs, endUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -84,8 +94,12 @@ public sealed class NetIoTools
         [Description("Window start in microseconds since trace start (filter on connection open time)")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return NetConnectionAnalysis.Analyze(trace, pid, top, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return NetConnectionAnalysis.Analyze(trace, pid, top, window.StartUs, window.EndUs);
     }
 }

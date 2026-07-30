@@ -1,39 +1,14 @@
 using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Microsoft.Diagnostics.Tracing.Stacks;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
 
-// Top stacks ranked by blocked microseconds — the canonical "what stack is this thread
-// stuck inside while *not* on CPU" view. Complements WaitAnalysis (per-thread aggregate
-// blocked time + dominant wait reason): wait_analysis tells you *which thread* and *which
-// kernel wait reason*, blocked_top_stacks tells you *which call chain* across all threads.
-//
-// Algorithm — simplified port of PerfView's ThreadTimeStackComputer
-// (src/TraceEvent/Computers/ThreadTimeStackComputer.cs), BlockedTime mode:
-//
-//   For each thread T, track lastSwitchOutTime[T].
-//   On every ThreadCSwitch event:
-//     newTid (switching IN):
-//       blockedMs = now - lastSwitchOutTime[newTid]   (skip if no anchor)
-//       sample.StackIndex = data.CallStackIndex()     (resume stack of newTid)
-//       sample.Metric     = blockedMs * 1000          (microseconds)
-//       rawSource.AddSample(sample)
-//     oldTid (switching OUT):
-//       lastSwitchOutTime[oldTid] = now
-//
-// Why the resume stack? When CSwitch fires, the kernel walks the NEW thread's stack —
-// which is the resume context, i.e., where the thread will return to after wait. For
-// almost every blocking call, the resume point IS the wait point (the syscall returns
-// from the kernel's wait primitive into the user-mode caller that asked to wait). PerfView
-// uses this convention; it's accurate enough that ThreadTimeStackComputer ships it as the
-// default for every "blocked time" analysis they do.
-//
-// PerfView-parity invariants are enforced via StackSourceTopN — see that file for the full
-// list. The relevant ones here: synthetic ?!? root for no-stack samples, optional
-// LookupWarmSymbols before normalization, raw-frame symbol stats, module!? folding.
+// Top stacks ranked by blocked microseconds. A blocked stack is the old thread's
+// CSwitch blocking stack captured at switch-out. The ordinary stack on the later
+// switch-in belongs to the resume event and is never substituted for it.
 public static class BlockedTimeStackAnalysis
 {
     public static WaitTopStacksResponse TopBlockedStacks(
@@ -45,36 +20,31 @@ public static class BlockedTimeStackAnalysis
         TextWriter symbolLog,
         int whenBuckets = 0)
     {
-        var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
-        var ctx = BuildNormalized(trace, req);
+        var scope = ResolveLegacyScope(trace, pid, startUs, endUs);
+        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, whenBuckets);
+        var request = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            ThreadScope = scope,
+        };
+        return TopBlockedStacks(trace, top, request);
+    }
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
-
-        // Rank by ExclusiveMetric (sum of blocked μs ending at this frame). ExclusiveCount
-        // would equal "number of CSwitch resumes hitting this frame" — meaningless for
-        // blocked-time ranking when individual waits range from 1 µs to seconds.
-        var rows = callTree.ByID
-            .OrderByDescending(n => n.ExclusiveMetric)
-            .Take(top)
-            .Select(n => new WaitStackRow(
-                Function: n.Name,
-                ExclusiveBlockedUs: (long)n.ExclusiveMetric,
-                InclusiveBlockedUs: (long)n.InclusiveMetric,
-                ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
-                InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
-                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.ExclusiveMetric),
-                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBlockedUs, n.InclusiveMetric)))
-            .ToList();
-
-        return new WaitTopStacksResponse(
-            Rows: rows,
-            TotalBlockedUs: ctx.TotalBlockedUs,
-            SampleCount: ctx.SampleCount,
-            Stats: ctx.Stats,
-            Warnings: ctx.Warnings,
-            When: when.Build());
+    internal static WaitTopStacksResponse TopBlockedStacks(
+        TraceLog trace,
+        int top,
+        ThreadAnalysisScope scope,
+        TextWriter symbolLog,
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
+    {
+        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, whenBuckets);
+        var request = new StackAnalysisRequest(
+            scope.Pid, scope.Window.StartUs, scope.Window.EndUs, symbolLog, when)
+        {
+            ThreadScope = scope,
+            FilterSpecified = filterSpecified,
+        };
+        return TopBlockedStacks(trace, top, request);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -86,83 +56,335 @@ public static class BlockedTimeStackAnalysis
         long? endUs,
         TextWriter symbolLog)
     {
-        var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
-        var ctx = BuildNormalized(trace, req);
-        return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "blockedUs", ctx.Stats, ctx.Warnings);
+        var scope = ResolveLegacyScope(trace, pid, startUs, endUs);
+        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, bucketCount: 0);
+        var request = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            ThreadScope = scope,
+        };
+        return CallerCallee(trace, focusFunction, top, request);
     }
 
-    private record BuildContext(
+    internal static CallerCalleeResponse CallerCallee(
+        TraceLog trace,
+        string focusFunction,
+        int top,
+        ThreadAnalysisScope scope,
+        TextWriter symbolLog,
+        bool? filterSpecified = null)
+    {
+        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, bucketCount: 0);
+        var request = new StackAnalysisRequest(
+            scope.Pid, scope.Window.StartUs, scope.Window.EndUs, symbolLog, when)
+        {
+            ThreadScope = scope,
+            FilterSpecified = filterSpecified,
+        };
+        return CallerCallee(trace, focusFunction, top, request);
+    }
+
+    internal static SyntheticBlockedProjection ProjectSynthetic(
+        long switchOutUs,
+        long resumeUs,
+        TimeWindow window,
+        CallStackIndex blockingStack,
+        CallStackIndex ordinaryResumeStack)
+    {
+        var thread = new ThreadInstanceKey(
+            new ProcessInstanceKey(Pid: 1, StartUs: 0), Tid: 1, Generation: 1);
+        var scheduler = new SchedulerIntervalAccumulator();
+        scheduler.ProcessSwitch(
+            oldThread: thread,
+            newThread: null,
+            timestampUs: switchOutUs,
+            waitReason: "Synthetic",
+            core: 0,
+            oldThreadBlockingStack: blockingStack);
+        var closed = scheduler.ProcessSwitch(
+            oldThread: null,
+            newThread: thread,
+            timestampUs: resumeUs,
+            waitReason: "Synthetic",
+            core: 0);
+
+        if (!closed.Blocked.HasValue)
+            return new SyntheticBlockedProjection(0, Array.Empty<SyntheticBlockedSample>());
+
+        var interval = closed.Blocked.Value;
+        var scope = new ThreadAnalysisScope(
+            window,
+            Pid: null,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+        var accountedUs = scope.AccountInterval(
+            interval.Thread, interval.StartUs, interval.EndUs);
+        if (accountedUs <= 0)
+            return new SyntheticBlockedProjection(0, Array.Empty<SyntheticBlockedSample>());
+
+        return new SyntheticBlockedProjection(
+            accountedUs,
+            [new SyntheticBlockedSample(
+                interval.BlockingStack,
+                ordinaryResumeStack,
+                accountedUs)]);
+    }
+
+    internal sealed record SyntheticBlockedProjection(
+        long TotalBlockedUs,
+        IReadOnlyList<SyntheticBlockedSample> Samples);
+
+    internal readonly record struct SyntheticBlockedSample(
+        CallStackIndex SourceStack,
+        CallStackIndex OrdinaryResumeStack,
+        long MetricUs);
+
+    private static WaitTopStacksResponse TopBlockedStacks(
+        TraceLog trace,
+        int top,
+        StackAnalysisRequest request)
+    {
+        var context = BuildNormalized(trace, request);
+        var callTree = new CallTree(ScalingPolicyKind.ScaleToData)
+        {
+            StackSource = context.Normalized,
+        };
+        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+
+        var rows = callTree.ByID
+            .OrderByDescending(node => node.ExclusiveMetric)
+            .Take(top)
+            .Select(node => new WaitStackRow(
+                Function: node.Name,
+                ExclusiveBlockedUs: (long)node.ExclusiveMetric,
+                InclusiveBlockedUs: (long)node.InclusiveMetric,
+                ExclusivePct: StackSourceTopN.Pct(totalMetric, node.ExclusiveMetric),
+                InclusivePct: StackSourceTopN.Pct(totalMetric, node.InclusiveMetric),
+                ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(
+                    request.HasFilter, context.TraceTotalBlockedUs, node.ExclusiveMetric),
+                InclusivePctOfTrace: StackSourceTopN.PctOfTrace(
+                    request.HasFilter, context.TraceTotalBlockedUs, node.InclusiveMetric)))
+            .ToList();
+
+        return new WaitTopStacksResponse(
+            Rows: rows,
+            TotalBlockedUs: context.TotalBlockedUs,
+            SampleCount: context.SampleCount,
+            Stats: context.Stats,
+            Warnings: context.Warnings,
+            When: request.When.Build(),
+            UnmatchedBlockedIntervalCount: context.UnmatchedBlockedIntervalCount,
+            SelectedProcess: request.ThreadScope?.Process?.Key,
+            SelectedThread: request.ThreadScope?.Thread?.Key,
+            HasContextSwitches: context.HasContextSwitches,
+            HasContextSwitchBlockingStacks: context.HasContextSwitchBlockingStacks,
+            SymbolResolutionState: StackSourceTopN.GetSymbolResolutionState(
+                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks));
+    }
+
+    private static CallerCalleeResponse CallerCallee(
+        TraceLog trace,
+        string focusFunction,
+        int top,
+        StackAnalysisRequest request)
+    {
+        var context = BuildNormalized(trace, request);
+        return StackSourceTopN.ComputeCallerCallee(
+            context.Normalized,
+            focusFunction,
+            top,
+            metricName: "blockedUs",
+            context.Stats,
+            context.Warnings,
+            sourceTotalMetric: context.TotalBlockedUs,
+            unmatchedIntervalCount: context.UnmatchedBlockedIntervalCount,
+            selectedProcess: request.ThreadScope?.Process?.Key,
+            selectedThread: request.ThreadScope?.Thread?.Key,
+            hasContextSwitches: context.HasContextSwitches,
+            hasContextSwitchBlockingStacks: context.HasContextSwitchBlockingStacks,
+            symbolResolutionState: StackSourceTopN.GetSymbolResolutionState(
+                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks));
+    }
+
+    private sealed record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalBlockedUs,
         long TotalBlockedUs,
         long SampleCount,
+        int UnmatchedBlockedIntervalCount,
+        bool HasContextSwitches,
+        bool HasContextSwitchBlockingStacks,
         List<string> Warnings);
 
-    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
+    private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest request)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
+        var scope = request.ThreadScope ??
+            throw new InvalidOperationException("Wait stacks require a resolved thread analysis scope.");
+        var identities = TraceIdentityIndex.For(trace);
+        var scheduler = new SchedulerIntervalAccumulator(identities.Threads.EndUsFor);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(request.SymbolLog);
         var raw = StackSourceTopN.CreateRawSource(trace);
-        var lastSwitchOutTime = new Dictionary<int, double>();
         long traceTotalBlockedUs = 0;
         long totalBlockedUs = 0;
         long sampleCount = 0;
-        long totalCSwitches = 0;
+        long totalContextSwitches = 0;
+        long unresolvedIdentityCount = 0;
+        var hasContextSwitchBlockingStacks = false;
 
-        // Single pass: track per-thread blocked intervals, tally trace-total unconditionally
-        // (so InclusivePctOfTrace is accurate when filtered), and only feed samples to the
-        // stack source when the event passes the pid/window filter. The state machine MUST
-        // run on every event regardless of filter — an out-of-window switch-out is what
-        // anchors a later in-window switch-in.
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ThreadCSwitch += data =>
             {
-                totalCSwitches++;
-                var nowMs = data.TimeStampRelativeMSec;
-                var nowUs = (long)(nowMs * 1000);
-                var oldTid = data.OldThreadID;
-                var newTid = data.NewThreadID;
+                totalContextSwitches++;
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var switchResolution = identities.Threads.ResolveSwitch(
+                    data.OldProcessID,
+                    data.OldThreadID,
+                    data.NewProcessID,
+                    data.NewThreadID,
+                    timestampUs);
+                var oldResolution = switchResolution.OldThread;
+                var newResolution = switchResolution.NewThread;
+                var oldThread = ResolvedValue(oldResolution);
+                var newThread = ResolvedValue(newResolution);
+                unresolvedIdentityCount += CountUnresolvedSide(
+                    data.OldProcessID, data.OldThreadID, oldResolution);
+                unresolvedIdentityCount += CountUnresolvedSide(
+                    data.NewProcessID, data.NewThreadID, newResolution);
 
-                if (newTid != 0 && lastSwitchOutTime.TryGetValue(newTid, out var outMs))
+                var blockingStack = oldThread.HasValue
+                    ? data.BlockingStack()
+                    : CallStackIndex.Invalid;
+                if (blockingStack != CallStackIndex.Invalid)
+                    hasContextSwitchBlockingStacks = true;
+                var closed = scheduler.ProcessSwitch(
+                    oldThread,
+                    newThread,
+                    timestampUs,
+                    WaitAnalysis.WaitReasonName(data.OldThreadWaitReason),
+                    data.ProcessorNumber,
+                    blockingStack);
+                if (!closed.Blocked.HasValue)
+                    return;
+
+                var interval = closed.Blocked.Value;
+                var fullDurationUs = checked(interval.EndUs - interval.StartUs);
+                traceTotalBlockedUs = checked(traceTotalBlockedUs + fullDurationUs);
+
+                var accountedUs = scope.AccountInterval(
+                    interval.Thread, interval.StartUs, interval.EndUs);
+                if (accountedUs <= 0)
+                    return;
+
+                totalBlockedUs = checked(totalBlockedUs + accountedUs);
+                sampleCount++;
+                raw.AddSample(interval.BlockingStack, data, accountedUs);
+                request.When.AddDurationInterval(interval.StartUs, interval.EndUs);
+            };
+
+            kernel.ThreadStop += data =>
+            {
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var resolution = identities.Threads.ResolveAtEndpoint(
+                    data.ProcessID,
+                    data.ThreadID,
+                    timestampUs,
+                    preferredEndObserved: true);
+                var thread = ResolvedValue(resolution);
+                if (thread.HasValue)
                 {
-                    var blockedMs = nowMs - outMs;
-                    if (blockedMs > 0)
-                    {
-                        var blockedUs = (long)(blockedMs * 1000);
-                        traceTotalBlockedUs += blockedUs;
-
-                        var inWindow =
-                            (!req.StartUs.HasValue || nowUs >= req.StartUs.Value) &&
-                            (!req.EndUs.HasValue || nowUs < req.EndUs.Value);
-                        var inPid = !req.Pid.HasValue || data.NewProcessID == req.Pid.Value;
-                        if (inWindow && inPid)
-                        {
-                            totalBlockedUs += blockedUs;
-                            sampleCount++;
-                            raw.AddSample(data.CallStackIndex(), data, blockedUs);
-                            // CSwitch is the END of a wait that may span buckets — charge
-                            // the full interval to the bucket where the wait ended (resume
-                            // bucket). Matches PerfView's sample-time-based "When" semantics.
-                            req.When.Add(nowUs, blockedUs);
-                        }
-                    }
+                    scheduler.Stop(thread.Value, timestampUs);
                 }
-
-                if (oldTid != 0) lastSwitchOutTime[oldTid] = nowMs;
+                else
+                {
+                    unresolvedIdentityCount += CountUnresolvedSide(
+                        data.ProcessID, data.ThreadID, resolution);
+                }
             };
         });
+
+        var completion = scheduler.Complete(identities.TraceEndUs);
         raw.Source.DoneAddingSamples();
 
-        if (req.ResolveSymbols)
+        if (request.ResolveSymbols)
             raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
         var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
-        var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source, trace, excludeEtwSelfOverhead: false);
+        var warnings = BuildWarnings(
+            totalContextSwitches,
+            sampleCount,
+            unresolvedIdentityCount,
+            completion,
+            request.ResolveSymbols,
+            stats);
+        if (scope.PidReuseObserved)
+        {
+            warnings.Add(
+                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+        }
 
+        return new BuildContext(
+            normalized,
+            stats,
+            traceTotalBlockedUs,
+            totalBlockedUs,
+            sampleCount,
+            completion.UnmatchedBlockedIntervalCount,
+            totalContextSwitches > 0,
+            hasContextSwitchBlockingStacks,
+            warnings);
+    }
+
+    private static ThreadAnalysisScope ResolveLegacyScope(
+        TraceLog trace,
+        int? pid,
+        long? startUs,
+        long? endUs)
+    {
+        var window = Validation.RequireWindowInput(startUs, endUs).Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds),
+            maxDurationUs: null);
+        var resolution = ThreadAnalysisScope.Resolve(
+            window,
+            pid,
+            tid: null,
+            processStartUs: null,
+            threadStartUs: null,
+            TraceIdentityIndex.For(trace));
+        return resolution.Status == InstanceResolutionStatus.Resolved &&
+               resolution.Value.HasValue
+            ? resolution.Value.Value
+            : throw new InvalidOperationException(
+                $"Unable to resolve wait stack scope: {resolution.Status}.");
+    }
+
+    private static ThreadInstanceKey? ResolvedValue(
+        InstanceResolution<ThreadInstanceKey> resolution) =>
+        resolution.Status == InstanceResolutionStatus.Resolved && resolution.Value.HasValue
+            ? resolution.Value.Value
+            : null;
+
+    private static int CountUnresolvedSide(
+        int pid,
+        int tid,
+        InstanceResolution<ThreadInstanceKey> resolution) =>
+        pid > 0 && tid > 0 && resolution.Status != InstanceResolutionStatus.Resolved
+            ? 1
+            : 0;
+
+    private static List<string> BuildWarnings(
+        long totalContextSwitches,
+        long sampleCount,
+        long unresolvedIdentityCount,
+        SchedulerIntervalResult completion,
+        bool resolveSymbols,
+        SymbolStats stats)
+    {
         var warnings = new List<string>();
-        if (totalCSwitches == 0)
+        if (totalContextSwitches == 0)
         {
             warnings.Add(
                 "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
@@ -171,15 +393,24 @@ public static class BlockedTimeStackAnalysis
         else if (sampleCount == 0)
         {
             warnings.Add(
-                "CSwitch events present but no blocked-time samples landed in the requested filter. " +
-                "Either the pid/window picked a thread set with no waits, or every thread's first " +
-                "switch-in inside the window had no anchor switch-out (under-counted by design).");
+                "CSwitch events present but no closed blocked-time interval overlapped the requested scope.");
         }
-        if (!req.ResolveSymbols)
+
+        if (unresolvedIdentityCount > 0)
+        {
+            warnings.Add(
+                $"scheduler_identity_unresolved: {unresolvedIdentityCount:N0} event-side identity resolution(s) were unavailable or ambiguous.");
+        }
+        if (completion.IdentityMismatchCount > 0)
+        {
+            warnings.Add(
+                $"scheduler_identity_mismatch: {completion.IdentityMismatchCount:N0} scheduler state transition(s) did not match the resolved thread instance.");
+        }
+        if (!resolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
         else if (stats.ResolutionRate < 0.8)
             warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
 
-        return new BuildContext(normalized, stats, traceTotalBlockedUs, totalBlockedUs, sampleCount, warnings);
+        return warnings;
     }
 }

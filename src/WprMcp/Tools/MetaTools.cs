@@ -885,6 +885,7 @@ public sealed class MetaTools
         [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false)
     {
         Validation.RequireTop(top);
+        Validation.RequireText(orderBy);
         var trace = _cache.Get(path);
         var rows = ProcessProjection.Rows(trace, includeSystem).ToList();
         var totalCount = rows.Count;

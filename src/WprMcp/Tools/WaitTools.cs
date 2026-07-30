@@ -27,17 +27,30 @@ public sealed class WaitTools
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return Analyzers.WaitAnalysis.Analyze(trace, top, pid, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
+        return Analyzers.WaitAnalysis.Analyze(trace, top, scope);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by blocked microseconds — answers 'where in the code is the wait " +
         "happening' (vs wait_analysis which answers 'which thread / which kernel wait reason'). Built " +
-        "from the resume-point stack walk on each ThreadCSwitch event, weighted by blocked time. " +
+        "from the blocked thread's switch-out blocking stack on each ThreadCSwitch interval, " +
+        "weighted by the exact blocked duration overlapping the requested window. " +
         "Mirrors PerfView's ThreadTimeStackComputer BlockedTime view. Requires the CSwitch keyword + " +
         "stack-walk-on-CSwitch in the capture profile.")]
     public WaitTopStacksResponse WaitTopStacks(
@@ -55,14 +68,33 @@ public sealed class WaitTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
+        var filterSpecified = pid.HasValue || startUs.HasValue || endUs.HasValue ||
+                              tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue;
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.TopBlockedStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace,
+            StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly),
+            scope,
+            symbolLog: Console.Error,
+            whenBuckets: whenBuckets,
+            filterSpecified: filterSpecified);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -79,13 +111,27 @@ public sealed class WaitTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
+        var filterSpecified = pid.HasValue || startUs.HasValue || endUs.HasValue ||
+                              tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue;
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.CallerCallee(
-            trace, function, top, pid, startUs, endUs, Console.Error);
+            trace, function, top, scope, Console.Error, filterSpecified);
     }
 }

@@ -40,11 +40,27 @@ public sealed class CpuTools
         [Description("When filtered by pid/startUs/endUs, also compute ExclusivePctOfTrace/InclusivePctOfTrace over the whole trace. Default false because it requires an extra whole-trace CPU sample count pass on large ETL files.")]
         bool includeTracePct = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return CpuAnalysis.TopFunctions(trace, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, includeTracePct, resolveSymbols);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
+        return CpuAnalysis.TopFunctions(
+            trace, top, scope, Console.Error,
+            excludeEtwSelfOverhead, includeTracePct, resolveSymbols,
+            hasFilter: pid.HasValue || startUs.HasValue || endUs.HasValue ||
+                       tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -58,11 +74,23 @@ public sealed class CpuTools
         [Description("Top N thread rows by on-CPU microseconds (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return Analyzers.CpuPreciseAnalysis.Analyze(trace, top, pid, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
+        return Analyzers.CpuPreciseAnalysis.Analyze(trace, top, scope);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -84,12 +112,18 @@ public sealed class CpuTools
         [Description("Soft budget in milliseconds for batch work after trace loading. Exhaustion returns completed PID results plus skipped PID metadata before the MCP client timeout.")]
         int timeBudgetMs = 100_000)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         if (pids is null || pids.Length == 0)
             throw new ArgumentException("pids required and must be non-empty", nameof(pids));
+        Validation.RequireCollectionCount(pids.Length);
+        foreach (var pid in pids)
+            Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireTimeBudgetMs(timeBudgetMs);
 
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         var warnings = new List<string>();
         var distinctPids = pids.Distinct().ToArray();
         var skippedPids = new List<int>();
@@ -100,8 +134,8 @@ public sealed class CpuTools
                 trace,
                 top,
                 distinctPids,
-                startUs,
-                endUs,
+                window.StartUs,
+                window.EndUs,
                 Console.Error,
                 excludeEtwSelfOverhead,
                 includeTracePct,
@@ -142,12 +176,25 @@ public sealed class CpuTools
         [Description("Fold known ETW-overhead frames into [ETW Overhead] bucket. Default false.")]
         bool excludeEtwSelfOverhead = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
+        int? tid = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        long? processStartUs = null,
+        [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
+        long? threadStartUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        var scope = ThreadAnalysisScope.ResolveRequired(
+            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
         return CpuAnalysis.CallerCallee(
-            trace, function, top, pid, startUs, endUs, Console.Error, excludeEtwSelfOverhead, resolveSymbols);
+            trace, function, top, scope,
+            Console.Error, excludeEtwSelfOverhead, resolveSymbols);
     }
 }

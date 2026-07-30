@@ -28,10 +28,14 @@ public static class ImageLoadStackAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
 
         // Metric=1 per load means ExclusiveCount and ExclusiveMetric are equal — pick

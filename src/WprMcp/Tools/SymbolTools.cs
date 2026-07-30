@@ -36,6 +36,7 @@ public sealed class SymbolTools
         [Description("Append to existing path instead of replacing (default true)")]
         bool append = true)
     {
+        Validation.RequireText(path, allowEmpty: true);
         _symbols.SetPath(path, append);
         return _symbols.CurrentPath ?? "";
     }
@@ -55,6 +56,9 @@ public sealed class SymbolTools
         string url,
         [Description("Local cache directory (optional)")] string? cacheDir = null)
     {
+        Validation.RequireText(url);
+        if (cacheDir is not null)
+            Validation.RequireText(cacheDir, allowEmpty: true);
         _symbols.AddServer(url, cacheDir);
         return _symbols.CurrentPath ?? "";
     }

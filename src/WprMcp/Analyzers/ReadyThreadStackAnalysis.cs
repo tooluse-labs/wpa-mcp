@@ -31,12 +31,16 @@ public static class ReadyThreadStackAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
         // StackAnalysisRequest.Pid is interpreted as awakenedPid here (the process whose
         // thread is being readied, not the readier).
-        var req = new StackAnalysisRequest(awakenedPid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(awakenedPid, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };

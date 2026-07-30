@@ -31,8 +31,20 @@ public sealed class SecurityTools
         [Description("Optional substring filter over scanned file/path fields")] string? pathSubstring = null,
         [Description("Optional substring filter over provider name or inferred security source")] string? providerSubstring = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
+        if (processSubstring is not null)
+            Validation.RequireText(processSubstring, allowEmpty: true);
+        if (pathSubstring is not null)
+            Validation.RequireText(pathSubstring, allowEmpty: true);
+        if (providerSubstring is not null)
+            Validation.RequireText(providerSubstring, allowEmpty: true);
         var trace = _cache.Get(path);
-        return Analyzers.SecurityScanAnalysis.Analyze(trace, top, pid, startUs, endUs, processSubstring, pathSubstring, providerSubstring);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return Analyzers.SecurityScanAnalysis.Analyze(
+            trace, top, pid, window.StartUs, window.EndUs,
+            processSubstring, pathSubstring, providerSubstring);
     }
 }

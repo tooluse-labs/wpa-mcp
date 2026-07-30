@@ -1,16 +1,14 @@
 using System.Diagnostics;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
 
-// CPU Usage (Precise)-style summary from CSwitch + ReadyThread events.
-//
-// CPU sampling answers "where was the instruction pointer when the sampler fired".
-// This analyzer answers scheduler questions sampling cannot: exact run intervals from
-// context switches, which core the thread ran on, and how long a readied thread waited
-// before it actually got CPU time.
+// CPU Usage (Precise)-style summary from CSwitch + ReadyThread events. Scheduler
+// state is maintained for the full trace and exact process/thread identities; the
+// requested scope is applied only when a closed interval or point is projected.
 public static class CpuPreciseAnalysis
 {
     public static CpuPreciseResponse Analyze(
@@ -20,36 +18,124 @@ public static class CpuPreciseAnalysis
         long? startUs,
         long? endUs)
     {
+        var scope = ResolveLegacyScope(trace, pid, startUs, endUs);
+        return Analyze(trace, top, scope);
+    }
+
+    internal static CpuPreciseResponse Analyze(
+        TraceLog trace,
+        int top,
+        ThreadAnalysisScope scope)
+    {
+        var identities = TraceIdentityIndex.For(trace);
         var accumulator = new CpuPreciseAccumulator(
-            top,
-            pid,
-            startUs,
-            endUs,
-            traceEndUs: (long)trace.SessionDuration.TotalMicroseconds);
+            top, scope, identities.TraceEndUs, identities.Threads.EndUsFor);
+        long unresolvedIdentityCount = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ThreadCSwitch += data =>
-                accumulator.ProcessCSwitch(new CpuPreciseSwitchEvent(
-                    OldProcessId: data.OldProcessID,
+            {
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var switchResolution = identities.Threads.ResolveSwitch(
+                    data.OldProcessID,
+                    data.OldThreadID,
+                    data.NewProcessID,
+                    data.NewThreadID,
+                    timestampUs);
+                var oldResolution = switchResolution.OldThread;
+                var newResolution = switchResolution.NewThread;
+                unresolvedIdentityCount += CountUnresolvedSide(
+                    data.OldProcessID, data.OldThreadID, oldResolution);
+                unresolvedIdentityCount += CountUnresolvedSide(
+                    data.NewProcessID, data.NewThreadID, newResolution);
+
+                accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+                    OldThread: ResolvedValue(oldResolution),
                     OldProcessName: data.OldProcessName ?? string.Empty,
-                    OldThreadId: data.OldThreadID,
                     OldThreadWaitReason: data.OldThreadWaitReason,
-                    NewProcessId: data.NewProcessID,
+                    NewThread: ResolvedValue(newResolution),
                     NewProcessName: data.NewProcessName ?? string.Empty,
-                    NewThreadId: data.NewThreadID,
                     ProcessorNumber: data.ProcessorNumber,
-                    TimeStampRelativeMSec: data.TimeStampRelativeMSec));
+                    TimestampUs: timestampUs));
+            };
 
             kernel.DispatcherReadyThread += data =>
-                accumulator.ProcessReady(new CpuPreciseReadyEvent(
-                    AwakenedProcessId: data.AwakenedProcessID,
-                    AwakenedThreadId: data.AwakenedThreadID,
-                    TimeStampRelativeMSec: data.TimeStampRelativeMSec));
+            {
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var resolution = identities.Threads.ResolveAt(
+                    data.AwakenedProcessID,
+                    data.AwakenedThreadID,
+                    timestampUs);
+                unresolvedIdentityCount += CountUnresolvedSide(
+                    data.AwakenedProcessID,
+                    data.AwakenedThreadID,
+                    resolution);
+                accumulator.ProcessReady(new CpuPreciseResolvedReadyEvent(
+                    ResolvedValue(resolution), timestampUs));
+            };
+
+            kernel.ThreadStop += data =>
+            {
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var resolution = identities.Threads.ResolveAtEndpoint(
+                    data.ProcessID,
+                    data.ThreadID,
+                    timestampUs,
+                    preferredEndObserved: true);
+                var thread = ResolvedValue(resolution);
+                if (thread.HasValue)
+                {
+                    accumulator.ProcessStop(thread.Value, timestampUs);
+                }
+                else
+                {
+                    unresolvedIdentityCount += CountUnresolvedSide(
+                        data.ProcessID, data.ThreadID, resolution);
+                }
+            };
         });
 
+        accumulator.ReportUnresolvedIdentity(unresolvedIdentityCount);
         return accumulator.BuildResponse();
     }
+
+    private static ThreadAnalysisScope ResolveLegacyScope(
+        TraceLog trace,
+        int? pid,
+        long? startUs,
+        long? endUs)
+    {
+        var window = Validation.RequireWindowInput(startUs, endUs).Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds),
+            maxDurationUs: null);
+        var resolution = ThreadAnalysisScope.Resolve(
+            window,
+            pid,
+            tid: null,
+            processStartUs: null,
+            threadStartUs: null,
+            TraceIdentityIndex.For(trace));
+        return resolution.Status == InstanceResolutionStatus.Resolved &&
+               resolution.Value.HasValue
+            ? resolution.Value.Value
+            : throw new InvalidOperationException(
+                $"Unable to resolve precise CPU scope: {resolution.Status}.");
+    }
+
+    private static ThreadInstanceKey? ResolvedValue(
+        InstanceResolution<ThreadInstanceKey> resolution) =>
+        resolution.Status == InstanceResolutionStatus.Resolved && resolution.Value.HasValue
+            ? resolution.Value.Value
+            : null;
+
+    private static int CountUnresolvedSide(
+        int pid,
+        int tid,
+        InstanceResolution<ThreadInstanceKey> resolution) =>
+        pid > 0 && tid > 0 && resolution.Status != InstanceResolutionStatus.Resolved
+            ? 1
+            : 0;
 }
 
 internal readonly record struct CpuPreciseSwitchEvent(
@@ -68,20 +154,30 @@ internal readonly record struct CpuPreciseReadyEvent(
     int AwakenedThreadId,
     double TimeStampRelativeMSec);
 
+internal readonly record struct CpuPreciseResolvedSwitchEvent(
+    ThreadInstanceKey? OldThread,
+    string OldProcessName,
+    ThreadWaitReason OldThreadWaitReason,
+    ThreadInstanceKey? NewThread,
+    string NewProcessName,
+    int ProcessorNumber,
+    long TimestampUs);
+
+internal readonly record struct CpuPreciseResolvedReadyEvent(
+    ThreadInstanceKey? Thread,
+    long TimestampUs);
+
 internal sealed class CpuPreciseAccumulator
 {
     private readonly int _top;
-    private readonly int? _pid;
-    private readonly long? _startUs;
-    private readonly long? _endUs;
+    private readonly ThreadAnalysisScope _scope;
     private readonly long _traceEndUs;
-
-    private readonly Dictionary<ThreadKey, ThreadStats> _threads = new();
-    // At any instant each logical processor has at most one running thread. Tracking
-    // open run intervals per core keeps CPU accounting bounded to scheduler semantics.
-    private readonly Dictionary<int, RunningThread> _runningByCore = new();
-    private readonly Dictionary<ThreadKey, long> _pendingReadyUs = new();
-    private readonly HashSet<ThreadKey> _seenThreads = new();
+    private readonly bool _seedFirstObservedRunningInterval;
+    private readonly SchedulerIntervalAccumulator _scheduler;
+    private readonly Dictionary<ThreadInstanceKey, ThreadStats> _threads = new();
+    private readonly Dictionary<ThreadInstanceKey, long> _pendingReadyUs = new();
+    private readonly Dictionary<int, ThreadInstanceKey> _knownRunningByCore = new();
+    private readonly HashSet<ThreadInstanceKey> _seenThreads = new();
     private readonly HashSet<int> _seenSwitchOutCores = new();
 
     private long _traceCSwitches;
@@ -90,84 +186,117 @@ internal sealed class CpuPreciseAccumulator
     private long _windowReadyEvents;
     private long _skippedUnmatchedSwitchOuts;
     private long _droppedStaleCoreIntervals;
-    private bool _flushed;
+    private long _unresolvedIdentityCount;
+    private bool _built;
 
-    public CpuPreciseAccumulator(int top, int? pid, long? startUs, long? endUs, long? traceEndUs = null)
+    public CpuPreciseAccumulator(
+        int top,
+        int? pid,
+        long? startUs,
+        long? endUs,
+        long? traceEndUs = null)
     {
         _top = top;
-        _pid = pid;
-        _startUs = startUs;
-        _endUs = endUs;
-        _traceEndUs = traceEndUs ?? endUs ?? 0;
+        var effectiveTraceEndUs = traceEndUs ?? endUs ?? long.MaxValue;
+        var window = new TimeWindow(startUs ?? 0, endUs ?? effectiveTraceEndUs);
+        _scope = new ThreadAnalysisScope(
+            window,
+            pid,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: pid.HasValue,
+            PidReuseObserved: false);
+        _traceEndUs = effectiveTraceEndUs;
+        _seedFirstObservedRunningInterval = true;
+        _scheduler = new SchedulerIntervalAccumulator();
+    }
+
+    internal CpuPreciseAccumulator(
+        int top,
+        ThreadAnalysisScope scope,
+        long traceEndUs,
+        Func<ThreadInstanceKey, long?>? threadEndUs = null)
+    {
+        if (traceEndUs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(traceEndUs));
+
+        _top = top;
+        _scope = scope;
+        _traceEndUs = traceEndUs;
+        _seedFirstObservedRunningInterval = false;
+        _scheduler = new SchedulerIntervalAccumulator(threadEndUs);
     }
 
     public void ProcessReady(CpuPreciseReadyEvent data)
     {
+        var thread = TryMakeSyntheticKey(
+            data.AwakenedProcessId, data.AwakenedThreadId, out var key)
+            ? key
+            : (ThreadInstanceKey?)null;
+        ProcessReady(new CpuPreciseResolvedReadyEvent(
+            thread,
+            TraceTime.FromMilliseconds(data.TimeStampRelativeMSec)));
+    }
+
+    internal void ProcessReady(CpuPreciseResolvedReadyEvent data)
+    {
+        EnsureMutable();
         _traceReadyEvents++;
-        var nowUs = ToUs(data.TimeStampRelativeMSec);
-        if (InWindow(nowUs) && MatchesPid(data.AwakenedProcessId))
-            _windowReadyEvents++;
-
-        if (!TryMakeKey(data.AwakenedProcessId, data.AwakenedThreadId, out var key))
+        if (!data.Thread.HasValue)
             return;
-        _seenThreads.Add(key);
 
-        // Keep the earliest unconsumed ready timestamp so repeated ReadyThread events do
-        // not hide the full ready-to-run delay before the next CSwitch-in.
-        if (!_pendingReadyUs.ContainsKey(key))
-            _pendingReadyUs[key] = nowUs;
+        var thread = data.Thread.Value;
+        if (_scope.MatchesPoint(thread, data.TimestampUs))
+        {
+            _windowReadyEvents++;
+        }
+
+        _seenThreads.Add(thread);
+        GetStats(thread, processName: string.Empty);
+        _pendingReadyUs.TryAdd(thread, data.TimestampUs);
     }
 
     public void ProcessCSwitch(CpuPreciseSwitchEvent data)
     {
+        var oldThread = TryMakeSyntheticKey(
+            data.OldProcessId, data.OldThreadId, out var oldKey)
+            ? oldKey
+            : (ThreadInstanceKey?)null;
+        var newThread = TryMakeSyntheticKey(
+            data.NewProcessId, data.NewThreadId, out var newKey)
+            ? newKey
+            : (ThreadInstanceKey?)null;
+        ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+            oldThread,
+            data.OldProcessName,
+            data.OldThreadWaitReason,
+            newThread,
+            data.NewProcessName,
+            data.ProcessorNumber,
+            TraceTime.FromMilliseconds(data.TimeStampRelativeMSec)));
+    }
+
+    internal void ProcessCSwitch(CpuPreciseResolvedSwitchEvent data)
+    {
+        EnsureMutable();
         _traceCSwitches++;
-        var nowUs = ToUs(data.TimeStampRelativeMSec);
-        if (InWindow(nowUs) && (MatchesPid(data.OldProcessId) || MatchesPid(data.NewProcessId)))
+        if (MatchesPoint(data.OldThread, data.TimestampUs) ||
+            MatchesPoint(data.NewThread, data.TimestampUs))
+        {
             _windowCSwitches++;
+        }
 
         var core = data.ProcessorNumber;
-        var canSeedFromWindowStart = _seenSwitchOutCores.Add(core);
-        if (TryMakeKey(data.OldProcessId, data.OldThreadId, out var oldKey))
+        var hadRunning = _knownRunningByCore.TryGetValue(core, out var expectedOldThread);
+        var firstSwitchOutOnCore = _seenSwitchOutCores.Add(core);
+        var firstObservedOldThread = false;
+
+        if (data.OldThread.HasValue)
         {
-            var firstObservedThread = _seenThreads.Add(oldKey);
-            var oldStats = GetStats(oldKey, data.OldProcessName);
-            var shouldAttributeCpu = false;
-            var switchInUs = nowUs;
-
-            if (_runningByCore.TryGetValue(core, out var running))
-            {
-                if (running.Key == oldKey)
-                {
-                    switchInUs = running.SwitchInUs;
-                    shouldAttributeCpu = true;
-                }
-                else
-                {
-                    _droppedStaleCoreIntervals++;
-                }
-            }
-            else if (canSeedFromWindowStart && firstObservedThread)
-            {
-                switchInUs = WindowStartUs;
-                shouldAttributeCpu = true;
-            }
-            else
-            {
-                _skippedUnmatchedSwitchOuts++;
-            }
-
-            _runningByCore.Remove(core);
-
-            if (shouldAttributeCpu)
-            {
-                var cpuUs = IntersectUs(switchInUs, nowUs);
-                if (cpuUs > 0 && MatchesPid(oldKey.Pid))
-                {
-                    AddCpu(oldStats, cpuUs, core);
-                }
-            }
-
-            if (InWindow(nowUs) && MatchesPid(oldKey.Pid))
+            var oldThread = data.OldThread.Value;
+            firstObservedOldThread = _seenThreads.Add(oldThread);
+            var oldStats = GetStats(oldThread, data.OldProcessName);
+            if (MatchesPoint(oldThread, data.TimestampUs))
             {
                 oldStats.ContextSwitches++;
                 var reason = WaitAnalysis.WaitReasonName(data.OldThreadWaitReason);
@@ -177,109 +306,185 @@ internal sealed class CpuPreciseAccumulator
                     oldStats.PreemptedSwitches++;
             }
         }
-        else if (_runningByCore.Remove(core))
+
+        if (data.NewThread.HasValue)
+        {
+            var newThread = data.NewThread.Value;
+            _seenThreads.Add(newThread);
+            var newStats = GetStats(newThread, data.NewProcessName);
+            if (MatchesPoint(newThread, data.TimestampUs))
+                newStats.ContextSwitches++;
+        }
+
+        var closed = _scheduler.ProcessSwitch(
+            data.OldThread,
+            data.NewThread,
+            data.TimestampUs,
+            WaitAnalysis.WaitReasonName(data.OldThreadWaitReason),
+            core);
+        if (closed.Running.HasValue)
+        {
+            AccountRunning(closed.Running.Value);
+        }
+        else if (data.OldThread.HasValue)
+        {
+            if (_seedFirstObservedRunningInterval &&
+                firstSwitchOutOnCore &&
+                firstObservedOldThread)
+            {
+                AccountRunning(new RunningInterval(
+                    data.OldThread.Value,
+                    _scope.Window.StartUs,
+                    data.TimestampUs,
+                    core));
+            }
+            else if (!hadRunning)
+            {
+                _skippedUnmatchedSwitchOuts++;
+            }
+        }
+
+        if (hadRunning &&
+            (!data.OldThread.HasValue || data.OldThread.Value != expectedOldThread))
         {
             _droppedStaleCoreIntervals++;
         }
 
-        if (TryMakeKey(data.NewProcessId, data.NewThreadId, out var newKey))
+        if (data.NewThread.HasValue)
         {
-            _seenThreads.Add(newKey);
-            var newStats = GetStats(newKey, data.NewProcessName);
-            if (_pendingReadyUs.Remove(newKey, out var readyUs) && InWindow(nowUs) && MatchesPid(newKey.Pid))
+            foreach (var duplicate in _knownRunningByCore
+                         .Where(item =>
+                             item.Key != core && item.Value == data.NewThread.Value)
+                         .Select(item => item.Key)
+                         .ToArray())
             {
-                var clippedReadyUs = Math.Max(readyUs, WindowStartUs);
-                var latencyUs = Math.Max(0, nowUs - clippedReadyUs);
-                newStats.ReadyCount++;
-                newStats.ReadyLatencyUs += latencyUs;
-                newStats.MaxReadyLatencyUs = Math.Max(newStats.MaxReadyLatencyUs ?? 0, latencyUs);
+                _knownRunningByCore.Remove(duplicate);
             }
-
-            _runningByCore[core] = new RunningThread(newKey, nowUs);
-            if (InWindow(nowUs) && MatchesPid(newKey.Pid))
-                newStats.ContextSwitches++;
+            _knownRunningByCore[core] = data.NewThread.Value;
+            AccountReady(data.NewThread.Value, data.TimestampUs);
         }
+        else
+        {
+            _knownRunningByCore.Remove(core);
+        }
+    }
+
+    internal void ProcessStop(ThreadInstanceKey thread, long timestampUs)
+    {
+        EnsureMutable();
+        var closed = _scheduler.Stop(thread, timestampUs);
+        if (closed.Running.HasValue)
+            AccountRunning(closed.Running.Value);
+        _pendingReadyUs.Remove(thread);
+        foreach (var core in _knownRunningByCore
+                     .Where(item => item.Value == thread)
+                     .Select(item => item.Key)
+                     .ToArray())
+        {
+            _knownRunningByCore.Remove(core);
+        }
+    }
+
+    internal void ReportUnresolvedIdentity(long count)
+    {
+        if (count < 0)
+            throw new ArgumentOutOfRangeException(nameof(count));
+        _unresolvedIdentityCount = checked(_unresolvedIdentityCount + count);
     }
 
     public CpuPreciseResponse BuildResponse()
     {
-        FlushOpenRunningIntervals();
+        EnsureMutable();
+        _built = true;
+        var completion = _scheduler.Complete(_traceEndUs);
+        foreach (var interval in completion.ClosedAtTraceEnd)
+            AccountRunning(interval);
+        _knownRunningByCore.Clear();
 
-        var allRows = _threads
-            .Select(kv => ToRow(kv.Key, kv.Value))
-            .Where(row => row.CpuUs > 0 || row.ReadyCount > 0 || row.ContextSwitches > 0)
+        if (_scope.Thread is not null)
+            GetStats(_scope.Thread.Key, processName: string.Empty);
+
+        var matchingStats = _threads
+            .Where(item => _scope.MatchesThread(item.Key));
+        var projectedRows = _scope.Thread is not null
+            ? matchingStats.Select(item => ToRow(
+                item.Key.Process.Pid,
+                item.Key.Tid,
+                item.Value))
+            : matchingStats
+                .GroupBy(item => new RawThreadKey(item.Key.Process.Pid, item.Key.Tid))
+                .Select(group => ToRow(
+                    group.Key.Pid,
+                    group.Key.Tid,
+                    MergeStats(group
+                        .OrderBy(item => item.Key.Process.StartUs)
+                        .ThenBy(item => item.Key.Generation)
+                        .Select(item => item.Value))));
+        var allRows = projectedRows
+            .Where(row =>
+                _scope.Thread is not null ||
+                row.CpuUs > 0 || row.ReadyCount > 0 || row.ContextSwitches > 0)
             .OrderByDescending(row => row.CpuUs)
             .ThenByDescending(row => row.ReadyLatencyUs)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.Tid)
             .ToList();
-        var rows = allRows.Take(_top).ToList();
+        var rows = _scope.Thread is not null
+            ? allRows
+            : allRows.Take(_top).ToList();
 
-        var warnings = new List<string>();
-        if (_traceCSwitches == 0)
+        var warnings = BuildWarnings(completion, allRows);
+        if (_scope.PidReuseObserved)
         {
             warnings.Add(
-                "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
-                "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
         }
-        else if (_windowCSwitches == 0 && rows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
-        {
-            warnings.Add("CSwitch events were present in the trace, but none matched the requested pid/window filters.");
-        }
-
-        if (_traceReadyEvents == 0)
-        {
-            warnings.Add(
-                "No DispatcherReadyThread events found. Ready latency cannot be computed without ReadyThread events.");
-        }
-        else if (_windowReadyEvents == 0 && rows.All(row => row.ReadyCount == 0))
-        {
-            warnings.Add("ReadyThread events were present in the trace, but none matched the requested pid/window filters.");
-        }
-        if (_skippedUnmatchedSwitchOuts > 0)
-        {
-            warnings.Add(
-                $"Skipped {_skippedUnmatchedSwitchOuts:N0} unmatched CSwitch old-thread interval(s) that could not be tied to a prior switch-in or a unique trace-start seed. " +
-                "This avoids over-counting CPU time when scheduler state is incomplete or thread IDs are reused.");
-        }
-        if (_droppedStaleCoreIntervals > 0)
-        {
-            warnings.Add(
-                $"Dropped {_droppedStaleCoreIntervals:N0} stale per-core running interval(s) after later CSwitch data showed a different old thread on that processor. " +
-                "This keeps CPU accounting bounded to one running thread per processor.");
-        }
-
         return new CpuPreciseResponse(
             Rows: rows,
             TotalCpuUs: allRows.Sum(row => row.CpuUs),
             TotalContextSwitches: _windowCSwitches,
             TotalReadyCount: allRows.Sum(row => row.ReadyCount),
             TotalReadyLatencyUs: allRows.Sum(row => row.ReadyLatencyUs),
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: _scope.Process?.Key,
+            SelectedThread: _scope.Thread?.Key,
+            HasContextSwitches: _traceCSwitches > 0,
+            HasSampledProfileStacks: false,
+            SymbolResolutionState: "not_applicable");
     }
 
-    private void FlushOpenRunningIntervals()
+    private void AccountRunning(RunningInterval interval)
     {
-        if (_flushed) return;
-        _flushed = true;
+        var cpuUs = _scope.AccountInterval(
+            interval.Thread, interval.StartUs, interval.EndUs);
+        if (cpuUs <= 0)
+            return;
 
-        var flushEndUs = _endUs ?? _traceEndUs;
-        if (flushEndUs <= WindowStartUs) return;
-
-        foreach (var (core, running) in _runningByCore.ToArray())
+        var stats = GetStats(interval.Thread, processName: string.Empty);
+        stats.CpuUs = checked(stats.CpuUs + cpuUs);
+        if (interval.Core >= 0)
         {
-            var key = running.Key;
-            if (!MatchesPid(key.Pid)) continue;
-
-            var cpuUs = IntersectUs(running.SwitchInUs, flushEndUs);
-            if (cpuUs <= 0) continue;
-
-            var stats = GetStats(key, processName: string.Empty);
-            AddCpu(stats, cpuUs, core);
+            stats.CoreCpuUs[interval.Core] = checked(
+                stats.CoreCpuUs.GetValueOrDefault(interval.Core) + cpuUs);
         }
-
-        _runningByCore.Clear();
     }
 
-    private ThreadStats GetStats(ThreadKey key, string processName)
+    private void AccountReady(ThreadInstanceKey thread, long switchInUs)
+    {
+        if (!_pendingReadyUs.Remove(thread, out var readyUs))
+            return;
+
+        var latencyUs = _scope.AccountInterval(thread, readyUs, switchInUs);
+        if (latencyUs <= 0)
+            return;
+
+        var stats = GetStats(thread, processName: string.Empty);
+        stats.ReadyCount++;
+        stats.ReadyLatencyUs = checked(stats.ReadyLatencyUs + latencyUs);
+        stats.MaxReadyLatencyUs = Math.Max(stats.MaxReadyLatencyUs ?? 0, latencyUs);
+    }
+
+    private ThreadStats GetStats(ThreadInstanceKey key, string processName)
     {
         if (!_threads.TryGetValue(key, out var stats))
             _threads[key] = stats = new ThreadStats();
@@ -288,33 +493,68 @@ internal sealed class CpuPreciseAccumulator
         return stats;
     }
 
-    private static void AddCpu(ThreadStats stats, long cpuUs, int core)
+    private static ThreadStats MergeStats(IEnumerable<ThreadStats> sources)
     {
-        stats.CpuUs += cpuUs;
-        if (core >= 0)
-            stats.CoreCpuUs[core] = stats.CoreCpuUs.GetValueOrDefault(core) + cpuUs;
+        var aggregate = new ThreadStats();
+        foreach (var source in sources)
+        {
+            if (string.IsNullOrEmpty(aggregate.ProcessName) &&
+                !string.IsNullOrEmpty(source.ProcessName))
+            {
+                aggregate.ProcessName = source.ProcessName;
+            }
+
+            aggregate.CpuUs = checked(aggregate.CpuUs + source.CpuUs);
+            aggregate.ContextSwitches = checked(
+                aggregate.ContextSwitches + source.ContextSwitches);
+            aggregate.ReadyCount = checked(aggregate.ReadyCount + source.ReadyCount);
+            aggregate.ReadyLatencyUs = checked(
+                aggregate.ReadyLatencyUs + source.ReadyLatencyUs);
+            if (source.MaxReadyLatencyUs.HasValue)
+            {
+                aggregate.MaxReadyLatencyUs = Math.Max(
+                    aggregate.MaxReadyLatencyUs ?? 0,
+                    source.MaxReadyLatencyUs.Value);
+            }
+            aggregate.QuantumEndSwitches = checked(
+                aggregate.QuantumEndSwitches + source.QuantumEndSwitches);
+            aggregate.PreemptedSwitches = checked(
+                aggregate.PreemptedSwitches + source.PreemptedSwitches);
+            foreach (var core in source.CoreCpuUs)
+            {
+                aggregate.CoreCpuUs[core.Key] = checked(
+                    aggregate.CoreCpuUs.GetValueOrDefault(core.Key) + core.Value);
+            }
+        }
+
+        return aggregate;
     }
 
-    private CpuPreciseThreadRow ToRow(ThreadKey key, ThreadStats stats)
+    private static CpuPreciseThreadRow ToRow(
+        int pid,
+        int tid,
+        ThreadStats stats)
     {
         var topCores = stats.CoreCpuUs
-            .OrderByDescending(kv => kv.Value)
+            .OrderByDescending(item => item.Value)
             .Take(8)
-            .Select(kv => new CpuCoreBucket(
-                Core: kv.Key,
-                CpuUs: kv.Value,
-                CpuPct: StackSourceTopN.Pct(stats.CpuUs, kv.Value)))
+            .Select(item => new CpuCoreBucket(
+                Core: item.Key,
+                CpuUs: item.Value,
+                CpuPct: StackSourceTopN.Pct(stats.CpuUs, item.Value)))
             .ToList();
 
         return new CpuPreciseThreadRow(
-            Pid: key.Pid,
+            Pid: pid,
             ProcessName: stats.ProcessName,
-            Tid: key.Tid,
+            Tid: tid,
             CpuUs: stats.CpuUs,
             ContextSwitches: stats.ContextSwitches,
             ReadyCount: stats.ReadyCount,
             ReadyLatencyUs: stats.ReadyLatencyUs,
-            AvgReadyLatencyUs: stats.ReadyCount > 0 ? (double)stats.ReadyLatencyUs / stats.ReadyCount : null,
+            AvgReadyLatencyUs: stats.ReadyCount > 0
+                ? (double)stats.ReadyLatencyUs / stats.ReadyCount
+                : null,
             MaxReadyLatencyUs: stats.MaxReadyLatencyUs,
             PrimaryCore: topCores.Count > 0 ? topCores[0].Core : null,
             TopCores: topCores,
@@ -322,34 +562,89 @@ internal sealed class CpuPreciseAccumulator
             PreemptedSwitches: stats.PreemptedSwitches);
     }
 
-    private bool MatchesPid(int pid) => !_pid.HasValue || pid == _pid.Value;
-
-    private long WindowStartUs => _startUs ?? 0;
-
-    private long WindowEndUs =>
-        _endUs ?? (_traceEndUs > 0 ? _traceEndUs : long.MaxValue);
-
-    private bool InWindow(long nowUs) =>
-        nowUs >= WindowStartUs && nowUs < WindowEndUs;
-
-    private long IntersectUs(long startUs, long endUs)
+    private List<string> BuildWarnings(
+        SchedulerIntervalResult completion,
+        IReadOnlyList<CpuPreciseThreadRow> allRows)
     {
-        var clippedStart = Math.Max(startUs, WindowStartUs);
-        var clippedEnd = Math.Min(endUs, WindowEndUs);
-        return Math.Max(0, clippedEnd - clippedStart);
+        var warnings = new List<string>();
+        if (_traceCSwitches == 0)
+        {
+            warnings.Add(
+                "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
+                "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+        }
+        else if (_windowCSwitches == 0 &&
+                 allRows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
+        {
+            warnings.Add(
+                "CSwitch events were present in the trace, but none matched the requested pid/thread/window scope.");
+        }
+
+        if (_traceReadyEvents == 0)
+        {
+            warnings.Add(
+                "No DispatcherReadyThread events found. Ready latency cannot be computed without ReadyThread events.");
+        }
+        else if (_windowReadyEvents == 0 && allRows.All(row => row.ReadyCount == 0))
+        {
+            warnings.Add(
+                "ReadyThread events were present in the trace, but none matched the requested pid/thread/window scope.");
+        }
+
+        var schedulerOnlyUnmatched = Math.Max(
+            0,
+            completion.UnmatchedRunningIntervalCount - completion.IdentityMismatchCount);
+        var unmatchedRunning = Math.Max(
+            _skippedUnmatchedSwitchOuts,
+            schedulerOnlyUnmatched);
+        if (unmatchedRunning > 0)
+        {
+            warnings.Add(
+                $"Skipped {unmatchedRunning:N0} unmatched CSwitch old-thread interval(s) that could not be tied to a prior switch-in or a unique trace-start seed. " +
+                "This avoids over-counting CPU time when scheduler state is incomplete or thread IDs are reused.");
+        }
+
+        var staleCoreIntervals = Math.Max(
+            _droppedStaleCoreIntervals,
+            completion.IdentityMismatchCount);
+        if (staleCoreIntervals > 0)
+        {
+            warnings.Add(
+                $"Dropped {staleCoreIntervals:N0} stale per-core running interval(s) after later CSwitch data showed a different old thread on that processor. " +
+                "This keeps CPU accounting bounded to one running thread per processor.");
+        }
+
+        if (_unresolvedIdentityCount > 0)
+        {
+            warnings.Add(
+                $"scheduler_identity_unresolved: {_unresolvedIdentityCount:N0} event-side identity resolution(s) were unavailable or ambiguous.");
+        }
+        return warnings;
     }
 
-    private static long ToUs(double timeStampRelativeMSec) => (long)(timeStampRelativeMSec * 1000);
+    private bool MatchesPoint(ThreadInstanceKey? thread, long timestampUs) =>
+        thread.HasValue && MatchesPoint(thread.Value, timestampUs);
 
-    private static bool TryMakeKey(int pid, int tid, out ThreadKey key)
+    private bool MatchesPoint(ThreadInstanceKey thread, long timestampUs) =>
+        _scope.MatchesPoint(thread, timestampUs);
+
+    private static bool TryMakeSyntheticKey(
+        int pid,
+        int tid,
+        out ThreadInstanceKey key)
     {
-        key = new ThreadKey(pid, tid);
+        key = new ThreadInstanceKey(
+            new ProcessInstanceKey(pid, StartUs: 0),
+            tid,
+            Generation: 1);
         return pid > 0 && tid != 0;
     }
 
-    private readonly record struct ThreadKey(int Pid, int Tid);
-
-    private readonly record struct RunningThread(ThreadKey Key, long SwitchInUs);
+    private void EnsureMutable()
+    {
+        if (_built)
+            throw new InvalidOperationException("CPU precise accumulator is complete.");
+    }
 
     private sealed class ThreadStats
     {
@@ -363,4 +658,6 @@ internal sealed class CpuPreciseAccumulator
         public long PreemptedSwitches { get; set; }
         public Dictionary<int, long> CoreCpuUs { get; } = new();
     }
+
+    private readonly record struct RawThreadKey(int Pid, int Tid);
 }

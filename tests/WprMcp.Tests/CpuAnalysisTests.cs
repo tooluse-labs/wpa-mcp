@@ -12,6 +12,87 @@ public class CpuAnalysisTests
     private const string FixturePath = "fixtures/small_cpu.etl"; // captured by fixtures/capture_all.ps1
 
     [Fact]
+    public void PassesScope_SelectsOneThreadGeneration()
+    {
+        var process = new ProcessLifetime(
+            new ProcessInstanceKey(Pid: 10, StartUs: 20),
+            EndUs: 250,
+            StartObserved: true,
+            EndObserved: true);
+        var thread = new ThreadLifetime(
+            new ThreadInstanceKey(process.Key, Tid: 7, Generation: 1),
+            StartUs: 80,
+            EndUs: 220,
+            StartObserved: true,
+            EndObserved: true);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(100, 200),
+            Pid: 10,
+            Process: process,
+            Thread: thread,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+
+        Assert.True(CpuAnalysis.PassesScope(scope, pid: 10, tid: 7, timestampUs: 150));
+        Assert.False(CpuAnalysis.PassesScope(scope, pid: 10, tid: 8, timestampUs: 150));
+        Assert.False(CpuAnalysis.PassesScope(scope, pid: 11, tid: 7, timestampUs: 150));
+        Assert.False(CpuAnalysis.PassesScope(scope, pid: 10, tid: 7, timestampUs: 200));
+    }
+
+    [Fact]
+    public void ScopedTopFunctions_SampleSelectionDoesNotDependOnSymbolResolution()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = new TimeWindow(0, traceEndUs);
+        var samples = new List<(int Pid, int Tid, long TimestampUs)>();
+        foreach (var traceEvent in trace.Events)
+        {
+            if (traceEvent is SampledProfileTraceData sample)
+            {
+                samples.Add((
+                    sample.ProcessID,
+                    sample.ThreadID,
+                    TraceTime.FromMilliseconds(sample.TimeStampRelativeMSec)));
+            }
+        }
+        var selected = samples.First(sample => sample.Pid > 0 && sample.Tid > 0);
+        var process = new ProcessLifetime(
+            new ProcessInstanceKey(selected.Pid, StartUs: 0),
+            traceEndUs,
+            StartObserved: false,
+            EndObserved: false);
+        var thread = new ThreadLifetime(
+            new ThreadInstanceKey(process.Key, selected.Tid, Generation: 1),
+            StartUs: 0,
+            EndUs: traceEndUs,
+            StartObserved: false,
+            EndObserved: false);
+        var scope = new ThreadAnalysisScope(
+            window,
+            selected.Pid,
+            process,
+            thread,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+        var expectedSamples = samples
+            .Count(sample => CpuAnalysis.PassesScope(
+                scope,
+                sample.Pid,
+                sample.Tid,
+                sample.TimestampUs));
+
+        var unresolved = CpuAnalysis.TopFunctions(
+            trace, top: 1000, scope, TextWriter.Null, resolveSymbols: false);
+        var resolved = CpuAnalysis.TopFunctions(
+            trace, top: 1000, scope, TextWriter.Null, resolveSymbols: true);
+
+        Assert.True(expectedSamples > 0);
+        Assert.Equal(expectedSamples, unresolved.Rows.Sum(row => row.ExclusiveSamples));
+        Assert.Equal(expectedSamples, resolved.Rows.Sum(row => row.ExclusiveSamples));
+    }
+
+    [Fact]
     public void CpuTopFunctions_ReturnsAtMostTopRows()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));
@@ -115,7 +196,38 @@ public class CpuAnalysisTests
             Assert.Equal(single.Rows.Select(r => r.Function), batched.Rows.Select(r => r.Function));
             Assert.Equal(single.Rows.Select(r => r.ExclusiveSamples), batched.Rows.Select(r => r.ExclusiveSamples));
             Assert.Equal(single.Warnings, batched.Warnings);
+            Assert.Equal(single.HasSampledProfileStacks, batched.HasSampledProfileStacks);
+            Assert.Equal(single.SymbolResolutionState, batched.SymbolResolutionState);
         }
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_PreservesPerPidStackAvailabilityMetadata()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var raws = new Dictionary<int, StackSourceTopN.RawStackSource>
+        {
+            [101] = StackSourceTopN.CreateRawSource(trace),
+            [202] = StackSourceTopN.CreateRawSource(trace),
+        };
+
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(TextWriter.Null);
+        var result = CpuAnalysis.BuildTopFunctionsResponsesForRawSources(
+            trace,
+            raws,
+            symbolReader,
+            traceTotalSamples: 0,
+            top: 5,
+            excludeEtwSelfOverhead: false,
+            hasFilter: true,
+            includeTracePct: false,
+            resolveSymbols: false,
+            pidsWithSampledProfileStacks: new HashSet<int> { 202 });
+
+        Assert.False(result[101].HasSampledProfileStacks);
+        Assert.Equal("no_stacks", result[101].SymbolResolutionState);
+        Assert.True(result[202].HasSampledProfileStacks);
+        Assert.Equal("skipped", result[202].SymbolResolutionState);
     }
 
     [Fact]
@@ -131,6 +243,21 @@ public class CpuAnalysisTests
         Assert.False(batch.Partial);
         Assert.Equal(pids.Length, batch.RequestedPidCount);
         Assert.Equal(batch.PerPid.Count, batch.CompletedPidCount);
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_PidCountEnforcesSharedBoundary()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+        var accepted = Enumerable.Range(1, Validation.MaxCollectionItems).ToArray();
+        var rejected = Enumerable.Range(1, Validation.MaxCollectionItems + 1).ToArray();
+
+        Assert.Throws<FileNotFoundException>(() => tools.CpuTopFunctionsBatch(
+            "missing-before-validation.etl",
+            accepted));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.CpuTopFunctionsBatch(
+            "missing-before-validation.etl",
+            rejected));
     }
 
     [Fact]

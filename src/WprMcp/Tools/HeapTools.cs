@@ -36,12 +36,18 @@ public sealed class HeapTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return HeapAllocStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -58,10 +64,15 @@ public sealed class HeapTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
-        return HeapAllocStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+        return HeapAllocStackAnalysis.CallerCallee(
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 }

@@ -27,8 +27,12 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         var trace = _cache.Get(path);
-        return Analyzers.GcAnalysis.Analyze(trace, pid, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return Analyzers.GcAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -46,9 +50,13 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
-        return Analyzers.JitAnalysis.Analyze(trace, pid, top, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return Analyzers.JitAnalysis.Analyze(trace, pid, top, window.StartUs, window.EndUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -73,12 +81,18 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrAllocStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -95,11 +109,16 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
-        return ClrAllocStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+        return ClrAllocStackAnalysis.CallerCallee(
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -123,12 +142,18 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrExceptionStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -145,11 +170,16 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
-        return ClrExceptionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+        return ClrExceptionStackAnalysis.CallerCallee(
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -173,12 +203,18 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrContentionStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, Console.Error, whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -195,11 +231,16 @@ public sealed class ClrTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
-        return ClrContentionStackAnalysis.CallerCallee(trace, focusFunction, top, pid, startUs, endUs, Console.Error);
+        return ClrContentionStackAnalysis.CallerCallee(
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -217,8 +258,12 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         var trace = _cache.Get(path);
-        return GcHeapStatsAnalysis.Analyze(trace, pid, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return GcHeapStatsAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -237,7 +282,11 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         var trace = _cache.Get(path);
-        return FinalizerAnalysis.Analyze(trace, pid, startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return FinalizerAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
     }
 }

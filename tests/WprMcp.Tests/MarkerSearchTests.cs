@@ -71,4 +71,25 @@ public class MarkerSearchTests
         var tools = new MarkerTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentException>(() => tools.FindMarker(FixturePath, "Sample", mode: "bogus"));
     }
+
+    [Fact]
+    public void FindMarker_FieldMaxCharsEnforcesSharedBoundary()
+    {
+        var tools = new MarkerTools(new TraceCache(capacity: 2));
+
+        var accepted = tools.FindMarker(
+            FixturePath,
+            "no-such-marker-value",
+            top: 1,
+            mode: "rows",
+            fieldMaxChars: Validation.MaxStringChars);
+
+        Assert.Empty(accepted.Rows!);
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.FindMarker(
+            "missing-before-validation.etl",
+            "marker",
+            top: 1,
+            mode: "rows",
+            fieldMaxChars: Validation.MaxStringChars + 1));
+    }
 }

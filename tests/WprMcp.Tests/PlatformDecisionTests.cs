@@ -523,6 +523,38 @@ public sealed class PlatformDecisionTests
             Assert.Equal(7, evidence.RootElement.GetProperty("ExitCode").GetInt32());
             Assert.False(evidence.RootElement.GetProperty("TimedOut").GetBoolean());
             Assert.False(evidence.RootElement.GetProperty("StartFailed").GetBoolean());
+
+            var currentWindowLog = Path.Combine(directory, "exit-code-current-window").Replace("'", "''", StringComparison.Ordinal);
+            var currentWindow = RunPowerShell(
+                $". '{script}' -CandidateId net8-stable-stateful; " +
+                "$definition = (Get-Command Invoke-CapturedCommand).Definition -replace '-WindowStyle Hidden', '-NoNewWindow'; " +
+                "Set-Item -Path Function:Invoke-CapturedCommand -Value $definition; " +
+                $"Invoke-CapturedCommand cmd.exe @('/d','/c','exit','7') '{working}' '{currentWindowLog}' @{{}} " +
+                "-Stage 'exit-code-current-window-regression' | ConvertTo-Json -Compress");
+
+            Assert.True(currentWindow.ExitCode == 0, $"Current-window exit-code probe failed. stdout: {currentWindow.Stdout} stderr: {currentWindow.Stderr}");
+            using var currentWindowEvidence = JsonDocument.Parse(currentWindow.Stdout);
+            var currentWindowExitCode = currentWindowEvidence.RootElement.GetProperty("ExitCode");
+            Assert.True(
+                currentWindowExitCode.ValueKind == JsonValueKind.Number,
+                $"Expected numeric current-window exit code. stdout: {currentWindow.Stdout} stderr: {currentWindow.Stderr}");
+            Assert.Equal(7, currentWindowExitCode.GetInt32());
+            Assert.False(currentWindowEvidence.RootElement.GetProperty("TimedOut").GetBoolean());
+            Assert.False(currentWindowEvidence.RootElement.GetProperty("StartFailed").GetBoolean());
+
+            var reusedPidLog = Path.Combine(directory, "exit-code-reused-pid").Replace("'", "''", StringComparison.Ordinal);
+            var reusedPid = RunPowerShell(
+                $". '{script}' -CandidateId net8-stable-stateful; " +
+                "$script:processLookupCount = 0; " +
+                "function Get-Process { param([int]$Id, [string]$ErrorAction) $script:processLookupCount++; if ($script:processLookupCount -eq 1) { return 1 } }; " +
+                $"Invoke-CapturedCommand cmd.exe @('/d','/c','exit','7') '{working}' '{reusedPidLog}' @{{}} " +
+                "-Stage 'exit-code-reused-pid-regression' | ConvertTo-Json -Compress");
+
+            Assert.True(reusedPid.ExitCode == 0, $"Reused-PID exit-code probe failed. stdout: {reusedPid.Stdout} stderr: {reusedPid.Stderr}");
+            using var reusedPidEvidence = JsonDocument.Parse(reusedPid.Stdout);
+            Assert.Equal(7, reusedPidEvidence.RootElement.GetProperty("ExitCode").GetInt32());
+            Assert.False(reusedPidEvidence.RootElement.GetProperty("TimedOut").GetBoolean());
+            Assert.False(reusedPidEvidence.RootElement.GetProperty("StartFailed").GetBoolean());
         }
         finally
         {

@@ -49,8 +49,9 @@ public sealed class DiagnoseTools
         [Description("Maximum allowed window width in microseconds (default 60s). Wider windows return a guard warning.")]
         long maxWindowDurationUs = DefaultDiagnoseWindowLimitUs)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
-        ValidateWindow(startUs, endUs);
         if (maxWindowDurationUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
@@ -58,7 +59,11 @@ public sealed class DiagnoseTools
             return guarded;
 
         var trace = _cache.Get(path);
-        return BuildDiagnoseWindow(trace, startUs, endUs, pid, top, maxWindowDurationUs, callPrefix: "diagnose-window");
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxWindowDurationUs);
+        return BuildDiagnoseWindow(
+            trace, window.StartUs, window.EndUs, pid, top, maxWindowDurationUs,
+            callPrefix: "diagnose-window");
     }
 
     private static DiagnoseWindowResponse? BuildWideWindowGuard(
@@ -326,20 +331,19 @@ public sealed class DiagnoseTools
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Composite 'why is process X slow to start' analysis. Picks the slowest-by-wait-ratio processes " +
-        "(or the ones matching nameSubstring), then runs wait_analysis (top wait reasons), image_load_timing " +
-        "(first N DLLs from process start), cpu_top_functions (top hot functions in the startup window), " +
-        "and diagnose_window for slow ProcessStart→first-ImageLoad gaps " +
-        "for each. Equivalent to manually composing list_processes + wait_analysis + image_load_timing + " +
-        "cpu_top_functions + diagnose_window but with a single tool call. No startUs/endUs: this composite derives each " +
-        "candidate window from ProcessStart plus startupWindowUs.")]
+        "Composite 'why is process X slow to start' analysis. Includes only process instances with an " +
+        "observed ProcessStart, ranks them from CPU and wall time inside one bounded startup window, and " +
+        "projects wait reasons and image loads from that same process-instance window. CPU functions use " +
+        "the identical scope. A sufficiently slow first ImageLoad may add a contained diagnose_window child. " +
+        "No startUs/endUs: this composite derives each checked half-open window from ProcessStart and " +
+        "startupWindowUs; lifetime metrics are auxiliary and never affect ranking.")]
     public DiagnoseSlowStartupResponse DiagnoseSlowStartup(
         [Description("Absolute path to .etl file")] string path,
         [Description("Match candidates whose process name contains this substring (case-insensitive). " +
-                     "Empty/null = pick the top candidates by wait ratio across the whole trace.")]
+                     "Empty/null = rank all observed-start candidates by startup-window wait ratio.")]
         string? nameSubstring = null,
         [Description("How many candidate processes to investigate (default 5, max 20)")] int maxCandidates = 5,
-        [Description("Minimum WallUs / CpuUs ratio to consider a process 'slow' (default 3.0)")]
+        [Description("Minimum ObservedStartupWallUs / StartupCpuUs ratio to consider a process 'slow' (default 3.0)")]
         double minWaitRatio = 3.0,
         [Description("Startup window width from ProcessStart, in microseconds (default 5_000_000 = 5s)")]
         long startupWindowUs = 5_000_000,
@@ -352,6 +356,8 @@ public sealed class DiagnoseTools
         [Description("Maximum diagnose_window width for first-image-load gap evidence, in microseconds (default 60s).")]
         long maxWindowDurationUs = DefaultDiagnoseWindowLimitUs)
     {
+        if (nameSubstring is not null)
+            Validation.RequireText(nameSubstring, allowEmpty: true);
         if (maxCandidates <= 0 || maxCandidates > 20)
             throw new ArgumentOutOfRangeException(nameof(maxCandidates));
         if (minWaitRatio < 0)
@@ -360,235 +366,366 @@ public sealed class DiagnoseTools
             throw new ArgumentOutOfRangeException(nameof(startupWindowUs));
         if (slowFirstImageLoadThresholdUs < 0)
             throw new ArgumentOutOfRangeException(nameof(slowFirstImageLoadThresholdUs));
+        Validation.RequireTop(topImageLoads);
+        Validation.RequireTop(topCpu);
         Validation.RequireTop(topWindowEvidence);
         if (maxWindowDurationUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
         var trace = _cache.Get(path);
+        var identities = TraceIdentityIndex.For(trace);
+        var catalog = StartupProcessCatalog.FromTrace(
+            trace,
+            identities,
+            startupWindowUs,
+            nameSubstring,
+            Validation.MaxCollectionItems);
+        var startupMetrics = new StartupMetricsAccumulator(catalog.Eligible);
+        var schedulerStream = SchedulerIntervalTraceReader.Read(
+            trace, identities, [startupMetrics]);
+        var scheduler = startupMetrics.Complete();
+        var schedulerWarnings = WaitAnalysis.BuildSchedulerWarnings(
+            schedulerStream.Completion,
+            schedulerStream.IdentityDiagnosticCount);
+        var imageLoads = StartupImageLoadAnalysis.Collect(
+            trace,
+            identities,
+            catalog.Eligible,
+            maxRowsPerProcess: topImageLoads);
+
+        return ComposeSlowStartup(
+            identities,
+            catalog,
+            scheduler,
+            schedulerWarnings,
+            imageLoads,
+            nameSubstring,
+            maxCandidates,
+            minWaitRatio,
+            topImageLoads,
+            topCpu,
+            slowFirstImageLoadThresholdUs,
+            topWindowEvidence,
+            analyzeCpu: scope => CpuAnalysis.TopFunctions(
+                trace,
+                top: topCpu,
+                scope,
+                symbolLog: Console.Error,
+                excludeEtwSelfOverhead: false),
+            diagnoseWindow: (candidate, child, prefix) => BuildDiagnoseWindow(
+                trace,
+                child.StartUs,
+                child.EndUs,
+                candidate.Process.Pid,
+                topWindowEvidence,
+                maxWindowDurationUs,
+                callPrefix: $"{prefix}.first-image-load-gap"));
+    }
+
+    internal static DiagnoseSlowStartupResponse ComposeSlowStartup(
+        TraceIdentityIndex identities,
+        StartupProcessCatalogResult catalog,
+        IReadOnlyDictionary<ProcessInstanceKey, StartupSchedulerMetrics> scheduler,
+        IReadOnlyList<string> schedulerWarnings,
+        StartupImageLoadResult imageLoads,
+        string? nameSubstring,
+        int maxCandidates,
+        double minWaitRatio,
+        int topImageLoads,
+        int topCpu,
+        long slowFirstImageLoadThresholdUs,
+        int topWindowEvidence,
+        Func<ThreadAnalysisScope, CpuTopFunctionsResponse> analyzeCpu,
+        Func<SlowStartupCandidateData, TimeWindow, string, DiagnoseWindowResponse>
+            diagnoseWindow)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(schedulerWarnings);
+        ArgumentNullException.ThrowIfNull(imageLoads);
+        ArgumentNullException.ThrowIfNull(analyzeCpu);
+        ArgumentNullException.ThrowIfNull(diagnoseWindow);
+
+        var excludedSamples = catalog.Excluded
+            .Select(exclusion => new StartupProcessExclusionRow(
+                EvidenceId:
+                    $"slow-startup.pid-{exclusion.Process.Pid}.start-{exclusion.Process.StartUs}.exclusion-sample",
+                Pid: exclusion.Process.Pid,
+                ProcessStartUs: exclusion.Process.StartUs,
+                ProcessName: exclusion.ProcessName,
+                Code: exclusion.Code))
+            .ToList();
+        var discovery = new StartupDiscoverySummary(
+            EligibleStartupInstanceCount: catalog.TotalEligibleCount,
+            ConsideredStartupInstanceCount: catalog.Eligible.Count,
+            CandidateInputHasMore: catalog.EligibleHasMore,
+            ExcludedUnobservedStartCount: catalog.TotalUnobservedStartCount,
+            OtherExcludedStartupInstanceCount: catalog.TotalOtherExcludedCount,
+            ExcludedSamples: excludedSamples,
+            ExcludedSamplesHasMore: catalog.ExcludedHasMore);
+
         var warnings = new List<string>();
         var evidence = new List<CompositeEvidence>();
         var notConcluded = new List<CompositeNotConcluded>();
         var nextTools = new List<CompositeNextTool>();
         var firstImageLoadGapEvidence = new List<StartupGapEvidenceRow>();
-        var executedCalls = new List<CompositeToolCall>
+        var executedCalls = new List<CompositeToolCall>();
+
+        if (catalog.ExplicitNameTarget)
         {
-            ToolCall(
-                "slow-startup.list_processes",
-                "list_processes",
-                pid: null,
-                awakenedPid: null,
-                startUs: null,
-                endUs: null,
-                top: maxCandidates,
-                compactStacks: null,
-                summaryOnly: null,
-                whenBuckets: null,
-                warnings: Array.Empty<string>()),
-        };
+            foreach (var exclusion in catalog.Excluded.Where(
+                         exclusion => exclusion.Code == "startup_start_not_observed"))
+            {
+                var exclusionId =
+                    $"slow-startup.pid-{exclusion.Process.Pid}.start-{exclusion.Process.StartUs}.startup-start";
+                notConcluded.Add(new CompositeNotConcluded(
+                    Code: exclusion.Code,
+                    Reason: exclusion.Reason,
+                    Pid: exclusion.Process.Pid,
+                    BlockingCapability: null,
+                    RelatedCallId: null,
+                    ProcessStartUs: exclusion.Process.StartUs,
+                    EvidenceId: exclusionId));
+            }
+        }
+        else if (catalog.TotalUnobservedStartCount > 0)
+        {
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: "startup_starts_not_observed",
+                Reason: "Some process instances were already present without an observed ProcessStart and were excluded.",
+                Pid: null,
+                BlockingCapability: null,
+                RelatedCallId: null,
+                MetricName: "excludedUnobservedStartCount",
+                MetricValue: catalog.TotalUnobservedStartCount,
+                Unit: "process_instances",
+                EvidenceId: "slow-startup.discovery.startup-starts-not-observed"));
+        }
 
-        // 1. Pick candidates via the shared ProcessProjection.
-        IEnumerable<ProcessRow> rows = ProcessProjection.Rows(trace, includeSystem: false)
-            .Where(r => r.WallUs > 0);
-        if (!string.IsNullOrEmpty(nameSubstring))
-            rows = rows.Where(r => r.Name.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase));
+        warnings.AddRange(PrefixWarnings("slow-startup.discovery", schedulerWarnings));
+        if (imageLoads.UnresolvedProcessInstanceCount > 0)
+        {
+            warnings.Add(
+                $"slow-startup.discovery: image_load_process_unresolved: {imageLoads.UnresolvedProcessInstanceCount:N0} event(s) were not attributed to a process instance.");
+        }
+        if (imageLoads.AmbiguousProcessInstanceCount > 0)
+        {
+            warnings.Add(
+                $"slow-startup.discovery: image_load_process_ambiguous: {imageLoads.AmbiguousProcessInstanceCount:N0} event(s) matched multiple process instances.");
+        }
 
-        var ranked = rows
-            .Where(r => r.WaitRatio is { } w && w >= minWaitRatio)
-            .OrderByDescending(r => r.WaitRatio ?? 0)
-            .ThenByDescending(r => r.WallUs)
-            .Take(maxCandidates)
-            .ToList();
+        var ranked = SlowStartupProjection.Rank(
+            catalog.Eligible,
+            scheduler,
+            imageLoads.ByProcess,
+            nameSubstring,
+            minWaitRatio,
+            maxCandidates);
 
         if (ranked.Count == 0)
         {
             warnings.Add(
                 $"No processes matched (nameSubstring='{nameSubstring ?? "<any>"}', " +
-                $"minWaitRatio={minWaitRatio}). Try lowering minWaitRatio or removing nameSubstring.");
+                $"minWaitRatio={minWaitRatio}) using observed startup-window metrics. " +
+                "Try lowering minWaitRatio or removing nameSubstring.");
             notConcluded.Add(new CompositeNotConcluded(
                 Code: "no_candidates",
-                Reason: "No process matched the configured nameSubstring and minWaitRatio filters.",
+                Reason: "No observed-start process instance matched the configured nameSubstring and minWaitRatio filters.",
                 Pid: null,
                 BlockingCapability: null,
-                RelatedCallId: "slow-startup.list_processes"));
+                RelatedCallId: null,
+                EvidenceId: "slow-startup.no-candidates"));
             return new DiagnoseSlowStartupResponse(
-                Candidates: new List<SlowStartupCandidate>(),
+                Candidates: Array.Empty<SlowStartupCandidate>(),
                 Summary: "No candidates above minWaitRatio.",
                 Warnings: warnings,
                 Evidence: evidence,
                 NotConcluded: notConcluded,
                 ExecutedToolCalls: executedCalls,
                 NextTools: nextTools,
-                FirstImageLoadGapEvidence: firstImageLoadGapEvidence);
+                FirstImageLoadGapEvidence: firstImageLoadGapEvidence,
+                Discovery: discovery);
         }
 
-        var candidatePids = new HashSet<int>(ranked.Select(r => r.Pid));
-
-        // 2. ONE wait_analysis pass for the whole trace (CSwitch ~M-events; we'd otherwise
-        //    re-walk it once per candidate). top=int.MaxValue is intentional: WaitAnalysis
-        //    truncates AFTER the per-thread aggregation, and a global top-N would silently
-        //    drop threads belonging to a candidate PID whose global rank doesn't make the
-        //    cut, distorting per-PID reason histograms. This is internal-only because
-        //    public wait_analysis caps top at Validation.MaxTop.
-        var waitResp = WaitAnalysis.Analyze(trace, top: int.MaxValue, pid: null, startUs: null, endUs: null);
-        executedCalls.Add(ToolCall(
-            "slow-startup.wait_analysis",
-            "wait_analysis",
-            pid: null,
-            awakenedPid: null,
-            startUs: null,
-            endUs: null,
-            top: null,
-            compactStacks: null,
-            summaryOnly: null,
-            whenBuckets: null,
-            warnings: waitResp.Warnings,
-            replayable: false,
-            internalTop: int.MaxValue,
-            internalNote: $"Internal unbounded aggregation; public wait_analysis caps top at {Validation.MaxTop}."));
-        warnings.AddRange(PrefixWarnings("wait_analysis", waitResp.Warnings));
-        var waitByPid = waitResp.Rows
-            .Where(r => candidatePids.Contains(r.Pid))
-            .GroupBy(r => r.Pid)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<WaitAnalysisRow>)g.ToList());
-
-        // 3. ONE image-load pass for all candidates.
-        var imageLoadsByPid = ImageLoadAnalysis.ForPids(trace, candidatePids);
-
-        // 4. CPU is per-pid (one CallTree per pid, so no shared-pass shortcut). We accept N passes here.
         var candidates = new List<SlowStartupCandidate>();
         foreach (var c in ranked)
         {
-            var rowsForPid = waitByPid.TryGetValue(c.Pid, out var candidateWaitRows)
-                ? candidateWaitRows
-                : Array.Empty<WaitAnalysisRow>();
-            var collapsedReasons = CollapseWaitReasons(rowsForPid, top: 5);
-            var totalBlockedUs = rowsForPid.Sum(row => row.BlockedUs);
+            var plan = SlowStartupProjection.PlanEvidence(
+                c, slowFirstImageLoadThresholdUs);
+            var prefix = plan.EvidenceIdPrefix;
+            var bounds = plan.ParentWindow;
+            var provenance = StartupProvenance(c.StartupWindow);
+            var scope = ThreadAnalysisScope.ResolveRequired(
+                bounds,
+                c.Process.Pid,
+                tid: null,
+                c.Process.StartUs,
+                threadStartUs: null,
+                identities);
+            var collapsedReasons = StartupWaitReasons(
+                c,
+                scheduler[c.Process],
+                top: 5);
 
-            var hasImageLoads = imageLoadsByPid.TryGetValue(c.Pid, out var loads);
-            var firstLoads = hasImageLoads
-                ? (IReadOnlyList<ImageLoadRow>)loads!.Take(topImageLoads).ToList()
-                : null;
+            var projectionCallId = $"{prefix}.startup-candidate-projection";
+            var waitCallId = $"{prefix}.wait-analysis";
+            var imageCallId = $"{prefix}.image-load-timing";
+            var cpuCallId = $"{prefix}.cpu-top-functions";
+
             executedCalls.Add(ToolCall(
-                $"slow-startup.pid-{c.Pid}.image_load_timing",
-                "image_load_timing",
-                pid: c.Pid,
+                projectionCallId,
+                "startup_candidate_projection",
+                pid: c.Process.Pid,
                 awakenedPid: null,
-                startUs: null,
-                endUs: null,
+                startUs: bounds.StartUs,
+                endUs: bounds.EndUs,
+                top: null,
+                compactStacks: null,
+                summaryOnly: null,
+                whenBuckets: null,
+                warnings: Array.Empty<string>(),
+                replayable: false,
+                internalNote: "Internal startup-window candidate projection.",
+                processStartUs: c.Process.StartUs));
+            executedCalls.Add(ToolCall(
+                waitCallId,
+                "wait_analysis",
+                pid: c.Process.Pid,
+                awakenedPid: null,
+                startUs: bounds.StartUs,
+                endUs: bounds.EndUs,
+                top: Validation.MaxTop,
+                compactStacks: null,
+                summaryOnly: null,
+                whenBuckets: null,
+                warnings: schedulerWarnings,
+                processStartUs: c.Process.StartUs));
+            executedCalls.Add(ToolCall(
+                imageCallId,
+                "image_load_timing",
+                pid: c.Process.Pid,
+                awakenedPid: null,
+                startUs: bounds.StartUs,
+                endUs: bounds.EndUs,
                 top: topImageLoads,
                 compactStacks: null,
                 summaryOnly: null,
                 whenBuckets: null,
-                warnings: Array.Empty<string>()));
-
-            if (c.TraceResident)
-            {
-                var firstObservedImageLoadOffsetUs = hasImageLoads && loads!.Count > 0
-                    ? Math.Max(0, loads[0].TimeUs - c.StartUs)
-                    : (long?)null;
-                notConcluded.Add(new CompositeNotConcluded(
-                    Code: "startup_gap_skipped_trace_resident",
-                    Reason: "Process was already alive at trace start, so ProcessStart-to-first-ImageLoad gap evidence is not available.",
-                    Pid: c.Pid,
-                    BlockingCapability: null,
-                    RelatedCallId: $"slow-startup.pid-{c.Pid}.image_load_timing",
-                    MetricName: firstObservedImageLoadOffsetUs.HasValue ? "firstObservedImageLoadOffsetUs" : null,
-                    MetricValue: firstObservedImageLoadOffsetUs,
-                    Unit: firstObservedImageLoadOffsetUs.HasValue ? "us" : null));
-            }
-            else if (hasImageLoads && loads!.Count > 0)
-            {
-                var firstLoad = loads[0];
-                var firstImageLoadOffsetUs = Math.Max(0, firstLoad.TimeUs - c.StartUs);
-                if (firstImageLoadOffsetUs >= slowFirstImageLoadThresholdUs)
-                {
-                    var windowStartUs = c.StartUs;
-                    var windowEndUs = Math.Max(windowStartUs, firstLoad.TimeUs + 1);
-                    var callId = $"slow-startup.pid-{c.Pid}.diagnose_window";
-                    var window = BuildDiagnoseWindow(
-                        trace,
-                        windowStartUs,
-                        windowEndUs,
-                        c.Pid,
-                        topWindowEvidence,
-                        maxWindowDurationUs,
-                        callPrefix: $"slow-startup.pid-{c.Pid}.first-image-load-gap");
-
-                    executedCalls.Add(ToolCall(
-                        callId,
-                        "diagnose_window",
-                        pid: c.Pid,
-                        awakenedPid: null,
-                        startUs: windowStartUs,
-                        endUs: windowEndUs,
-                        top: topWindowEvidence,
-                        compactStacks: null,
-                        summaryOnly: null,
-                        whenBuckets: null,
-                        warnings: window.Warnings));
-                    warnings.AddRange(PrefixWarnings($"diagnose_window pid {c.Pid}", window.Warnings));
-                    nextTools.AddRange(window.NextTools);
-                    firstImageLoadGapEvidence.Add(new StartupGapEvidenceRow(
-                        Pid: c.Pid,
-                        ProcessName: c.Name,
-                        ProcessStartUs: c.StartUs,
-                        FirstImageLoadTimeUs: firstLoad.TimeUs,
-                        FirstImageLoadOffsetUs: firstImageLoadOffsetUs,
-                        Window: window));
-                }
-            }
+                warnings: Array.Empty<string>(),
+                replayable: false,
+                internalNote: "Instance-scoped startup projection; the public image_load_timing surface has no processStartUs/window selector.",
+                processStartUs: c.Process.StartUs));
 
             IReadOnlyList<CpuFunctionRow>? topCpuRows = null;
             var cpuWarnings = new List<string>();
             try
             {
-                var cpuResp = CpuAnalysis.TopFunctions(
-                    trace, top: topCpu, pid: c.Pid,
-                    startUs: c.StartUs, endUs: c.StartUs + startupWindowUs,
-                    symbolLog: Console.Error,
-                    excludeEtwSelfOverhead: true);
+                var cpuResp = analyzeCpu(scope);
                 topCpuRows = cpuResp.Rows;
                 cpuWarnings.AddRange(cpuResp.Warnings);
-                warnings.AddRange(PrefixWarnings($"cpu_top_functions pid {c.Pid}", cpuResp.Warnings));
+                warnings.AddRange(PrefixWarnings(prefix, cpuResp.Warnings));
             }
             catch (Exception ex)
             {
-                var warning = $"cpu_top_functions for pid {c.Pid}: {ex.Message}";
+                var warning = $"cpu_top_functions: {ex.Message}";
                 cpuWarnings.Add(warning);
-                warnings.Add(warning);
+                warnings.Add($"{prefix}: {warning}");
             }
             executedCalls.Add(ToolCall(
-                $"slow-startup.pid-{c.Pid}.cpu_top_functions",
+                cpuCallId,
                 "cpu_top_functions",
-                pid: c.Pid,
+                pid: c.Process.Pid,
                 awakenedPid: null,
-                startUs: c.StartUs,
-                endUs: c.StartUs + startupWindowUs,
+                startUs: bounds.StartUs,
+                endUs: bounds.EndUs,
                 top: topCpu,
                 compactStacks: null,
                 summaryOnly: null,
                 whenBuckets: null,
-                warnings: cpuWarnings));
+                warnings: cpuWarnings,
+                processStartUs: c.Process.StartUs));
 
             candidates.Add(new SlowStartupCandidate(
-                Pid: c.Pid,
+                EvidenceId: $"{prefix}.candidate",
+                Pid: c.Process.Pid,
+                ProcessStartUs: c.Process.StartUs,
                 ParentPid: c.ParentPid,
                 Name: c.Name,
-                WallUs: c.WallUs,
-                CpuUs: c.CpuUs,
-                WaitRatio: c.WaitRatio,
-                ImageLoadCount: c.ImageLoadCount,
-                TopWaitReasons: collapsedReasons,
-                FirstImageLoads: firstLoads,
-                TopCpuFunctions: topCpuRows));
+                StartupEndUs: bounds.EndUs,
+                ObservedStartupWallUs: c.ObservedStartupWallUs,
+                StartupCpuUs: c.StartupCpuUs,
+                StartupBlockedUs: c.StartupBlockedUs,
+                StartupWaitRatio: c.StartupWaitRatio,
+                StartupImageLoadCount: c.StartupImageLoadCount,
+                StartupImageLoadsHasMore: c.StartupImageLoadsHasMore,
+                TopStartupWaitReasons: collapsedReasons,
+                FirstStartupImageLoads: c.StartupImageLoads,
+                TopStartupCpuFunctions: topCpuRows,
+                Window: provenance,
+                LifetimeWallUs: c.LifetimeWallUs,
+                LifetimeCpuUs: c.LifetimeCpuUs,
+                LifetimeWaitRatio: c.LifetimeWaitRatio,
+                LifetimeImageLoadCount: c.LifetimeImageLoadCount));
             evidence.Add(ProcessWaitEvidence(
-                evidenceId: $"slow-startup.pid-{c.Pid}.wait-summary",
-                callId: "slow-startup.wait_analysis",
-                pid: c.Pid,
+                evidenceId: $"{prefix}.wait-summary",
+                callId: waitCallId,
+                pid: c.Process.Pid,
                 processName: c.Name,
-                cpuUs: c.CpuUs,
-                blockedUs: totalBlockedUs,
-                waitReasons: collapsedReasons));
+                cpuUs: c.StartupCpuUs,
+                blockedUs: c.StartupBlockedUs,
+                waitReasons: collapsedReasons,
+                processStartUs: c.Process.StartUs));
+
+            if (plan.NotConcludedCode is not null)
+            {
+                notConcluded.Add(new CompositeNotConcluded(
+                    Code: plan.NotConcludedCode,
+                    Reason: "No instance-resolved ImageLoad event was observed inside this startup window.",
+                    Pid: c.Process.Pid,
+                    BlockingCapability: null,
+                    RelatedCallId: imageCallId,
+                    ProcessStartUs: c.Process.StartUs,
+                    EvidenceId: $"{prefix}.first-image-load"));
+            }
+            else if (plan.FirstImageChildWindow is { } child)
+            {
+                var firstLoad = c.StartupImageLoads[0];
+                var callId = $"{prefix}.first-image-load-gap.diagnose-window";
+                var window = diagnoseWindow(c, child, prefix);
+
+                executedCalls.Add(ToolCall(
+                    callId,
+                    "diagnose_window",
+                    pid: c.Process.Pid,
+                    awakenedPid: null,
+                    startUs: child.StartUs,
+                    endUs: child.EndUs,
+                    top: topWindowEvidence,
+                    compactStacks: null,
+                    summaryOnly: null,
+                    whenBuckets: null,
+                    warnings: window.Warnings,
+                    replayable: false,
+                    internalNote: "Uses caller-supplied maxWindowDurationUs, which is not represented in this audit call.",
+                    processStartUs: c.Process.StartUs,
+                    parentStartUs: bounds.StartUs,
+                    parentEndUs: bounds.EndUs));
+                warnings.AddRange(PrefixWarnings(prefix, window.Warnings));
+                nextTools.AddRange(window.NextTools);
+                firstImageLoadGapEvidence.Add(new StartupGapEvidenceRow(
+                    EvidenceId: $"{prefix}.first-image-load-gap",
+                    CallId: callId,
+                    Pid: c.Process.Pid,
+                    ProcessStartUs: c.Process.StartUs,
+                    ProcessName: c.Name,
+                    FirstImageLoadTimeUs: firstLoad.TimeUs,
+                    FirstImageLoadOffsetUs: firstLoad.TimeFromProcessStartUs,
+                    ParentWindow: provenance,
+                    ChildStartUs: child.StartUs,
+                    ChildEndUs: child.EndUs,
+                    Window: window));
+            }
         }
 
         if (firstImageLoadGapEvidence.Count == 0)
@@ -601,7 +738,8 @@ public sealed class DiagnoseTools
                 RelatedCallId: null,
                 MetricName: "slowFirstImageLoadThresholdUs",
                 MetricValue: slowFirstImageLoadThresholdUs,
-                Unit: "us"));
+                Unit: "us",
+                EvidenceId: "slow-startup.no-slow-first-image-load-gaps"));
         }
 
         return new DiagnoseSlowStartupResponse(
@@ -612,7 +750,8 @@ public sealed class DiagnoseTools
             NotConcluded: notConcluded,
             ExecutedToolCalls: executedCalls,
             NextTools: nextTools,
-            FirstImageLoadGapEvidence: firstImageLoadGapEvidence);
+            FirstImageLoadGapEvidence: firstImageLoadGapEvidence,
+            Discovery: discovery);
     }
 
     [McpServerTool(
@@ -645,14 +784,19 @@ public sealed class DiagnoseTools
         [Description("Soft budget in milliseconds for post-wait candidate stack fan-out. Exhaustion returns completed evidence plus partial warnings.")]
         int timeBudgetMs = 100_000)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         if (maxCandidates <= 0 || maxCandidates > 20)
             throw new ArgumentOutOfRangeException(nameof(maxCandidates), "must be in [1, 20]");
         Validation.RequireTop(topStacks);
         Validation.RequireTop(topReadyStacks);
         Validation.RequireTimeBudgetMs(timeBudgetMs);
-        ValidateWindow(startUs, endUs);
 
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        startUs = window.StartUs;
+        endUs = window.EndUs;
         var capabilities = _cache.GetCapabilities(path);
         var warnings = new List<string>();
         var evidence = new List<CompositeEvidence>();
@@ -1129,16 +1273,54 @@ public sealed class DiagnoseTools
         sb.AppendLine($"Found {candidates.Count} slow-startup candidate(s):");
         foreach (var c in candidates)
         {
-            var ratioStr = c.WaitRatio is { } r ? $"{r:F1}x" : "n/a";
-            sb.AppendLine($"  - pid {c.Pid} ({c.Name}): wall={c.WallUs / 1000.0:F1}ms, cpu={c.CpuUs / 1000.0:F1}ms, wait_ratio={ratioStr}");
-            if (c.TopWaitReasons.Count > 0)
+            var ratioStr = c.StartupWaitRatio is { } r ? $"{r:F1}x" : "n/a";
+            sb.AppendLine(
+                $"  - pid {c.Pid} start={c.ProcessStartUs} ({c.Name}): " +
+                $"startup_wall={c.ObservedStartupWallUs / 1000.0:F1}ms, " +
+                $"startup_cpu={c.StartupCpuUs / 1000.0:F1}ms, " +
+                $"startup_wait_ratio={ratioStr}");
+            if (c.TopStartupWaitReasons.Count > 0)
             {
-                var reasons = string.Join(", ", c.TopWaitReasons.Take(3).Select(b => b.Reason));
+                var reasons = string.Join(
+                    ", ",
+                    c.TopStartupWaitReasons.Take(3).Select(bucket => bucket.Reason));
                 sb.AppendLine($"    top wait reasons: {reasons}");
             }
         }
         return sb.ToString();
     }
+
+    private static StartupWindowProvenance StartupProvenance(
+        StartupWindow window) =>
+        new(
+            Pid: window.Process.Pid,
+            ProcessStartUs: window.Process.StartUs,
+            StartUs: window.Bounds.StartUs,
+            EndUs: window.Bounds.EndUs,
+            RequestedEndUs: window.RequestedEndUs,
+            TraceDurationUs: window.TraceDurationUs,
+            ProcessStartObserved: window.ProcessStartObserved,
+            ProcessEndObserved: window.ProcessEndObserved,
+            Status: window.Status,
+            Code: window.Code);
+
+    private static IReadOnlyList<WaitReasonBucket> StartupWaitReasons(
+        SlowStartupCandidateData candidate,
+        StartupSchedulerMetrics metrics,
+        int top) =>
+        candidate.StartupBlockedUsByReason
+            .Select(item => new WaitReasonBucket(
+                Reason: item.Key,
+                BlockedUs: item.Value,
+                Count: metrics.BlockedCountByReason is not null &&
+                       metrics.BlockedCountByReason.TryGetValue(
+                           item.Key, out var count)
+                    ? count
+                    : 0))
+            .OrderByDescending(reason => reason.BlockedUs)
+            .ThenBy(reason => reason.Reason, StringComparer.Ordinal)
+            .Take(top)
+            .ToList();
 
     private static CompositeToolCall ToolCall(
         string callId,
@@ -1156,7 +1338,10 @@ public sealed class DiagnoseTools
         bool replayable = true,
         int? internalTop = null,
         string? internalNote = null,
-        string? orderBy = null)
+        string? orderBy = null,
+        long? processStartUs = null,
+        long? parentStartUs = null,
+        long? parentEndUs = null)
         => new(
             CallId: callId,
             ToolName: toolName,
@@ -1173,7 +1358,10 @@ public sealed class DiagnoseTools
             Replayable: replayable,
             InternalTop: internalTop,
             InternalNote: internalNote,
-            OrderBy: orderBy);
+            OrderBy: orderBy,
+            ProcessStartUs: processStartUs,
+            ParentStartUs: parentStartUs,
+            ParentEndUs: parentEndUs);
 
     private static CompositeEvidence ProcessWaitEvidence(
         string evidenceId,
@@ -1182,7 +1370,8 @@ public sealed class DiagnoseTools
         string processName,
         long cpuUs,
         long blockedUs,
-        IReadOnlyList<WaitReasonBucket> waitReasons)
+        IReadOnlyList<WaitReasonBucket> waitReasons,
+        long? processStartUs = null)
         => new(
             EvidenceId: evidenceId,
             CallId: callId,
@@ -1195,7 +1384,8 @@ public sealed class DiagnoseTools
             MetricValue: blockedUs,
             Unit: "us",
             TopWaitReasons: waitReasons,
-            Frames: Array.Empty<FrameMetric>());
+            Frames: Array.Empty<FrameMetric>(),
+            ProcessStartUs: processStartUs);
 
     private static IReadOnlyList<WaitReasonBucket> CollapseWaitReasons(
         IEnumerable<WaitAnalysisRow> rows,
@@ -1226,16 +1416,6 @@ public sealed class DiagnoseTools
 
     private static IEnumerable<string> PrefixWarnings(string source, IReadOnlyList<string> warnings) =>
         warnings.Select(warning => $"{source}: {warning}");
-
-    private static void ValidateWindow(long? startUs, long? endUs)
-    {
-        if (startUs is < 0)
-            throw new ArgumentOutOfRangeException(nameof(startUs), "must be non-negative");
-        if (endUs is < 0)
-            throw new ArgumentOutOfRangeException(nameof(endUs), "must be non-negative");
-        if (startUs is { } start && endUs is { } end && end < start)
-            throw new ArgumentException("endUs must be greater than or equal to startUs", nameof(endUs));
-    }
 
     private static string SanitizeId(string value)
     {

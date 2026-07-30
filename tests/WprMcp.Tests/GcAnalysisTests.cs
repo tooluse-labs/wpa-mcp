@@ -34,8 +34,12 @@ public class GcAnalysisTests
     {
         // Window + pid filters set, but trace has no GC events — verify nothing crashes
         // and the response shape is still well-formed (no NaN, no negative counts).
-        var tools = new ClrTools(new TraceCache(capacity: 2));
-        var resp = tools.ClrGcAnalysis(FixturePath, pid: 999_999, startUs: 0, endUs: 1_000_000);
+        var cache = new TraceCache(capacity: 2);
+        var trace = cache.Get(FixturePath);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var tools = new ClrTools(cache);
+        var resp = tools.ClrGcAnalysis(
+            FixturePath, pid: 999_999, startUs: 0, endUs: traceEndUs);
         Assert.Equal(999_999, resp.Pid);
         Assert.Equal(0, resp.TotalGcCount);
     }

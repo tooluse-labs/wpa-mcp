@@ -1,3 +1,5 @@
+using Microsoft.Diagnostics.Tracing.Etlx;
+using WprMcp.Analyzers;
 using WprMcp.Core;
 using WprMcp.Tools;
 using Xunit;
@@ -7,6 +9,24 @@ namespace WprMcp.Tests;
 public class BlockedTimeStackAnalysisTests
 {
     private const string FixturePath = "fixtures/small_cpu.etl";
+
+    [Fact]
+    public void BlockedProjection_ResumeOutsideWindow_UsesSwitchOutBlockingStackAndClippedMetric()
+    {
+        var result = BlockedTimeStackAnalysis.ProjectSynthetic(
+            switchOutUs: 90,
+            resumeUs: 210,
+            window: new TimeWindow(100, 200),
+            blockingStack: (CallStackIndex)11,
+            ordinaryResumeStack: (CallStackIndex)22);
+
+        Assert.Equal(100, result.TotalBlockedUs);
+        var sample = Assert.Single(result.Samples);
+        Assert.Equal(100, sample.MetricUs);
+        Assert.Equal((CallStackIndex)11, sample.SourceStack);
+        Assert.Equal((CallStackIndex)22, sample.OrdinaryResumeStack);
+        Assert.NotEqual(sample.OrdinaryResumeStack, sample.SourceStack);
+    }
 
     [Fact]
     public void WaitTopStacks_ReturnsRowsOrEmitsKeywordWarning()
@@ -85,10 +105,7 @@ public class BlockedTimeStackAnalysisTests
         Assert.NotNull(resp.When);
         Assert.Equal(20, resp.When!.Buckets.Length);
         Assert.True(resp.When.BucketWidthUs > 0);
-        // Histogram total ≤ filtered total (samples landing exactly on the upper edge get
-        // dropped by the bucket-bounds check; this allows for a small under-count but never
-        // an over-count).
-        Assert.True(resp.When.Buckets.Sum() <= resp.TotalBlockedUs);
+        Assert.Equal(resp.TotalBlockedUs, resp.When.Buckets.Sum());
     }
 
     [Fact]
@@ -114,6 +131,10 @@ public class BlockedTimeStackAnalysisTests
         Assert.Equal(picked, ccResp.FocusFunction);
         Assert.Equal("blockedUs", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0);
+        Assert.Equal(topResp.TotalBlockedUs, ccResp.SourceTotalMetric);
+        Assert.Equal(
+            topResp.UnmatchedBlockedIntervalCount,
+            ccResp.UnmatchedIntervalCount);
     }
 
     [Fact]

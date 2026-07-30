@@ -28,10 +28,14 @@ public static class AlpcStackAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };

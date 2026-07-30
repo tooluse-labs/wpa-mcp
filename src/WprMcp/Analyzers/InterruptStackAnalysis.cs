@@ -35,11 +35,15 @@ public static class InterruptStackAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
         // Pid: null — interrupt events run in kernel context, no per-process attribution.
-        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
