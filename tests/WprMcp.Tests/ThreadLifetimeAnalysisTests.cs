@@ -44,4 +44,51 @@ public class ThreadLifetimeAnalysisTests
         foreach (var t in resp.Threads)
             Assert.Equal(t.EndTimeUs - t.StartTimeUs, t.LifetimeUs);
     }
+
+    [Fact]
+    public void AnalyzeEvents_ReusedPidAndTidReturnsOnlySelectedProcessInstance()
+    {
+        var selected = new ProcessInstanceKey(20, 100);
+        var rows = ThreadLifetimeAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(20, 0), 100, true, true),
+                new ProcessLifetime(selected, 200, true, false),
+            ],
+            events:
+            [
+                new ThreadLifecycleEvent(20, 7, 10, ThreadLifecycleEventKind.Start, Observed: true),
+                new ThreadLifecycleEvent(20, 7, 90, ThreadLifecycleEventKind.Stop, Observed: true),
+                new ThreadLifecycleEvent(20, 7, 110, ThreadLifecycleEventKind.Start, Observed: true),
+                new ThreadLifecycleEvent(20, 7, 190, ThreadLifecycleEventKind.Stop, Observed: true),
+            ],
+            selector: selected);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(7, row.Tid);
+        Assert.Equal(110, row.StartTimeUs);
+        Assert.Equal(190, row.EndTimeUs);
+        Assert.All(rows, candidate => Assert.True(candidate.StartTimeUs >= selected.StartUs));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_TraceResidentStartUsesProvenanceRatherThanZeroTimestamp()
+    {
+        var process = new ProcessInstanceKey(20, 0);
+        var rows = ThreadLifetimeAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes: [new ProcessLifetime(process, 100, true, false)],
+            events:
+            [
+                new ThreadLifecycleEvent(20, 7, 0, ThreadLifecycleEventKind.Start, Observed: true),
+                new ThreadLifecycleEvent(20, 8, 0, ThreadLifecycleEventKind.RundownStart, Observed: false),
+                new ThreadLifecycleEvent(20, 7, 20, ThreadLifecycleEventKind.Stop, Observed: true),
+                new ThreadLifecycleEvent(20, 8, 20, ThreadLifecycleEventKind.Stop, Observed: true),
+            ],
+            selector: process);
+
+        Assert.False(Assert.Single(rows, row => row.Tid == 7).TraceResidentStart);
+        Assert.True(Assert.Single(rows, row => row.Tid == 8).TraceResidentStart);
+    }
 }

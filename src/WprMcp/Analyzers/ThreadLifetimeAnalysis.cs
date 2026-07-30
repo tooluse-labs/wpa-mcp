@@ -1,6 +1,5 @@
 using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
@@ -23,74 +22,19 @@ public static class ThreadLifetimeAnalysis
 {
     public static ThreadLifetimeResponse Analyze(TraceLog trace, int pid, int top)
     {
-        var processes = trace.Processes;
-        var process = processes.LastProcessWithID(pid);
-        var processName = process?.Name ?? $"Process({pid})";
-        var traceEndUs = (long)trace.SessionDuration.TotalMicroseconds;
-
-        // Map: tid → (startUs, traceResident)
-        var starts = new Dictionary<int, (long startUs, bool traceResident)>();
-        var threads = new List<ThreadLifetimeRow>();
-
-        KernelEventWalker.Walk(trace, kernel =>
-        {
-            kernel.ThreadStart += data =>
-            {
-                if (data.ProcessID != pid) return;
-                var t = (long)(data.TimeStampRelativeMSec * 1000);
-                starts[data.ThreadID] = (t, traceResident: false);
-            };
-            kernel.ThreadDCStart += data =>
-            {
-                if (data.ProcessID != pid) return;
-                // DC events fire at trace start for already-alive threads; mark them
-                // traceResident so callers don't read "0us start time" as a real spawn.
-                starts[data.ThreadID] = (0L, traceResident: true);
-            };
-            kernel.ThreadStop += data =>
-            {
-                if (data.ProcessID != pid) return;
-                var endUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (starts.TryGetValue(data.ThreadID, out var s))
-                {
-                    threads.Add(new ThreadLifetimeRow(
-                        Tid: data.ThreadID,
-                        StartTimeUs: s.startUs,
-                        EndTimeUs: endUs,
-                        LifetimeUs: endUs - s.startUs,
-                        TraceResidentStart: s.traceResident,
-                        TraceResidentEnd: false));
-                    starts.Remove(data.ThreadID);
-                }
-                else
-                {
-                    // Stop without observed Start — thread was alive before capture and we
-                    // missed the DCStart (rare, possible if the event was lost).
-                    threads.Add(new ThreadLifetimeRow(
-                        Tid: data.ThreadID,
-                        StartTimeUs: 0,
-                        EndTimeUs: endUs,
-                        LifetimeUs: endUs,
-                        TraceResidentStart: true,
-                        TraceResidentEnd: false));
-                }
-            };
-        });
-
-        // Threads still alive at trace end — every entry left in `starts`.
-        foreach (var (tid, s) in starts)
-        {
-            threads.Add(new ThreadLifetimeRow(
-                Tid: tid,
-                StartTimeUs: s.startUs,
-                EndTimeUs: traceEndUs,
-                LifetimeUs: traceEndUs - s.startUs,
-                TraceResidentStart: s.traceResident,
-                TraceResidentEnd: true));
-        }
-
-        threads.Sort((a, b) => a.StartTimeUs.CompareTo(b.StartTimeUs));
-        var topRows = threads.Take(top).ToList();
+        var identities = TraceIdentityIndex.For(trace);
+        var threads = ProjectLifetimes(
+            identities.Threads.Lifetimes.Where(lifetime => lifetime.Key.Process.Pid == pid));
+        var topRows = threads.Take(top).ToArray();
+        var processNames = trace.Processes
+            .Where(process => process.ProcessID == pid)
+            .Select(process => process.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var processName = processNames.Length == 1
+            ? processNames[0]!
+            : $"Process({pid})";
 
         var warnings = new List<string>();
         if (threads.Count == 0)
@@ -118,7 +62,37 @@ public static class ThreadLifetimeAnalysis
             Warnings: warnings);
     }
 
-    private static int ComputePeakConcurrentThreads(List<ThreadLifetimeRow> threads)
+    internal static IReadOnlyList<ThreadLifetimeRow> AnalyzeEvents(
+        long traceEndUs,
+        IReadOnlyList<ProcessLifetime> processLifetimes,
+        IReadOnlyList<ThreadLifecycleEvent> events,
+        ProcessInstanceKey selector)
+    {
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs,
+            processLifetimes,
+            events);
+        return ProjectLifetimes(
+            identities.Threads.Lifetimes.Where(lifetime => lifetime.Key.Process == selector));
+    }
+
+    private static IReadOnlyList<ThreadLifetimeRow> ProjectLifetimes(
+        IEnumerable<ThreadLifetime> lifetimes) =>
+        lifetimes
+            .Where(lifetime => lifetime.EndUs > lifetime.StartUs)
+            .OrderBy(lifetime => lifetime.StartUs)
+            .ThenBy(lifetime => lifetime.Key.Tid)
+            .ThenBy(lifetime => lifetime.Key.Generation)
+            .Select(lifetime => new ThreadLifetimeRow(
+                Tid: lifetime.Key.Tid,
+                StartTimeUs: lifetime.StartUs,
+                EndTimeUs: lifetime.EndUs,
+                LifetimeUs: checked(lifetime.EndUs - lifetime.StartUs),
+                TraceResidentStart: !lifetime.StartObserved,
+                TraceResidentEnd: !lifetime.EndObserved))
+            .ToArray();
+
+    private static int ComputePeakConcurrentThreads(IReadOnlyList<ThreadLifetimeRow> threads)
     {
         var events = new List<(long t, int delta)>(threads.Count * 2);
         foreach (var t in threads)
@@ -126,7 +100,11 @@ public static class ThreadLifetimeAnalysis
             events.Add((t.StartTimeUs, +1));
             events.Add((t.EndTimeUs, -1));
         }
-        events.Sort((a, b) => a.t.CompareTo(b.t));
+        events.Sort((a, b) =>
+        {
+            var timeComparison = a.t.CompareTo(b.t);
+            return timeComparison != 0 ? timeComparison : a.delta.CompareTo(b.delta);
+        });
 
         int cur = 0, peak = 0;
         foreach (var (_, delta) in events)

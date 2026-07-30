@@ -1,5 +1,6 @@
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
@@ -33,10 +34,11 @@ public static class MarkerSearch
         string mode = ModeCountByEvent,
         int fieldMaxChars = 256)
     {
-        if (string.IsNullOrEmpty(nameSubstring))
-            throw new ArgumentException("nameSubstring required", nameof(nameSubstring));
-        if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
-        if (fieldMaxChars < 0) throw new ArgumentOutOfRangeException(nameof(fieldMaxChars));
+        Validation.RequireText(nameSubstring);
+        Validation.RequireText(mode);
+        Validation.RequireTop(top);
+        if (fieldMaxChars < 0 || fieldMaxChars > Validation.MaxStringChars)
+            throw new ArgumentOutOfRangeException(nameof(fieldMaxChars));
 
         var normalized = mode?.ToLowerInvariant() ?? ModeCountByEvent;
         return normalized switch

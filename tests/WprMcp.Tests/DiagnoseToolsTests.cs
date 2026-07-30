@@ -33,6 +33,23 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void DiagnoseSlowStartup_TopInputsEnforceSharedBoundary()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        Assert.Throws<FileNotFoundException>(() => tools.DiagnoseSlowStartup(
+            "missing-before-validation.etl",
+            topImageLoads: Validation.MaxTop,
+            topCpu: Validation.MaxTop));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseSlowStartup(
+            "missing-before-validation.etl",
+            topImageLoads: Validation.MaxTop + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseSlowStartup(
+            "missing-before-validation.etl",
+            topCpu: Validation.MaxTop + 1));
+    }
+
+    [Fact]
     public void DiagnoseSlowStartup_ReturnsCandidatesOrEmptyWithWarning()
     {
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
@@ -42,59 +59,63 @@ public class DiagnoseToolsTests
         if (resp.Candidates.Count == 0)
             Assert.Contains(resp.Warnings, w => w.Contains("No processes matched"));
         else
-            Assert.All(resp.Candidates, c => Assert.True(c.WaitRatio is null || c.WaitRatio >= 1.0));
+            Assert.All(resp.Candidates, c => Assert.True(c.StartupWaitRatio >= 1.0));
     }
 
     [Fact]
-    public void DiagnoseSlowStartup_SummaryIsObsoleteAndProvenanceIsPopulated()
+    public void DiagnoseSlowStartup_PrimaryCallsShareCandidateProcessAndWindow()
     {
         var summary = typeof(DiagnoseSlowStartupResponse).GetProperty("Summary");
         Assert.NotNull(summary);
         Assert.NotNull(summary.GetCustomAttributes(typeof(ObsoleteAttribute), inherit: false).SingleOrDefault());
 
-        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
-        var resp = tools.DiagnoseSlowStartup(FixturePath, minWaitRatio: 0.0, maxCandidates: 1, startupWindowUs: 123_456);
+        ThreadAnalysisScope? cpuScope = null;
+        var resp = ComposeDeterministicSlowStartup(
+            onCpu: scope => cpuScope = scope);
 
         Assert.NotNull(resp.ExecutedToolCalls);
-        Assert.Contains(resp.ExecutedToolCalls!, call => call.ToolName == "list_processes");
-        if (resp.Candidates.Count == 0) return;
+        var onlyCandidate = Assert.Single(resp.Candidates);
+        Assert.Equal(onlyCandidate.Window.StartUs, cpuScope?.Window.StartUs);
+        Assert.Equal(onlyCandidate.Window.EndUs, cpuScope?.Window.EndUs);
+        Assert.Equal(
+            new ProcessInstanceKey(onlyCandidate.Pid, onlyCandidate.ProcessStartUs),
+            cpuScope?.Process?.Key);
+        foreach (var candidate in resp.Candidates)
+        {
+            var calls = resp.ExecutedToolCalls!
+                .Where(call =>
+                    call.ProcessStartUs == candidate.ProcessStartUs &&
+                    call.Pid == candidate.Pid &&
+                    call.ParentStartUs is null)
+                .ToList();
 
-        var pid = resp.Candidates[0].Pid;
-        Assert.Contains(resp.ExecutedToolCalls!, call =>
-            call.ToolName == "wait_analysis" &&
-            call.StartUs is null &&
-            call.EndUs is null &&
-            !call.Replayable &&
-            call.Top is null &&
-            call.InternalTop == int.MaxValue);
-        Assert.Contains(resp.ExecutedToolCalls!, call =>
-            call.ToolName == "cpu_top_functions" &&
-            call.Pid == pid &&
-            call.StartUs.HasValue &&
-            call.EndUs - call.StartUs == 123_456);
+            Assert.Equal(4, calls.Count);
+            Assert.Contains(calls, call =>
+                call.ToolName == "startup_candidate_projection");
+            Assert.Contains(calls, call => call.ToolName == "wait_analysis");
+            Assert.Contains(calls, call => call.ToolName == "image_load_timing");
+            Assert.Contains(calls, call => call.ToolName == "cpu_top_functions");
+            Assert.All(calls, call =>
+            {
+                Assert.Equal(candidate.ProcessStartUs, call.StartUs);
+                Assert.Equal(candidate.StartupEndUs, call.EndUs);
+            });
+        }
     }
 
     [Fact]
     public void DiagnoseSlowStartup_WaitEvidenceReportsFullBlockedTime()
     {
-        var cache = new TraceCache(capacity: 2);
-        var tools = new DiagnoseTools(cache);
-        var resp = tools.DiagnoseSlowStartup(FixturePath, minWaitRatio: 0.0, maxCandidates: 5);
-        if (resp.Candidates.Count == 0) return;
-
-        var trace = cache.Get(FixturePath);
-        var waitRows = WaitAnalysis.Analyze(trace, top: int.MaxValue, pid: null, startUs: null, endUs: null)
-            .Rows
-            .GroupBy(row => row.Pid)
-            .ToDictionary(group => group.Key, group => group.Sum(row => row.BlockedUs));
+        var resp = ComposeDeterministicSlowStartup();
 
         Assert.NotNull(resp.Evidence);
         foreach (var candidate in resp.Candidates)
         {
-            var expected = waitRows.GetValueOrDefault(candidate.Pid);
             var evidence = Assert.Single(resp.Evidence!, item =>
-                item.EvidenceType == "process_wait_summary" && item.Pid == candidate.Pid);
-            Assert.Equal(expected, evidence.MetricValue);
+                item.EvidenceType == "process_wait_summary" &&
+                item.Pid == candidate.Pid &&
+                item.ProcessStartUs == candidate.ProcessStartUs);
+            Assert.Equal(candidate.StartupBlockedUs, evidence.MetricValue);
             Assert.True(evidence.MetricValue >= evidence.TopWaitReasons.Sum(reason => reason.BlockedUs));
         }
     }
@@ -115,25 +136,38 @@ public class DiagnoseToolsTests
             topWindowEvidence: 3);
 
         Assert.NotNull(resp.FirstImageLoadGapEvidence);
-        Assert.NotEmpty(resp.Candidates);
+        if (resp.Candidates.Count == 0)
+        {
+            Assert.Empty(resp.FirstImageLoadGapEvidence!);
+            Assert.Contains(resp.NotConcluded!, item => item.Code == "no_candidates");
+            return;
+        }
         Assert.NotEmpty(resp.FirstImageLoadGapEvidence!);
         var gap = resp.FirstImageLoadGapEvidence![0];
         Assert.True(gap.FirstImageLoadTimeUs >= gap.ProcessStartUs);
         Assert.Equal(gap.FirstImageLoadTimeUs - gap.ProcessStartUs, gap.FirstImageLoadOffsetUs);
         Assert.Equal(gap.Pid, gap.Window.Pid);
-        Assert.Equal(gap.ProcessStartUs, gap.Window.WindowStartUs);
-        Assert.Equal(gap.FirstImageLoadTimeUs + 1, gap.Window.WindowEndUs);
+        Assert.Equal(gap.ProcessStartUs, gap.ChildStartUs);
+        Assert.Equal(gap.FirstImageLoadTimeUs, gap.ChildEndUs);
+        Assert.Equal(gap.ChildStartUs, gap.Window.WindowStartUs);
+        Assert.Equal(gap.ChildEndUs, gap.Window.WindowEndUs);
+        Assert.True(gap.ChildStartUs >= gap.ParentWindow.StartUs);
+        Assert.True(gap.ChildEndUs <= gap.ParentWindow.EndUs);
         Assert.NotEmpty(gap.Window.ExecutedToolCalls);
         Assert.Contains(gap.Window.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file");
-        Assert.Contains(resp.ExecutedToolCalls!, call =>
-            call.ToolName == "diagnose_window" &&
-            call.Pid == gap.Pid &&
-            call.StartUs == gap.ProcessStartUs &&
-            call.EndUs == gap.FirstImageLoadTimeUs + 1);
+        var call = Assert.Single(resp.ExecutedToolCalls!, item => item.CallId == gap.CallId);
+        Assert.Equal(gap.Pid, call.Pid);
+        Assert.Equal(gap.ProcessStartUs, call.ProcessStartUs);
+        Assert.Equal(gap.ChildStartUs, call.StartUs);
+        Assert.Equal(gap.ChildEndUs, call.EndUs);
+        Assert.Equal(gap.ParentWindow.StartUs, call.ParentStartUs);
+        Assert.Equal(gap.ParentWindow.EndUs, call.ParentEndUs);
+        Assert.False(call.Replayable);
+        Assert.Contains("maxWindowDurationUs", call.InternalNote);
     }
 
     [Fact]
-    public void DiagnoseSlowStartup_SkipsFirstImageLoadGapEvidenceForTraceResidentProcesses()
+    public void DiagnoseSlowStartup_ExcludesTraceResidentProcessesFromCandidates()
     {
         var cache = new TraceCache(capacity: 2);
         var meta = new MetaTools(cache);
@@ -157,14 +191,75 @@ public class DiagnoseToolsTests
             slowFirstImageLoadThresholdUs: 0,
             topWindowEvidence: 3);
 
-        Assert.Contains(resp.Candidates, candidate => candidate.Pid == target.Pid);
+        Assert.DoesNotContain(resp.Candidates, candidate => candidate.Pid == target.Pid);
         Assert.DoesNotContain(
             resp.FirstImageLoadGapEvidence ?? Array.Empty<StartupGapEvidenceRow>(),
             gap => gap.Pid == target.Pid);
         Assert.Contains(resp.NotConcluded!, item =>
-            item.Code == "startup_gap_skipped_trace_resident" &&
+            item.Code == "startup_start_not_observed" &&
             item.Pid == target.Pid &&
-            item.RelatedCallId == $"slow-startup.pid-{target.Pid}.image_load_timing");
+            item.ProcessStartUs.HasValue &&
+            item.EvidenceId ==
+                $"slow-startup.pid-{target.Pid}.start-{item.ProcessStartUs}.startup-start");
+    }
+
+    [Fact]
+    public void DiagnoseSlowStartup_ProvenanceAndEvidenceIdsAreInstanceBound()
+    {
+        var response = ComposeDeterministicSlowStartup();
+
+        foreach (var candidate in response.Candidates)
+        {
+            Assert.True(candidate.Window.ProcessStartObserved);
+            Assert.Equal(candidate.Pid, candidate.Window.Pid);
+            Assert.Equal(candidate.ProcessStartUs, candidate.Window.ProcessStartUs);
+            Assert.Equal(candidate.ProcessStartUs, candidate.Window.StartUs);
+            Assert.Equal(candidate.StartupEndUs, candidate.Window.EndUs);
+        }
+
+        foreach (var gap in response.FirstImageLoadGapEvidence ?? [])
+        {
+            Assert.True(gap.ChildStartUs >= gap.ParentWindow.StartUs);
+            Assert.True(gap.ChildEndUs <= gap.ParentWindow.EndUs);
+            Assert.Equal(gap.FirstImageLoadTimeUs, gap.ChildEndUs);
+        }
+
+        var evidenceIds = response.Candidates.Select(candidate => candidate.EvidenceId)
+            .Concat((response.Evidence ?? []).Select(item => item.EvidenceId))
+            .Concat((response.NotConcluded ?? [])
+                .Where(item => item.EvidenceId is not null)
+                .Select(item => item.EvidenceId!))
+            .Concat((response.FirstImageLoadGapEvidence ?? [])
+                .Select(item => item.EvidenceId))
+            .Concat((response.Discovery?.ExcludedSamples ?? [])
+                .Select(item => item.EvidenceId))
+            .ToList();
+
+        Assert.Equal(
+            evidenceIds.Count,
+            evidenceIds.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(
+            response.ExecutedToolCalls?.Count ?? 0,
+            response.ExecutedToolCalls?
+                .Select(call => call.CallId)
+                .Distinct(StringComparer.Ordinal)
+                .Count() ?? 0);
+    }
+
+    [Fact]
+    public void DiagnoseSlowStartup_ZeroCandidatesRetainsSchedulerWarningsOnce()
+    {
+        const string schedulerWarning = "scheduler stream incomplete";
+
+        var response = ComposeDeterministicSlowStartup(
+            startupCpuUs: 0,
+            schedulerWarnings: [schedulerWarning]);
+
+        Assert.Empty(response.Candidates);
+        Assert.Equal(
+            1,
+            response.Warnings.Count(warning =>
+                warning == $"slow-startup.discovery: {schedulerWarning}"));
     }
 
     [Fact]
@@ -178,7 +273,7 @@ public class DiagnoseToolsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", topReadyStacks: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", timeBudgetMs: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", startUs: -1));
-        Assert.Throws<ArgumentException>(() => tools.DiagnoseHighWait("nonexistent.etl", startUs: 2, endUs: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", startUs: 2, endUs: 1));
     }
 
     [Fact]
@@ -189,7 +284,7 @@ public class DiagnoseToolsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, top: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, top: 1001));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: -1, endUs: 1));
-        Assert.Throws<ArgumentException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 2, endUs: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 2, endUs: 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, maxWindowDurationUs: 0));
     }
 
@@ -470,7 +565,8 @@ public class DiagnoseToolsTests
     {
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
-        var resp = tools.DiagnoseHighWait(FixturePath, startUs: 10_000_000_000, endUs: 10_000_000_001);
+        var resp = tools.DiagnoseHighWait(
+            FixturePath, pid: int.MaxValue, startUs: 0, endUs: 100_000);
 
         Assert.Empty(resp.Candidates);
         Assert.Contains(resp.NotConcluded, item => item.Code == "no_wait_candidates");
@@ -504,5 +600,89 @@ public class DiagnoseToolsTests
         var attribute = Assert.IsType<DescriptionAttribute>(
             Attribute.GetCustomAttribute(member, typeof(DescriptionAttribute)));
         return attribute.Description;
+    }
+
+    private static DiagnoseSlowStartupResponse ComposeDeterministicSlowStartup(
+        long startupCpuUs = 100,
+        IReadOnlyList<string>? schedulerWarnings = null,
+        Action<ThreadAnalysisScope>? onCpu = null)
+    {
+        var key = new ProcessInstanceKey(42, 100);
+        var lifetime = new ProcessLifetime(
+            key,
+            EndUs: 900,
+            StartObserved: true,
+            EndObserved: true);
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 1_000,
+            processes: [lifetime],
+            threads: Array.Empty<ThreadLifecycleEvent>());
+        var catalog = StartupProcessCatalog.Build(
+            [new StartupProcessMetadata(
+                lifetime,
+                ParentPid: 1,
+                Name: "deterministic.exe",
+                LifetimeCpuUs: 200,
+                LifetimeImageLoadCount: 0)],
+            startupWindowUs: 500,
+            traceDurationUs: 1_000,
+            nameSubstring: null,
+            maxCollectionItems: 8);
+        IReadOnlyDictionary<ProcessInstanceKey, StartupSchedulerMetrics> scheduler =
+            new Dictionary<ProcessInstanceKey, StartupSchedulerMetrics>
+            {
+                [key] = new(
+                    StartupCpuUs: startupCpuUs,
+                    StartupBlockedUs: 400,
+                    BlockedUsByReason: new Dictionary<string, long>
+                    {
+                        ["WrUserRequest"] = 400,
+                    },
+                    RunningIntervalCount: 1,
+                    BlockedIntervalCount: 1,
+                    BlockedCountByReason: new Dictionary<string, long>
+                    {
+                        ["WrUserRequest"] = 1,
+                    }),
+            };
+        var imageLoads = new StartupImageLoadResult(
+            new Dictionary<ProcessInstanceKey, StartupImageLoadBucket>
+            {
+                [key] = new(
+                    TotalAvailable: 0,
+                    FirstLoads: Array.Empty<ImageLoadRow>(),
+                    HasMore: false),
+            },
+            UnresolvedProcessInstanceCount: 0,
+            AmbiguousProcessInstanceCount: 0);
+
+        return DiagnoseTools.ComposeSlowStartup(
+            identities,
+            catalog,
+            scheduler,
+            schedulerWarnings ?? Array.Empty<string>(),
+            imageLoads,
+            nameSubstring: null,
+            maxCandidates: 1,
+            minWaitRatio: 0,
+            topImageLoads: 5,
+            topCpu: 3,
+            slowFirstImageLoadThresholdUs: 0,
+            topWindowEvidence: 3,
+            analyzeCpu: scope =>
+            {
+                onCpu?.Invoke(scope);
+                return new CpuTopFunctionsResponse(
+                    Rows: Array.Empty<CpuFunctionRow>(),
+                    Stats: new SymbolStats(
+                        Resolved: 0,
+                        Unresolved: 0,
+                        ResolutionRate: 1,
+                        TopUnresolvedModules: Array.Empty<UnresolvedModule>()),
+                    Warnings: Array.Empty<string>(),
+                    SelectedProcess: key);
+            },
+            diagnoseWindow: (_, _, _) =>
+                throw new InvalidOperationException("No image-load gap is expected."));
     }
 }

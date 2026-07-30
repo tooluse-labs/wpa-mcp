@@ -58,12 +58,17 @@ internal readonly record struct StackAnalysisRequest(
 {
     public bool ResolveSymbols { get; init; } = StackResponseOptions.CurrentResolveSymbols;
 
+    public ThreadAnalysisScope? ThreadScope { get; init; }
+
+    public bool? FilterSpecified { get; init; }
+
     /// <summary>
     /// True iff the caller restricted the analysis with at least one of pid / startUs / endUs.
     /// Gates the PctOfTrace denominator — it only carries meaning when there's a "trace total"
     /// baseline distinct from the filtered subset.
     /// </summary>
-    public bool HasFilter => Pid.HasValue || StartUs.HasValue || EndUs.HasValue;
+    public bool HasFilter => FilterSpecified ??
+        (Pid.HasValue || StartUs.HasValue || EndUs.HasValue);
 
     /// <summary>
     /// True iff the event with the given process and timestamp passes pid + half-open
@@ -75,6 +80,11 @@ internal readonly record struct StackAnalysisRequest(
         (!Pid.HasValue || processId == Pid.Value) &&
         (!StartUs.HasValue || nowUs >= StartUs.Value) &&
         (!EndUs.HasValue || nowUs < EndUs.Value);
+
+    public bool PassesFilter(int processId, int threadId, long nowUs) =>
+        ThreadScope.HasValue
+            ? ThreadScope.Value.MatchesPoint(processId, threadId, nowUs)
+            : PassesFilter(processId, nowUs);
 
     /// <summary>
     /// Time-only filter — for kernel-context analyzers (DPC/ISR) where per-process attribution
@@ -182,7 +192,15 @@ internal static class StackSourceTopN
         int top,
         string metricName,
         SymbolStats stats,
-        IList<string> baseWarnings)
+        IList<string> baseWarnings,
+        long? sourceTotalMetric = null,
+        int unmatchedIntervalCount = 0,
+        ProcessInstanceKey? selectedProcess = null,
+        ThreadInstanceKey? selectedThread = null,
+        bool hasContextSwitches = false,
+        bool hasContextSwitchBlockingStacks = false,
+        bool hasSampledProfileStacks = false,
+        string symbolResolutionState = "not_applicable")
     {
         long focusExclusive = 0;
         long focusInclusive = 0;
@@ -262,7 +280,29 @@ internal static class StackSourceTopN
             Callers: topCallers,
             Callees: topCallees,
             Stats: stats,
-            Warnings: warnings);
+            Warnings: warnings,
+            SourceTotalMetric: sourceTotalMetric ?? totalMetric,
+            UnmatchedIntervalCount: unmatchedIntervalCount,
+            SelectedProcess: selectedProcess,
+            SelectedThread: selectedThread,
+            HasContextSwitches: hasContextSwitches,
+            HasContextSwitchBlockingStacks: hasContextSwitchBlockingStacks,
+            HasSampledProfileStacks: hasSampledProfileStacks,
+            SymbolResolutionState: symbolResolutionState);
+    }
+
+    public static string GetSymbolResolutionState(
+        bool resolveSymbols,
+        SymbolStats stats,
+        bool hasSourceStacks)
+    {
+        if (!hasSourceStacks)
+            return "no_stacks";
+        if (!resolveSymbols)
+            return "skipped";
+        if (stats.Unresolved == 0)
+            return "resolved";
+        return stats.Resolved == 0 ? "unresolved" : "partial";
     }
 
     private static void AccumulateNeighbor(
@@ -292,35 +332,78 @@ internal static class StackSourceTopN
     public sealed class WhenHistogram
     {
         private readonly long _startUs;
+        private readonly long _endUs;
         private readonly long _bucketWidthUs;
         private readonly long[]? _buckets;
 
-        private WhenHistogram(long startUs, long bucketWidthUs, long[]? buckets)
+        private WhenHistogram(long startUs, long endUs, long bucketWidthUs, long[]? buckets)
         {
             _startUs = startUs;
+            _endUs = endUs;
             _bucketWidthUs = bucketWidthUs;
             _buckets = buckets;
         }
 
         public static WhenHistogram ForWindow(long? startUs, long? endUs, TraceLog trace, int bucketCount)
         {
-            var winStart = startUs ?? 0;
-            var winEnd = endUs ?? (long)trace.SessionDuration.TotalMicroseconds;
-            if (bucketCount <= 0 || winEnd <= winStart)
-                return new WhenHistogram(winStart, 0, null);
-            var width = Math.Max(1, (winEnd - winStart) / bucketCount);
-            return new WhenHistogram(winStart, width, new long[bucketCount]);
+            var window = Validation.RequireWindowInput(startUs, endUs).Resolve(
+                TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds),
+                maxDurationUs: null);
+            return ForWindow(window, bucketCount);
         }
 
-        public void Add(long nowUs, long metric)
+        public static WhenHistogram ForWindow(TimeWindow window, int bucketCount)
+        {
+            if (bucketCount <= 0)
+                return new WhenHistogram(window.StartUs, window.EndUs, 0, null);
+
+            var width = checked((window.DurationUs + bucketCount - 1) / bucketCount);
+            return new WhenHistogram(
+                window.StartUs, window.EndUs, width, new long[bucketCount]);
+        }
+
+        public void AddPoint(long nowUs, long metric)
         {
             if (_buckets is null) return;
+            if (nowUs < _startUs || nowUs >= _endUs) return;
             var bucket = (int)((nowUs - _startUs) / _bucketWidthUs);
-            if ((uint)bucket < (uint)_buckets.Length) _buckets[bucket] += metric;
+            if ((uint)bucket < (uint)_buckets.Length)
+                _buckets[bucket] = checked(_buckets[bucket] + metric);
+        }
+
+        public void Add(long nowUs, long metric) => AddPoint(nowUs, metric);
+
+        public void AddDurationInterval(long intervalStartUs, long intervalEndUs)
+        {
+            if (_buckets is null || intervalEndUs <= intervalStartUs)
+                return;
+
+            var clippedStartUs = TimeWindow.ClipStart(intervalStartUs, _startUs);
+            var clippedEndUs = TimeWindow.ClipEnd(intervalEndUs, _endUs);
+            if (clippedEndUs <= clippedStartUs)
+                return;
+
+            var firstBucket = (int)((clippedStartUs - _startUs) / _bucketWidthUs);
+            var lastBucket = (int)((clippedEndUs - _startUs - 1) / _bucketWidthUs);
+            if (lastBucket >= _buckets.Length)
+                lastBucket = _buckets.Length - 1;
+
+            for (var bucket = firstBucket; bucket <= lastBucket; bucket++)
+            {
+                var bucketStartUs = checked(_startUs + bucket * _bucketWidthUs);
+                var bucketEndUs = checked(bucketStartUs + _bucketWidthUs);
+                bucketEndUs = TimeWindow.ClipEnd(bucketEndUs, _endUs);
+
+                var overlapUs = new TimeWindow(bucketStartUs, bucketEndUs)
+                    .IntersectDurationUs(clippedStartUs, clippedEndUs);
+                _buckets[bucket] = checked(_buckets[bucket] + overlapUs);
+            }
         }
 
         public TimeHistogram? Build()
-            => _buckets is null ? null : new TimeHistogram(_startUs, _bucketWidthUs, _buckets);
+            => _buckets is null
+                ? null
+                : new TimeHistogram(_startUs, _endUs, _bucketWidthUs, _buckets);
     }
 
     /// <summary>

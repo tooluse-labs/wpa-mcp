@@ -39,12 +39,18 @@ public sealed class ReadyThreadTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(awakenedPid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.TopStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid,
+            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            filterSpecified: awakenedPid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -63,11 +69,15 @@ public sealed class ReadyThreadTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(awakenedPid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.CallerCallee(
-            trace, function, top, awakenedPid, startUs, endUs, Console.Error);
+            trace, function, top, awakenedPid, window.StartUs, window.EndUs, Console.Error);
     }
 }

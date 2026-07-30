@@ -1363,6 +1363,8 @@ function Invoke-CapturedCommand {
         try {
             $process = Start-Process -FilePath $Executable -ArgumentList $argumentLine -WorkingDirectory $WorkingDirectory `
                 -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+            # Bind the native handle before a fast child exits so ExitCode remains available.
+            [void]$process.Handle
         }
         catch {
             $startFailure = $_.Exception.Message
@@ -1387,14 +1389,14 @@ function Invoke-CapturedCommand {
         }
     }
     $process | Wait-Process -Timeout $TimeoutSeconds -ErrorAction SilentlyContinue
-    if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+    if (-not $process.HasExited) {
         $timedOut = $true
         & (Join-Path $env:SystemRoot 'System32\cmd.exe') /d /s /c "taskkill /PID $($process.Id) /T /F >nul 2>&1" | Out-Null
-        if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        if (-not $process.HasExited) {
+            $process | Stop-Process -Force -ErrorAction SilentlyContinue
         }
         $process | Wait-Process -Timeout 5 -ErrorAction SilentlyContinue
-        if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+        if (-not $process.HasExited) {
             throw "Stage '$Stage' timed out and its process tree did not terminate."
         }
     }

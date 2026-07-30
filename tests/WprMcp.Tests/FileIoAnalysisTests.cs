@@ -45,16 +45,22 @@ public class FileIoAnalysisTests
 
         var firstUs = eventTimes.Min();
         var lastUs = eventTimes.Max();
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
         var tools = new IoTools(cache);
 
-        var emptyAtBoundary = tools.FileIoTopFiles(FixturePath, top: 50, startUs: firstUs, endUs: firstUs);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            tools.FileIoTopFiles(
+                FixturePath, top: 50, startUs: firstUs, endUs: firstUs));
         var firstTick = tools.FileIoTopFiles(FixturePath, top: 50, startUs: firstUs, endUs: firstUs + 1);
-        var afterTraceIo = tools.FileIoTopFiles(FixturePath, top: 50, startUs: lastUs + 1, endUs: lastUs + 2);
 
-        Assert.Empty(emptyAtBoundary.Rows);
         Assert.NotEmpty(firstTick.Rows);
         Assert.True(firstTick.Rows.Sum(row => row.ReadCount + row.WriteCount) >= 1);
-        Assert.Empty(afterTraceIo.Rows);
+        if (lastUs + 1 < traceEndUs)
+        {
+            var afterTraceIo = tools.FileIoTopFiles(
+                FixturePath, top: 50, startUs: lastUs + 1, endUs: traceEndUs);
+            Assert.Empty(afterTraceIo.Rows);
+        }
     }
 
     [Fact]

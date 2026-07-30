@@ -100,43 +100,124 @@ public class WaitAnalysisTests
     }
 
     [Fact]
+    public void WaitAccumulator_TargetTidBelowTop_IsStillReturned()
+    {
+        var target = Thread(pid: 10, processStartUs: 0, tid: 900, generation: 1);
+        var intervals = Enumerable.Range(1, 10)
+            .Select(tid => new BlockedInterval(
+                Thread(10, 0, tid, 1), 0, 90 - tid, "Executive"))
+            .Append(new BlockedInterval(target, 0, 1, "WrUserRequest"))
+            .ToArray();
+
+        var response = WprMcp.Analyzers.WaitAnalysis.Project(
+            intervals,
+            ScopeFor(target, startUs: 0, endUs: 100),
+            top: 1);
+
+        var row = Assert.Single(response.Rows);
+        Assert.Equal(900, row.Tid);
+        Assert.Equal(1, row.BlockedUs);
+    }
+
+    [Fact]
+    public void WaitAccumulator_TotalIsComputedBeforeTop()
+    {
+        var intervals = new[]
+        {
+            new BlockedInterval(Thread(10, 0, 1, 1), 0, 80, "Executive"),
+            new BlockedInterval(Thread(10, 0, 2, 1), 10, 70, "WrQueue"),
+            new BlockedInterval(Thread(10, 0, 3, 1), 20, 60, "WrUserRequest"),
+        };
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 100), Pid: 10, Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: false);
+
+        var response = WprMcp.Analyzers.WaitAnalysis.Project(intervals, scope, top: 1);
+
+        Assert.Single(response.Rows);
+        Assert.Equal(
+            intervals.Sum(interval => scope.AccountInterval(
+                interval.Thread, interval.StartUs, interval.EndUs)),
+            response.TotalBlockedUs);
+    }
+
+    [Fact]
+    public void WaitAccumulator_ClipsCpuBlockedAndReasonTotalsToOneScope()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var other = Thread(10, 0, 8, 1);
+        var scope = ScopeFor(target, startUs: 100, endUs: 200);
+
+        var response = WprMcp.Analyzers.WaitAnalysis.Project(
+            intervals:
+            [
+                new BlockedInterval(target, 90, 210, "WrUserRequest"),
+                new BlockedInterval(other, 100, 200, "Executive"),
+            ],
+            scope,
+            top: 1,
+            runningIntervals:
+            [
+                new RunningInterval(target, 50, 150, Core: 2),
+                new RunningInterval(other, 100, 200, Core: 3),
+            ],
+            unmatchedBlockedIntervalCount: 2);
+
+        var row = Assert.Single(response.Rows);
+        Assert.Equal(50, row.CpuUs);
+        Assert.Equal(100, row.BlockedUs);
+        Assert.Equal(100, response.TotalBlockedUs);
+        Assert.Equal(2, response.UnmatchedBlockedIntervalCount);
+        Assert.Equal(target.Process, response.SelectedProcess);
+        Assert.Equal(target, response.SelectedThread);
+        var reason = Assert.Single(row.TopWaitReasons);
+        Assert.Equal("WrUserRequest", reason.Reason);
+        Assert.Equal(100, reason.BlockedUs);
+    }
+
+    [Fact]
+    public void WaitAccumulator_LegacyPidReuseWarnsWithoutSelectingOneProcess()
+    {
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 300), Pid: 10, Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: true);
+
+        var response = WprMcp.Analyzers.WaitAnalysis.Project(
+            [
+                new BlockedInterval(Thread(10, 0, 7, 1), 10, 20, "Executive"),
+                new BlockedInterval(Thread(10, 200, 7, 1), 210, 230, "Executive"),
+            ],
+            scope,
+            top: 10);
+
+        Assert.Null(response.SelectedProcess);
+        Assert.Null(response.SelectedThread);
+        Assert.Equal(30, response.TotalBlockedUs);
+        Assert.Contains(response.Warnings, warning =>
+            warning.Contains("ambiguous_process_instance", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WaitAnalysis_WindowedPidFilterSurvivesOutOfWindowTidReuse()
     {
-        var accumulator = new WaitAnalysisAccumulator(
+        var target = Thread(100, 0, 42, 1);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(100_000, 200_000), Pid: 100,
+            Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var resp = WprMcp.Analyzers.WaitAnalysis.Project(
+            [
+                new BlockedInterval(target, 90_000, 120_000, "WrUserRequest"),
+                new BlockedInterval(
+                    Thread(200, 0, 42, 1), 100_000, 180_000, "WrUserRequest"),
+            ],
+            scope,
             top: 10,
-            pid: 100,
-            startUs: 100_000,
-            endUs: 200_000);
-
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 100,
-            OldProcessName: "target",
-            OldThreadId: 42,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 300,
-            NewProcessName: "runner",
-            NewThreadId: 7,
-            TimeStampRelativeMSec: 90));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 300,
-            OldProcessName: "runner",
-            OldThreadId: 7,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 100,
-            NewProcessName: "target",
-            NewThreadId: 42,
-            TimeStampRelativeMSec: 120));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 200,
-            OldProcessName: "other",
-            OldThreadId: 42,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 300,
-            NewProcessName: "runner",
-            NewThreadId: 7,
-            TimeStampRelativeMSec: 220));
-
-        var resp = accumulator.BuildResponse();
+            processNames: new Dictionary<ThreadInstanceKey, string>
+            {
+                [target] = "target",
+            },
+            totalCSwitches: 1);
 
         var row = Assert.Single(resp.Rows);
         Assert.Equal(100, row.Pid);
@@ -149,50 +230,20 @@ public class WaitAnalysisTests
     [Fact]
     public void WaitAnalysis_ClipsCpuAndBlockedIntervalsToWindowStart()
     {
-        var accumulator = new WaitAnalysisAccumulator(
+        var target = Thread(100, 0, 42, 1);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(100_000, 200_000), Pid: 100,
+            Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var resp = WprMcp.Analyzers.WaitAnalysis.Project(
+            [new BlockedInterval(target, 120_000, 150_000, "WrUserRequest")],
+            scope,
             top: 10,
-            pid: 100,
-            startUs: 100_000,
-            endUs: 200_000);
-
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 300,
-            OldProcessName: "runner",
-            OldThreadId: 7,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 100,
-            NewProcessName: "target",
-            NewThreadId: 42,
-            TimeStampRelativeMSec: 90));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 100,
-            OldProcessName: "target",
-            OldThreadId: 42,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 300,
-            NewProcessName: "runner",
-            NewThreadId: 7,
-            TimeStampRelativeMSec: 120));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 300,
-            OldProcessName: "runner",
-            OldThreadId: 7,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 100,
-            NewProcessName: "target",
-            NewThreadId: 42,
-            TimeStampRelativeMSec: 150));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 100,
-            OldProcessName: "target",
-            OldThreadId: 42,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 300,
-            NewProcessName: "runner",
-            NewThreadId: 7,
-            TimeStampRelativeMSec: 250));
-
-        var resp = accumulator.BuildResponse();
+            runningIntervals:
+            [
+                new RunningInterval(target, 90_000, 120_000, Core: 0),
+                new RunningInterval(target, 150_000, 250_000, Core: 0),
+            ]);
 
         var row = Assert.Single(resp.Rows);
         Assert.Equal(70_000, row.CpuUs);
@@ -202,32 +253,17 @@ public class WaitAnalysisTests
     [Fact]
     public void WaitAnalysis_StraddlingBlockedIntervalDoesNotEmitEmptyWindowWarning()
     {
-        var accumulator = new WaitAnalysisAccumulator(
+        var target = Thread(100, 0, 42, 1);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(100_000, 200_000), Pid: 100,
+            Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var resp = WprMcp.Analyzers.WaitAnalysis.Project(
+            [new BlockedInterval(target, 90_000, 250_000, "WrUserRequest")],
+            scope,
             top: 10,
-            pid: 100,
-            startUs: 100_000,
-            endUs: 200_000);
-
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 100,
-            OldProcessName: "target",
-            OldThreadId: 42,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 300,
-            NewProcessName: "runner",
-            NewThreadId: 7,
-            TimeStampRelativeMSec: 90));
-        accumulator.Process(new WaitAnalysisSwitchEvent(
-            OldProcessId: 300,
-            OldProcessName: "runner",
-            OldThreadId: 7,
-            OldThreadWaitReason: (ThreadWaitReason)13,
-            NewProcessId: 100,
-            NewProcessName: "target",
-            NewThreadId: 42,
-            TimeStampRelativeMSec: 250));
-
-        var resp = accumulator.BuildResponse();
+            totalCSwitches: 0,
+            traceCSwitchCount: 2);
 
         var row = Assert.Single(resp.Rows);
         Assert.Equal(100_000, row.BlockedUs);
@@ -246,4 +282,31 @@ public class WaitAnalysisTests
         });
         return times;
     }
+
+    private static ThreadAnalysisScope ScopeFor(
+        ThreadInstanceKey thread,
+        long startUs,
+        long endUs)
+    {
+        var process = new ProcessLifetime(
+            thread.Process, endUs + 100,
+            StartObserved: true, EndObserved: true);
+        var lifetime = new ThreadLifetime(
+            thread, thread.Process.StartUs, endUs + 50,
+            StartObserved: true, EndObserved: true);
+        return new ThreadAnalysisScope(
+            new TimeWindow(startUs, endUs),
+            thread.Process.Pid,
+            process,
+            lifetime,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+    }
+
+    private static ThreadInstanceKey Thread(
+        int pid,
+        long processStartUs,
+        int tid,
+        long generation) =>
+        new(new ProcessInstanceKey(pid, processStartUs), tid, generation);
 }

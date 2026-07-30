@@ -3,6 +3,7 @@ using System.Reflection;
 using ModelContextProtocol.Server;
 using WprMcp.Analyzers;
 using WprMcp.Core;
+using WprMcp.Output;
 using WprMcp.Tools;
 using Xunit;
 
@@ -78,6 +79,31 @@ public class TimeWindowSemanticsTests
 
         Assert.Equal(expectedNoWindowTools.OrderBy(name => name, StringComparer.Ordinal), nonWindowed.Select(item => item.Name));
         Assert.All(nonWindowed, item => Assert.Contains("No startUs/endUs", item.Description));
+    }
+
+    [Fact]
+    public void SlowStartupCandidate_UsesExplicitStartupAndLifetimeFieldNames()
+    {
+        var properties = typeof(SlowStartupCandidate)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .ToDictionary(property => property.Name, StringComparer.Ordinal);
+
+        Assert.Contains("ProcessStartUs", properties.Keys);
+        Assert.Contains("StartupEndUs", properties.Keys);
+        Assert.Contains("ObservedStartupWallUs", properties.Keys);
+        Assert.Contains("StartupCpuUs", properties.Keys);
+        Assert.Contains("StartupWaitRatio", properties.Keys);
+        Assert.Equal(typeof(StartupWindowProvenance), properties["Window"].PropertyType);
+
+        Assert.DoesNotContain("WallUs", properties.Keys);
+        Assert.DoesNotContain("CpuUs", properties.Keys);
+        Assert.DoesNotContain("WaitRatio", properties.Keys);
+        Assert.DoesNotContain("ImageLoadCount", properties.Keys);
+
+        Assert.Contains("LifetimeWallUs", properties.Keys);
+        Assert.Contains("LifetimeCpuUs", properties.Keys);
+        Assert.Contains("LifetimeWaitRatio", properties.Keys);
+        Assert.Contains("LifetimeImageLoadCount", properties.Keys);
     }
 
     private static IReadOnlyList<MethodInfo> McpToolMethods()

@@ -19,6 +19,31 @@ public class FileIoStackAnalysisTests
     }
 
     [Fact]
+    public void FileIoTopStacks_PctOfTraceReflectsCallerFilterIntent()
+    {
+        var tools = new IoTools(new TraceCache(capacity: 2));
+
+        var unfiltered = tools.FileIoTopStacks(FileIoFixture, top: 30);
+        var filtered = tools.FileIoTopStacks(
+            FileIoFixture,
+            top: 30,
+            startUs: 0);
+
+        Assert.NotEmpty(unfiltered.Rows);
+        Assert.All(unfiltered.Rows, row =>
+        {
+            Assert.Null(row.ExclusivePctOfTrace);
+            Assert.Null(row.InclusivePctOfTrace);
+        });
+        Assert.NotEmpty(filtered.Rows);
+        Assert.All(filtered.Rows, row =>
+        {
+            Assert.NotNull(row.ExclusivePctOfTrace);
+            Assert.NotNull(row.InclusivePctOfTrace);
+        });
+    }
+
+    [Fact]
     public void FileIoTopStacks_RowsOrderedByExclusiveBytesDesc()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));

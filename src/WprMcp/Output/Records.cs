@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using WprMcp.Core;
 
 namespace WprMcp.Output;
 
@@ -245,7 +246,12 @@ public sealed record UnresolvedModule(string Module, long FrameCount);
 public sealed record CpuTopFunctionsResponse(
     IReadOnlyList<CpuFunctionRow> Rows,
     SymbolStats Stats,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    long TotalSamples = 0,
+    ProcessInstanceKey? SelectedProcess = null,
+    ThreadInstanceKey? SelectedThread = null,
+    bool HasSampledProfileStacks = false,
+    string SymbolResolutionState = "not_applicable");
 
 public sealed record CpuCoreBucket(
     int Core,
@@ -273,7 +279,12 @@ public sealed record CpuPreciseResponse(
     long TotalContextSwitches,
     long TotalReadyCount,
     long TotalReadyLatencyUs,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    ProcessInstanceKey? SelectedProcess = null,
+    ThreadInstanceKey? SelectedThread = null,
+    bool HasContextSwitches = false,
+    bool HasSampledProfileStacks = false,
+    string SymbolResolutionState = "not_applicable");
 
 // Caller/callee neighbor of a focus frame. Same shape across all stack sources (CPU samples,
 // blocked μs, hard-fault bytes, etc.); the parent response carries `MetricName` so consumers
@@ -303,7 +314,15 @@ public sealed record CallerCalleeResponse(
     IReadOnlyList<CallerCalleeNode> Callers,
     IReadOnlyList<CallerCalleeNode> Callees,
     SymbolStats Stats,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    long SourceTotalMetric = 0,
+    int UnmatchedIntervalCount = 0,
+    ProcessInstanceKey? SelectedProcess = null,
+    ThreadInstanceKey? SelectedThread = null,
+    bool HasContextSwitches = false,
+    bool HasContextSwitchBlockingStacks = false,
+    bool HasSampledProfileStacks = false,
+    string SymbolResolutionState = "not_applicable");
 
 public sealed record CpuTopFunctionsBatchResponse(
     IReadOnlyDictionary<int, CpuTopFunctionsResponse> PerPid,
@@ -520,12 +539,19 @@ public sealed record WaitAnalysisRow(
 public sealed record WaitAnalysisResponse(
     IReadOnlyList<WaitAnalysisRow> Rows,
     long TotalCSwitches,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    long TotalBlockedUs = 0,
+    int UnmatchedBlockedIntervalCount = 0,
+    ProcessInstanceKey? SelectedProcess = null,
+    ThreadInstanceKey? SelectedThread = null,
+    bool HasContextSwitches = false,
+    bool HasContextSwitchBlockingStacks = false,
+    string SymbolResolutionState = "not_applicable");
 
 // Top-N call-tree frames ranked by blocked-time microseconds.
 //
 // ExclusiveBlockedUs / InclusiveBlockedUs sum the wait durations attributed to this frame
-// (resume-point stack walks at CSwitch). PerfView convention: pct fields are normalized
+// (the blocked thread's switch-out stack at CSwitch). PerfView convention: pct fields are normalized
 // over the FILTERED set (whatever pid/window the caller asked for); *PctOfTrace are over
 // the whole trace and are populated only when a filter was applied.
 public sealed record WaitStackRow(
@@ -546,7 +572,13 @@ public sealed record WaitTopStacksResponse(
     long SampleCount,
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
-    TimeHistogram? When = null);
+    TimeHistogram? When = null,
+    int UnmatchedBlockedIntervalCount = 0,
+    ProcessInstanceKey? SelectedProcess = null,
+    ThreadInstanceKey? SelectedThread = null,
+    bool HasContextSwitches = false,
+    bool HasContextSwitchBlockingStacks = false,
+    string SymbolResolutionState = "not_applicable");
 
 // Provenance for composite tools. Every evidence item should point at one of these calls
 // so callers can replay the public query shape, or see explicitly when the composite used
@@ -572,7 +604,10 @@ public sealed record CompositeToolCall(
     [property: Description("Why Replayable=false.")]
     string? InternalNote = null,
     [property: Description("Optional public orderBy argument when replaying tools that support sorted views.")]
-    string? OrderBy = null);
+    string? OrderBy = null,
+    long? ProcessStartUs = null,
+    long? ParentStartUs = null,
+    long? ParentEndUs = null);
 
 // Evidence metric values are raw metric amounts in the declared Unit (for example blocked
 // microseconds or ready-thread event count). Do not compare evidence rows across different
@@ -596,7 +631,8 @@ public sealed record CompositeEvidence(
     string Unit,
     IReadOnlyList<WaitReasonBucket> TopWaitReasons,
     [property: Description("Per-frame metrics for stack evidence. Empty for process and wait-reason summaries.")]
-    IReadOnlyList<FrameMetric> Frames);
+    IReadOnlyList<FrameMetric> Frames,
+    long? ProcessStartUs = null);
 
 public sealed record FrameMetric(
     string Function,
@@ -625,7 +661,9 @@ public sealed record CompositeNotConcluded(
     [property: Description("Normalized observed ratio in [0,1]. Compare this with ThresholdPct when both are present.")]
     double? ObservedPct = null,
     [property: Description("Normalized decision threshold in [0,1]. Compare ObservedPct against this value.")]
-    double? ThresholdPct = null);
+    double? ThresholdPct = null,
+    long? ProcessStartUs = null,
+    string? EvidenceId = null);
 
 public sealed record CompositeNextTool(
     string ToolName,
@@ -640,10 +678,11 @@ public sealed record CompositeNextTool(
     string? TestsHypothesis = null);
 
 // Time-bucketed metric histogram. Length of Buckets == requested bucket count; bucket i covers
-// [StartUs + i*BucketWidthUs, StartUs + (i+1)*BucketWidthUs). Sum of Buckets equals the total
-// metric over the analysis window (modulo bucket-edge rounding).
+// [StartUs + i*BucketWidthUs, min(EndUs, StartUs + (i+1)*BucketWidthUs)). Duration metrics
+// are split by exact overlap, so their bucket sum equals the accounted window total.
 public sealed record TimeHistogram(
     long StartUs,
+    long EndUs,
     long BucketWidthUs,
     long[] Buckets);
 
@@ -702,37 +741,6 @@ public sealed record ImageLoadTopGapsResponse(
     long? FirstLoadOffsetUs,
     IReadOnlyList<ImageLoadRow> TopGaps,
     IReadOnlyList<string> Warnings);
-
-public sealed record SlowStartupCandidate(
-    int Pid,
-    int ParentPid,
-    string Name,
-    long WallUs,
-    long CpuUs,
-    double? WaitRatio,
-    int ImageLoadCount,
-    IReadOnlyList<WaitReasonBucket> TopWaitReasons,
-    IReadOnlyList<ImageLoadRow>? FirstImageLoads,
-    IReadOnlyList<CpuFunctionRow>? TopCpuFunctions);
-
-public sealed record StartupGapEvidenceRow(
-    int Pid,
-    string ProcessName,
-    long ProcessStartUs,
-    long FirstImageLoadTimeUs,
-    long FirstImageLoadOffsetUs,
-    DiagnoseWindowResponse Window);
-
-public sealed record DiagnoseSlowStartupResponse(
-    IReadOnlyList<SlowStartupCandidate> Candidates,
-    [property: Obsolete("Use structured Evidence, NotConcluded, ExecutedToolCalls, and NextTools instead.")]
-    string Summary,
-    IReadOnlyList<string> Warnings,
-    IReadOnlyList<CompositeEvidence>? Evidence = null,
-    IReadOnlyList<CompositeNotConcluded>? NotConcluded = null,
-    IReadOnlyList<CompositeToolCall>? ExecutedToolCalls = null,
-    IReadOnlyList<CompositeNextTool>? NextTools = null,
-    IReadOnlyList<StartupGapEvidenceRow>? FirstImageLoadGapEvidence = null);
 
 public sealed record HighWaitCandidate(
     int Pid,

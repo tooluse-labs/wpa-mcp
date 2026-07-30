@@ -55,15 +55,17 @@ public class HardFaultByFileAnalysisTests
     }
 
     [Fact]
-    public void HardFaultByFile_AppliesHalfOpenWindow()
+    public void HardFaultByFile_RejectsWindowBeyondTrace()
     {
-        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        var cache = new TraceCache(capacity: 2);
+        var tools = new HardFaultTools(cache);
         var fullTrace = tools.HardFaultByFile(FixturePath, top: 100);
         Assert.NotEmpty(fullTrace.Rows);
+        var trace = cache.Get(FixturePath);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
 
-        var emptyWindow = tools.HardFaultByFile(FixturePath, top: 100, startUs: long.MaxValue - 1, endUs: long.MaxValue);
-
-        Assert.Empty(emptyWindow.Rows);
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.HardFaultByFile(
+            FixturePath, top: 100, startUs: traceEndUs, endUs: traceEndUs + 1));
     }
 
     [Fact]

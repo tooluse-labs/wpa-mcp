@@ -1,53 +1,12 @@
-using System.Diagnostics;       // ThreadWaitReason (the property type on CSwitchTraceData
-                                  // is the BCL enum, NOT a TraceEvent-defined one)
+using System.Diagnostics;
 using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
 
-// Per-thread blocked-time analysis from CSwitch events.
-//
-// Algorithm (simplified port of PerfView's ThreadTimeStackComputer in
-// src/TraceEvent/Computers/ThreadTimeStackComputer.cs):
-//
-//   For each process/thread T, maintain:
-//     lastSwitchInTime[T]  — when T last started running on a CPU
-//     lastSwitchOutTime[T] — when T last stopped running
-//     lastWaitReason[T]    — wait reason captured when T switched out
-//
-//   On each CSwitch event:
-//     oldTid (switching OUT):
-//       cpuTime[oldTid] += now - lastSwitchInTime[oldTid]
-//       lastSwitchOutTime[oldTid] = now
-//       lastWaitReason[oldTid] = OldThreadWaitReason
-//
-//     newTid (switching IN):
-//       blocked[newTid] += now - lastSwitchOutTime[newTid]
-//       lastSwitchInTime[newTid] = now
-//
-// Threads without a prior switch-out are skipped on their first switch-in
-// (we have no anchor time). This under-counts blocked-from-trace-start time
-// but avoids wild over-counting for threads that existed before the trace.
-//
-// We do NOT build a stack source — that's PerfView's expensive part. We just
-// track aggregates and the dominant wait reasons. This is enough to answer
-// "which threads spent wall time blocked, and on what?" — the question that
-// the dllhost-53x case in the analysis log left unprovable.
 public static class WaitAnalysis
 {
-    // KWAIT_REASON value → name. CSwitchTraceData.OldThreadWaitReason is typed as
-    // System.Diagnostics.ThreadWaitReason (BCL enum), which only names values 0..13. The
-    // Windows kernel KWAIT_REASON range goes through ~41 — values past 13 fall through
-    // .NET's enum boxing as raw integers (e.g. "22", "37"). This table mirrors ntddk.h's
-    // KWAIT_REASON (Windows 10/11) so we can render the canonical kernel name regardless
-    // of what the BCL knows. Out-of-range values fall through to "Wait_<n>".
-    //
-    // Note: a few BCL names diverge from the kernel canonical (e.g. BCL "SystemAllocation"
-    // = kernel "PoolAllocation" at index 3). We use the kernel names — they are what
-    // PerfView and Microsoft's own kernel-debugging docs use, so they cross-reference more
-    // cleanly with EDR / minifilter literature.
     private static readonly string[] WaitReasonNames =
     {
         /* 0  */ "Executive",
@@ -96,10 +55,10 @@ public static class WaitAnalysis
 
     public static string WaitReasonName(ThreadWaitReason reason)
     {
-        var idx = (int)reason;
-        return (uint)idx < (uint)WaitReasonNames.Length
-            ? WaitReasonNames[idx]
-            : $"Wait_{idx}";
+        var index = (int)reason;
+        return (uint)index < (uint)WaitReasonNames.Length
+            ? WaitReasonNames[index]
+            : $"Wait_{index}";
     }
 
     public static WaitAnalysisResponse Analyze(
@@ -109,184 +68,377 @@ public static class WaitAnalysis
         long? startUs,
         long? endUs)
     {
-        var accumulator = new WaitAnalysisAccumulator(top, pid, startUs, endUs);
-
-        KernelEventWalker.Walk(trace, kernel =>
+        RequirePositiveTop(top);
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds),
+            maxDurationUs: null);
+        var identities = TraceIdentityIndex.For(trace);
+        var resolution = ThreadAnalysisScope.Resolve(
+            window, pid, tid: null, processStartUs: null, threadStartUs: null,
+            identities);
+        if (resolution.Status != InstanceResolutionStatus.Resolved ||
+            !resolution.Value.HasValue)
         {
-            kernel.ThreadCSwitch += data =>
-                accumulator.Process(new WaitAnalysisSwitchEvent(
-                    OldProcessId: data.OldProcessID,
-                    OldProcessName: data.OldProcessName ?? string.Empty,
-                    OldThreadId: data.OldThreadID,
-                    OldThreadWaitReason: data.OldThreadWaitReason,
-                    NewProcessId: data.NewProcessID,
-                    NewProcessName: data.NewProcessName ?? string.Empty,
-                    NewThreadId: data.NewThreadID,
-                    TimeStampRelativeMSec: data.TimeStampRelativeMSec));
-        });
-
-        return accumulator.BuildResponse();
-    }
-}
-
-internal readonly record struct WaitAnalysisSwitchEvent(
-    int OldProcessId,
-    string OldProcessName,
-    int OldThreadId,
-    ThreadWaitReason OldThreadWaitReason,
-    int NewProcessId,
-    string NewProcessName,
-    int NewThreadId,
-    double TimeStampRelativeMSec);
-
-internal sealed class WaitAnalysisAccumulator
-{
-    private readonly int _top;
-    private readonly int? _pid;
-    private readonly long? _startUs;
-    private readonly long? _endUs;
-
-    private readonly Dictionary<ThreadKey, long> _threadCpu = new();
-    private readonly Dictionary<ThreadKey, long> _threadBlocked = new();
-    private readonly Dictionary<ThreadKey, long> _threadCSwitchCount = new();
-    private readonly Dictionary<ThreadKey, Dictionary<string, (long blocked, long count)>> _threadWaitReasons = new();
-    private readonly Dictionary<ThreadKey, double> _lastSwitchOutTime = new();
-    private readonly Dictionary<ThreadKey, double> _lastSwitchInTime = new();
-    private readonly Dictionary<ThreadKey, string> _lastWaitReason = new();
-    private readonly Dictionary<ThreadKey, string> _processNames = new();
-
-    private long _totalCSwitches;
-    private long _traceCSwitches;
-
-    public WaitAnalysisAccumulator(int top, int? pid, long? startUs, long? endUs)
-    {
-        _top = top;
-        _pid = pid;
-        _startUs = startUs;
-        _endUs = endUs;
-    }
-
-    public void Process(WaitAnalysisSwitchEvent data)
-    {
-        _traceCSwitches++;
-        var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-        var inWindow =
-            (!_startUs.HasValue || tsUs >= _startUs.Value) &&
-            (!_endUs.HasValue || tsUs < _endUs.Value);
-
-        if (inWindow) _totalCSwitches++;
-
-        var nowMs = data.TimeStampRelativeMSec;
-
-        // --- Thread switching OUT ---
-        if (TryMakeKey(data.OldProcessId, data.OldThreadId, out var oldKey))
-        {
-            if (_lastSwitchInTime.TryGetValue(oldKey, out var inMs))
-            {
-                var cpuUs = IntersectUs(inMs, nowMs);
-                if (cpuUs > 0)
-                    _threadCpu[oldKey] = _threadCpu.GetValueOrDefault(oldKey) + cpuUs;
-            }
-            _lastSwitchOutTime[oldKey] = nowMs;
-            _lastWaitReason[oldKey] = WaitAnalysis.WaitReasonName(data.OldThreadWaitReason);
-
-            _processNames[oldKey] = data.OldProcessName;
-            if (inWindow)
-                _threadCSwitchCount[oldKey] = _threadCSwitchCount.GetValueOrDefault(oldKey) + 1;
+            return EmptyResolutionFailure(resolution.Status);
         }
 
-        // --- Thread switching IN ---
-        if (TryMakeKey(data.NewProcessId, data.NewThreadId, out var newKey))
-        {
-            if (_lastSwitchOutTime.TryGetValue(newKey, out var outMs))
-            {
-                var blockedUs = IntersectUs(outMs, nowMs);
-                if (blockedUs > 0)
-                {
-                    _threadBlocked[newKey] = _threadBlocked.GetValueOrDefault(newKey) + blockedUs;
-                    var reason = _lastWaitReason.GetValueOrDefault(newKey, "Unknown");
-                    if (!_threadWaitReasons.TryGetValue(newKey, out var reasons))
-                        _threadWaitReasons[newKey] = reasons = new Dictionary<string, (long, long)>();
-                    var prev = reasons.GetValueOrDefault(reason);
-                    reasons[reason] = (prev.blocked + blockedUs, prev.count + 1);
-                }
-            }
-            _lastSwitchInTime[newKey] = nowMs;
-
-            _processNames[newKey] = data.NewProcessName;
-            if (inWindow)
-                _threadCSwitchCount[newKey] = _threadCSwitchCount.GetValueOrDefault(newKey) + 1;
-        }
+        return Analyze(trace, top, resolution.Value.Value);
     }
 
-    public WaitAnalysisResponse BuildResponse()
+    internal static WaitAnalysisResponse Analyze(
+        TraceLog trace,
+        int top,
+        ThreadAnalysisScope scope)
     {
-        // Build candidate set, then filter+sort.
-        var allThreads = new HashSet<ThreadKey>(_threadBlocked.Keys);
-        allThreads.UnionWith(_threadCpu.Keys);
+        RequirePositiveTop(top);
+        var identities = TraceIdentityIndex.For(trace);
+        var projection = new WaitProjectionAccumulator(scope);
+        var stream = SchedulerIntervalTraceReader.Read(trace, identities, [projection]);
+        var warnings = BuildSchedulerWarnings(
+            stream.Completion, stream.IdentityDiagnosticCount);
+        return projection.Build(
+            top,
+            stream.Completion.UnmatchedBlockedIntervalCount,
+            warnings);
+    }
 
-        var candidates = allThreads
-            .Select(thread =>
-            {
-                var cpu = _threadCpu.GetValueOrDefault(thread);
-                var blocked = _threadBlocked.GetValueOrDefault(thread);
-                double? ratio = cpu > 0 ? (double)blocked / cpu : (double?)null;
-                var reasons = _threadWaitReasons.GetValueOrDefault(thread)?
-                    .OrderByDescending(r => r.Value.blocked)
-                    .Take(5)
-                    .Select(r => new WaitReasonBucket(r.Key, r.Value.blocked, r.Value.count))
-                    .ToList()
-                    ?? new List<WaitReasonBucket>();
-                return new WaitAnalysisRow(
-                    Pid: thread.Pid,
-                    ProcessName: _processNames.GetValueOrDefault(thread, string.Empty),
-                    Tid: thread.Tid,
-                    CpuUs: cpu,
-                    BlockedUs: blocked,
-                    WaitRatio: ratio,
-                    ContextSwitches: _threadCSwitchCount.GetValueOrDefault(thread),
-                    TopWaitReasons: reasons);
-            });
+    internal static WaitAnalysisResponse Project(
+        IEnumerable<BlockedInterval> intervals,
+        ThreadAnalysisScope scope,
+        int top,
+        IEnumerable<RunningInterval>? runningIntervals = null,
+        int unmatchedBlockedIntervalCount = 0,
+        IReadOnlyDictionary<ThreadInstanceKey, string>? processNames = null,
+        IReadOnlyDictionary<ThreadInstanceKey, long>? contextSwitches = null,
+        long totalCSwitches = 0,
+        long? traceCSwitchCount = null,
+        IEnumerable<string>? warnings = null,
+        bool hasContextSwitchBlockingStacks = false)
+    {
+        ArgumentNullException.ThrowIfNull(intervals);
+        RequirePositiveTop(top);
+        if (unmatchedBlockedIntervalCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(unmatchedBlockedIntervalCount));
+        if (totalCSwitches < 0)
+            throw new ArgumentOutOfRangeException(nameof(totalCSwitches));
+        if (traceCSwitchCount is < 0)
+            throw new ArgumentOutOfRangeException(nameof(traceCSwitchCount));
 
-        if (_pid is { } p)
-            candidates = candidates.Where(r => r.Pid == p);
+        var projection = new WaitProjectionAccumulator(scope);
+        projection.AddProcessNames(processNames);
+        foreach (var interval in intervals)
+            projection.OnBlocked(interval);
+        foreach (var interval in runningIntervals ?? Array.Empty<RunningInterval>())
+            projection.OnRunning(interval);
+        projection.AddContextSwitches(contextSwitches);
+        projection.SetEventSummary(
+            totalCSwitches,
+            traceCSwitchCount,
+            hasContextSwitchBlockingStacks);
+        return projection.Build(top, unmatchedBlockedIntervalCount, warnings);
+    }
 
-        var rows = candidates
-            .OrderByDescending(r => r.BlockedUs)
-            .Take(_top)
-            .ToList();
+    private static WaitAnalysisResponse EmptyResolutionFailure(
+        InstanceResolutionStatus status) =>
+        new(
+            Rows: Array.Empty<WaitAnalysisRow>(),
+            TotalCSwitches: 0,
+            Warnings: [$"thread_scope_{status.ToString().ToLowerInvariant()}"],
+            TotalBlockedUs: 0,
+            UnmatchedBlockedIntervalCount: 0,
+            SelectedProcess: null,
+            SelectedThread: null);
 
+    private static void RequirePositiveTop(int top)
+    {
+        if (top <= 0)
+            throw new ArgumentOutOfRangeException(nameof(top));
+    }
+
+    internal static IReadOnlyList<string> BuildSchedulerWarnings(
+        SchedulerIntervalResult completion,
+        long unresolvedIdentityCount)
+    {
         var warnings = new List<string>();
-        if (_traceCSwitches == 0)
+        if (unresolvedIdentityCount > 0)
         {
             warnings.Add(
-                "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
-                "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+                $"scheduler_identity_unresolved: {unresolvedIdentityCount:N0} event-side identity resolution(s) were unavailable or ambiguous.");
         }
-        else if (_totalCSwitches == 0 && rows.Count == 0)
+        if (completion.IdentityMismatchCount > 0)
         {
-            warnings.Add("CSwitch events were present in the trace, but none landed inside the requested time window.");
+            warnings.Add(
+                $"scheduler_identity_mismatch: {completion.IdentityMismatchCount:N0} scheduler state transition(s) did not match the resolved thread instance.");
+        }
+        if (completion.UnmatchedRunningIntervalCount > 0)
+        {
+            warnings.Add(
+                $"unmatched_running_interval: {completion.UnmatchedRunningIntervalCount:N0} running interval(s) were dropped rather than guessed.");
+        }
+        return warnings;
+    }
+
+    private static ThreadProjection GetProjection(
+        Dictionary<RawThreadKey, ThreadProjection> projections,
+        ThreadInstanceKey thread,
+        IReadOnlyDictionary<ThreadInstanceKey, string>? processNames)
+    {
+        var key = new RawThreadKey(thread.Process.Pid, thread.Tid);
+        if (!projections.TryGetValue(key, out var projection))
+        {
+            projection = new ThreadProjection(key);
+            projections.Add(key, projection);
         }
 
-        return new WaitAnalysisResponse(rows, _totalCSwitches, warnings);
+        if (string.IsNullOrEmpty(projection.ProcessName) &&
+            processNames is not null &&
+            processNames.TryGetValue(thread, out var processName) &&
+            !string.IsNullOrEmpty(processName))
+        {
+            projection.ProcessName = processName;
+        }
+        return projection;
     }
 
-    private static bool TryMakeKey(int pid, int tid, out ThreadKey key)
+    private static WaitAnalysisRow ToRow(ThreadProjection projection, int reasonTop)
     {
-        key = new ThreadKey(pid, tid);
-        return pid > 0 && tid != 0;
+        var reasons = projection.WaitReasons
+            .OrderByDescending(item => item.Value.BlockedUs)
+            .ThenBy(item => item.Key, StringComparer.Ordinal)
+            .Take(reasonTop)
+            .Select(item => new WaitReasonBucket(
+                item.Key, item.Value.BlockedUs, item.Value.Count))
+            .ToList();
+        return new WaitAnalysisRow(
+            projection.Key.Pid,
+            projection.ProcessName,
+            projection.Key.Tid,
+            projection.CpuUs,
+            projection.BlockedUs,
+            projection.CpuUs > 0
+                ? (double)projection.BlockedUs / projection.CpuUs
+                : null,
+            projection.ContextSwitches,
+            reasons);
     }
 
-    private long IntersectUs(double startMs, double endMs)
+    internal sealed class WaitProjectionAccumulator :
+        ISchedulerIntervalSink,
+        ISchedulerEventSink
     {
-        var startUs = (long)(startMs * 1000);
-        var endUs = (long)(endMs * 1000);
-        if (endUs <= startUs) return 0;
+        private readonly ThreadAnalysisScope _scope;
+        private readonly Dictionary<RawThreadKey, ThreadProjection> _projections = new();
+        private readonly Dictionary<ThreadInstanceKey, string> _processNames = new();
+        private long _totalBlockedUs;
+        private long _totalCpuUs;
+        private long _totalCSwitches;
+        private long? _traceCSwitchCount = 0;
+        private bool _hasContextSwitchBlockingStacks;
 
-        var clippedStart = _startUs.HasValue ? Math.Max(startUs, _startUs.Value) : startUs;
-        var clippedEnd = _endUs.HasValue ? Math.Min(endUs, _endUs.Value) : endUs;
-        return Math.Max(0, clippedEnd - clippedStart);
+        public WaitProjectionAccumulator(ThreadAnalysisScope scope)
+        {
+            _scope = scope;
+        }
+
+        public void OnRunning(in RunningInterval interval)
+        {
+            var accountedUs = _scope.AccountInterval(
+                interval.Thread, interval.StartUs, interval.EndUs);
+            if (accountedUs <= 0)
+                return;
+
+            _totalCpuUs = checked(_totalCpuUs + accountedUs);
+            var projection = GetProjection(
+                _projections, interval.Thread, _processNames);
+            projection.CpuUs = checked(projection.CpuUs + accountedUs);
+        }
+
+        public void OnBlocked(in BlockedInterval interval)
+        {
+            var accountedUs = _scope.AccountInterval(
+                interval.Thread, interval.StartUs, interval.EndUs);
+            if (accountedUs <= 0)
+                return;
+
+            _totalBlockedUs = checked(_totalBlockedUs + accountedUs);
+            var projection = GetProjection(
+                _projections, interval.Thread, _processNames);
+            projection.BlockedUs = checked(projection.BlockedUs + accountedUs);
+            var previous = projection.WaitReasons.GetValueOrDefault(interval.WaitReason);
+            projection.WaitReasons[interval.WaitReason] = (
+                checked(previous.BlockedUs + accountedUs),
+                checked(previous.Count + 1));
+        }
+
+        public void OnContextSwitch(in SchedulerSwitchObservation observation)
+        {
+            _traceCSwitchCount = checked(_traceCSwitchCount.GetValueOrDefault() + 1);
+            if (_scope.Window.ContainsPoint(observation.TimestampUs))
+                _totalCSwitches = checked(_totalCSwitches + 1);
+            if (observation.BlockingStack != CallStackIndex.Invalid)
+                _hasContextSwitchBlockingStacks = true;
+
+            if (observation.OldThread.HasValue)
+            {
+                ObserveThread(
+                    observation.OldThread.Value,
+                    observation.OldProcessName,
+                    observation.TimestampUs);
+            }
+            if (observation.NewThread.HasValue)
+            {
+                ObserveThread(
+                    observation.NewThread.Value,
+                    observation.NewProcessName,
+                    observation.TimestampUs);
+            }
+        }
+
+        public void AddProcessNames(
+            IReadOnlyDictionary<ThreadInstanceKey, string>? processNames)
+        {
+            if (processNames is null)
+                return;
+
+            foreach (var item in processNames)
+                RememberProcessName(item.Key, item.Value);
+        }
+
+        public void AddContextSwitches(
+            IReadOnlyDictionary<ThreadInstanceKey, long>? contextSwitches)
+        {
+            if (contextSwitches is null)
+                return;
+
+            foreach (var item in contextSwitches)
+            {
+                if (!_scope.MatchesThread(item.Key) || item.Value <= 0)
+                    continue;
+                var projection = GetProjection(
+                    _projections, item.Key, _processNames);
+                projection.ContextSwitches = checked(
+                    projection.ContextSwitches + item.Value);
+            }
+        }
+
+        public void SetEventSummary(
+            long totalCSwitches,
+            long? traceCSwitchCount,
+            bool hasContextSwitchBlockingStacks)
+        {
+            _totalCSwitches = totalCSwitches;
+            _traceCSwitchCount = traceCSwitchCount;
+            _hasContextSwitchBlockingStacks = hasContextSwitchBlockingStacks;
+        }
+
+        public WaitAnalysisResponse Build(
+            int top,
+            int unmatchedBlockedIntervalCount,
+            IEnumerable<string>? warnings)
+        {
+            RequirePositiveTop(top);
+            if (unmatchedBlockedIntervalCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(unmatchedBlockedIntervalCount));
+            }
+
+            if (_scope.Thread is not null)
+            {
+                GetProjection(
+                    _projections, _scope.Thread.Key, _processNames);
+            }
+
+            var reasonTop = _scope.Thread is null ? 5 : top;
+            var candidates = _projections.Values
+                .Select(projection => ToRow(projection, reasonTop))
+                .OrderByDescending(row => row.BlockedUs)
+                .ThenByDescending(row => row.CpuUs)
+                .ThenBy(row => row.Pid)
+                .ThenBy(row => row.Tid)
+                .ToList();
+            var rows = _scope.Thread is null
+                ? candidates.Take(top).ToList()
+                : candidates;
+
+            var outputWarnings = warnings?.ToList() ?? new List<string>();
+            if (_scope.PidReuseObserved)
+            {
+                outputWarnings.Add(
+                    "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+            }
+            if (_traceCSwitchCount == 0)
+            {
+                outputWarnings.Add(
+                    "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
+                    "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+            }
+            else if (_traceCSwitchCount > 0 && _totalCSwitches == 0 &&
+                     _totalBlockedUs == 0 && _totalCpuUs == 0 &&
+                     _projections.Values.All(
+                         projection => projection.ContextSwitches == 0))
+            {
+                outputWarnings.Add(
+                    "CSwitch events were present in the trace, but none landed inside the requested time window.");
+            }
+
+            return new WaitAnalysisResponse(
+                Rows: rows,
+                TotalCSwitches: _totalCSwitches,
+                Warnings: outputWarnings,
+                TotalBlockedUs: _totalBlockedUs,
+                UnmatchedBlockedIntervalCount: unmatchedBlockedIntervalCount,
+                SelectedProcess: _scope.Process?.Key,
+                SelectedThread: _scope.Thread?.Key,
+                HasContextSwitches: _traceCSwitchCount > 0,
+                HasContextSwitchBlockingStacks: _hasContextSwitchBlockingStacks,
+                SymbolResolutionState: "not_applicable");
+        }
+
+        private void ObserveThread(
+            ThreadInstanceKey thread,
+            string processName,
+            long timestampUs)
+        {
+            RememberProcessName(thread, processName);
+            if (!_scope.MatchesPoint(thread, timestampUs))
+            {
+                return;
+            }
+
+            var projection = GetProjection(
+                _projections, thread, _processNames);
+            projection.ContextSwitches = checked(projection.ContextSwitches + 1);
+        }
+
+        private void RememberProcessName(
+            ThreadInstanceKey thread,
+            string? processName)
+        {
+            if (string.IsNullOrEmpty(processName))
+                return;
+
+            _processNames.TryAdd(thread, processName);
+            var key = new RawThreadKey(thread.Process.Pid, thread.Tid);
+            if (_projections.TryGetValue(key, out var projection) &&
+                string.IsNullOrEmpty(projection.ProcessName))
+            {
+                projection.ProcessName = processName;
+            }
+        }
     }
 
-    private readonly record struct ThreadKey(int Pid, int Tid);
+    private readonly record struct RawThreadKey(int Pid, int Tid);
+
+    private sealed class ThreadProjection(RawThreadKey key)
+    {
+        public RawThreadKey Key { get; } = key;
+        public string ProcessName { get; set; } = string.Empty;
+        public long CpuUs { get; set; }
+        public long BlockedUs { get; set; }
+        public long ContextSwitches { get; set; }
+        public Dictionary<string, (long BlockedUs, long Count)> WaitReasons { get; } =
+            new(StringComparer.Ordinal);
+    }
 }

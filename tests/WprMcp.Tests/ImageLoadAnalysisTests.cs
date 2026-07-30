@@ -113,7 +113,7 @@ public class ImageLoadAnalysisTests
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentException>(() =>
-            tools.ImageLoadTopGaps(FixturePath, pid: -999_999, top: 10));
+            tools.ImageLoadTopGaps(FixturePath, pid: 999_999, top: 10));
     }
 
     [Fact]
@@ -141,6 +141,6 @@ public class ImageLoadAnalysisTests
     public void ImageLoadTiming_UnknownPidThrows()
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
-        Assert.Throws<ArgumentException>(() => tools.ImageLoadTiming(FixturePath, pid: -999_999, top: 10));
+        Assert.Throws<ArgumentException>(() => tools.ImageLoadTiming(FixturePath, pid: 999_999, top: 10));
     }
 }

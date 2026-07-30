@@ -28,6 +28,7 @@ public sealed class ImageLoadTools
         [Description("Process ID")] int pid,
         [Description("Top N loads (default 100, max 1000)")] int top = 100)
     {
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
         return ImageLoadAnalysis.PerProcess(trace, pid, top);
@@ -45,6 +46,7 @@ public sealed class ImageLoadTools
         [Description("Process ID")] int pid,
         [Description("Top N gap rows (default 20, max 1000)")] int top = 20)
     {
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         var trace = _cache.Get(path);
         return ImageLoadAnalysis.TopGaps(trace, pid, top);
@@ -72,12 +74,18 @@ public sealed class ImageLoadTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ImageLoadStackAnalysis.TopLoadStacks(
-            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid, startUs, endUs, symbolLog: Console.Error, whenBuckets: whenBuckets);
+            trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
+            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -95,11 +103,15 @@ public sealed class ImageLoadTools
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
         bool resolveSymbols = false)
     {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequirePidTid(pid, tid: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         var trace = _cache.Get(path);
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ImageLoadStackAnalysis.CallerCallee(
-            trace, function, top, pid, startUs, endUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
     }
 }

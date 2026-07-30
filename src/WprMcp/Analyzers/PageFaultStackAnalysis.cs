@@ -34,10 +34,14 @@ public static class PageFaultStackAnalysis
         long? startUs,
         long? endUs,
         TextWriter symbolLog,
-        int whenBuckets = 0)
+        int whenBuckets = 0,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
 
         // CallTree on the metric-weighted source gives us BOTH dimensions for free:
