@@ -1,0 +1,18 @@
+name: Setup wpa-mcp build environment
+description: Install the selected .NET SDK and restore the NuGet package cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup exact .NET SDK
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.302'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: |
+          nuget-${{ runner.os }}-
