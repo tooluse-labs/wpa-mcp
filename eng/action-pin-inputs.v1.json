@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "actions": [
+    {
+      "repository": "actions/checkout",
+      "tag": "v4"
+    },
+    {
+      "repository": "actions/setup-dotnet",
+      "tag": "v4"
+    },
+    {
+      "repository": "actions/cache",
+      "tag": "v4"
+    },
+    {
+      "repository": "actions/upload-artifact",
+      "tag": "v4"
+    },
+    {
+      "repository": "actions/download-artifact",
+      "tag": "v4"
+    },
+    {
+      "repository": "actions/attest-build-provenance",
+      "tag": "v3"
+    },
+    {
+      "repository": "softprops/action-gh-release",
+      "tag": "v2"
+    }
+  ]
+}

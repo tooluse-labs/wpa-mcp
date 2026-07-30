@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <WprMcpSdkVersion>10.0.302</WprMcpSdkVersion>
+    <WprMcpTargetFramework>net10.0</WprMcpTargetFramework>
+    <WprMcpMcpSdkVersion>1.4.1</WprMcpMcpSdkVersion>
+    <WprMcpProtocolRevision>2025-11-25</WprMcpProtocolRevision>
+    <WprMcpProtocolProfile>stateful</WprMcpProtocolProfile>
+  </PropertyGroup>
+</Project>

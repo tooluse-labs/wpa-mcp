@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "1.0",
+  "planDateEvidence": {
+    "observedDate": "2026-07-29",
+    "dotnetSupportPolicyUrl": "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core",
+    "dotnet10DownloadUrl": "https://dotnet.microsoft.com/en-us/download/dotnet/10.0",
+    "mcpStablePackageUrl": "https://www.nuget.org/packages/ModelContextProtocol/1.4.1",
+    "mcpPrereleasePackageUrl": "https://www.nuget.org/packages/ModelContextProtocol/2.0.0-rc.1"
+  },
+  "requiredProbeNames": [
+    "nuget-package-existence-hash",
+    "normal-restore",
+    "win-x64-restore",
+    "release-build",
+    "release-unit-tests",
+    "golden-traceevent-reads",
+    "windows-dia-pdb-resolution",
+    "self-contained-publish",
+    "self-contained-stdio",
+    "native-layout",
+    "selected-profile-handshake",
+    "delegated-typed-tool-structured-output",
+    "cancellation-progress-injection-schema",
+    "raw-framing-request-id-guard-seam",
+    "tools-list-output-schema",
+    "windows-architecture-matrix"
+  ],
+  "sdkSurfaceProbeNames": [
+    "selected-profile-handshake",
+    "delegated-typed-tool-structured-output",
+    "cancellation-progress-injection-schema",
+    "raw-framing-request-id-guard-seam"
+  ],
+  "sdkSurfaceHostModes": [
+    "normal",
+    "win-x64-framework-dependent",
+    "win-x64-self-contained"
+  ],
+  "windowsArchitectureMatrix": [
+    {
+      "id": "windows-x64",
+      "osPlatform": "Windows",
+      "osArchitecture": "X64",
+      "processArchitecture": "X64",
+      "runtimeIdentifier": "win-x64"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "net8-stable-stateful",
+      "sdkVersion": "8.0.420",
+      "targetFramework": "net8.0",
+      "mcpSdkVersion": "1.4.1",
+      "protocolRevision": "2025-11-25",
+      "protocolProfile": "stateful"
+    },
+    {
+      "id": "net10-stable-stateful",
+      "sdkVersion": "10.0.302",
+      "targetFramework": "net10.0",
+      "mcpSdkVersion": "1.4.1",
+      "protocolRevision": "2025-11-25",
+      "protocolProfile": "stateful"
+    },
+    {
+      "id": "net10-next-stateless",
+      "sdkVersion": "10.0.302",
+      "targetFramework": "net10.0",
+      "mcpSdkVersion": "2.0.0-rc.1",
+      "protocolRevision": "2026-07-28",
+      "protocolProfile": "stateless-discovery"
+    }
+  ]
+}

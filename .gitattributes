@@ -1,0 +1,3 @@
+docs/decisions/*.md text eol=lf
+eng/*.json text eol=lf
+scripts/*.ps1 text eol=lf

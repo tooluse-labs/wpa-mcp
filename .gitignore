@@ -31,6 +31,7 @@ tests/manual/*.stderr.log
 AGENTS.md
 CLAUDE.md
 docs/*_REVIEW*.md
+.worktrees/
 
 # Symbol cache
 Symbols/
