@@ -1,8 +1,18 @@
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
+
+internal readonly record struct SecurityScanPairKey(
+    ProcessInstanceKey EmitterProcess,
+    string ProviderName,
+    string Id);
+
+internal sealed record SecurityScanStartData(IReadOnlyDictionary<string, string> Fields);
+
+internal sealed record SecurityScanStopData(IReadOnlyDictionary<string, string> Fields);
 
 public static class SecurityScanAnalysis
 {
@@ -71,15 +81,21 @@ public static class SecurityScanAnalysis
         string? pathSubstring,
         string? providerSubstring)
     {
-        var pairer = new EventPairAggregator();
-        var rowsByKey = new Dictionary<RowKey, RowStats>();
-        var providersByKey = new Dictionary<ProviderKey, ProviderStats>();
-
-        long matchedEventCount = 0;
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = TimeWindowInput.Validate(startUs, endUs, maxDurationUs: null)
+            .Resolve(traceEndUs, maxDurationUs: null);
+        var identities = TraceIdentityIndex.For(trace);
+        var pairer = new IntervalPairAccumulator<
+            SecurityScanPairKey,
+            SecurityScanStartData,
+            SecurityScanStopData>();
+        var pointEvents = new List<SecurityScanPointEvent>();
+        var unresolvedStartCount = 0;
+        var unresolvedStopCount = 0;
 
         foreach (var ev in trace.Events)
         {
-            var nowUs = ToUs(ev);
+            var nowUs = TraceTime.FromMilliseconds(ev.TimeStampRelativeMSec);
             var providerName = ev.ProviderName ?? string.Empty;
             var eventName = ev.EventName ?? string.Empty;
 
@@ -93,24 +109,65 @@ public static class SecurityScanAnalysis
                 fields["__ProviderName"] = providerName;
                 fields["__Id"] = id;
 
-                if (InWindow(nowUs, startUs, endUs) &&
-                    PassesFilters(TargetFromFields(ev, DefenderSource, providerName, fields), pid, processSubstring, pathSubstring, providerSubstring))
+                var streamTarget = TargetFromFields(
+                    ev,
+                    DefenderSource,
+                    providerName,
+                    fields);
+                var endpointInWindow = window.ContainsPoint(nowUs);
+                var passesFilters = PassesFilters(
+                    streamTarget,
+                    pid,
+                    processSubstring,
+                    pathSubstring,
+                    providerSubstring);
+                if (endpointInWindow && passesFilters)
                 {
-                    matchedEventCount++;
-                    AddProviderEvent(providersByKey, DefenderSource, providerName, eventName);
-                    AddRowEvent(rowsByKey, TargetFromFields(ev, DefenderSource, providerName, fields), eventName, IsStartEvent(eventName), IsStopEvent(eventName), isResult: false);
+                    pointEvents.Add(new SecurityScanPointEvent(
+                        streamTarget,
+                        DefenderSource,
+                        providerName,
+                        eventName,
+                        IsStart: IsStartEvent(eventName),
+                        IsStop: IsStopEvent(eventName),
+                        IsResult: false,
+                        Reasons: [],
+                        Statuses: []));
                 }
 
-                var key = $"{providerName}\0{id}";
-                if (IsStartEvent(eventName))
-                    pairer.AddStart(key, nowUs, fields);
+                var isStart = IsStartEvent(eventName);
+                var process = isStart
+                    ? identities.Processes.Resolve(
+                        ev.ProcessID,
+                        nowUs,
+                        processStartUs: null)
+                    : identities.Processes.ResolveAtEndpoint(ev.ProcessID, nowUs);
+                if (process.Status != InstanceResolutionStatus.Resolved ||
+                    !process.Value.HasValue)
+                {
+                    if (endpointInWindow && passesFilters)
+                    {
+                        if (isStart)
+                            unresolvedStartCount++;
+                        else
+                            unresolvedStopCount++;
+                    }
+                    continue;
+                }
+
+                var key = new SecurityScanPairKey(
+                    process.Value.Value,
+                    providerName,
+                    id);
+                if (isStart)
+                    pairer.AddStart(key, nowUs, new SecurityScanStartData(fields));
                 else
-                    pairer.AddStop(key, nowUs, fields);
+                    pairer.AddStop(key, nowUs, new SecurityScanStopData(fields));
 
                 continue;
             }
 
-            if (!InWindow(nowUs, startUs, endUs) ||
+            if (!window.ContainsPoint(nowUs) ||
                 !TryCreateSecurityEvent(ev, out var source, out var target, out var reasons, out var statuses))
             {
                 continue;
@@ -119,36 +176,173 @@ public static class SecurityScanAnalysis
             if (!PassesFilters(target, pid, processSubstring, pathSubstring, providerSubstring))
                 continue;
 
-            matchedEventCount++;
-            AddProviderEvent(providersByKey, source, providerName, eventName);
-            var row = AddRowEvent(rowsByKey, target, eventName, isStart: false, isStop: false, isResult: true);
-            foreach (var reason in reasons)
-                row.Reasons.Add(reason);
-            foreach (var status in statuses)
-                row.Statuses.Add(status);
+            pointEvents.Add(new SecurityScanPointEvent(
+                target,
+                source,
+                providerName,
+                eventName,
+                IsStart: false,
+                IsStop: false,
+                IsResult: true,
+                Reasons: reasons,
+                Statuses: statuses));
         }
 
         var pairResult = pairer.Complete();
+        var unmatchedStarts = pairResult.UnmatchedStarts.Count(start =>
+            window.ContainsPoint(start.TimeUs) &&
+            PassesFilters(
+                TargetFromFields(start.Data.Fields),
+                pid,
+                processSubstring,
+                pathSubstring,
+                providerSubstring));
+        var unmatchedStops = pairResult.UnmatchedStops.Count(stop =>
+            window.ContainsPoint(stop.TimeUs) &&
+            PassesFilters(
+                TargetFromFields(stop.Data.Fields),
+                pid,
+                processSubstring,
+                pathSubstring,
+                providerSubstring));
+        var invalidIntervals = pairResult.InvalidIntervals.Count(interval =>
+            (window.ContainsPoint(interval.StartUs) || window.ContainsPoint(interval.EndUs)) &&
+            PassesFilters(
+                TargetFromFields(interval.StartData.Fields),
+                pid,
+                processSubstring,
+                pathSubstring,
+                providerSubstring));
+
+        var response = Project(
+            pairResult.Pairs,
+            window,
+            top,
+            pid,
+            processSubstring,
+            pathSubstring,
+            providerSubstring,
+            pointEvents,
+            unmatchedStarts + unresolvedStartCount,
+            unmatchedStops + unresolvedStopCount,
+            invalidIntervals);
+
+        var unresolvedIdentityCount = unresolvedStartCount + unresolvedStopCount;
+        if (unresolvedIdentityCount == 0)
+            return response;
+
+        return response with
+        {
+            Warnings = response.Warnings
+                .Concat(
+                [
+                    $"identity_incomplete: skipped {unresolvedIdentityCount} security scan endpoint events because their emitting process instance was unresolved or ambiguous.",
+                ])
+                .ToArray(),
+        };
+    }
+
+    internal static SecurityScanAnalysisResponse ProjectPairs(
+        IReadOnlyList<PairedInterval<
+            SecurityScanPairKey,
+            SecurityScanStartData,
+            SecurityScanStopData>> pairs,
+        TimeWindow window,
+        int top,
+        int? pid,
+        string? processSubstring,
+        string? pathSubstring,
+        string? providerSubstring) =>
+        Project(
+            pairs,
+            window,
+            top,
+            pid,
+            processSubstring,
+            pathSubstring,
+            providerSubstring,
+            pointEvents: [],
+            unmatchedStartCount: 0,
+            unmatchedStopCount: 0,
+            invalidIntervalCount: 0);
+
+    private static SecurityScanAnalysisResponse Project(
+        IReadOnlyList<PairedInterval<
+            SecurityScanPairKey,
+            SecurityScanStartData,
+            SecurityScanStopData>> pairs,
+        TimeWindow window,
+        int top,
+        int? pid,
+        string? processSubstring,
+        string? pathSubstring,
+        string? providerSubstring,
+        IReadOnlyList<SecurityScanPointEvent> pointEvents,
+        long unmatchedStartCount,
+        long unmatchedStopCount,
+        int invalidIntervalCount)
+    {
+        ArgumentNullException.ThrowIfNull(pairs);
+        ArgumentNullException.ThrowIfNull(pointEvents);
+        if (top < 1)
+            throw new ArgumentOutOfRangeException(nameof(top), top, "Top must be positive.");
+
+        var rowsByKey = new Dictionary<RowKey, RowStats>();
+        var providersByKey = new Dictionary<ProviderKey, ProviderStats>();
+
+        foreach (var pointEvent in pointEvents)
+        {
+            AddProviderEvent(
+                providersByKey,
+                pointEvent.Source,
+                pointEvent.ProviderName,
+                pointEvent.EventName);
+            var row = AddRowEvent(
+                rowsByKey,
+                pointEvent.Target,
+                pointEvent.EventName,
+                pointEvent.IsStart,
+                pointEvent.IsStop,
+                pointEvent.IsResult);
+            foreach (var reason in pointEvent.Reasons)
+                row.Reasons.Add(reason);
+            foreach (var status in pointEvent.Statuses)
+                row.Statuses.Add(status);
+        }
+
         var slowScans = new List<SecurityScanRequestRow>();
         long pairedScanCount = 0;
-        long totalDurationUs = 0;
+        long totalFullDurationUs = 0;
+        long totalAccountedDurationUs = 0;
 
-        foreach (var pair in pairResult.Pairs)
+        foreach (var pair in pairs)
         {
-            if (!IntervalIntersectsWindow(pair.StartUs, pair.StopUs, startUs, endUs))
+            var projected = DurationAccounting.Project(pair, window);
+            if (!projected.HasValue)
                 continue;
 
             var target = TargetFromPair(pair);
-            if (!PassesFilters(target, pid, processSubstring, pathSubstring, providerSubstring))
+            if (!PassesFilters(
+                    target,
+                    pid,
+                    processSubstring,
+                    pathSubstring,
+                    providerSubstring))
+            {
                 continue;
+            }
 
             pairedScanCount++;
-            totalDurationUs += pair.DurationUs;
+            totalFullDurationUs += projected.Value.FullDurationUs;
+            totalAccountedDurationUs += projected.Value.AccountedDurationUs;
 
             var row = GetRowStats(rowsByKey, target);
             row.PairedScanCount++;
-            row.TotalDurationUs += pair.DurationUs;
-            row.MaxDurationUs = Math.Max(row.MaxDurationUs ?? 0, pair.DurationUs);
+            row.TotalFullDurationUs += projected.Value.FullDurationUs;
+            row.TotalAccountedDurationUs += projected.Value.AccountedDurationUs;
+            row.MaxAccountedDurationUs = Math.Max(
+                row.MaxAccountedDurationUs ?? 0,
+                projected.Value.AccountedDurationUs);
             AddIfPresent(row.Reasons, Field(pair, "Reason"));
 
             slowScans.Add(new SecurityScanRequestRow(
@@ -156,32 +350,28 @@ public static class SecurityScanAnalysis
                 ProviderName: target.ProviderName,
                 Id: Field(pair, "__Id"),
                 StartUs: pair.StartUs,
-                StopUs: pair.StopUs,
-                DurationUs: pair.DurationUs,
+                StopUs: pair.EndUs,
+                DurationUs: projected.Value.AccountedDurationUs,
                 Process: target.Process,
                 Pid: target.Pid,
                 Path: target.Path,
-                Reason: NullIfEmpty(Field(pair, "Reason"))));
+                Reason: NullIfEmpty(Field(pair, "Reason")),
+                FullDurationUs: projected.Value.FullDurationUs,
+                AccountedDurationUs: projected.Value.AccountedDurationUs,
+                AccountingMode: DurationAccounting.ClippedOverlapMode));
         }
 
-        var unmatchedStarts = pairResult.UnmatchedStarts.Count(start =>
-            InWindow(start.TimeUs, startUs, endUs) &&
-            PassesFilters(TargetFromFields(start.Fields), pid, processSubstring, pathSubstring, providerSubstring));
-        var unmatchedStops = pairResult.UnmatchedStops.Count(stop =>
-            InWindow(stop.TimeUs, startUs, endUs) &&
-            PassesFilters(TargetFromFields(stop.Fields), pid, processSubstring, pathSubstring, providerSubstring));
-
-        var rows = rowsByKey
+        var completeRows = rowsByKey
             .Select(kv => ToRow(kv.Key, kv.Value))
-            .OrderByDescending(row => row.TotalDurationUs)
+            .OrderByDescending(row => row.TotalAccountedDurationUs)
             .ThenByDescending(row => row.EventCount)
             .ThenByDescending(row => row.PairedScanCount)
             .ThenBy(row => row.Source, StringComparer.Ordinal)
             .ThenBy(row => row.ProviderName, StringComparer.Ordinal)
-            .Take(top)
-            .ToList();
+            .ToArray();
+        var rows = completeRows.Take(top).ToArray();
 
-        var providers = providersByKey
+        var completeProviders = providersByKey
             .Select(kv => new SecurityScanProviderRow(
                 Source: kv.Key.Source,
                 ProviderName: kv.Key.ProviderName,
@@ -191,30 +381,42 @@ public static class SecurityScanAnalysis
                     .ThenBy(item => item.Key, StringComparer.Ordinal)
                     .Take(10)
                     .Select(item => $"{item.Key}:{item.Value}")
-                    .ToList()))
+                    .ToArray()))
             .OrderByDescending(row => row.EventCount)
             .ThenBy(row => row.Source, StringComparer.Ordinal)
-            .Take(top)
-            .ToList();
+            .ToArray();
+        var providers = completeProviders.Take(top).ToArray();
 
-        var slowRows = slowScans
-            .OrderByDescending(row => row.DurationUs)
+        var completeSlowScans = slowScans
+            .OrderByDescending(row => row.AccountedDurationUs)
             .ThenBy(row => row.StartUs)
-            .Take(top)
-            .ToList();
+            .ToArray();
+        var slowRows = completeSlowScans.Take(top).ToArray();
 
-        var warnings = BuildWarnings(rows, matchedEventCount, pairedScanCount, unmatchedStarts, unmatchedStops);
+        var warnings = BuildWarnings(
+            completeRows,
+            pointEvents.Count,
+            pairedScanCount,
+            unmatchedStartCount,
+            unmatchedStopCount);
 
         return new SecurityScanAnalysisResponse(
             Rows: rows,
             SlowScans: slowRows,
             Providers: providers,
-            MatchedEventCount: matchedEventCount,
+            MatchedEventCount: pointEvents.Count,
             PairedScanCount: pairedScanCount,
-            TotalDurationUs: totalDurationUs,
-            UnmatchedStartCount: unmatchedStarts,
-            UnmatchedStopCount: unmatchedStops,
-            Warnings: warnings);
+            TotalDurationUs: totalAccountedDurationUs,
+            UnmatchedStartCount: unmatchedStartCount,
+            UnmatchedStopCount: unmatchedStopCount,
+            Warnings: warnings,
+            TotalFullDurationUs: totalFullDurationUs,
+            TotalAccountedDurationUs: totalAccountedDurationUs,
+            RowsHasMore: completeRows.Length > rows.Length,
+            SlowScansHasMore: completeSlowScans.Length > slowRows.Length,
+            ProvidersHasMore: completeProviders.Length > providers.Length,
+            InvalidIntervalCount: invalidIntervalCount,
+            AccountingMode: DurationAccounting.ClippedOverlapMode);
     }
 
     private static IReadOnlyList<string> BuildWarnings(
@@ -228,15 +430,14 @@ public static class SecurityScanAnalysis
         if (rows.Count == 0)
         {
             warnings.Add("No security scan ETW events matched the requested filters. Third-party security products may not emit public scan events; cross-check CPU, wait, file IO, image-load, and minifilter driver evidence.");
-            return warnings;
         }
-
-        if (matchedEventCount > 0 && pairedScanCount == 0)
+        else if (matchedEventCount > 0 && pairedScanCount == 0)
             warnings.Add("Matched security-related events, but none exposed paired start/stop timing. For many third-party products this tool can show activity presence/counts, not exact scan duration.");
 
         if (unmatchedStarts > 0 || unmatchedStops > 0)
             warnings.Add($"Unmatched scan start/stop events in window: starts={unmatchedStarts}, stops={unmatchedStops}. Time-window boundaries or dropped events can prevent duration pairing.");
 
+        warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
         return warnings;
     }
 
@@ -248,11 +449,11 @@ public static class SecurityScanAnalysis
             Pid: key.Pid,
             Path: key.Path,
             PairedScanCount: stats.PairedScanCount,
-            TotalDurationUs: stats.TotalDurationUs,
+            TotalDurationUs: stats.TotalAccountedDurationUs,
             AvgDurationUs: stats.PairedScanCount > 0
-                ? stats.TotalDurationUs / (double)stats.PairedScanCount
+                ? stats.TotalAccountedDurationUs / (double)stats.PairedScanCount
                 : null,
-            MaxDurationUs: stats.MaxDurationUs,
+            MaxDurationUs: stats.MaxAccountedDurationUs,
             EventCount: stats.EventCount,
             StartEventCount: stats.StartEventCount,
             StopEventCount: stats.StopEventCount,
@@ -264,7 +465,14 @@ public static class SecurityScanAnalysis
                 .Select(item => $"{item.Key}:{item.Value}")
                 .ToList(),
             Reasons: stats.Reasons.OrderBy(value => value, StringComparer.Ordinal).Take(10).ToList(),
-            Statuses: stats.Statuses.OrderBy(value => value, StringComparer.Ordinal).Take(10).ToList());
+            Statuses: stats.Statuses.OrderBy(value => value, StringComparer.Ordinal).Take(10).ToList(),
+            TotalFullDurationUs: stats.TotalFullDurationUs,
+            TotalAccountedDurationUs: stats.TotalAccountedDurationUs,
+            AvgAccountedDurationUs: stats.PairedScanCount > 0
+                ? stats.TotalAccountedDurationUs / (double)stats.PairedScanCount
+                : null,
+            MaxAccountedDurationUs: stats.MaxAccountedDurationUs,
+            AccountingMode: DurationAccounting.ClippedOverlapMode);
 
     private static RowStats AddRowEvent(
         Dictionary<RowKey, RowStats> rowsByKey,
@@ -399,8 +607,12 @@ public static class SecurityScanAnalysis
         return "Security scan event";
     }
 
-    private static ScanTarget TargetFromPair(EventPair pair) =>
-        TargetFromFields(pair.StartFields);
+    private static ScanTarget TargetFromPair(
+        PairedInterval<
+            SecurityScanPairKey,
+            SecurityScanStartData,
+            SecurityScanStopData> pair) =>
+        TargetFromFields(pair.StartData.Fields);
 
     private static ScanTarget TargetFromFields(IReadOnlyDictionary<string, string> fields)
     {
@@ -474,11 +686,16 @@ public static class SecurityScanAnalysis
         return result;
     }
 
-    private static string Field(EventPair pair, string name)
+    private static string Field(
+        PairedInterval<
+            SecurityScanPairKey,
+            SecurityScanStartData,
+            SecurityScanStopData> pair,
+        string name)
     {
-        if (pair.StartFields.TryGetValue(name, out var startValue))
+        if (pair.StartData.Fields.TryGetValue(name, out var startValue))
             return startValue;
-        if (pair.StopFields.TryGetValue(name, out var stopValue))
+        if (pair.StopData.Fields.TryGetValue(name, out var stopValue))
             return stopValue;
         return string.Empty;
     }
@@ -532,19 +749,6 @@ public static class SecurityScanAnalysis
         return null;
     }
 
-    private static long ToUs(TraceEvent ev) => (long)(ev.TimeStampRelativeMSec * 1000);
-
-    private static bool InWindow(long timeUs, long? startUs, long? endUs) =>
-        (!startUs.HasValue || timeUs >= startUs.Value) &&
-        (!endUs.HasValue || timeUs < endUs.Value);
-
-    private static bool IntervalIntersectsWindow(long start, long stop, long? windowStart, long? windowEnd)
-    {
-        var effectiveStart = windowStart ?? long.MinValue;
-        var effectiveEnd = windowEnd ?? long.MaxValue;
-        return stop > effectiveStart && start < effectiveEnd;
-    }
-
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrEmpty(value) ? null : value;
 
@@ -582,11 +786,23 @@ public static class SecurityScanAnalysis
 
     private readonly record struct ProviderKey(string Source, string ProviderName);
 
+    private sealed record SecurityScanPointEvent(
+        ScanTarget Target,
+        string Source,
+        string ProviderName,
+        string EventName,
+        bool IsStart,
+        bool IsStop,
+        bool IsResult,
+        IReadOnlyList<string> Reasons,
+        IReadOnlyList<string> Statuses);
+
     private sealed class RowStats
     {
         public long PairedScanCount { get; set; }
-        public long TotalDurationUs { get; set; }
-        public long? MaxDurationUs { get; set; }
+        public long TotalFullDurationUs { get; set; }
+        public long TotalAccountedDurationUs { get; set; }
+        public long? MaxAccountedDurationUs { get; set; }
         public long EventCount { get; set; }
         public long StartEventCount { get; set; }
         public long StopEventCount { get; set; }

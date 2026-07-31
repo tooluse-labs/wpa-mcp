@@ -441,52 +441,11 @@ public sealed record MarkerSearchResponse(
     IReadOnlyList<MarkerCountRow>? Counts,
     IReadOnlyList<MarkerRow>? Rows);
 
-public sealed record SecurityScanTargetRow(
-    string Source,
-    string ProviderName,
-    string Process,
-    int? Pid,
-    string Path,
-    long PairedScanCount,
-    long TotalDurationUs,
-    double? AvgDurationUs,
-    long? MaxDurationUs,
-    long EventCount,
-    long StartEventCount,
-    long StopEventCount,
-    long ResultEventCount,
-    IReadOnlyList<string> EventNames,
-    IReadOnlyList<string> Reasons,
-    IReadOnlyList<string> Statuses);
-
-public sealed record SecurityScanRequestRow(
-    string Source,
-    string ProviderName,
-    string Id,
-    long StartUs,
-    long StopUs,
-    long DurationUs,
-    string Process,
-    int? Pid,
-    string Path,
-    string? Reason);
-
 public sealed record SecurityScanProviderRow(
     string Source,
     string ProviderName,
     long EventCount,
     IReadOnlyList<string> EventNames);
-
-public sealed record SecurityScanAnalysisResponse(
-    IReadOnlyList<SecurityScanTargetRow> Rows,
-    IReadOnlyList<SecurityScanRequestRow> SlowScans,
-    IReadOnlyList<SecurityScanProviderRow> Providers,
-    long MatchedEventCount,
-    long PairedScanCount,
-    long TotalDurationUs,
-    long UnmatchedStartCount,
-    long UnmatchedStopCount,
-    IReadOnlyList<string> Warnings);
 
 public sealed record ModuleSymbolStatus(
     string Module,
@@ -1050,43 +1009,6 @@ public sealed record ThreadLifetimeResponse(
     IReadOnlyList<ThreadLifetimeRow> Threads,
     IReadOnlyList<string> Warnings);
 
-// Single GC event: the wall interval bounded by GCStart→GCStop, with PauseUs filled in
-// from any covering GCSuspendEEStart→GCRestartEEStop on the same PID.  Generation = -1
-// flags a "pause without enclosing GCStart" — rare, happens at trace boundaries.
-public sealed record GcEventRow(
-    long StartUs,
-    long DurationUs,
-    int Generation,
-    string Reason,
-    int Pid,
-    long? PauseUs);
-
-public sealed record GcAnalysisResponse(
-    int? Pid,
-    int TotalGcCount,
-    int Gen0Count,
-    int Gen1Count,
-    int Gen2Count,
-    long TotalGcUs,
-    long TotalPauseUs,
-    IReadOnlyList<GcEventRow> Events,
-    IReadOnlyList<string> Warnings);
-
-// Single JIT'd method, with the time spent JITting it and the IL size from the source
-// metadata (NOT native code size — the JittingStarted event doesn't carry that).
-public sealed record JitMethodRow(
-    string Method,
-    long JitDurationUs,
-    int MethodIlSize,
-    int Pid);
-
-public sealed record JitAnalysisResponse(
-    int? Pid,
-    int TotalMethodsJitted,
-    long TotalJitUs,
-    IReadOnlyList<JitMethodRow> TopMethods,
-    IReadOnlyList<string> Warnings);
-
 // One row of a managed-allocation stack view: bytes the CLR observed flowing through this
 // frame, plus the GCAllocationTick event count (tick ≈ ~100 KB allocated per (heap, gen, type),
 // so absolute bytes are sampled, not exhaustive).
@@ -1128,28 +1050,6 @@ public sealed record ClrExceptionStacksResponse(
     IReadOnlyList<ClrExceptionStackRow> Rows,
     long TotalEventCount,
     IReadOnlyList<ClrExceptionTypeRow> TopTypes,
-    SymbolStats Stats,
-    IReadOnlyList<string> Warnings,
-    TimeHistogram? When = null);
-
-// One row of a managed-monitor-contention stack view: blocked μs on this frame.  Includes only
-// ContentionFlags.Managed events (the CLR's `lock` / Monitor.Enter waits) — native lock
-// contention from the same provider is ignored.
-public sealed record ClrContentionStackRow(
-    string Function,
-    long ExclusiveBlockedUs,
-    long InclusiveBlockedUs,
-    long ExclusiveCount,
-    long InclusiveCount,
-    double ExclusivePct,
-    double InclusivePct,
-    double? ExclusivePctOfTrace,
-    double? InclusivePctOfTrace);
-
-public sealed record ClrContentionStacksResponse(
-    IReadOnlyList<ClrContentionStackRow> Rows,
-    long TotalBlockedUs,
-    long TotalEventCount,
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null);
@@ -1224,23 +1124,7 @@ public sealed record GcHeapStatsResponse(
     IReadOnlyList<GcHeapStatsRow> Rows,
     IReadOnlyList<string> Warnings);
 
-// One run of the finalizer thread — bracketed by GCFinalizersStart→GCFinalizersStop.
-// `FinalizersRun` is the number of finalizers executed in this batch.
-public sealed record FinalizerBatchRow(
-    int Pid,
-    long StartUs,
-    long DurationUs,
-    int FinalizersRun);
-
 public sealed record FinalizedTypeRow(string TypeName, long Count);
-
-public sealed record FinalizerAnalysisResponse(
-    int? Pid,
-    long TotalObjectsFinalized,
-    long TotalBatchUs,
-    IReadOnlyList<FinalizerBatchRow> Batches,
-    IReadOnlyList<FinalizedTypeRow> TopTypes,
-    IReadOnlyList<string> Warnings);
 
 // One TCP connection paired Connect/Accept → Disconnect/Reconnect by `connid`.  CloseTimeUs
 // can equal trace-end (with TraceResidentEnd = true) for connections still open when capture

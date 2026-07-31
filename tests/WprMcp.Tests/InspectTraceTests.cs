@@ -76,7 +76,9 @@ public sealed class InspectTraceTests
         Assert.False(inspect.Capabilities.HasCSwitch);
         Assert.False(inspect.Capabilities.HasStackWalks);
         Assert.True(gc.TotalGcCount > 0);
-        Assert.Empty(gc.Warnings);
+        Assert.Equal(
+            [WarningBuilder.LegacyAccountedDurationWarning],
+            gc.Warnings);
         Assert.Contains(inspect.CapabilitySupportedTools, r => r.ToolName == "clr_gc_analysis");
         Assert.DoesNotContain(inspect.CapabilitySupportedTools, r => r.ToolName == "clr_alloc_top_stacks");
         Assert.Contains(inspect.Warnings, w => w.Code == "missing_context_switches");
