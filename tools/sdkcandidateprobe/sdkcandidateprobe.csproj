@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <DefineConstants Condition="'$(WprMcpProtocolProfile)' == 'stateless-discovery'">$(DefineConstants);MCP_STATELESS_DISCOVERY</DefineConstants>
+    <DefineConstants Condition="'$(WpaMcpProtocolProfile)' == 'stateless-discovery'">$(DefineConstants);MCP_STATELESS_DISCOVERY</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" />

@@ -44,10 +44,10 @@
 
 **位置**
 
-- `src\WprMcp\Analyzers\ProcessProjection.cs:32` — 计算公式
-- `src\WprMcp\Tools\MetaTools.cs:589-624`（工具入口）、`:670-673`（排序键）
-- `src\WprMcp\Output\Records.cs:175-183` — `ProcessRow.WaitRatio` 字段
-- `tests\WprMcp.Tests\MetaToolsTests.cs:293-314` — 现有但**覆盖不到**本 bug 的测试
+- `src\WpaMcp\Analyzers\ProcessProjection.cs:32` — 计算公式
+- `src\WpaMcp\Tools\MetaTools.cs:589-624`（工具入口）、`:670-673`（排序键）
+- `src\WpaMcp\Output\Records.cs:175-183` — `ProcessRow.WaitRatio` 字段
+- `tests\WpaMcp.Tests\MetaToolsTests.cs:293-314` — 现有但**覆盖不到**本 bug 的测试
 
 **根因**
 
@@ -84,10 +84,10 @@ WaitRatio = wallUs / cpuUs
 
 **位置**
 
-- `src\WprMcp\Tools\DiagnoseTools.cs:237-612` — 工具入口和候选循环
-- `src\WprMcp\Analyzers\WaitAnalysis.cs` — `WaitAnalysis.Analyze`（line 267-272 调用，`top=int.MaxValue`）
-- `src\WprMcp\Analyzers\BlockedTimeStackAnalysis.cs:60`、`:137-150` — 候选栈分析
-- `src\WprMcp\Analyzers\ReadyThreadStackAnalysis.cs` — 唤醒栈分析
+- `src\WpaMcp\Tools\DiagnoseTools.cs:237-612` — 工具入口和候选循环
+- `src\WpaMcp\Analyzers\WaitAnalysis.cs` — `WaitAnalysis.Analyze`（line 267-272 调用，`top=int.MaxValue`）
+- `src\WpaMcp\Analyzers\BlockedTimeStackAnalysis.cs:60`、`:137-150` — 候选栈分析
+- `src\WpaMcp\Analyzers\ReadyThreadStackAnalysis.cs` — 唤醒栈分析
 
 **根因 — 单次调用的 trace pass 数量**
 
@@ -133,11 +133,11 @@ N   次 ReadyThreadStackAnalysis      (per 候选)
 
 **位置**
 
-- `src\WprMcp\Analyzers\InterruptStackAnalysis.cs:110-153` — DPC/ISR 事件处理
-- `src\WprMcp\Tools\InterruptTools.cs` — 工具入口
-- `src\WprMcp\Analyzers\TraceCapabilitiesDetector.cs:109-110` — 当前只统计全局 `hasStackWalks`
-- `src\WprMcp\Output\Warnings.cs` — warning 类型集合
-- `src\WprMcp\Analyzers\StackSourceTopN.cs:118-126` — `?!?` 合成根的来源（CLAUDE.md invariant #3 (a)）
+- `src\WpaMcp\Analyzers\InterruptStackAnalysis.cs:110-153` — DPC/ISR 事件处理
+- `src\WpaMcp\Tools\InterruptTools.cs` — 工具入口
+- `src\WpaMcp\Analyzers\TraceCapabilitiesDetector.cs:109-110` — 当前只统计全局 `hasStackWalks`
+- `src\WpaMcp\Output\Warnings.cs` — warning 类型集合
+- `src\WpaMcp\Analyzers\StackSourceTopN.cs:118-126` — `?!?` 合成根的来源（CLAUDE.md invariant #3 (a)）
 
 **根因**
 
@@ -164,9 +164,9 @@ N   次 ReadyThreadStackAnalysis      (per 候选)
 
 **位置**
 
-- `src\WprMcp\Tools\CpuTools.cs:70-100`（batch 入口）、`:88-98`（串行 `foreach pids`）
-- `src\WprMcp\Analyzers\CpuAnalysis.cs:82-114`（`BuildNormalized`，PerfView parity 关键路径，CLAUDE.md invariant #3）
-- `src\WprMcp\Core\TraceCache.cs:60-65` — 只缓存 `Lazy<TraceLog>`，**没有缓存 stack source**
+- `src\WpaMcp\Tools\CpuTools.cs:70-100`（batch 入口）、`:88-98`（串行 `foreach pids`）
+- `src\WpaMcp\Analyzers\CpuAnalysis.cs:82-114`（`BuildNormalized`，PerfView parity 关键路径，CLAUDE.md invariant #3）
+- `src\WpaMcp\Core\TraceCache.cs:60-65` — 只缓存 `Lazy<TraceLog>`，**没有缓存 stack source**
 
 **根因 — 单次 batch 调用的成本**
 
@@ -209,7 +209,7 @@ N=8 → **8 次全 trace walk + 8 次 PDB 查询 + 16 次 stack source 构建**�
 
 ### 1.5 缺失的 MCP 工具注解 — UX 问题（2026-05-17 新增）
 
-**位置**：所有 `src\WprMcp\Tools\*Tools.cs` 中的 `[McpServerTool]` 标注
+**位置**：所有 `src\WpaMcp\Tools\*Tools.cs` 中的 `[McpServerTool]` 标注
 
 **现状**（grep 验证）：
 
@@ -254,7 +254,7 @@ ReadOnly / Idempotent 标注：58 处（实施前只有 inspect_trace / diagnose
 >
 > 因此本节重写为两种缓存形态，并按"分析器类别"分阶段落地。
 
-**现状**：`src\WprMcp\Core\TraceCache.cs:60-65` 只缓存 `Lazy<TraceLog>` + capabilities + metadata，LRU 默认 2。`MutableTraceEventStackSource`（构建成本占单次工具调用的 90%+）每次都从头做。
+**现状**：`src\WpaMcp\Core\TraceCache.cs:60-65` 只缓存 `Lazy<TraceLog>` + capabilities + metadata，LRU 默认 2。`MutableTraceEventStackSource`（构建成本占单次工具调用的 90%+）每次都从头做。
 
 #### 形态 A：whole-trace raw source + stack-walk PID 过滤（PerfView 路线）
 
@@ -304,7 +304,7 @@ CSwitch events → 状态机 (per thread, on-CPU vs blocked) → blocked interva
 #### 生命周期与配置
 
 - 与 `TraceLog` 绑定：trace 从 cache evict 时，对应 stack source 一并清掉
-- 内存压力大：每个 raw source 估计 50-300 MB；需要新加 `WPRMCP_STACK_CACHE_MB` 上限（默认 `1024`），超过时按 LRU 逐项 evict
+- 内存压力大：每个 raw source 估计 50-300 MB；需要新加 `WPAMCP_STACK_CACHE_MB` 上限（默认 `1024`），超过时按 LRU 逐项 evict
 - mtime invalidation：复用 `TraceCache` 现有逻辑
 
 #### 分阶段落地
@@ -387,11 +387,11 @@ sealed class AnalysisBudget
 
 ### 2.E CLI 基准回归
 
-**位置**：`src\WprMcp\Cli\CliRunner.cs` 已能直接吐 JSON。
+**位置**：`src\WpaMcp\Cli\CliRunner.cs` 已能直接吐 JSON。
 
-**建议**：新建 `tests\WprMcp.Perf\` 项目，跑固定 fixture（`small_cpu.etl` + 一个 multi-PID 合成 fixture）上的 wall-time 阈值断言。CI 矩阵加一个 `perf` job，回归时直接看到"今天的改动让 `cpu_top_functions_batch` 8 PID 从 240 s 降到 30 s"。
+**建议**：新建 `tests\WpaMcp.Perf\` 项目，跑固定 fixture（`small_cpu.etl` + 一个 multi-PID 合成 fixture）上的 wall-time 阈值断言。CI 矩阵加一个 `perf` job，回归时直接看到"今天的改动让 `cpu_top_functions_batch` 8 PID 从 240 s 降到 30 s"。
 
-注意：当前 xUnit assembly 级并行**已被禁用**（`tests\WprMcp.Tests\AssemblyInfo.cs`，理由见 CLAUDE.md "Test fixtures" 节），perf 项目要独立 csproj 避免冲突。
+注意：当前 xUnit assembly 级并行**已被禁用**（`tests\WpaMcp.Tests\AssemblyInfo.cs`，理由见 CLAUDE.md "Test fixtures" 节），perf 项目要独立 csproj 避免冲突。
 
 ---
 
@@ -405,7 +405,7 @@ sealed class AnalysisBudget
 
 1. **§1.5（新增）**：所有只读工具加 `[McpServerTool(ReadOnly=true, Idempotent=true)]` 注解
    - 状态：已实施；`set_symbol_path` 标为 `ReadOnly=false, Idempotent=false`，`add_symbol_server` / `load_trace` 标为 `ReadOnly=false, Idempotent=true`
-   - 验证：全量 `dotnet test WprMcp.sln -c Release --no-restore`
+   - 验证：全量 `dotnet test WpaMcp.sln -c Release --no-restore`
    - 收益：用户每次会话都受益（消除自动审批噪声）
 2. **§1.3 选项 A + B**：interrupt 缺栈 warning + `hasInterruptStacks` capability
    - 状态：已实施；新增 `TraceCapabilities.HasInterruptStacks` 和 DPC/ISR 缺栈 warning
@@ -437,7 +437,7 @@ sealed class AnalysisBudget
 10. **§2.B**：抽 `MultiPidStackAnalysis<T>` 基类
 11. **§2.C**：`AnalysisBudget` 基础设施 + 工具入参全面接入
 12. **§2.D**：所有 stack-based 工具的能力降级表
-13. **§2.E**：`tests\WprMcp.Perf\` 项目 + CI perf job
+13. **§2.E**：`tests\WpaMcp.Perf\` 项目 + CI perf job
 14. **§1.1 选项 B**：`TraceResident` epsilon 放大（独立 hygiene PR，不修本 bug）
 15. **§1.4 选项 C**：在单 pass 之上并行化 normalize / CallTree（先 benchmark 验证收益再做）
 
@@ -456,8 +456,8 @@ sealed class AnalysisBudget
 
 测试相关：
 
-- `tests\WprMcp.Tests\AssemblyInfo.cs` 禁用了 assembly 级并行，不要改
-- `.etl` fixture 默认 gitignored，新增 fixture 需在 `tests\WprMcp.Tests\fixtures\capture_all.ps1` 里加捕获脚本（Administrator PowerShell 才能跑）
+- `tests\WpaMcp.Tests\AssemblyInfo.cs` 禁用了 assembly 级并行，不要改
+- `.etl` fixture 默认 gitignored，新增 fixture 需在 `tests\WpaMcp.Tests\fixtures\capture_all.ps1` 里加捕获脚本（Administrator PowerShell 才能跑）
 - `perfview_gcevents.etl` 是 committed 第三方 fixture，不要重新生成
 
 PerfView parity 验证：见 `tests\manual\perfview_compare.md`，CPU/wait/image-load/IO/alloc/network/registry/ALPC/interrupt/CLR 工具改完都要跑一遍。
@@ -466,7 +466,7 @@ PerfView parity 验证：见 `tests\manual\perfview_compare.md`，CPU/wait/image
 
 ## 5. 当前没有但应该加的代码标记
 
-仓库当前 `src\WprMcp\` 下没有任何 `TODO`/`HACK`/`FIXME` 注释（grep 验证）。建议本次落地的修复在代码处用统一形式：
+仓库当前 `src\WpaMcp\` 下没有任何 `TODO`/`HACK`/`FIXME` 注释（grep 验证）。建议本次落地的修复在代码处用统一形式：
 
 ```csharp
 // PERF(2026-05-17): single-pass multi-PID; see docs/PERF_OPTIMIZATION_2026-05-17.md §1.4

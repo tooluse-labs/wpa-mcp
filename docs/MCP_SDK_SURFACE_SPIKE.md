@@ -58,7 +58,7 @@ Do not mass-annotate existing tools in this spike. Tool annotation rollout shoul
 
 ## Verification
 
-`tests/WprMcp.Tests/McpSdkSurfaceTests.cs` locks the SDK surface that T0.3 depends on:
+`tests/WpaMcp.Tests/McpSdkSurfaceTests.cs` locks the SDK surface that T0.3 depends on:
 
 - protocol hint properties
 - attribute hint properties

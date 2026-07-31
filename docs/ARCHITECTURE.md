@@ -3,7 +3,7 @@
 ```
 Claude Code / Codex / Cursor (any MCP client)
         │ stdio JSON-RPC (MCP)
-WprMcp.Server (single .NET 8 console)
+WpaMcp.Server (single .NET 10 console)
   ├── Program.cs                — Hosting + DI + stdio transport
   ├── Tools/*Tools.cs           — [McpServerTool] entry points
   ├── Analyzers/*.cs            — TraceEvent-based analysis logic
@@ -16,7 +16,7 @@ Microsoft.Diagnostics.Tracing.TraceEvent (NuGet)
   └── SymbolReader (PDB resolution via dbghelp)
 ```
 
-Single csproj for PoC. Module split (`WprMcp.Analyzers`, `WprMcp.Core`) is deferred to Phase 1 when team contributors join.
+Single csproj for PoC. Module split (`WpaMcp.Analyzers`, `WpaMcp.Core`) is deferred to Phase 1 when team contributors join.
 
 ## Trace lifecycle
 

@@ -66,7 +66,7 @@
 
 - **状态：** ✅ 已完成 2026-05-15（`InspectTraceTests`、`MetaToolsTests`、`TraceCapabilitiesDetector` event-family 对齐）。
 - **依赖：** T0.3。
-- **范围：** `tests/WprMcp.Tests`。
+- **范围：** `tests/WpaMcp.Tests`。
 - **覆盖：**
   - ✅ capabilities 正确投影
   - ✅ events lost 产生 warning
@@ -81,9 +81,9 @@
 - **内容：**
   - ✅ 增加结构化 per-call telemetry：tool name、salted argument hash 或 session trace id、latency、response byte count、error flag、cache-hit flag。
   - telemetry 实现约束：
-    - ✅ 运行时持久 telemetry 通过 `WPRMCP_TELEMETRY=1` opt-in；全新安装默认不发 telemetry。CI benchmark 和本地 measurement 命令是显式运行的验证路径，不是常驻运行时 telemetry。
+    - ✅ 运行时持久 telemetry 通过 `WPAMCP_TELEMETRY=1` opt-in；全新安装默认不发 telemetry。CI benchmark 和本地 measurement 命令是显式运行的验证路径，不是常驻运行时 telemetry。
     - ✅ server 启动时生成 per-session salt，且不写入磁盘或日志。如需 hash 参数，使用 `HMAC(session_salt, args_json)`；禁止 deterministic 或 process-lifetime path hashes。
-    - ✅ telemetry 只能写 stderr 或 `%LocalAppData%\WprMcp\Logs\` 下的专用文件。stdout 保留给 MCP JSON-RPC framing，必须保持干净。
+    - ✅ telemetry 只能写 stderr 或 `%LocalAppData%\WpaMcp\Logs\` 下的专用文件。stdout 保留给 MCP JSON-RPC framing，必须保持干净。
   - ✅ 启动时记录 `tools/list` payload size，并增加 CI guard：超过批准的 baseline 阈值则失败。
   - ✅ 定义 10 个标准 synthetic 调查场景及可接受工具调用序列，包括关闭 Resources / Prompts 的 tools-only 模式。见 `MCP_MEASUREMENT_BASELINE.md`。
   - ✅ 跟踪 `MCP_SURFACE_DESIGN.md` 的 6 个成功指标：wrong-tool selection、mean tool calls per investigation、`tools/list` size、human Prompt invocation、agent Prompt invocation、`inspect_trace` adoption。
@@ -92,7 +92,7 @@
   - ✅ benchmark 和 telemetry 输出不泄露隐私，也不污染 MCP stdio。
   - ✅ privacy review 通过：没有 raw paths、没有 deterministic path hashes、没有 payload contents，并验证 per-session salt 每次唯一。
   - ✅ transport review 通过：stdout 只包含 MCP JSON-RPC frames；日志确认写到 stderr 或专用文件。
-  - ✅ 在未设置 `WPRMCP_TELEMETRY` 环境变量时，验证运行时 telemetry 默认关闭。
+  - ✅ 在未设置 `WPAMCP_TELEMETRY` 环境变量时，验证运行时 telemetry 默认关闭。
 
 ### T0.6 增加 token-compact stack responses
 

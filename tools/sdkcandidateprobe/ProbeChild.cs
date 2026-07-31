@@ -94,7 +94,7 @@ internal sealed class ProbeChild : IAsyncDisposable
     }
 
     internal static string ResolveDotNetHost() =>
-        Environment.GetEnvironmentVariable("WPRMCP_DOTNET_HOST")
+        Environment.GetEnvironmentVariable("WPAMCP_DOTNET_HOST")
         ?? Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
         ?? "dotnet";
 

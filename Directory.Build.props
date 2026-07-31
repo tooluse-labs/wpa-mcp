@@ -2,7 +2,7 @@
   <Import Project="eng\SelectedPlatform.props" />
 
   <PropertyGroup>
-    <TargetFramework>$(WprMcpTargetFramework)</TargetFramework>
+    <TargetFramework>$(WpaMcpTargetFramework)</TargetFramework>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>

@@ -1,7 +1,7 @@
 # Recommended WPR capture profile
 
 For best coverage of all 6 PoC tools, capture with the included
-`tests/WprMcp.Tests/fixtures/MmapCapture.wprp` (or copy it elsewhere). It enables:
+`tests/WpaMcp.Tests/fixtures/MmapCapture.wprp` (or copy it elsewhere). It enables:
 
 | Keyword | Used by |
 |---|---|
@@ -11,7 +11,7 @@ For best coverage of all 6 PoC tools, capture with the included
 | FileIO, FileIOInit | file_io_top_files |
 
 For memory resource views (`memory_resource_analysis`), use
-`tests/WprMcp.Tests/fixtures/MemoryCapture.wprp`. It enables:
+`tests/WpaMcp.Tests/fixtures/MemoryCapture.wprp`. It enables:
 
 | Keyword | Used by |
 |---|---|
@@ -29,7 +29,7 @@ stack capture so the fixture can stay small. Use a stack-enabled profile when
 `virtual_alloc_top_stacks` call-chain evidence is required.
 
 For wait-stack fixture refreshes, use
-`tests/WprMcp.Tests/fixtures/WaitBoundCapture.wprp`. It enables:
+`tests/WpaMcp.Tests/fixtures/WaitBoundCapture.wprp`. It enables:
 
 | Keyword | Used by |
 |---|---|
@@ -39,7 +39,7 @@ For wait-stack fixture refreshes, use
 | Stack on ThreadCreate, CSwitch, ReadyThread | positive-path stack evidence |
 
 For .NET JIT-only investigations, use
-`tests/WprMcp.Tests/fixtures/JitOnlyCapture.wprp!ClrJitOnly`. It enables:
+`tests/WpaMcp.Tests/fixtures/JitOnlyCapture.wprp!ClrJitOnly`. It enables:
 
 | Keyword | Used by |
 |---|---|
@@ -72,13 +72,13 @@ wpr.exe -stop my_wait_capture.etl
 ```
 
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File tests\WprMcp.Tests\fixtures\Capture-JitOnly.ps1
+powershell.exe -ExecutionPolicy Bypass -File tests\WpaMcp.Tests\fixtures\Capture-JitOnly.ps1
 ```
 
 For stack-capture sanity checks, use the debug CLI probe:
 
 ```powershell
-dotnet run --project src\WprMcp -- --probe-stacks my_wait_capture.etl
+dotnet run --project src\WpaMcp -- --probe-stacks my_wait_capture.etl
 ```
 
 It reports both explicit `StackWalkStack` events and event-attached

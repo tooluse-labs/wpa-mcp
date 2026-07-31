@@ -16,16 +16,16 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # actions/checkout@v4
 
       - name: Setup build environment
-        uses: ./.github/actions/setup-wprmcp
+        uses: ./.github/actions/setup-wpamcp
 
       - name: Restore normal locked graph
-        run: dotnet restore WprMcp.sln --locked-mode
+        run: dotnet restore WpaMcp.sln --locked-mode
 
       - name: Restore win-x64 locked graph
-        run: dotnet restore src/WprMcp/WprMcp.csproj -r win-x64 --locked-mode -p:NuGetLockFilePath=packages.win-x64.lock.json
+        run: dotnet restore src/WpaMcp/WpaMcp.csproj -r win-x64 --locked-mode -p:NuGetLockFilePath=packages.win-x64.lock.json
 
       - name: Build
-        run: dotnet build WprMcp.sln -c Release --no-restore -warnaserror
+        run: dotnet build WpaMcp.sln -c Release --no-restore -warnaserror
 
       - name: Test non-package suites
-        run: dotnet test WprMcp.sln -c Release --no-build --filter "Category!=Package"
+        run: dotnet test WpaMcp.sln -c Release --no-build --filter "Category!=Package"

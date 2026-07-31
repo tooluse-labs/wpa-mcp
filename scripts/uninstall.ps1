@@ -68,7 +68,7 @@ function Resolve-InstallDir {
 }
 
 $repoRoot = $null
-$repoCsproj = Join-Path $PSScriptRoot '..\src\WprMcp\WprMcp.csproj'
+$repoCsproj = Join-Path $PSScriptRoot '..\src\WpaMcp\WpaMcp.csproj'
 if (Test-Path $repoCsproj) { $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..') }
 
 $Scope = Normalize-Scope $Scope

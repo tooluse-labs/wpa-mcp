@@ -102,7 +102,7 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-This removes the `wpa-mcp` entry from every detected MCP client and deletes `%USERPROFILE%\.local\bin\wpa-mcp.exe`. The symbol cache stays (delete `%LocalAppData%\WprMcp\Symbols\` to remove it).
+This removes the `wpa-mcp` entry from every detected MCP client and deletes `%USERPROFILE%\.local\bin\wpa-mcp.exe`. The symbol cache stays (delete `%LocalAppData%\WpaMcp\Symbols\` to remove it).
 
 ### Requirements
 
@@ -158,13 +158,13 @@ Build:
 git clone https://github.com/tooluse-labs/wpa-mcp
 cd wpa-mcp
 dotnet build -c Release
-# DLL: src\WprMcp\bin\Release\net8.0\WprMcp.dll
+# DLL: src\WpaMcp\bin\Release\net10.0\WpaMcp.dll
 ```
 
 Smoke-check:
 
 ```powershell
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # prints "WprMcp 0.2.16"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.2.16"
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
@@ -380,7 +380,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 ### CLR (.NET runtime)
 
 Requires the `Microsoft-Windows-DotNETRuntime` ETW provider in the capture profile (WPR `.wprp` files need an explicit `<EventCollectorId>` for it).
-For minimal JIT-only traces, run `tests/WprMcp.Tests/fixtures/Capture-JitOnly.ps1` or use `JitOnlyCapture.wprp!ClrJitOnly`; it enables the CLR JIT + Loader bits needed by `clr_jit_analysis` without GC/allocation/exception/contention runtime keywords.
+For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps1` or use `JitOnlyCapture.wprp!ClrJitOnly`; it enables the CLR JIT + Loader bits needed by `clr_jit_analysis` without GC/allocation/exception/contention runtime keywords.
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
@@ -416,7 +416,7 @@ For minimal JIT-only traces, run `tests/WprMcp.Tests/fixtures/Capture-JitOnly.ps
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
-| `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WprMcp\Symbols`). | File → Set Symbol Path… (single entry) |
+| `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WpaMcp\Symbols`). | File → Set Symbol Path… (single entry) |
 | `diagnose_symbols` | Reports per-module symbol status for a loaded trace and suggests fixes (which servers to add) for unresolved modules. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
 
 ---
@@ -425,14 +425,14 @@ For minimal JIT-only traces, run `tests/WprMcp.Tests/fixtures/Capture-JitOnly.ps
 
 ### Trace cache
 
-LRU, default capacity 2 traces.  Override with `WPRMCP_CACHE_SIZE=N`.  First load builds `.etlx` (slow); cached calls are instant.  `Capabilities` and `TraceLog` are both cached per `(path, mtime)` — re-loading the same `.etl` is free.
+LRU, default capacity 2 traces.  Override with `WPAMCP_CACHE_SIZE=N`.  First load builds `.etlx` (slow); cached calls are instant.  `Capabilities` and `TraceLog` are both cached per `(path, mtime)` — re-loading the same `.etl` is free.
 
 ### Capturing your own traces
 
 See [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md) for a recommended `.wprp` that captures CPU + CSwitch + FileIO + DiskIO + HardFaults + Loader stacks.  Quick canonical capture:
 
 ```powershell
-wpr.exe -start tests\WprMcp.Tests\fixtures\MmapCapture.wprp -filemode
+wpr.exe -start tests\WpaMcp.Tests\fixtures\MmapCapture.wprp -filemode
 # … reproduce the slow case …
 wpr.exe -stop C:\path\to\my_capture.etl
 ```
@@ -453,7 +453,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 2. **Per-MCP-server `--symbol-path` arg** in the config JSON/TOML (see manual install above).  Easiest to share between teammates.
 3. **Runtime via tool calls** — ask the agent: *"set the symbol path to SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols, then run `diagnose_symbols` on this trace."*
 
-Symbol cache defaults to `%LocalAppData%\WprMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
+Symbol cache defaults to `%LocalAppData%\WpaMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
 
 #### Beyond Microsoft modules
 

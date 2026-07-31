@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Build wpa-mcp and register it with one or more MCP clients. Idempotent — running
   twice reinstalls cleanly.
@@ -24,7 +24,7 @@
   Skip 'dotnet build -c Release' (use existing binary). Auto-set in release-zip mode.
 
 .PARAMETER SkipDotNetInstall
-  Don't auto-install .NET 8 if missing. Default: bootstrap .NET 8 via Microsoft's
+  Don't auto-install .NET 10 if missing. Default: bootstrap .NET 10 via Microsoft's
   official user-scope installer (https://dot.net/v1/dotnet-install.ps1) — no admin
   needed, installs into %USERPROFILE%\.dotnet.
 
@@ -82,7 +82,7 @@ function New-ClaudeServerJson {
     return $serverJson
 }
 
-# Detect (and optionally install) the right .NET 8 variant: 'sdk' for repo mode (need
+# Detect (and optionally install) the right .NET 10 variant: 'sdk' for repo mode (need
 # the build toolchain) or 'runtime' for release-zip mode (just need to run the DLL).
 function Find-DotNetCommand {
     $existing = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -117,7 +117,7 @@ function Add-DotNetDirectoryToPath {
     }
 }
 
-function Test-DotNet8VariantPresent {
+function Test-DotNet10VariantPresent {
     param(
         [Parameter(Mandatory)]
         [string]$DotNetCommand,
@@ -130,9 +130,9 @@ function Test-DotNet8VariantPresent {
     $cmd = if ($Variant -eq 'sdk') { '--list-sdks' } else { '--list-runtimes' }
     $output = & $DotNetCommand $cmd 2>$null
     if ($Variant -eq 'sdk') {
-        return ($output -match '^8\.')
+        return ($output -match '^10\.')
     }
-    return ($output -match 'Microsoft\.NETCore\.App 8\.')
+    return ($output -match 'Microsoft\.NETCore\.App 10\.')
 }
 
 function Get-DotNetWingetPackage {
@@ -142,8 +142,8 @@ function Get-DotNetWingetPackage {
         [string]$Variant
     )
 
-    if ($Variant -eq 'sdk') { return 'Microsoft.DotNet.SDK.8' }
-    return 'Microsoft.DotNet.Runtime.8'
+    if ($Variant -eq 'sdk') { return 'Microsoft.DotNet.SDK.10' }
+    return 'Microsoft.DotNet.Runtime.10'
 }
 
 function Install-DotNetWithWinget {
@@ -157,7 +157,7 @@ function Install-DotNetWithWinget {
     if (-not $winget) { return $false }
 
     $pkg = Get-DotNetWingetPackage -Variant $Variant
-    Write-Info "Bootstrapping .NET 8 $Variant via winget..."
+    Write-Info "Bootstrapping .NET 10 $Variant via winget..."
     & $winget.Source install --id $pkg --exact --source winget --accept-package-agreements --accept-source-agreements --silent
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "winget install $pkg failed (exit $LASTEXITCODE)."
@@ -177,16 +177,16 @@ function Ensure-DotNet {
     $dotnetCommand = Find-DotNetCommand
     if ($dotnetCommand) {
         Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
-        if (Test-DotNet8VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
-            Write-Ok ".NET 8 $Variant already present."
+        if (Test-DotNet10VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
+            Write-Ok ".NET 10 $Variant already present."
             return
         }
-        Write-Warn "dotnet found but .NET 8 $Variant missing; will bootstrap alongside."
+        Write-Warn "dotnet found but .NET 10 $Variant missing; will bootstrap alongside."
     }
 
     if ($SkipDotNetInstall) {
         $pkg = Get-DotNetWingetPackage -Variant $Variant
-        throw ".NET 8 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install $pkg"
+        throw ".NET 10 $Variant not detected and -SkipDotNetInstall was passed. Install manually: winget install $pkg"
     }
 
     # Constrained Language Mode (AppLocker / WDAC / Device Guard policy) blocks .NET
@@ -199,18 +199,18 @@ function Ensure-DotNet {
             $dotnetCommand = Find-DotNetCommand
             if ($dotnetCommand) {
                 Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
-                if (Test-DotNet8VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
-                    Write-Ok ".NET 8 $Variant installed via winget."
+                if (Test-DotNet10VariantPresent -DotNetCommand $dotnetCommand -Variant $Variant) {
+                    Write-Ok ".NET 10 $Variant installed via winget."
                     return
                 }
             }
         }
 
         $pkg = Get-DotNetWingetPackage -Variant $Variant
-        throw "Cannot bootstrap .NET 8 ${Variant}: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy), and the winget fallback did not make .NET 8 available. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
+        throw "Cannot bootstrap .NET 10 ${Variant}: this PowerShell session is in $languageMode mode (typically AppLocker / WDAC / Device Guard policy), and the winget fallback did not make .NET 10 available. Install manually then re-run setup.ps1 with -SkipDotNetInstall:`n  winget install $pkg"
     }
 
-    Write-Info "Bootstrapping .NET 8 $Variant via dotnet-install.ps1 (user-scope, no admin)..."
+    Write-Info "Bootstrapping .NET 10 $Variant via dotnet-install.ps1 (user-scope, no admin)..."
     $bootstrapPath = Join-Path $env:TEMP 'dotnet-install.ps1'
     Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $bootstrapPath -UseBasicParsing
 
@@ -218,9 +218,9 @@ function Ensure-DotNet {
     # passes its elements POSITIONALLY -- the leading dash on a token like the channel
     # flag is just a literal character, not a parameter-name marker.  That used to
     # make dotnet-install.ps1 receive the flag string as its first positional ($Channel)
-    # and 8.0 as its second positional ($Quality), which threw "'8.0' is not a
+    # and 10.0 as its second positional ($Quality), which threw "'10.0' is not a
     # supported value for -Quality option".  Hashtable splat binds by name.
-    $bootstrapArgs = @{ Channel = '8.0' }
+    $bootstrapArgs = @{ Channel = '10.0' }
     if ($Variant -eq 'runtime') { $bootstrapArgs['Runtime'] = 'dotnet' }
     # dotnet-install.ps1 is a .ps1, so $LASTEXITCODE is NEVER set by this call -- it
     # stays at whatever it was before (often $null in a fresh PS session).  Since
@@ -246,15 +246,15 @@ function Ensure-DotNet {
         throw "dotnet still not on PATH after install. Add '$userDotnet' to PATH manually and retry."
     }
     Add-DotNetDirectoryToPath -DotNetCommand $dotnetCommand
-    Write-Ok ".NET 8 $Variant installed to $userDotnet"
+    Write-Ok ".NET 10 $Variant installed to $userDotnet"
     Write-Warn "If you open a new shell, add '$userDotnet' to PATH (or relog — dotnet-install.ps1 updates user PATH for future sessions)."
 }
 
 # Step 1 — locate the DLL. Two layouts supported:
-#   * Repo mode:        scripts/install.ps1, DLL at ../src/WprMcp/bin/Release/net8.0/WprMcp.dll
-#   * Release-zip mode: install.ps1 at zip root, DLL at ./bin/WprMcp.dll
-$repoModeDll = Join-Path $PSScriptRoot '..\src\WprMcp\bin\Release\net8.0\WprMcp.dll'
-$zipModeDll  = Join-Path $PSScriptRoot 'bin\WprMcp.dll'
+#   * Repo mode:        scripts/install.ps1, DLL at ../src/WpaMcp/bin/Release/net10.0/WpaMcp.dll
+#   * Release-zip mode: install.ps1 at zip root, DLL at ./bin/WpaMcp.dll
+$repoModeDll = Join-Path $PSScriptRoot '..\src\WpaMcp\bin\Release\net10.0\WpaMcp.dll'
+$zipModeDll  = Join-Path $PSScriptRoot 'bin\WpaMcp.dll'
 
 if (Test-Path $zipModeDll) {
     $mode = 'release-zip'
@@ -263,7 +263,7 @@ if (Test-Path $zipModeDll) {
         Write-Info 'Detected release-zip layout — DLL is pre-built, skipping dotnet build.'
         $SkipBuild = $true
     }
-} elseif (Test-Path (Join-Path $PSScriptRoot '..\src\WprMcp\WprMcp.csproj')) {
+} elseif (Test-Path (Join-Path $PSScriptRoot '..\src\WpaMcp\WpaMcp.csproj')) {
     $mode = 'repo'
     $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
     $dllPath = $repoModeDll
@@ -271,8 +271,8 @@ if (Test-Path $zipModeDll) {
     throw "Cannot determine layout. install.ps1 must run from either the wpa-mcp repo's scripts/ folder OR the root of an extracted release zip."
 }
 
-# Step 2 — ensure .NET 8 is available. Repo mode needs the SDK (for `dotnet build`);
-# release-zip mode only needs the runtime (just `dotnet WprMcp.dll`).
+# Step 2 — ensure .NET 10 is available. Repo mode needs the SDK (for `dotnet build`);
+# release-zip mode only needs the runtime (just `dotnet WpaMcp.dll`).
 $dotnetVariant = if ($mode -eq 'release-zip') { 'runtime' } else { 'sdk' }
 Ensure-DotNet -Variant $dotnetVariant
 

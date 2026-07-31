@@ -121,7 +121,7 @@ Resources 和 Prompts 是**附加增强层**，不是 Tools 的替代。**测试
 
 | 档 | 工具 | `readOnlyHint` | `idempotentHint` | `openWorldHint` | 理由 |
 |---|---|---|---|---|---|
-| **A. 纯查询（首次访问后）** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`，以及类似查询工具 | `true` | `true` | **`true`** | Drill-down 可能触发 symbol fetch → 网络 + 写 `%LocalAppData%\WprMcp\Symbols`。**`diagnose_symbols` 属于这一档**（v4 修正，经 `SymbolTools.cs:61-90` 核实）：它**不**修改 `_NT_SYMBOL_PATH`、**不**主动 fetch；只读取已加载 image 事件里的 `module.PdbName` |
+| **A. 纯查询（首次访问后）** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`，以及类似查询工具 | `true` | `true` | **`true`** | Drill-down 可能触发 symbol fetch → 网络 + 写 `%LocalAppData%\WpaMcp\Symbols`。**`diagnose_symbols` 属于这一档**（v4 修正，经 `SymbolTools.cs:61-90` 核实）：它**不**修改 `_NT_SYMBOL_PATH`、**不**主动 fetch；只读取已加载 image 事件里的 `module.PdbName` |
 | **B. 缓存生成** | `load_trace` | **`false`** | `true` | `false` | `TraceLog.OpenOrConvert` 在输入 `.etl` 旁生成 `.etlx`（TraceCache.cs:54） |
 | **C. 环境配置** | `set_symbol_path`、`add_symbol_server` | **`false`** | `false` | **`true`** | 改进程级 `_NT_SYMBOL_PATH`。`openWorldHint=true` 因为它们改变了下游工具在符号解析时会探测的服务器集合 |
 | **D. 未来的文件生成工具** | `shrink_trace`、`slice_trace`、`redact_trace`（如果实现） | `false` | `true` | `false` | 写新 `.etl` 文件 |
@@ -132,7 +132,7 @@ Resources 和 Prompts 是**附加增强层**，不是 Tools 的替代。**测试
 
 ### SDK 现状——已验证
 
-`WprMcp.csproj:13` 固定 `ModelContextProtocol 1.2.0`。T0.2 spike 已确认：P0 导航层工作不需要升级 SDK。
+`WpaMcp.csproj:13` 固定 `ModelContextProtocol 1.2.0`。T0.2 spike 已确认：P0 导航层工作不需要升级 SDK。
 
 - `[McpServerTool]` 可直接声明 annotation 字段：`ReadOnly`、`Idempotent`、`OpenWorld`、`Destructive`。
 - `McpServerToolCreateOptions` 提供同等的 programmatic registration 字段。

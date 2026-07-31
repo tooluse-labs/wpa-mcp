@@ -127,7 +127,7 @@ Long-lived reference content. The model may or may not see them automatically de
 
 | Tier | Tools | `readOnlyHint` | `idempotentHint` | `openWorldHint` | Rationale |
 |---|---|---|---|---|---|
-| **A. Pure query (post-first-access)** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`, and similar query tools | `true` | `true` | **`true`** | Drill-downs can trigger symbol fetch → network + writes to `%LocalAppData%\WprMcp\Symbols`. **`diagnose_symbols` belongs here** (corrected v4 — verified against `SymbolTools.cs:61-90`): it does NOT mutate `_NT_SYMBOL_PATH` and does NOT actively fetch; it only reads `module.PdbName` from already-loaded image events. |
+| **A. Pure query (post-first-access)** | `*_top_*` / `*_caller_callee` / `list_processes` / `find_marker` / `thread_lifetime` / `process_create_timing` / `diagnose_symbols`, and similar query tools | `true` | `true` | **`true`** | Drill-downs can trigger symbol fetch → network + writes to `%LocalAppData%\WpaMcp\Symbols`. **`diagnose_symbols` belongs here** (corrected v4 — verified against `SymbolTools.cs:61-90`): it does NOT mutate `_NT_SYMBOL_PATH` and does NOT actively fetch; it only reads `module.PdbName` from already-loaded image events. |
 | **B. Cache generation** | `load_trace` | **`false`** | `true` | `false` | `TraceLog.OpenOrConvert` produces `.etlx` next to the input `.etl` (TraceCache.cs:54). |
 | **C. Environment configuration** | `set_symbol_path`, `add_symbol_server` | **`false`** | `false` | **`true`** | Mutate process-global `_NT_SYMBOL_PATH`. `openWorldHint=true` because these change which servers downstream tools will probe on symbol resolution. |
 | **D. Future file-producing tools** | `shrink_trace`, `slice_trace`, `redact_trace` (when implemented) | `false` | `true` | `false` | Write new `.etl` artifacts. |
@@ -138,7 +138,7 @@ Long-lived reference content. The model may or may not see them automatically de
 
 ### SDK readiness — verified
 
-`WprMcp.csproj:13` pins `ModelContextProtocol 1.2.0`. The T0.2 spike verified that no SDK upgrade is required for the P0 navigation work.
+`WpaMcp.csproj:13` pins `ModelContextProtocol 1.2.0`. The T0.2 spike verified that no SDK upgrade is required for the P0 navigation work.
 
 - `[McpServerTool]` exposes annotation fields directly: `ReadOnly`, `Idempotent`, `OpenWorld`, and `Destructive`.
 - `McpServerToolCreateOptions` exposes the same fields for programmatic registration.

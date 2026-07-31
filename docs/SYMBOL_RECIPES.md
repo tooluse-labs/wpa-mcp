@@ -136,7 +136,7 @@ For routine "add MS symbol server then load trace" flows this is a non-issue (se
 
 ## Cache management
 
-- Default cache: `%LocalAppData%\WprMcp\Symbols`. Override per-server in the `SRV*` entry.
+- Default cache: `%LocalAppData%\WpaMcp\Symbols`. Override per-server in the `SRV*` entry.
 - Separate from PerfView's `C:\Symbols` to avoid PDB-lock contention if both tools run side by side.
 - The cache grows monotonically. After heavy use it can reach several GB.
 - Safe to delete the entire directory at any time; the next stack-resolving tool call re-fetches whatever it actually needs.

@@ -1,0 +1,32 @@
+# relative/path.cs|OWNER|reason
+src/WpaMcp/Analyzers/AlpcStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/ClrAllocStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/ClrContentionStackAnalysis.cs|C3|migrate paired contention durations to shared accounting
+src/WpaMcp/Analyzers/ClrExceptionStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/DiskIoStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/FileIoAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/FileIoStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/FinalizerAnalysis.cs|C3|migrate paired finalizer durations to shared accounting
+src/WpaMcp/Analyzers/GcAnalysis.cs|C3|migrate GC and pause intervals to shared accounting
+src/WpaMcp/Analyzers/GcHeapStatsAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/GenericEventStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/HardFaultByFileAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/HeapAllocStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/ImageLoadAnalysis.cs|C4|scope image loads to process-instance startup windows
+src/WpaMcp/Analyzers/ImageLoadStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/InterruptStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/JitAnalysis.cs|C3|migrate paired JIT durations to shared accounting
+src/WpaMcp/Analyzers/MarkerSearch.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/MemoryResourceAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/NetConnectionAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/NetIoStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/PageFaultStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/ProcessCreateTimingAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/ProcessProjection.cs|C4|replace lifetime timestamp conversion in startup projection
+src/WpaMcp/Analyzers/ReadyThreadStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/RegistryStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/SecurityScanAnalysis.cs|C3|migrate paired security-scan durations to shared accounting
+src/WpaMcp/Analyzers/VirtualAllocStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Core/TimeWindow.cs|PERMANENT|canonical half-open window clipping implementation
+src/WpaMcp/Core/TraceTime.cs|PERMANENT|canonical TraceEvent timestamp conversion implementation
+src/WpaMcp/Tools/DiagnoseTools.cs|C4|replace manual slow-startup child-window clipping

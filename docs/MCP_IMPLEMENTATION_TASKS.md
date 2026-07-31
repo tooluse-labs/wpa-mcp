@@ -66,7 +66,7 @@
 
 - **Status:** ✅ Completed 2026-05-15 (`InspectTraceTests`, `MetaToolsTests`, `TraceCapabilitiesDetector` event-family alignment).
 - **Dependency:** T0.3.
-- **Scope:** `tests/WprMcp.Tests`.
+- **Scope:** `tests/WpaMcp.Tests`.
 - **Coverage:**
   - ✅ Capability projection
   - ✅ Lost events produce a warning
@@ -81,9 +81,9 @@
 - **Work:**
   - ✅ Add structured per-call telemetry: tool name, salted argument hash or session trace id, latency, response byte count, error flag, cache-hit flag.
   - Telemetry implementation constraints:
-    - ✅ Runtime persisted telemetry is opt-in via `WPRMCP_TELEMETRY=1`; fresh installs emit no telemetry. CI benchmarks and local measurement commands are explicit-run verification paths, not ambient runtime telemetry.
+    - ✅ Runtime persisted telemetry is opt-in via `WPAMCP_TELEMETRY=1`; fresh installs emit no telemetry. CI benchmarks and local measurement commands are explicit-run verification paths, not ambient runtime telemetry.
     - ✅ Generate a per-session salt at server startup and never write it to disk or logs. If hashing arguments, use `HMAC(session_salt, args_json)`; deterministic or process-lifetime path hashes are not allowed.
-    - ✅ Write telemetry only to stderr or a dedicated file under `%LocalAppData%\WprMcp\Logs\`. Stdout is reserved for MCP JSON-RPC framing and must stay clean.
+    - ✅ Write telemetry only to stderr or a dedicated file under `%LocalAppData%\WpaMcp\Logs\`. Stdout is reserved for MCP JSON-RPC framing and must stay clean.
   - ✅ Record `tools/list` payload size at startup and add a CI guard that fails when it grows beyond the approved baseline threshold.
   - ✅ Define 10 canonical synthetic investigation scenarios with acceptable tool-call sequences, including tools-only mode with Resources and Prompts disabled. See `MCP_MEASUREMENT_BASELINE.md`.
   - ✅ Track the six success metrics from `MCP_SURFACE_DESIGN.md`: wrong-tool selection, mean tool calls per investigation, `tools/list` size, human Prompt invocation, agent Prompt invocation, and `inspect_trace` adoption.
@@ -92,7 +92,7 @@
   - ✅ Benchmark and telemetry outputs are privacy-safe and do not corrupt MCP stdio.
   - ✅ Privacy review passes: no raw paths, no deterministic path hashes, no payload contents, and per-session salt uniqueness is verified.
   - ✅ Transport review passes: stdout contains only MCP JSON-RPC frames; logs are verified on stderr or a dedicated file.
-  - ✅ Default-off runtime telemetry is verified with no `WPRMCP_TELEMETRY` environment variable set.
+  - ✅ Default-off runtime telemetry is verified with no `WPAMCP_TELEMETRY` environment variable set.
 
 ### T0.6 Add Token-Compact Stack Responses
 

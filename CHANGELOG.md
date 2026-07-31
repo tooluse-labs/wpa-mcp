@@ -44,8 +44,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet build WprMcp.sln -c Release --no-restore`
-- `dotnet test WprMcp.sln -c Release --no-build --no-restore`
+- `dotnet build WpaMcp.sln -c Release --no-restore`
+- `dotnet test WpaMcp.sln -c Release --no-build --no-restore`
 - Administrator WPR validation with `Capture-JitOnly.ps1` produced
   `jit_probe.etl` with `JittingStarted=6272` and `LoadVerbose=6271`.
 
@@ -82,8 +82,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
-- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WpaMcp -c Release --no-build -- --version`
 
 ## v0.2.21 - 2026-05-18
 
@@ -106,8 +106,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
-- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WpaMcp -c Release --no-build -- --version`
 - Real ETL probe confirmed the `187s-214s` analysis window stays below the
   16-core physical CPU-time limit after the per-core accounting fix.
 
@@ -131,7 +131,7 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
 
 ## v0.2.19 - 2026-05-18
 
@@ -152,8 +152,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
-- `dotnet run --project src/WprMcp -c Release --no-build -- --version`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
+- `dotnet run --project src/WpaMcp -c Release --no-build -- --version`
 - Real ETL probe confirmed no per-thread CPU duration exceeded trace duration
   after the scheduler-gap fix.
 
@@ -172,8 +172,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
-- `dotnet test WprMcp.sln -c Release --no-restore --filter FullyQualifiedName~SymbolServiceTests`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
+- `dotnet test WpaMcp.sln -c Release --no-restore --filter FullyQualifiedName~SymbolServiceTests`
 
 ## v0.2.17 - 2026-05-17
 
@@ -194,7 +194,7 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
 - Manual Quark symbol rerun improved frame resolution and removed the
   `msdia140.dll` load failure.
 
@@ -228,7 +228,7 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
 - `dotnet build tools/interruptfixture/interruptfixture.csproj -c Release --no-restore`
 - Local real-event validation with ignored manual ETL:
   `noStackCount=4/11`, `noStackUs=1958/1969us`, warning emitted.
@@ -254,8 +254,8 @@ GitHub Releases and the git tag history.
 
 ### Verification
 
-- `dotnet test WprMcp.sln -c Release --no-restore`
-- `dotnet run --no-build -c Release --project src\WprMcp -- --probe-stacks tests\WprMcp.Tests\fixtures\small_wait_bound.etl`
+- `dotnet test WpaMcp.sln -c Release --no-restore`
+- `dotnet run --no-build -c Release --project src\WpaMcp -- --probe-stacks tests\WpaMcp.Tests\fixtures\small_wait_bound.etl`
 - GitHub Actions `CI` passed on `main` for commit `ad7c433`.
 
 ## Previous Releases

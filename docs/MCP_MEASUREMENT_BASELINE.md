@@ -7,10 +7,10 @@ Status: implemented for T0.5 on 2026-05-15.
 Runtime telemetry is default-off. Enable it explicitly with:
 
 ```powershell
-$env:WPRMCP_TELEMETRY = "1"
+$env:WPAMCP_TELEMETRY = "1"
 ```
 
-By default, enabled telemetry writes JSONL under `%LocalAppData%\WprMcp\Logs\`. Set `WPRMCP_TELEMETRY_DEST=stderr` to write to stderr instead, or `WPRMCP_TELEMETRY_FILE=<absolute path>` to choose a dedicated file. Stdout remains reserved for MCP JSON-RPC framing.
+By default, enabled telemetry writes JSONL under `%LocalAppData%\WpaMcp\Logs\`. Set `WPAMCP_TELEMETRY_DEST=stderr` to write to stderr instead, or `WPAMCP_TELEMETRY_FILE=<absolute path>` to choose a dedicated file. Stdout remains reserved for MCP JSON-RPC framing.
 
 Telemetry privacy rules:
 

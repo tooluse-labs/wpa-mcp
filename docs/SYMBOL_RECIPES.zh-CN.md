@@ -136,7 +136,7 @@ PDB 和 DLL 必须共享同一个签名（GUID + age）。同样的源文件再 
 
 ## 缓存管理
 
-- 默认缓存目录：`%LocalAppData%\WprMcp\Symbols`。每个 `SRV*` 条目可以单独覆盖。
+- 默认缓存目录：`%LocalAppData%\WpaMcp\Symbols`。每个 `SRV*` 条目可以单独覆盖。
 - 跟 PerfView 的 `C:\Symbols` 分开，避免两边同时跑时 PDB lock 冲突。
 - 缓存只增不减，重度使用后能涨到几个 GB。
 - 整个目录可以随时删——下次任意一个走栈解析的工具调用会按需重新拉。

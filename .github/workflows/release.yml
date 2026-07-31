@@ -21,14 +21,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # actions/checkout@v4
 
       - name: Setup build environment
-        uses: ./.github/actions/setup-wprmcp
+        uses: ./.github/actions/setup-wpamcp
 
       - name: Restore locked win-x64 graph
-        run: dotnet restore src/WprMcp/WprMcp.csproj -r win-x64 --locked-mode -p:NuGetLockFilePath=packages.win-x64.lock.json
+        run: dotnet restore src/WpaMcp/WpaMcp.csproj -r win-x64 --locked-mode -p:NuGetLockFilePath=packages.win-x64.lock.json
 
       - name: Publish self-contained win-x64 executable
         run: |
-          dotnet publish src/WprMcp/WprMcp.csproj `
+          dotnet publish src/WpaMcp/WpaMcp.csproj `
             -c Release `
             -r win-x64 `
             --self-contained true `
@@ -44,12 +44,12 @@ jobs:
           New-Item -ItemType Directory -Path release -Force | Out-Null
           New-Item -ItemType Directory -Path release/root/bin -Force | Out-Null
           New-Item -ItemType Directory -Path release/root/native/amd64 -Force | Out-Null
-          Copy-Item publish/win-x64/WprMcp.exe release/root/bin/wpa-mcp.exe
+          Copy-Item publish/win-x64/WpaMcp.exe release/root/bin/wpa-mcp.exe
           Copy-Item publish/win-x64/amd64/*.dll release/root/native/amd64/
           Compress-Archive -Path release/root/* -DestinationPath release/wpa-mcp-win-x64.zip -Force
 
           # Keep the historical single-exe asset for manual users and older installers.
-          Copy-Item publish/win-x64/WprMcp.exe release/wpa-mcp-win-x64.exe
+          Copy-Item publish/win-x64/WpaMcp.exe release/wpa-mcp-win-x64.exe
           .\release\root\bin\wpa-mcp.exe --version
           Get-ChildItem release/
 

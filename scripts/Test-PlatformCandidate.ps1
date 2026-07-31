@@ -185,7 +185,7 @@ function Test-ProductionStdioEvidence {
         $launch = $evidence.launch
         $resolvedServer = (Resolve-Path -LiteralPath $ServerPath).Path
         $resolvedPublish = (Resolve-Path -LiteralPath $PublishRoot).Path
-        $depsPath = Join-Path $resolvedPublish 'WprMcp.deps.json'
+        $depsPath = Join-Path $resolvedPublish 'WpaMcp.deps.json'
         if (-not (Test-Path -LiteralPath $depsPath -PathType Leaf)) { return $false }
         $deps = Get-Content -LiteralPath $depsPath -Raw | ConvertFrom-Json
         if ([string]$deps.runtimeTarget.name -cnotmatch '/win-x64$') { return $false }
@@ -195,7 +195,7 @@ function Test-ProductionStdioEvidence {
         }
         $actualHash = Get-Sha256 $resolvedServer
         if ($launch.path -cne $resolvedServer -or $launch.publishRoot -cne $resolvedPublish -or
-            $launch.relativePath -cne 'WprMcp.exe' -or $launch.expectedLaunchSha256 -cne $actualHash -or
+            $launch.relativePath -cne 'WpaMcp.exe' -or $launch.expectedLaunchSha256 -cne $actualHash -or
             $launch.sha256Before -cne $actualHash -or $launch.sha256After -cne $actualHash -or
             -not (Test-JsonInteger $launch.processId) -or $launch.processId -le 0 -or
             $launch.childProcessArchitecture -cne 'X64' -or $launch.observerOsArchitecture -cne 'X64' -or
@@ -469,7 +469,7 @@ function Test-NativeLayoutEvidence {
         if (-not (Test-Path -LiteralPath $EvidencePath -PathType Leaf)) { return $false }
         $resolvedRoot = (Resolve-Path -LiteralPath $PublishRoot).Path
         $evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
-        $expectedServer = Join-Path $resolvedRoot 'WprMcp.exe'
+        $expectedServer = Join-Path $resolvedRoot 'WpaMcp.exe'
         if ($evidence.schemaVersion -cne '1.0' -or $evidence.probeName -cne 'native-layout' -or
             $evidence.processArchitecture -cne 'X64' -or $evidence.publishRoot -cne $resolvedRoot -or
             $evidence.serverPath -cne $expectedServer -or -not (Test-Sha256Text $evidence.serverSha256) -or
@@ -844,12 +844,12 @@ function Test-PlatformCandidateResult {
                 -EvidencePath (Join-Path $candidateRoot 'self-contained-stdio.evidence.json') `
                 -RawStdoutPath (Join-Path $candidateRoot 'self-contained-stdio.server.stdout.log') `
                 -RawStderrPath (Join-Path $candidateRoot 'self-contained-stdio.server.stderr.log') `
-                -ServerPath (Join-Path $candidateRoot 'publishes\server-self-contained\WprMcp.exe') `
+                -ServerPath (Join-Path $candidateRoot 'publishes\server-self-contained\WpaMcp.exe') `
                 -PublishRoot (Join-Path $candidateRoot 'publishes\server-self-contained') -Candidate $candidate[0])) {
                 return $false
             }
             if ($probe.name -ceq 'self-contained-stdio' -and -not $cases[0].passed) {
-                $expectedServer = Join-Path $candidateRoot 'publishes\server-self-contained\WprMcp.exe'
+                $expectedServer = Join-Path $candidateRoot 'publishes\server-self-contained\WpaMcp.exe'
                 $expectedEvidence = Join-Path $candidateRoot 'self-contained-stdio.evidence.json'
                 if ($cases[0].failureStage -eq 'launch' -and
                     (-not (Test-Path -LiteralPath $expectedServer -PathType Leaf) -or
@@ -872,7 +872,7 @@ function Test-PlatformCandidateResult {
                 $publishRoot = Join-Path $candidateRoot 'publishes\server-self-contained'
                 $expectedEvidence = Join-Path $candidateRoot 'native-layout.evidence.json'
                 $expectedArtifacts = @(
-                    (Join-Path $publishRoot 'WprMcp.exe'),
+                    (Join-Path $publishRoot 'WpaMcp.exe'),
                     (Join-Path $publishRoot 'amd64\msdia140.dll'),
                     (Join-Path $publishRoot 'amd64\KernelTraceControl.dll'),
                     $expectedEvidence)
@@ -942,7 +942,7 @@ function Get-Sha256 {
 function Get-Sha512Base64 {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$ExpectedBase64)
 
-    $prefix = Join-Path $env:TEMP "wprmcp-sha512-$([Guid]::NewGuid().ToString('N'))"
+    $prefix = Join-Path $env:TEMP "wpamcp-sha512-$([Guid]::NewGuid().ToString('N'))"
     $base64Path = "$prefix.base64.txt"
     $publishedPath = "$prefix.published.bin"
     $hexPath = "$prefix.hex.txt"
@@ -969,7 +969,7 @@ function Test-Sha512Base64Value {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
-    $prefix = Join-Path $env:TEMP "wprmcp-sha512-value-$([Guid]::NewGuid().ToString('N'))"
+    $prefix = Join-Path $env:TEMP "wpamcp-sha512-value-$([Guid]::NewGuid().ToString('N'))"
     $base64Path = "$prefix.base64.txt"
     $decodedPath = "$prefix.bin"
     try {
@@ -1721,9 +1721,9 @@ function Invoke-PlatformCandidate {
             DOTNET_ROOT_X64 = (Split-Path -Parent $dotnet)
         }
         $properties = @(
-            "-p:WprMcpTargetFramework=$($candidate.targetFramework)",
-            "-p:WprMcpMcpSdkVersion=$($candidate.mcpSdkVersion)",
-            "-p:WprMcpProtocolProfile=$($candidate.protocolProfile)")
+            "-p:WpaMcpTargetFramework=$($candidate.targetFramework)",
+            "-p:WpaMcpMcpSdkVersion=$($candidate.mcpSdkVersion)",
+            "-p:WpaMcpProtocolProfile=$($candidate.protocolProfile)")
         $msbuildIsolation = @('-m:1', '-nr:false', '-p:UseSharedCompilation=false')
         $probes = @()
 
@@ -1762,11 +1762,11 @@ function Invoke-PlatformCandidate {
         $probes += ,(New-ProbeResult 'nuget-package-existence-hash' $nugetCommand @($nugetCase) $nugetArtifacts $resultVerification)
 
         $ordinaryCommands = [ordered]@{
-            'normal-restore' = @('restore', 'WprMcp.sln', '--packages', $packages, '--configfile', $candidateNuGetConfig, '--no-cache') + $properties + $msbuildIsolation
-            'win-x64-restore' = @('restore', 'src\WprMcp\WprMcp.csproj', '-r', 'win-x64', '--packages', $packages, '--configfile', $candidateNuGetConfig, '--no-cache') + $properties + $msbuildIsolation
-            'release-build' = @('build', 'WprMcp.sln', '-c', 'Release', '--no-restore') + $properties + $msbuildIsolation
-            'release-unit-tests' = @('test', 'tests\WprMcp.Tests\WprMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
-                '--filter', 'FullyQualifiedName!~WprMcp.Tests.PlatformDecisionTests') + $properties + $msbuildIsolation
+            'normal-restore' = @('restore', 'WpaMcp.sln', '--packages', $packages, '--configfile', $candidateNuGetConfig, '--no-cache') + $properties + $msbuildIsolation
+            'win-x64-restore' = @('restore', 'src\WpaMcp\WpaMcp.csproj', '-r', 'win-x64', '--packages', $packages, '--configfile', $candidateNuGetConfig, '--no-cache') + $properties + $msbuildIsolation
+            'release-build' = @('build', 'WpaMcp.sln', '-c', 'Release', '--no-restore') + $properties + $msbuildIsolation
+            'release-unit-tests' = @('test', 'tests\WpaMcp.Tests\WpaMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
+                '--filter', 'FullyQualifiedName!~WpaMcp.Tests.PlatformDecisionTests') + $properties + $msbuildIsolation
         }
         foreach ($entryName in @($ordinaryCommands.Keys)) {
             $result = Invoke-CapturedCommand $dotnet $ordinaryCommands[$entryName] $workspace (Join-Path $logs $entryName) $environment
@@ -1798,10 +1798,10 @@ function Invoke-PlatformCandidate {
         $goldenEvidencePath = Join-Path $candidateRoot 'golden-traceevent-reads.evidence.json'
         $goldenEnvironment = @{}
         foreach ($entry in $environment.GetEnumerator()) { $goldenEnvironment[$entry.Key] = $entry.Value }
-        $goldenEnvironment['WPRMCP_PLATFORM_REQUIRED'] = '1'
-        $goldenEnvironment['WPRMCP_PLATFORM_GOLDEN_EVIDENCE_PATH'] = $goldenEvidencePath
+        $goldenEnvironment['WPAMCP_PLATFORM_REQUIRED'] = '1'
+        $goldenEnvironment['WPAMCP_PLATFORM_GOLDEN_EVIDENCE_PATH'] = $goldenEvidencePath
         $goldenResult = Invoke-CapturedCommand $dotnet (@(
-            'test', 'tests\WprMcp.Tests\WprMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
+            'test', 'tests\WpaMcp.Tests\WpaMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
             '--filter', 'FullyQualifiedName~PlatformNonSdkRuntimeProbeTests.GoldenTraceEventReads_OpensEveryFixtureFromTemporaryCopy') +
             $properties + $msbuildIsolation) $workspace (Join-Path $logs 'golden-traceevent-reads') $goldenEnvironment `
             -TimeoutSeconds 180 -Stage 'golden-traceevent-reads'
@@ -1818,7 +1818,7 @@ function Invoke-PlatformCandidate {
         $probes += ,(New-ProbeResult 'golden-traceevent-reads' $goldenResult @($goldenCase) $goldenArtifacts)
 
         $serverPublish = Join-Path $publishes 'server-self-contained'
-        $publishResult = Invoke-CapturedCommand $dotnet (@('publish', 'src\WprMcp\WprMcp.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $serverPublish) + $properties + $msbuildIsolation) $workspace (Join-Path $logs 'self-contained-publish') $environment
+        $publishResult = Invoke-CapturedCommand $dotnet (@('publish', 'src\WpaMcp\WpaMcp.csproj', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $serverPublish) + $properties + $msbuildIsolation) $workspace (Join-Path $logs 'self-contained-publish') $environment
         $publishArtifacts = @{}
         if (Test-Path -LiteralPath $serverPublish) {
             Get-ChildItem -LiteralPath $serverPublish -Recurse -File | ForEach-Object { $publishArtifacts[$_.FullName] = Get-Sha256 $_.FullName }
@@ -1826,8 +1826,8 @@ function Invoke-PlatformCandidate {
         $productionPublishRid = $null
         if ($publishResult.ExitCode -eq 0) {
             try {
-                $serverDepsPath = Join-Path $serverPublish 'WprMcp.deps.json'
-                if (-not (Test-Path -LiteralPath $serverDepsPath -PathType Leaf)) { throw 'Self-contained publish omitted WprMcp.deps.json.' }
+                $serverDepsPath = Join-Path $serverPublish 'WpaMcp.deps.json'
+                if (-not (Test-Path -LiteralPath $serverDepsPath -PathType Leaf)) { throw 'Self-contained publish omitted WpaMcp.deps.json.' }
                 $serverDeps = Get-Content -LiteralPath $serverDepsPath -Raw | ConvertFrom-Json
                 $runtimeTargetName = [string]$serverDeps.runtimeTarget.name
                 if ($runtimeTargetName -cnotmatch '/win-x64$') { throw "Self-contained runtimeTarget was not /win-x64: '$runtimeTargetName'." }
@@ -1846,26 +1846,26 @@ function Invoke-PlatformCandidate {
         $publishCase = New-CaseResult 'candidate-worktree' 'self-contained-publish' $publishResult $publishArtifacts 'publish'
         $probes += ,(New-ProbeResult 'self-contained-publish' $publishResult @($publishCase) $publishArtifacts)
 
-        $serverExe = Join-Path $serverPublish 'WprMcp.exe'
+        $serverExe = Join-Path $serverPublish 'WpaMcp.exe'
         $stdioEvidence = Join-Path $candidateRoot 'self-contained-stdio.evidence.json'
         $stdioRawStdout = Join-Path $candidateRoot 'self-contained-stdio.server.stdout.log'
         $stdioRawStderr = Join-Path $candidateRoot 'self-contained-stdio.server.stderr.log'
         if ($publishResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $serverExe -PathType Leaf)) {
             $stdioEnvironment = @{}
             foreach ($entry in $environment.GetEnumerator()) { $stdioEnvironment[$entry.Key] = $entry.Value }
-            $stdioEnvironment['WPRMCP_PLATFORM_SERVER_PATH'] = $serverExe
-            $stdioEnvironment['WPRMCP_PLATFORM_REQUIRED'] = '1'
-            $stdioEnvironment['WPRMCP_PLATFORM_PUBLISH_ROOT'] = $serverPublish
-            $stdioEnvironment['WPRMCP_PLATFORM_PROTOCOL_REVISION'] = $candidate.protocolRevision
-            $stdioEnvironment['WPRMCP_PLATFORM_PROTOCOL_PROFILE'] = $candidate.protocolProfile
-            $stdioEnvironment['WPRMCP_PLATFORM_EVIDENCE_PATH'] = $stdioEvidence
-            $stdioEnvironment['WPRMCP_PLATFORM_RAW_STDOUT_PATH'] = $stdioRawStdout
-            $stdioEnvironment['WPRMCP_PLATFORM_RAW_STDERR_PATH'] = $stdioRawStderr
-            $stdioEnvironment['WPRMCP_PLATFORM_EXPECTED_LAUNCH_SHA256'] = Get-Sha256 $serverExe
-            $stdioEnvironment['WPRMCP_PLATFORM_REQUESTED_RID'] = 'win-x64'
-            $stdioEnvironment['WPRMCP_PLATFORM_PUBLISH_RID'] = $productionPublishRid
+            $stdioEnvironment['WPAMCP_PLATFORM_SERVER_PATH'] = $serverExe
+            $stdioEnvironment['WPAMCP_PLATFORM_REQUIRED'] = '1'
+            $stdioEnvironment['WPAMCP_PLATFORM_PUBLISH_ROOT'] = $serverPublish
+            $stdioEnvironment['WPAMCP_PLATFORM_PROTOCOL_REVISION'] = $candidate.protocolRevision
+            $stdioEnvironment['WPAMCP_PLATFORM_PROTOCOL_PROFILE'] = $candidate.protocolProfile
+            $stdioEnvironment['WPAMCP_PLATFORM_EVIDENCE_PATH'] = $stdioEvidence
+            $stdioEnvironment['WPAMCP_PLATFORM_RAW_STDOUT_PATH'] = $stdioRawStdout
+            $stdioEnvironment['WPAMCP_PLATFORM_RAW_STDERR_PATH'] = $stdioRawStderr
+            $stdioEnvironment['WPAMCP_PLATFORM_EXPECTED_LAUNCH_SHA256'] = Get-Sha256 $serverExe
+            $stdioEnvironment['WPAMCP_PLATFORM_REQUESTED_RID'] = 'win-x64'
+            $stdioEnvironment['WPAMCP_PLATFORM_PUBLISH_RID'] = $productionPublishRid
             $stdioResult = Invoke-CapturedCommand $dotnet (@(
-                'test', 'tests\WprMcp.Tests\WprMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
+                'test', 'tests\WpaMcp.Tests\WpaMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
                 '--filter', 'FullyQualifiedName~PlatformProductionStdioTests') + $properties + $msbuildIsolation) `
                 $workspace (Join-Path $logs 'self-contained-stdio') $stdioEnvironment -TimeoutSeconds 60 -Stage 'self-contained-stdio'
             if ($stdioResult.ExitCode -eq 0 -and -not (Test-ProductionStdioEvidence -EvidencePath $stdioEvidence `
@@ -1878,7 +1878,7 @@ function Invoke-PlatformCandidate {
         }
         else {
             Set-Content -LiteralPath (Join-Path $logs 'self-contained-stdio.stdout.log') -Value '' -NoNewline
-            Set-Content -LiteralPath (Join-Path $logs 'self-contained-stdio.stderr.log') -Value 'Self-contained publish failed or omitted WprMcp.exe.'
+            Set-Content -LiteralPath (Join-Path $logs 'self-contained-stdio.stderr.log') -Value 'Self-contained publish failed or omitted WpaMcp.exe.'
             $stdioResult = [ordered]@{
                 Command = "launch retained production stdio host $serverExe"
                 ExitCode = 1
@@ -1902,11 +1902,11 @@ function Invoke-PlatformCandidate {
         if ($publishResult.ExitCode -eq 0) {
             $nativeEnvironment = @{}
             foreach ($entry in $environment.GetEnumerator()) { $nativeEnvironment[$entry.Key] = $entry.Value }
-            $nativeEnvironment['WPRMCP_PLATFORM_REQUIRED'] = '1'
-            $nativeEnvironment['WPRMCP_PLATFORM_PUBLISH_ROOT'] = $serverPublish
-            $nativeEnvironment['WPRMCP_PLATFORM_NATIVE_EVIDENCE_PATH'] = $nativeEvidencePath
+            $nativeEnvironment['WPAMCP_PLATFORM_REQUIRED'] = '1'
+            $nativeEnvironment['WPAMCP_PLATFORM_PUBLISH_ROOT'] = $serverPublish
+            $nativeEnvironment['WPAMCP_PLATFORM_NATIVE_EVIDENCE_PATH'] = $nativeEvidencePath
             $nativeResult = Invoke-CapturedCommand $dotnet (@(
-                'test', 'tests\WprMcp.Tests\WprMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
+                'test', 'tests\WpaMcp.Tests\WpaMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
                 '--filter', 'FullyQualifiedName~PlatformNonSdkRuntimeProbeTests.NativeLayout_LoadsExactProductionAmd64Dependencies') +
                 $properties + $msbuildIsolation) $workspace (Join-Path $logs 'native-layout') $nativeEnvironment `
                 -TimeoutSeconds 60 -Stage 'native-layout'
@@ -1939,12 +1939,12 @@ function Invoke-PlatformCandidate {
         if ($publishResult.ExitCode -eq 0 -and (Test-Path -LiteralPath $expectedMsdiaPath -PathType Leaf)) {
             $diaEnvironment = @{}
             foreach ($entry in $environment.GetEnumerator()) { $diaEnvironment[$entry.Key] = $entry.Value }
-            $diaEnvironment['WPRMCP_PLATFORM_REQUIRED'] = '1'
-            $diaEnvironment['WPRMCP_PLATFORM_DIA_ROOT'] = $diaRoot
-            $diaEnvironment['WPRMCP_PLATFORM_DIA_EVIDENCE_PATH'] = $diaEvidencePath
-            $diaEnvironment['WPRMCP_PLATFORM_MSDIA_PATH'] = $expectedMsdiaPath
+            $diaEnvironment['WPAMCP_PLATFORM_REQUIRED'] = '1'
+            $diaEnvironment['WPAMCP_PLATFORM_DIA_ROOT'] = $diaRoot
+            $diaEnvironment['WPAMCP_PLATFORM_DIA_EVIDENCE_PATH'] = $diaEvidencePath
+            $diaEnvironment['WPAMCP_PLATFORM_MSDIA_PATH'] = $expectedMsdiaPath
             $diaResult = Invoke-CapturedCommand $dotnet (@(
-                'test', 'tests\WprMcp.Tests\WprMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
+                'test', 'tests\WpaMcp.Tests\WpaMcp.Tests.csproj', '-c', 'Release', '--no-build', '--no-restore',
                 '--filter', 'FullyQualifiedName~PlatformNonSdkRuntimeProbeTests.WindowsDiaPdbResolution_EnumeratesFunctionAndResolvesItsRva') +
                 $properties + $msbuildIsolation) $workspace (Join-Path $logs 'windows-dia-pdb-resolution') $diaEnvironment `
                 -TimeoutSeconds 60 -Stage 'windows-dia-pdb-resolution'

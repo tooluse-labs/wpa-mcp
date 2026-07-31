@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <DefineConstants Condition="'$(WpaMcpProtocolProfile)' == 'stateless-discovery'">$(DefineConstants);MCP_STATELESS_DISCOVERY</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WpaMcp\WpaMcp.csproj" />
+    <ProjectReference Include="..\..\tools\sdkcandidateprobe\sdkcandidateprobe.csproj" ReferenceOutputAssembly="false" />
+    <Compile Include="..\..\tools\sdkcandidateprobe\ProbeChild.cs" Link="PlatformProbe\ProbeChild.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="fixtures/**/*.etl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -170,7 +170,7 @@ Source: `docs/MCP_IMPLEMENTATION_TASKS.md#t03-implement-inspect_tracepath`
         -Body @'
 ## Scope
 
-Add tests for `inspect_trace` in `tests/WprMcp.Tests`.
+Add tests for `inspect_trace` in `tests/WpaMcp.Tests`.
 
 ## Dependency
 
@@ -201,9 +201,9 @@ Add server-side observability, synthetic evaluation, and CI guardrails.
 ## Work
 
 - Add structured per-call telemetry: tool name, salted argument hash or session trace id, latency, response byte count, error flag, cache-hit flag.
-- Runtime persisted telemetry is opt-in via `WPRMCP_TELEMETRY=1`.
+- Runtime persisted telemetry is opt-in via `WPAMCP_TELEMETRY=1`.
 - Use per-session HMAC salt for argument hashes; never persist the salt.
-- Write telemetry only to stderr or `%LocalAppData%\WprMcp\Logs\`; stdout is reserved for MCP JSON-RPC framing.
+- Write telemetry only to stderr or `%LocalAppData%\WpaMcp\Logs\`; stdout is reserved for MCP JSON-RPC framing.
 - Record `tools/list` payload size and add a CI guard for approved baseline growth.
 - Define 10 canonical synthetic investigation scenarios, including tools-only mode.
 - Track the six success metrics from `MCP_SURFACE_DESIGN.md`.
@@ -213,7 +213,7 @@ Add server-side observability, synthetic evaluation, and CI guardrails.
 - Every P0/P1 change can quote a delta against the baseline.
 - Privacy review passes: no raw paths, deterministic path hashes, or payload contents.
 - Transport review passes: stdout contains only MCP JSON-RPC frames.
-- Runtime telemetry is default-off without `WPRMCP_TELEMETRY`.
+- Runtime telemetry is default-off without `WPAMCP_TELEMETRY`.
 
 Source: `docs/MCP_IMPLEMENTATION_TASKS.md#t05-establish-measurement-baseline`
 '@

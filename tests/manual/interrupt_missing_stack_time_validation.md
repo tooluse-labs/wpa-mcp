@@ -36,7 +36,7 @@ The analyzer now warns because missing-stack interrupt time dominates the metric
 being ranked:
 
 ```powershell
-dotnet run --project src\WprMcp -c Release --no-restore -- --interrupt-top-stacks `
+dotnet run --project src\WpaMcp -c Release --no-restore -- --interrupt-top-stacks `
   "tests\manual\wpa-mcp-interrupt-mixed.etl" 5
 ```
 

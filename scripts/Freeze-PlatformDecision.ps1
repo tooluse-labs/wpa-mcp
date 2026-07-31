@@ -154,11 +154,11 @@ function Invoke-PlatformDecisionFreeze {
     $props = @"
 <Project>
   <PropertyGroup>
-    <WprMcpSdkVersion>$($selected.sdkVersion)</WprMcpSdkVersion>
-    <WprMcpTargetFramework>$($selected.targetFramework)</WprMcpTargetFramework>
-    <WprMcpMcpSdkVersion>$($selected.mcpSdkVersion)</WprMcpMcpSdkVersion>
-    <WprMcpProtocolRevision>$($selected.protocolRevision)</WprMcpProtocolRevision>
-    <WprMcpProtocolProfile>$($selected.protocolProfile)</WprMcpProtocolProfile>
+    <WpaMcpSdkVersion>$($selected.sdkVersion)</WpaMcpSdkVersion>
+    <WpaMcpTargetFramework>$($selected.targetFramework)</WpaMcpTargetFramework>
+    <WpaMcpMcpSdkVersion>$($selected.mcpSdkVersion)</WpaMcpMcpSdkVersion>
+    <WpaMcpProtocolRevision>$($selected.protocolRevision)</WpaMcpProtocolRevision>
+    <WpaMcpProtocolProfile>$($selected.protocolProfile)</WpaMcpProtocolProfile>
   </PropertyGroup>
 </Project>
 "@

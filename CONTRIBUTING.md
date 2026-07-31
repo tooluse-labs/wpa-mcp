@@ -4,9 +4,9 @@ Project-specific gotchas and conventions for anyone (human or AI agent) modifyin
 
 ## Project
 
-`wpa-mcp` is a C# MCP server (.NET 8, single console exe `WprMcp.dll`) that reads Windows ETW `.etl` traces via `Microsoft.Diagnostics.Tracing.TraceEvent` and exposes ~13 tools over stdio JSON-RPC. **Windows-only** — the kernel TraceEvent parsers don't exist on Linux/macOS.
+`wpa-mcp` is a C# MCP server (.NET 10, single console exe `WpaMcp.dll`) that reads Windows ETW `.etl` traces via `Microsoft.Diagnostics.Tracing.TraceEvent` and exposes ~13 tools over stdio JSON-RPC. **Windows-only** — the kernel TraceEvent parsers don't exist on Linux/macOS.
 
-Tool surface (all under `[McpServerToolType]` attribute classes in `src/WprMcp/Tools/`):
+Tool surface (all under `[McpServerToolType]` attribute classes in `src/WpaMcp/Tools/`):
 - **Meta**: `load_trace`, `list_processes` (incl. `WaitRatio`/`ParentPid`/`ImageLoadCount`, hides Idle/System by default)
 - **CPU**: `cpu_top_functions`, `cpu_top_functions_batch` (multi-PID in one trace pass)
 - **IO / hard fault**: `file_io_top_files`, `hard_fault_by_file`
@@ -21,8 +21,8 @@ dotnet build -c Release                          # build everything
 dotnet test                                      # run xUnit suite
 dotnet test --filter "FullyQualifiedName~CpuAnalysisTests"   # one class
 dotnet test --filter "DisplayName~RejectsBadTop"             # one fact
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll              # run server (stdio; talks MCP — exit with Ctrl+C)
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # only non-MCP CLI flag
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll              # run server (stdio; talks MCP — exit with Ctrl+C)
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # only non-MCP CLI flag
 ```
 
 There is **no app entry point besides `--version` and the MCP stdio server** — historical PerfView-comparison reports mention an ad-hoc `--cpu-top` flag, but it has been reverted from the tree. Don't rely on it; if you need to drive the analyzers from a CLI, add it temporarily in `Program.cs` and revert before commit (commit `a37c8df` shows the pattern).
@@ -45,14 +45,14 @@ Output/{Records,Warnings}.cs   JSON DTOs
 
 `TraceCache.Get(path)` is the only correct way to get a `TraceLog`. It:
 1. Canonicalizes the path and stats mtime — re-loads if the file has changed under the cache.
-2. LRU-evicts old entries (default capacity 2; override via `WPRMCP_CACHE_SIZE`).
+2. LRU-evicts old entries (default capacity 2; override via `WPAMCP_CACHE_SIZE`).
 3. First load runs `TraceLog.OpenOrConvert` which builds a `.etlx` index alongside the `.etl` (30s–3min for large traces); subsequent loads are instant. The `.etlx` files are mmap'd and may hold 200 MB–1.5 GB of address space per trace.
 
 Don't call `TraceLog.OpenOrConvert` directly from analyzers or tools — always go through the cache.
 
 ### Symbol resolution path
 
-`_NT_SYMBOL_PATH` is the source of truth. `SymbolService` mutates the process env var when `set_symbol_path`/`add_symbol_server` are called, so any later `SymbolReader` constructed inside an analyzer picks up the change. CPU analysis pulls the env var directly inside `CpuAnalysis.TopFunctions` — there's intentionally no plumbing of the symbol service into analyzers. Default cache dir is `%LocalAppData%\WprMcp\Symbols` (kept separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). See `docs/SYMBOL_RECIPES.md`.
+`_NT_SYMBOL_PATH` is the source of truth. `SymbolService` mutates the process env var when `set_symbol_path`/`add_symbol_server` are called, so any later `SymbolReader` constructed inside an analyzer picks up the change. CPU analysis pulls the env var directly inside `CpuAnalysis.TopFunctions` — there's intentionally no plumbing of the symbol service into analyzers. Default cache dir is `%LocalAppData%\WpaMcp\Symbols` (kept separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). See `docs/SYMBOL_RECIPES.md`.
 
 ### CpuAnalysis: PerfView-parity invariants (READ BEFORE EDITING `Analyzers/CpuAnalysis.cs`)
 
@@ -78,7 +78,7 @@ kernel.ThreadCSwitch += data => { ... };
 source.Process();
 ```
 
-All analyzers in `src/WprMcp/Analyzers/` follow this pattern. If a copy-paste introduces `new KernelTraceEventParser(trace)`, the corresponding test will throw `ApplicationException` on the first event.
+All analyzers in `src/WpaMcp/Analyzers/` follow this pattern. If a copy-paste introduces `new KernelTraceEventParser(trace)`, the corresponding test will throw `ApplicationException` on the first event.
 
 ### CSwitch-based wait analysis (`Analyzers/WaitAnalysis.cs`)
 
@@ -99,24 +99,24 @@ Critical TraceEvent gotcha that the headers explain in detail but is easy to mis
 
 Don't try to share `FileObjectResolver` with `HardFaultByFileAnalysis` — the keys are different kernel concepts. See the long comment block at the top of each file before refactoring.
 
-`MemoryHardFault` events require the `HardFaults` kernel keyword, which **is not enabled by default WPR profiles**. `hard_fault_by_file` returns empty results on traces captured with `wpr -start CPU` etc. Use `tests/WprMcp.Tests/fixtures/MmapCapture.wprp` (also referenced from `docs/WPR_PROFILE.md`).
+`MemoryHardFault` events require the `HardFaults` kernel keyword, which **is not enabled by default WPR profiles**. `hard_fault_by_file` returns empty results on traces captured with `wpr -start CPU` etc. Use `tests/WpaMcp.Tests/fixtures/MmapCapture.wprp` (also referenced from `docs/WPR_PROFILE.md`).
 
 ## Test fixtures
 
-The `*.etl` fixtures under `tests/WprMcp.Tests/fixtures/` are gitignored by default, except those explicitly committed (the .gitignore allows `tests/**/fixtures/*.etl`). Most fixture-backed tests assume the three locally captured canonical fixtures are present:
+The `*.etl` fixtures under `tests/WpaMcp.Tests/fixtures/` are gitignored by default, except those explicitly committed (the .gitignore allows `tests/**/fixtures/*.etl`). Most fixture-backed tests assume the three locally captured canonical fixtures are present:
 - `small_cpu.etl` (~60 MB) — `wpr -start CPU.light`, ~3 s
 - `small_fileio.etl` (~150 MB) — `wpr -start FileIO.light`, ~3 s
 - `small_mmap.etl` (~35 MB) — custom `MmapCapture.wprp` with `HardFaults` keyword + 8 spawned processes
 
-Capture all three with `tests/WprMcp.Tests/fixtures/capture_all.ps1` (requires **Administrator PowerShell**). Without fixtures, ~15 fixture-dependent tests will fail with `FileNotFoundException`; the test runner does not auto-skip.
+Capture all three with `tests/WpaMcp.Tests/fixtures/capture_all.ps1` (requires **Administrator PowerShell**). Without fixtures, ~15 fixture-dependent tests will fail with `FileNotFoundException`; the test runner does not auto-skip.
 
-`perfview_gcevents.etl` is a committed third-party CLR fixture from the MIT-licensed PerfView repository. It is intentionally not captured by `capture_all.ps1`; its source, upstream commit, SHA256, and license text are recorded in `tests/WprMcp.Tests/fixtures/PROVENANCE.md`.
+`perfview_gcevents.etl` is a committed third-party CLR fixture from the MIT-licensed PerfView repository. It is intentionally not captured by `capture_all.ps1`; its source, upstream commit, SHA256, and license text are recorded in `tests/WpaMcp.Tests/fixtures/PROVENANCE.md`.
 
-xUnit assembly-level parallelization is **disabled** (`tests/WprMcp.Tests/AssemblyInfo.cs`) because every fixture-touching test calls `TraceLog.OpenOrConvert` against the same `.etlx`, and parallel writers race on the `.etlx.new` temp file. Suite still runs in ~5 seconds.
+xUnit assembly-level parallelization is **disabled** (`tests/WpaMcp.Tests/AssemblyInfo.cs`) because every fixture-touching test calls `TraceLog.OpenOrConvert` against the same `.etlx`, and parallel writers race on the `.etlx.new` temp file. Suite still runs in ~5 seconds.
 
 ## Conventions specific to this repo
 
-- One `WprMcp` csproj for now. The architecture doc mentions a future `WprMcp.Analyzers`/`WprMcp.Core` split, but until then everything stays under `src/WprMcp/`.
+- One `WpaMcp` csproj for now. The architecture doc mentions a future `WpaMcp.Analyzers`/`WpaMcp.Core` split, but until then everything stays under `src/WpaMcp/`.
 - All public response DTOs are `sealed record` types in `Output/Records.cs` — keep them immutable and add new fields rather than mutating shape so MCP clients don't break.
 - All MCP tool methods accept an absolute `path` to the `.etl` and route through `TraceCache.Get`. New tools should follow the same pattern.
 - Symbol-related warnings are emitted as a `Warnings` list on the response (see `WarningBuilder`) instead of throwing — clients should surface them to the user.

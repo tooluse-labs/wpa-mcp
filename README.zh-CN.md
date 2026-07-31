@@ -100,7 +100,7 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目，并删除 `%USERPROFILE%\.local\bin\wpa-mcp.exe`。符号缓存保留（要清理就删 `%LocalAppData%\WprMcp\Symbols\`）。
+会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目，并删除 `%USERPROFILE%\.local\bin\wpa-mcp.exe`。符号缓存保留（要清理就删 `%LocalAppData%\WpaMcp\Symbols\`）。
 
 ### 系统要求
 
@@ -156,13 +156,13 @@ cd wpa-mcp
 git clone https://github.com/tooluse-labs/wpa-mcp
 cd wpa-mcp
 dotnet build -c Release
-# DLL 位置: src\WprMcp\bin\Release\net8.0\WprMcp.dll
+# DLL 位置: src\WpaMcp\bin\Release\net10.0\WpaMcp.dll
 ```
 
 冒烟测试：
 
 ```powershell
-dotnet src\WprMcp\bin\Release\net8.0\WprMcp.dll --version    # 输出 "WprMcp 0.2.16"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # 输出 "WpaMcp 0.2.16"
 dotnet test                                                   # 跑 xUnit 套件（需要 fixture，见 CONTRIBUTING.md）
 ```
 
@@ -175,10 +175,10 @@ dotnet test                                                   # 跑 xUnit 套件
   "mcpServers": {
     "wpa-mcp": {
       "command": "dotnet",
-      "args": ["C:/Users/me/Dev/wpa-mcp/src/WprMcp/bin/Release/net8.0/WprMcp.dll"],
+      "args": ["C:/Users/me/Dev/wpa-mcp/src/WpaMcp/bin/Release/net10.0/WpaMcp.dll"],
       "env": {
         "_NT_SYMBOL_PATH": "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
-        "WPRMCP_CACHE_SIZE": "2"
+        "WPAMCP_CACHE_SIZE": "2"
       }
     }
   }
@@ -188,7 +188,7 @@ dotnet test                                                   # 跑 xUnit 套件
 或者用 CLI helper：
 
 ```powershell
-claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WprMcp/bin/Release/net8.0/WprMcp.dll
+claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WpaMcp/bin/Release/net10.0/WpaMcp.dll
 ```
 
 （环境变量加 `-e _NT_SYMBOL_PATH=...`。）
@@ -378,7 +378,7 @@ load_trace  ──►  返回 Capabilities map
 ### CLR（.NET runtime）
 
 需要 `Microsoft-Windows-DotNETRuntime` ETW provider（WPR `.wprp` 文件需要显式 `<EventCollectorId>`）。
-如果只看 JIT，运行 `tests/WprMcp.Tests/fixtures/Capture-JitOnly.ps1`，或直接使用 `JitOnlyCapture.wprp!ClrJitOnly`；它只开启 `clr_jit_analysis` 需要的 CLR JIT + Loader bits，不开启 GC / allocation / exception / contention runtime keywords。
+如果只看 JIT，运行 `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps1`，或直接使用 `JitOnlyCapture.wprp!ClrJitOnly`；它只开启 `clr_jit_analysis` 需要的 CLR JIT + Loader bits，不开启 GC / allocation / exception / contention runtime keywords。
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
@@ -413,7 +413,7 @@ load_trace  ──►  返回 Capabilities map
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | `set_symbol_path` | 给运行中的 server 设 `_NT_SYMBOL_PATH`（替换或追加）。 | File → Set Symbol Path… |
-| `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WprMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
+| `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WpaMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
 | `diagnose_symbols` | 针对已加载的 trace 报告每个模块的符号状态，给未解析模块的修复建议（应该加哪些服务器）。 | **[程序化]**——以结构化 JSON + 自动推荐替代 Modules 标签 + Set Symbol Path 对话框 |
 
 ---
@@ -422,14 +422,14 @@ load_trace  ──►  返回 Capabilities map
 
 ### Trace 缓存
 
-LRU，默认容量 2 条 trace。用 `WPRMCP_CACHE_SIZE=N` 覆盖。首次加载构建 `.etlx`（慢），命中缓存后即时返回。`Capabilities` 和 `TraceLog` 都按 `(path, mtime)` 缓存——重新加载相同 `.etl` 是零成本。
+LRU，默认容量 2 条 trace。用 `WPAMCP_CACHE_SIZE=N` 覆盖。首次加载构建 `.etlx`（慢），命中缓存后即时返回。`Capabilities` 和 `TraceLog` 都按 `(path, mtime)` 缓存——重新加载相同 `.etl` 是零成本。
 
 ### 自己抓 trace
 
 [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)（英文）提供了一个推荐 `.wprp`，覆盖 CPU + CSwitch + FileIO + DiskIO + HardFaults + Loader stacks。最常用的抓取流程：
 
 ```powershell
-wpr.exe -start tests\WprMcp.Tests\fixtures\MmapCapture.wprp -filemode
+wpr.exe -start tests\WpaMcp.Tests\fixtures\MmapCapture.wprp -filemode
 # … 复现慢的场景 …
 wpr.exe -stop C:\path\to\my_capture.etl
 ```
@@ -450,7 +450,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 2. **在 MCP 配置 JSON 里加 `env` 块**（见上面的手动安装）。最方便和团队成员共享。
 3. **运行时通过工具调用**——直接对 agent 说："*把 symbol path 设成 SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols，然后对这个 trace 跑 `diagnose_symbols`*。"
 
-符号缓存默认 `%LocalAppData%\WprMcp\Symbols`（和 PerfView 的 `C:\Symbols` 分开，避免 PDB lock 争用）。每条 trace 的针对性推荐会出现在 `load_trace` 的返回字段 `SymbolStatus.Recommendations` 里，告诉你针对这份 trace 实际出现的模块应该加哪些服务器。
+符号缓存默认 `%LocalAppData%\WpaMcp\Symbols`（和 PerfView 的 `C:\Symbols` 分开，避免 PDB lock 争用）。每条 trace 的针对性推荐会出现在 `load_trace` 的返回字段 `SymbolStatus.Recommendations` 里，告诉你针对这份 trace 实际出现的模块应该加哪些服务器。
 
 #### 微软模块之外的符号
 
