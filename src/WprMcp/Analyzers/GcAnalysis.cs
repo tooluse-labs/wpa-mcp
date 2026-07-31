@@ -1,142 +1,310 @@
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
+using WprMcp.Core;
 using WprMcp.Output;
 
 namespace WprMcp.Analyzers;
 
-// .NET CLR Garbage Collection analysis — list of GCs and per-GC "stop the world" pauses.
-// PerfView equivalent: 'GCStats' / 'GC HeapAlloc Stacks'.
-//
-// Two related-but-distinct events to track:
-//
-//   GCStart / GCEnd: bracket a single GC operation.  Each carries Count (a sequence ID),
-//     Depth (the generation: 0/1/2 == Gen0/Gen1/Gen2 (LOH or POH for higher)), and Reason
-//     (Induced / AllocSmall / AllocLarge / etc.).  The interval is the WALL TIME of the GC,
-//     not necessarily the pause time — for background / concurrent GCs, mutator threads keep
-//     running for most of it.
-//
-//   GCSuspendEEStart / GCRestartEEStop: bracket the "stop the world" suspension that all
-//     CLR GCs do at least briefly.  This interval IS the pause that user code experiences.
-//     For a workstation Gen0 GC the entire GC happens in this window; for a server background
-//     Gen2 GC the suspension is only the initial mark phase.
-//
-// We match GCStart→GCEnd by ProcessID + Count to get per-GC metadata (generation, reason)
-// and SuspendEEStart→RestartEEStop to compute pause time.  Combining the two: for each GC,
-// report wall duration AND pause duration.  Pauses without an enclosing GC are reported
-// separately (rare, but possible during early-startup / late-shutdown windows).
+// CLR GC walls and stop-the-world pauses are independent interval streams. Pair both over
+// the full trace, associate each completed pause once, then project through the query window.
 public static class GcAnalysis
 {
-    public static GcAnalysisResponse Analyze(TraceLog trace, int? pid, long? startUs, long? endUs)
+    public static GcAnalysisResponse Analyze(
+        TraceLog trace,
+        int? pid,
+        long? startUs,
+        long? endUs)
     {
-        var pendingStarts = new Dictionary<(int pid, int count), (long startUs, int generation, string reason)>();
-        var pendingSuspends = new Dictionary<int, long>();
-        // Pause time accumulated INSIDE an in-flight GC (between GCStart and GCStop) for a
-        // PID — Suspend/Restart fires before GCStop, so the GC's row doesn't exist yet at
-        // attribution time.  GCStop reads-and-clears this entry to populate PauseUs.
-        var pauseAccumByPid = new Dictionary<int, long>();
-        // Pauses that fired with NO in-flight GC for the PID — emitted as standalone rows.
-        var orphanPauses = new List<GcEventRow>();
-        var rows = new List<GcEventRow>();
-        long totalGcUs = 0, totalPauseUs = 0;
-        int gcCount = 0, gen0 = 0, gen1 = 0, gen2 = 0;
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = TimeWindowInput.Validate(startUs, endUs, maxDurationUs: null)
+            .Resolve(traceEndUs, maxDurationUs: null);
+        var identities = TraceIdentityIndex.For(trace);
+        var accumulator = new GcIntervalAccumulator();
+        var unresolvedProcessEventCount = 0;
 
         ClrEventWalker.Walk(trace, clr =>
         {
             clr.GCStart += data =>
             {
-                var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                pendingStarts[(data.ProcessID, data.Count)] =
-                    (nowUs, data.Depth, data.Reason.ToString());
-                // Reset any orphan pause carry-over for this PID — pauses now belong to this GC.
-                pauseAccumByPid[data.ProcessID] = 0;
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var process = ResolveProcess(
+                    identities.Processes, data.ProcessID, timestampUs, atEndpoint: false);
+                if (!process.HasValue)
+                {
+                    unresolvedProcessEventCount++;
+                    return;
+                }
+
+                accumulator.AddGcStart(
+                    process.Value,
+                    TryReadClrInstanceId(data),
+                    data.Count,
+                    timestampUs,
+                    data.Depth,
+                    data.Reason.ToString());
             };
 
             clr.GCStop += data =>
             {
-                var endUsLocal = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                if (!pendingStarts.Remove((data.ProcessID, data.Count), out var s)) return;
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var process = ResolveProcess(
+                    identities.Processes, data.ProcessID, timestampUs, atEndpoint: true);
+                if (!process.HasValue)
+                {
+                    unresolvedProcessEventCount++;
+                    return;
+                }
 
-                // Always clear the accumulator — this GC is finished regardless of window.
-                // Otherwise stale pauses leak into the next GC's bucket (or get clobbered
-                // by the next GCStart resetting it to 0, silently dropped).
-                pauseAccumByPid.Remove(data.ProcessID, out var pauseSum);
-
-                if (startUs is { } sw && s.startUs < sw) return;
-                if (endUs is { } ew && endUsLocal >= ew) return;
-
-                var dur = endUsLocal - s.startUs;
-                totalGcUs += dur;
-                if (pauseSum > 0) totalPauseUs += pauseSum;
-                gcCount++;
-                if (s.generation == 0) gen0++;
-                else if (s.generation == 1) gen1++;
-                else gen2++;
-
-                rows.Add(new GcEventRow(
-                    StartUs: s.startUs,
-                    DurationUs: dur,
-                    Generation: s.generation,
-                    Reason: s.reason,
-                    Pid: data.ProcessID,
-                    PauseUs: pauseSum > 0 ? pauseSum : null));
+                accumulator.AddGcStop(
+                    process.Value,
+                    TryReadClrInstanceId(data),
+                    data.Count,
+                    timestampUs);
             };
 
             clr.GCSuspendEEStart += data =>
             {
-                var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                pendingSuspends[data.ProcessID] = nowUs;
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var process = ResolveProcess(
+                    identities.Processes, data.ProcessID, timestampUs, atEndpoint: false);
+                if (!process.HasValue)
+                {
+                    unresolvedProcessEventCount++;
+                    return;
+                }
+
+                accumulator.AddSuspendStart(
+                    process.Value,
+                    TryReadClrInstanceId(data),
+                    timestampUs);
             };
 
             clr.GCRestartEEStop += data =>
             {
-                var endUsLocal = (long)(data.TimeStampRelativeMSec * 1000);
-                if (pid is { } p && data.ProcessID != p) return;
-                if (!pendingSuspends.Remove(data.ProcessID, out var startUsLocal)) return;
-
-                var pauseUs = endUsLocal - startUsLocal;
-
-                if (pauseAccumByPid.ContainsKey(data.ProcessID))
+                var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
+                var process = ResolveProcess(
+                    identities.Processes, data.ProcessID, timestampUs, atEndpoint: true);
+                if (!process.HasValue)
                 {
-                    // GC in flight — accumulate; GCStop applies the window and adds to totalPauseUs.
-                    pauseAccumByPid[data.ProcessID] += pauseUs;
+                    unresolvedProcessEventCount++;
                     return;
                 }
 
-                // No enclosing GC — emit as standalone, window-gated to match GCStop's behavior.
-                if (startUs is { } sw && startUsLocal < sw) return;
-                if (endUs is { } ew && endUsLocal >= ew) return;
-
-                totalPauseUs += pauseUs;
-                orphanPauses.Add(new GcEventRow(
-                    StartUs: startUsLocal,
-                    DurationUs: pauseUs,
-                    Generation: -1,
-                    Reason: "(pause without enclosing GCStart/GCStop)",
-                    Pid: data.ProcessID,
-                    PauseUs: pauseUs));
+                accumulator.AddRestartStop(
+                    process.Value,
+                    TryReadClrInstanceId(data),
+                    timestampUs);
             };
         });
 
-        rows.AddRange(orphanPauses);
+        var response = Project(accumulator.Complete(), window, pid);
+        if (unresolvedProcessEventCount == 0)
+            return response;
 
-        rows.Sort((a, b) => a.StartUs.CompareTo(b.StartUs));
+        return response with
+        {
+            Warnings = response.Warnings
+                .Concat(
+                [
+                    $"identity_incomplete: skipped {unresolvedProcessEventCount} GC/pause endpoint events because their process instance was unresolved or ambiguous.",
+                ])
+                .ToArray(),
+        };
+    }
+
+    internal static GcAnalysisResponse Project(
+        GcIntervalSet intervals,
+        TimeWindow window,
+        int? pid)
+    {
+        ArgumentNullException.ThrowIfNull(intervals);
+
+        var rows = new List<GcEventRow>();
+        long totalFullGcUs = 0;
+        long totalAccountedGcUs = 0;
+        long totalFullPauseUs = 0;
+        long totalAccountedPauseUs = 0;
+        var gen0 = 0;
+        var gen1 = 0;
+        var gen2 = 0;
+
+        foreach (var gc in intervals.Gcs)
+        {
+            if (pid.HasValue && gc.Key.Process.Pid != pid.Value)
+                continue;
+
+            var wall = DurationAccounting.Project(
+                new PairedInterval<ClrGcKey, GcStartData, GcStopData>(
+                    gc.Key,
+                    gc.StartUs,
+                    gc.EndUs,
+                    new GcStartData(gc.Generation, gc.Reason),
+                    new GcStopData()),
+                window);
+
+            var pauses = gc.Pauses
+                .Select(pause => DurationAccounting.Project(
+                    new PairedInterval<ClrPauseKey, SuspendStartData, RestartStopData>(
+                        pause.Key,
+                        pause.StartUs,
+                        pause.EndUs,
+                        new SuspendStartData(),
+                        new RestartStopData()),
+                    window))
+                .Where(projected => projected.HasValue)
+                .Select(projected => projected!.Value)
+                .ToArray();
+
+            if (!wall.HasValue && pauses.Length == 0)
+                continue;
+
+            var fullPauseUs = pauses.Length == 0
+                ? (long?)null
+                : pauses.Sum(pause => pause.FullDurationUs);
+            var accountedPauseUs = pauses.Length == 0
+                ? (long?)null
+                : pauses.Sum(pause => pause.AccountedDurationUs);
+            var accountedGcUs = wall?.AccountedDurationUs ?? 0;
+
+            if (wall.HasValue)
+            {
+                totalFullGcUs += wall.Value.FullDurationUs;
+                totalAccountedGcUs += accountedGcUs;
+            }
+            totalFullPauseUs += fullPauseUs ?? 0;
+            totalAccountedPauseUs += accountedPauseUs ?? 0;
+
+            if (gc.Generation == 0)
+                gen0++;
+            else if (gc.Generation == 1)
+                gen1++;
+            else
+                gen2++;
+
+            rows.Add(new GcEventRow(
+                StartUs: gc.StartUs,
+                DurationUs: accountedGcUs,
+                Generation: gc.Generation,
+                Reason: gc.Reason,
+                Pid: gc.Key.Process.Pid,
+                PauseUs: accountedPauseUs,
+                EndUs: gc.EndUs,
+                FullDurationUs: gc.FullDurationUs,
+                AccountedDurationUs: accountedGcUs,
+                FullPauseUs: fullPauseUs,
+                AccountedPauseUs: accountedPauseUs,
+                AccountingMode: DurationAccounting.ClippedOverlapMode,
+                ProcessStartUs: gc.Key.Process.StartUs,
+                ClrInstanceId: gc.Key.ClrInstanceId,
+                GcCount: gc.Key.GcCount,
+                IsOrphanPause: false));
+        }
+
+        foreach (var pause in intervals.OrphanPauses)
+        {
+            if (pid.HasValue && pause.Key.Process.Pid != pid.Value)
+                continue;
+
+            var projected = DurationAccounting.Project(
+                new PairedInterval<ClrPauseKey, SuspendStartData, RestartStopData>(
+                    pause.Key,
+                    pause.StartUs,
+                    pause.EndUs,
+                    new SuspendStartData(),
+                    new RestartStopData()),
+                window);
+            if (!projected.HasValue)
+                continue;
+
+            totalFullPauseUs += projected.Value.FullDurationUs;
+            totalAccountedPauseUs += projected.Value.AccountedDurationUs;
+            rows.Add(new GcEventRow(
+                StartUs: pause.StartUs,
+                DurationUs: projected.Value.AccountedDurationUs,
+                Generation: -1,
+                Reason: "(pause without compatible GC interval)",
+                Pid: pause.Key.Process.Pid,
+                PauseUs: projected.Value.AccountedDurationUs,
+                EndUs: pause.EndUs,
+                FullDurationUs: projected.Value.FullDurationUs,
+                AccountedDurationUs: projected.Value.AccountedDurationUs,
+                FullPauseUs: projected.Value.FullDurationUs,
+                AccountedPauseUs: projected.Value.AccountedDurationUs,
+                AccountingMode: DurationAccounting.ClippedOverlapMode,
+                ProcessStartUs: pause.Key.Process.StartUs,
+                ClrInstanceId: pause.Key.ClrInstanceId,
+                GcCount: null,
+                IsOrphanPause: true));
+        }
+
+        rows.Sort((left, right) => left.StartUs.CompareTo(right.StartUs));
 
         var warnings = new List<string>();
         if (rows.Count == 0)
-            warnings.Add(WarningBuilder.MissingClrKeyword("GC", "GC", "or no GC occurred in the filter window"));
+        {
+            warnings.Add(WarningBuilder.MissingClrKeyword(
+                "GC", "GC", "or no GC occurred in the filter window"));
+        }
+        warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
 
         return new GcAnalysisResponse(
             Pid: pid,
-            TotalGcCount: gcCount,
+            TotalGcCount: gen0 + gen1 + gen2,
             Gen0Count: gen0,
             Gen1Count: gen1,
             Gen2Count: gen2,
-            TotalGcUs: totalGcUs,
-            TotalPauseUs: totalPauseUs,
+            TotalGcUs: totalAccountedGcUs,
+            TotalPauseUs: totalAccountedPauseUs,
             Events: rows,
-            Warnings: warnings);
+            Warnings: warnings,
+            TotalFullGcUs: totalFullGcUs,
+            TotalAccountedGcUs: totalAccountedGcUs,
+            TotalFullPauseUs: totalFullPauseUs,
+            TotalAccountedPauseUs: totalAccountedPauseUs,
+            AccountingMode: DurationAccounting.ClippedOverlapMode,
+            IncompleteClrIdentityCount: intervals.IncompleteEvidence.Count(
+                row => row.Code == "missing_clr_instance"),
+            UnmatchedGcIntervalCount:
+                intervals.UnmatchedGcStartCount + intervals.UnmatchedGcStopCount,
+            UnmatchedPauseIntervalCount:
+                intervals.UnmatchedSuspendStartCount + intervals.UnmatchedRestartStopCount,
+            InvalidIntervalCount: intervals.InvalidIntervalCount);
+    }
+
+    internal static ushort? TryReadClrInstanceId(TraceEvent data)
+    {
+        for (var index = 0; index < data.PayloadNames.Length; index++)
+        {
+            if (!string.Equals(
+                    data.PayloadNames[index],
+                    "ClrInstanceID",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = data.PayloadValue(index);
+            return value is null
+                ? null
+                : Convert.ToUInt16(
+                    value,
+                    System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return null;
+    }
+
+    private static ProcessInstanceKey? ResolveProcess(
+        ProcessInstanceResolver resolver,
+        int pid,
+        long timestampUs,
+        bool atEndpoint)
+    {
+        var resolution = atEndpoint
+            ? resolver.ResolveAtEndpoint(pid, timestampUs)
+            : resolver.Resolve(pid, timestampUs, processStartUs: null);
+        return resolution.Status == InstanceResolutionStatus.Resolved
+            ? resolution.Value
+            : null;
     }
 }

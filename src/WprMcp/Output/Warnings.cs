@@ -2,6 +2,9 @@ namespace WprMcp.Output;
 
 public static class WarningBuilder
 {
+    public const string LegacyAccountedDurationWarning =
+        "time_semantics_v2: legacy DurationUs/PauseUs and duration totals are accounted overlap within the requested half-open window; use FullDurationUs/FullPauseUs for complete paired wall time.";
+
     public static string SymbolResolution(double rate)
         => $"{rate * 100:F1}% frame resolution rate. Run diagnose_symbols() for fix suggestions.";
 

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Reflection;
 using ModelContextProtocol.Server;
+using WprMcp.Analyzers;
 using WprMcp.Core;
 using WprMcp.Output;
 using WprMcp.Tools;
@@ -10,6 +11,42 @@ namespace WprMcp.Tests;
 public sealed class SecurityScanAnalysisTests
 {
     private const string FixturePath = "fixtures/small_cpu.etl";
+
+    [Fact]
+    public void SecurityProjection_UsesClippedDurationInTargetAndRequestTotals()
+    {
+        var emitter = new ProcessInstanceKey(4, 0);
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["__Source"] = "Microsoft Defender",
+            ["__ProviderName"] = "Microsoft-Antimalware-Engine",
+            ["__Id"] = "scan-1",
+            ["Path"] = "c:\\sample.dll",
+            ["Process"] = "app.exe",
+            ["PID"] = "8",
+        };
+        var pair = new PairedInterval<SecurityScanPairKey, SecurityScanStartData, SecurityScanStopData>(
+            new SecurityScanPairKey(emitter, "Microsoft-Antimalware-Engine", "scan-1"),
+            90,
+            210,
+            new SecurityScanStartData(fields),
+            new SecurityScanStopData(fields));
+
+        var response = SecurityScanAnalysis.ProjectPairs(
+            [pair],
+            new TimeWindow(100, 200),
+            top: 10,
+            pid: null,
+            processSubstring: null,
+            pathSubstring: null,
+            providerSubstring: null);
+
+        Assert.Equal(120, Assert.Single(response.SlowScans).FullDurationUs);
+        Assert.Equal(100, response.SlowScans[0].AccountedDurationUs);
+        Assert.Equal(100, response.SlowScans[0].DurationUs);
+        Assert.Equal(100, Assert.Single(response.Rows).TotalAccountedDurationUs);
+        Assert.Equal(100, response.TotalDurationUs);
+    }
 
     [Fact]
     public void SecurityScanAnalysis_NoMatchingProviders_ReturnsActionableWarning()
@@ -51,7 +88,12 @@ public sealed class SecurityScanAnalysisTests
             ResultEventCount: 2,
             EventNames: ["ScanResult:2"],
             Reasons: ["4"],
-            Statuses: ["0"]);
+            Statuses: ["0"],
+            TotalFullDurationUs: 0,
+            TotalAccountedDurationUs: 0,
+            AvgAccountedDurationUs: null,
+            MaxAccountedDurationUs: null,
+            AccountingMode: "clipped_overlap_v2");
 
         Assert.Equal("Alibaba Aliedr", row.Source);
         Assert.Equal("Aliedr-Provider", row.ProviderName);
