@@ -21,6 +21,35 @@ public class TelemetryTests
     }
 
     [Fact]
+    public void TelemetryOptions_ReadsWpaEnvironmentNames()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["WPAMCP_TELEMETRY"] = "1",
+            ["WPAMCP_TELEMETRY_DEST"] = "stderr",
+            ["WPAMCP_TELEMETRY_FILE"] = "telemetry.jsonl",
+        };
+
+        var options = ToolTelemetryOptions.FromEnvironment(values.GetValueOrDefault);
+
+        Assert.True(options.Enabled);
+        Assert.Equal(ToolTelemetryDestination.Stderr, options.Destination);
+        Assert.Equal("telemetry.jsonl", options.FilePath);
+    }
+
+    [Fact]
+    public void DefaultLogPath_UsesWpaMcpAppDataDirectory()
+    {
+        var path = ToolTelemetryOptions.DefaultLogPath();
+        var expectedDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WpaMcp",
+            "Logs");
+
+        Assert.Equal(expectedDirectory, Path.GetDirectoryName(path));
+    }
+
+    [Fact]
     public void DisabledTelemetry_WritesNothing()
     {
         using var writer = new StringWriter();

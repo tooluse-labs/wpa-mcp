@@ -100,7 +100,7 @@ public class SymbolServiceTests
             var svc = new SymbolService();
             var expectedCache = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WprMcp", "Symbols");
+                "WpaMcp", "Symbols");
             svc.AddServer("https://example.com/symbols", cacheDir: null);
             Assert.Equal($"SRV*{expectedCache}*https://example.com/symbols", svc.CurrentPath);
             Assert.True(Directory.Exists(expectedCache));

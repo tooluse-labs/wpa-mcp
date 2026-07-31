@@ -25,7 +25,7 @@ public sealed class SymbolService
 
     public string DefaultCacheDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WprMcp", "Symbols");
+        "WpaMcp", "Symbols");
 
     public void SetPath(string path, bool append)
     {

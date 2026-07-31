@@ -145,24 +145,24 @@ internal sealed record ToolTelemetryOptions(
     {
         getEnv ??= Environment.GetEnvironmentVariable;
 
-        var enabled = IsEnabled(getEnv("WPRMCP_TELEMETRY"));
+        var enabled = IsEnabled(getEnv("WPAMCP_TELEMETRY"));
         if (!enabled)
             return Disabled;
 
-        var destination = string.Equals(getEnv("WPRMCP_TELEMETRY_DEST"), "stderr", StringComparison.OrdinalIgnoreCase)
+        var destination = string.Equals(getEnv("WPAMCP_TELEMETRY_DEST"), "stderr", StringComparison.OrdinalIgnoreCase)
             ? ToolTelemetryDestination.Stderr
             : ToolTelemetryDestination.File;
 
         return new ToolTelemetryOptions(
             true,
             destination,
-            string.IsNullOrWhiteSpace(getEnv("WPRMCP_TELEMETRY_FILE")) ? null : getEnv("WPRMCP_TELEMETRY_FILE"));
+            string.IsNullOrWhiteSpace(getEnv("WPAMCP_TELEMETRY_FILE")) ? null : getEnv("WPAMCP_TELEMETRY_FILE"));
     }
 
     public static string DefaultLogPath()
         => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WprMcp",
+            "WpaMcp",
             "Logs",
             $"telemetry-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.jsonl");
 

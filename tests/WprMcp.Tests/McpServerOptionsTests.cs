@@ -37,19 +37,19 @@ public class McpServerOptionsTests
     public void ApplyToEnvironmentSetsRuntimeConfiguration()
     {
         var savedSymbolPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
-        var savedCacheSize = Environment.GetEnvironmentVariable("WPRMCP_CACHE_SIZE");
+        var savedCacheSize = Environment.GetEnvironmentVariable("WPAMCP_CACHE_SIZE");
         try
         {
             var options = McpServerOptions.Parse(new[] { "--symbol-path", "X", "--cache-size", "3" });
             options.ApplyToEnvironment();
 
             Assert.Equal("X", Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
-            Assert.Equal("3", Environment.GetEnvironmentVariable("WPRMCP_CACHE_SIZE"));
+            Assert.Equal("3", Environment.GetEnvironmentVariable("WPAMCP_CACHE_SIZE"));
         }
         finally
         {
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", savedSymbolPath);
-            Environment.SetEnvironmentVariable("WPRMCP_CACHE_SIZE", savedCacheSize);
+            Environment.SetEnvironmentVariable("WPAMCP_CACHE_SIZE", savedCacheSize);
         }
     }
 }

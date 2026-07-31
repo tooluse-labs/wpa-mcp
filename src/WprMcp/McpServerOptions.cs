@@ -41,7 +41,7 @@ internal sealed record McpServerOptions(
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", SymbolPath);
 
         if (CacheSize is not null)
-            Environment.SetEnvironmentVariable("WPRMCP_CACHE_SIZE", CacheSize.Value.ToString());
+            Environment.SetEnvironmentVariable("WPAMCP_CACHE_SIZE", CacheSize.Value.ToString());
     }
 
     private static string RequireValue(string[] args, ref int index, string option)

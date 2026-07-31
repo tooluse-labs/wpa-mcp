@@ -13,7 +13,7 @@ public sealed class TraceCache
     {
         if (capacity == 0)
         {
-            var env = Environment.GetEnvironmentVariable("WPRMCP_CACHE_SIZE");
+            var env = Environment.GetEnvironmentVariable("WPAMCP_CACHE_SIZE");
             if (!int.TryParse(env, out capacity) || capacity <= 0) capacity = 2;
         }
         _cache = new LruCache<string, CacheEntry>(capacity);

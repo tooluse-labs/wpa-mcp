@@ -400,9 +400,9 @@ public static class CliRunner
     private static int PrintHelp(bool toError)
     {
         var w = toError ? Console.Error : Console.Out;
-        w.WriteLine("WprMcp CLI (test/debug only — use the MCP stdio server in production).");
+        w.WriteLine("WpaMcp CLI (test/debug only — use the MCP stdio server in production).");
         w.WriteLine();
-        w.WriteLine("Usage: WprMcp.dll <verb> [args]");
+        w.WriteLine("Usage: WpaMcp.dll <verb> [args]");
         w.WriteLine();
         w.WriteLine("Verbs:");
         w.WriteLine("  --list-processes        <trace.etl> [orderBy=cpu|wall|wait_ratio]");

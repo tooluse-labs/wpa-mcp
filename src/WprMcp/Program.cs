@@ -19,7 +19,7 @@ public static class Program
                 ?? typeof(Program).Assembly.GetName().Version?.ToString()
                 ?? "unknown";
 
-            Console.WriteLine($"WprMcp {version}");
+            Console.WriteLine($"WpaMcp {version}");
             return 0;
         }
 
