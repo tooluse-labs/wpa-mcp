@@ -7,6 +7,14 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## v0.2.24 - 2026-07-31
+
+### Changed
+
+- Renamed the internal WprMcp solution, project directories, assemblies, build
+  identifiers, scripts, and documentation references to WpaMcp while retaining
+  the public `wpa-mcp` executable and Windows Performance Recorder terminology.
+
 ## v0.2.23 - 2026-05-19
 
 ### Added
