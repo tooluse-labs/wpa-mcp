@@ -23,8 +23,9 @@ public sealed class MetaTools
     public LoadTraceResponse LoadTrace(
         [Description("Absolute path to .etl file")] string path)
     {
-        var trace = _cache.Get(path);
-        var capabilities = _cache.GetCapabilities(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        var capabilities = traceLease.Capabilities;
         return new LoadTraceResponse(BuildTraceMeta(path, trace), BuildSymbolStatus(trace), capabilities);
     }
 
@@ -38,14 +39,16 @@ public sealed class MetaTools
         "system metadata, provider counts, stackwalk completeness, symbol quality, quality " +
         "warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, " +
         "the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. " +
-        "Recommendations are capability-driven hints, not goal-specific rankings. " +
+        "Stack recommendations require attached stacks in that exact event domain; unrelated global " +
+        "stacks never enable them. Recommendations are capability-driven hints, not goal-specific rankings. " +
         "No startUs/endUs: capabilities, metadata, provider counts, and symbol quality describe the whole trace.")]
     public InspectTraceResponse InspectTrace(
         [Description("Absolute path to .etl file")] string path)
     {
-        var trace = _cache.Get(path);
-        var capabilities = _cache.GetCapabilities(path);
-        var metadata = _cache.GetMetadata(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        var capabilities = traceLease.Capabilities;
+        var metadata = traceLease.Metadata;
         var symbolQuality = BuildInspectSymbolQuality(trace);
         var warnings = BuildTraceQualityWarnings(trace.EventsLost, capabilities, symbolQuality);
         var orientationTools = BuildOrientationTools(symbolQuality);
@@ -78,11 +81,11 @@ public sealed class MetaTools
 
     private static SymbolStatus BuildSymbolStatus(TraceLog trace)
     {
-        var ntPath = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+        var ntPath = SymbolPathState.CurrentPath;
         var cacheDir = DefaultSymbolCacheDir();
         var warning = string.IsNullOrEmpty(ntPath)
-            ? "_NT_SYMBOL_PATH is not set. OS module frames will not resolve. " +
-              "Call set_symbol_path or add_symbol_server, or configure env in MCP config."
+            ? "_NT_SYMBOL_PATH is not set. Stack queries still probe the trace directory through a query-local path, but no configured local stores or symbol servers are available. " +
+              "Call set_symbol_path or add_symbol_server, or configure the environment in MCP config."
             : null;
 
         return new SymbolStatus(ntPath, cacheDir, warning, BuildSymbolRecommendations(trace));
@@ -91,30 +94,47 @@ public sealed class MetaTools
     private static InspectSymbolQuality BuildInspectSymbolQuality(TraceLog trace)
     {
         var modules = trace.ModuleFiles.ToList();
-        var unresolved = modules
-            .Where(module => string.IsNullOrEmpty(module.PdbName))
+        var modulesMissingPdbName = modules
+            .Where(module => string.IsNullOrWhiteSpace(module.PdbName))
             .OrderBy(module => module.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .Select(module =>
             {
                 var name = module.Name ?? "<unknown>";
-                return new InspectUnresolvedModule(name, SymbolTools.SuggestServerForModule(name));
+                return new InspectModuleMissingPdbName(name, SymbolTools.SuggestServerForModule(name));
             })
             .Take(20)
             .ToList();
 
-        var resolvedCount = modules.Count(module => !string.IsNullOrEmpty(module.PdbName));
-        double? rate = modules.Count == 0
+        var modulesWithPdbName = modules.Count(module =>
+            !string.IsNullOrWhiteSpace(module.PdbName));
+        var modulesWithCompletePdbIdentity = modules.Count(module =>
+            !string.IsNullOrWhiteSpace(module.PdbName) &&
+            module.PdbSignature != Guid.Empty &&
+            module.PdbAge > 0);
+        double? pdbNameRate = modules.Count == 0
             ? null
-            : resolvedCount / (double)modules.Count;
+            : modulesWithPdbName / (double)modules.Count;
+        double? completeIdentityRate = modules.Count == 0
+            ? null
+            : modulesWithCompletePdbIdentity / (double)modules.Count;
 
         return new InspectSymbolQuality(
-            NtSymbolPath: Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"),
+            NtSymbolPath: SymbolPathState.CurrentPath,
             CacheDir: DefaultSymbolCacheDir(),
             ModuleCount: modules.Count,
-            ResolvedModuleCount: resolvedCount,
-            ModuleResolutionRate: rate,
-            TopUnresolvedModules: unresolved,
-            Recommendations: BuildSymbolRecommendations(trace));
+            ResolvedModuleCount: null,
+            ModuleResolutionRate: null,
+            TopUnresolvedModules: Array.Empty<InspectUnresolvedModule>(),
+            Recommendations: BuildSymbolRecommendations(trace),
+            ModulesWithPdbName: modulesWithPdbName,
+            ModulesWithPdbNameRate: pdbNameRate,
+            ModulesWithCompletePdbIdentity: modulesWithCompletePdbIdentity,
+            CompletePdbIdentityRate: completeIdentityRate,
+            FrameResolutionMeasurementState: "not_measured",
+            FrameResolution: null)
+        {
+            TopModulesMissingPdbName = modulesMissingPdbName,
+        };
     }
 
     internal static IReadOnlyList<TraceQualityWarning> BuildTraceQualityWarnings(
@@ -146,13 +166,13 @@ public sealed class MetaTools
                 DegradedTools: Array.Empty<string>()));
         }
 
-        if (symbolQuality.ModuleResolutionRate is < 0.8)
+        if (symbolQuality.CompletePdbIdentityRate is < 0.8)
         {
             warnings.Add(new TraceQualityWarning(
-                Code: "low_module_symbol_resolution",
+                Code: "low_module_pdb_identity_coverage",
                 Severity: "warn",
-                Message: $"{symbolQuality.ModuleResolutionRate.Value * 100:F1}% of loaded modules have resolved PDBs.",
-                NextStep: "Run diagnose_symbols and add the recommended symbol servers or local PDB paths.",
+                Message: $"{symbolQuality.CompletePdbIdentityRate.Value * 100:F1}% of loaded modules carry a complete PDB name + GUID + Age identity; this is metadata coverage, not measured frame resolution.",
+                NextStep: "Run diagnose_symbols to inspect local PDB readiness, then run the target stack tool with resolveSymbols=true to measure observed frame-name resolution.",
                 AffectedTools: StackDependentToolNames,
                 DegradedTools: Array.Empty<string>()));
         }
@@ -182,7 +202,7 @@ public sealed class MetaTools
             capabilities.HasStackWalks,
             "missing_stackwalks",
             "warn",
-            "StackWalk events were not observed; stack-based tools may return empty or low-value call chains.",
+            "Neither explicit StackWalk records nor attached event stacks were observed anywhere in the trace; this aggregate warning does not substitute for per-domain coverage.",
             "Recapture with stack walking enabled for the relevant events.",
             StackDependentToolNames,
             StackWalkDegradedCompositeToolNames);
@@ -322,12 +342,12 @@ public sealed class MetaTools
         };
 
         if (string.IsNullOrEmpty(symbolQuality.NtSymbolPath) ||
-            symbolQuality.ModuleResolutionRate is < 0.8 ||
+            symbolQuality.CompletePdbIdentityRate is < 0.8 ||
             symbolQuality.Recommendations.Count > 0)
         {
             recommendations.Add((
                 "diagnose_symbols",
-                "Symbol path or module resolution needs validation before trusting stack frame names.",
+                "Symbol-path configuration or module PDB identity/local readiness needs validation; actual frame-name resolution must still be measured by a stack tool.",
                 ["symbols", "quality"]));
         }
 
@@ -338,8 +358,12 @@ public sealed class MetaTools
     {
         var recommendations = new List<(string ToolName, string Reason, string[] Goals)>();
 
-        if (capabilities.HasCpuSamples)
-            recommendations.Add(("cpu_top_functions", "CPU samples are present; rank hot functions first for CPU-bound investigations.", ["cpu"]));
+        AddStackRecommendation(
+            capabilities.HasCpuSamples,
+            "cpu",
+            "cpu_top_functions",
+            "CPU samples with attached stacks are present; rank hot functions first for CPU-bound investigations.",
+            ["cpu"]);
 
         if (capabilities.HasCSwitch)
         {
@@ -347,26 +371,58 @@ public sealed class MetaTools
             recommendations.Add(("wait_analysis", "Context switch events are present; identify blocked threads and dominant wait reasons.", ["wait"]));
         }
 
-        if (capabilities.HasCSwitch && capabilities.HasCSwitchStacks)
-            recommendations.Add(("wait_top_stacks", "Context switches and stack walks are present; drill into where blocked time resumes.", ["wait", "stacks"]));
+        AddStackRecommendation(
+            capabilities.HasCSwitch,
+            "cswitch",
+            "wait_top_stacks",
+            "Context switches with blocking stacks are present; inspect the switch-out call chains associated with blocked intervals.",
+            ["wait", "stacks"],
+            legacyHasDomainStacks: capabilities.HasCSwitchStacks);
 
-        if (capabilities.HasReadyThread && capabilities.HasReadyThreadStacks)
-            recommendations.Add(("ready_thread_top_stacks", "ReadyThread events and stack walks are present; inspect who woke target threads.", ["wait", "scheduler", "stacks"]));
+        AddStackRecommendation(
+            capabilities.HasReadyThread,
+            "ready_thread",
+            "ready_thread_top_stacks",
+            "ReadyThread stacks provide associated readier/wakeup evidence; they do not alone prove a fully paired wait-to-wakeup cause.",
+            ["wait", "scheduler", "stacks"],
+            legacyHasDomainStacks: capabilities.HasReadyThreadStacks);
 
         if (capabilities.HasImageLoad)
             recommendations.Add(("image_load_top_gaps", "Image load events are present; rank loader gaps for startup and DLL-load investigations.", ["startup", "image_load"]));
 
+        AddStackRecommendation(
+            capabilities.HasImageLoad,
+            "image_load",
+            "image_load_top_stacks",
+            "ImageLoad events with attached stacks are present; attribute loads to associated call chains.",
+            ["startup", "image_load", "stacks"]);
+
         if (capabilities.HasFileIo)
             recommendations.Add(("file_io_top_files", "File IO events are present; identify files with the most read/write bytes, optionally narrowed by pid/startUs/endUs.", ["io"]));
 
-        if (capabilities.HasFileIo && capabilities.HasStackWalks)
-            recommendations.Add(("file_io_top_stacks", "File IO and stack walks are present; attribute file IO bytes to call stacks.", ["io", "stacks"]));
+        AddStackRecommendation(
+            capabilities.HasFileIo,
+            "file_io",
+            "file_io_top_stacks",
+            "File IO events with attached stacks are present; attribute file IO bytes to call stacks.",
+            ["io", "stacks"]);
 
-        if (capabilities.HasDiskIo && capabilities.HasStackWalks)
-            recommendations.Add(("disk_io_top_stacks", "Disk IO and stack walks are present; attribute physical media bytes to call stacks.", ["io", "disk", "stacks"]));
+        AddStackRecommendation(
+            capabilities.HasDiskIo,
+            "disk_io",
+            "disk_io_top_stacks",
+            "Disk IO events with attached stacks are present; attribute physical media bytes to call stacks.",
+            ["io", "disk", "stacks"]);
 
         if (capabilities.HasHardFaults)
             recommendations.Add(("hard_fault_by_file", "Hard-fault events are present; identify files that caused page-ins, optionally narrowed by pid/startUs/endUs.", ["memory", "hard_faults"]));
+
+        AddStackRecommendation(
+            capabilities.HasHardFaults,
+            "hard_fault",
+            "hard_fault_top_stacks",
+            "Hard-fault events with attached stacks are present; attribute page-in bytes to associated call chains.",
+            ["memory", "hard_faults", "stacks"]);
 
         if (capabilities.HasClrGc)
             recommendations.Add(("clr_gc_analysis", "CLR GC events are present; inspect GC duration and stop-the-world pause time.", ["gc", "dotnet"]));
@@ -374,17 +430,14 @@ public sealed class MetaTools
         if (capabilities.HasClrJit)
             recommendations.Add(("clr_jit_analysis", "CLR JIT events are present; rank methods by JIT compilation duration.", ["jit", "dotnet"]));
 
-        if (capabilities.HasClrAlloc && capabilities.HasStackWalks)
-            recommendations.Add(("clr_alloc_top_stacks", "CLR allocation ticks and stack walks are present; rank managed allocation sources.", ["memory", "dotnet"]));
-
-        if (capabilities.HasClrException)
-            recommendations.Add(("clr_exception_top_stacks", "CLR exception events are present; rank thrown exception sources and top exception types.", ["exceptions", "dotnet"]));
-
-        if (capabilities.HasClrContention)
-            recommendations.Add(("clr_contention_top_stacks", "CLR contention events are present; rank managed Monitor contention call stacks.", ["locks", "dotnet"]));
-
-        if (capabilities.HasNetIo)
-            recommendations.Add(("net_top_stacks", "Network IO events are present; attribute TCP/UDP bytes to call stacks.", ["network"]));
+        AddStackRecommendation(capabilities.HasClrAlloc, "clr_alloc", "clr_alloc_top_stacks",
+            "CLR allocation ticks with attached stacks are present; rank managed allocation sources.", ["memory", "dotnet", "stacks"]);
+        AddStackRecommendation(capabilities.HasClrException, "clr_exception", "clr_exception_top_stacks",
+            "CLR exception events with attached stacks are present; rank thrown exception sources and top exception types.", ["exceptions", "dotnet", "stacks"]);
+        AddStackRecommendation(capabilities.HasClrContention, "clr_contention", "clr_contention_top_stacks",
+            "Paired CLR contention intervals with attached start stacks are present; rank managed Monitor contention call stacks.", ["locks", "dotnet", "stacks"]);
+        AddStackRecommendation(capabilities.HasNetIo, "net_io", "net_top_stacks",
+            "Network byte events with attached stacks are present; attribute TCP/UDP bytes to call stacks.", ["network", "stacks"]);
 
         if (capabilities.HasNetConnections)
             recommendations.Add(("net_connections", "Network connection lifecycle events are present; inspect TCP connect/accept/disconnect timing.", ["network", "connections"]));
@@ -392,11 +445,49 @@ public sealed class MetaTools
         if (capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents || capabilities.HasPoolEvents)
             recommendations.Add(("memory_resource_analysis", BuildMemoryResourceRecommendationReason(capabilities), ["memory"]));
 
-        if (capabilities.HasAlpc)
-            recommendations.Add(("alpc_top_stacks", "ALPC events are present; rank cross-process IPC message stacks.", ["ipc"]));
+        AddStackRecommendation(capabilities.HasAlpc, "alpc", "alpc_top_stacks",
+            "ALPC events with attached stacks are present; rank cross-process IPC message call chains.", ["ipc", "stacks"]);
+        AddStackRecommendation(capabilities.HasInterrupt, "interrupt", "interrupt_top_stacks",
+            "DPC/ISR events with attached stacks are present; rank interrupt time by driver call chain.", ["interrupts", "drivers", "stacks"],
+            legacyHasDomainStacks: capabilities.HasInterruptStacks);
+        AddStackRecommendation(capabilities.HasVirtualAlloc, "virtual_alloc", "virtual_alloc_top_stacks",
+            "Virtual memory operations with attached stacks are present; rank operated bytes by call chain.", ["memory", "virtual_memory", "stacks"]);
+        AddStackRecommendation(capabilities.HasRegistry, "registry", "registry_top_stacks",
+            "Registry operations with attached stacks are present; rank registry activity by call chain.", ["registry", "stacks"]);
+        AddStackRecommendation(capabilities.HasNtHeap, "heap_alloc", "heap_alloc_top_stacks",
+            "NT heap allocation events with attached stacks are present; rank allocation bytes by call chain.", ["memory", "heap", "stacks"]);
 
-        if (capabilities.HasInterrupt)
-            recommendations.Add(("interrupt_top_stacks", "DPC/ISR events are present; rank interrupt time, with call stacks when the capture includes them.", ["interrupts", "drivers"]));
+        void AddStackRecommendation(
+            bool hasEvents,
+            string domain,
+            string toolName,
+            string reason,
+            string[] goals,
+            bool legacyHasDomainStacks = false)
+        {
+            if (!hasEvents)
+                return;
+
+            DomainStackCoverage? coverage = null;
+            if (capabilities.StackCoverageByDomain is not null)
+                capabilities.StackCoverageByDomain.TryGetValue(domain, out coverage);
+            if (coverage is null)
+            {
+                if (legacyHasDomainStacks)
+                    recommendations.Add((toolName, reason, goals));
+                return;
+            }
+            if (coverage.StackedEventCount == 0)
+                return;
+
+            if (coverage.CoverageState == "partial")
+            {
+                reason +=
+                    $" [stack_coverage_state=partial;stack_coverage_pct={coverage.StackCoveragePct:0.##};" +
+                    $"stacked_event_count={coverage.StackedEventCount};total_event_count={coverage.TotalEventCount}]";
+            }
+            recommendations.Add((toolName, reason, goals));
+        }
 
         return recommendations
             .Select(recommendation => new ToolRecommendation(
@@ -416,6 +507,8 @@ public sealed class MetaTools
         AddCapability(enabled, capabilities.HasImageLoad, "image_load");
         AddCapability(enabled, capabilities.HasHardFaults, "hard_faults");
         AddCapability(enabled, capabilities.HasStackWalks, "stack_walks");
+        AddCapability(enabled, capabilities.HasExplicitStackWalkEvents, "explicit_stack_walk_events");
+        AddCapability(enabled, capabilities.HasAttachedEventStacks, "attached_event_stacks");
         AddCapability(enabled, capabilities.HasVirtualAlloc, "virtual_alloc");
         AddCapability(enabled, capabilities.HasNetIo, "network_io");
         AddCapability(enabled, capabilities.HasNetConnections, "network_connections");
@@ -498,20 +591,28 @@ public sealed class MetaTools
 
         if (capabilities.HasCSwitch)
         {
+            var hasCSwitchStacks = HasDomainStacks(capabilities, "cswitch");
+            var hasReadyThreadStacks = HasDomainStacks(capabilities, "ready_thread");
+            var tools = new List<string> { "diagnose_high_wait", "wait_analysis" };
+            if (hasCSwitchStacks)
+                tools.Add("wait_top_stacks");
+            if (capabilities.HasReadyThread && hasReadyThreadStacks)
+                tools.Add("ready_thread_top_stacks");
             flows.Add(Flow(
                 "high_wait",
                 "Use diagnose_high_wait for high-wall/low-CPU traces before expanding into detailed wait or ready-thread stacks.",
-                ["diagnose_high_wait", "wait_analysis", "wait_top_stacks"],
+                tools,
                 ["wait", "scheduler"],
                 [
                     (capabilities.HasCSwitch, "context_switches"),
-                    (capabilities.HasCSwitchStacks, "cswitch_stacks"),
+                    (hasCSwitchStacks, "cswitch_stacks"),
                     (capabilities.HasReadyThread, "ready_thread"),
-                    (capabilities.HasReadyThreadStacks, "ready_thread_stacks"),
+                    (hasReadyThreadStacks, "ready_thread_stacks"),
                 ],
-                BuildFlowCaveats(
-                    (!capabilities.HasCSwitchStacks, "wait_top_stacks will be unavailable or degraded without CSwitch stackwalks."),
-                    (capabilities.HasReadyThread && !capabilities.HasReadyThreadStacks, "ready_thread_top_stacks will be unavailable or degraded without ReadyThread stackwalks."))));
+                BuildDomainStackCaveats(
+                    capabilities,
+                    (capabilities.HasCSwitch, "cswitch", "wait_top_stacks"),
+                    (capabilities.HasReadyThread, "ready_thread", "ready_thread_top_stacks"))));
         }
 
         if (capabilities.HasCpuSamples || capabilities.HasCSwitch)
@@ -532,19 +633,32 @@ public sealed class MetaTools
 
         if (capabilities.HasFileIo || capabilities.HasDiskIo)
         {
+            var fileIoStackCoverage = GetDomainStackCoverage(capabilities, "file_io");
+            var diskIoStackCoverage = GetDomainStackCoverage(capabilities, "disk_io");
+            var hasFileIoStacks = fileIoStackCoverage?.StackedEventCount > 0;
+            var hasDiskIoStacks = diskIoStackCoverage?.StackedEventCount > 0;
+            var ioTools = new List<string>();
+            if (capabilities.HasFileIo)
+                ioTools.Add("file_io_top_files");
+            if (hasFileIoStacks)
+                ioTools.Add("file_io_top_stacks");
+            if (hasDiskIoStacks)
+                ioTools.Add("disk_io_top_stacks");
             flows.Add(Flow(
                 "io_contention",
-                "Use file IO by-file rows for path attribution, then stack views only when stackwalks are present; compare file IO with disk IO to separate cache-served activity from physical media.",
-                ["file_io_top_files", "file_io_top_stacks", "disk_io_top_stacks"],
+                "Use file IO by-file rows for path attribution, then only use stack views whose own event domain has attached stacks; compare file IO with disk IO to separate cache-served activity from physical media.",
+                ioTools,
                 ["io", "disk"],
                 [
                     (capabilities.HasFileIo, "file_io"),
                     (capabilities.HasDiskIo, "disk_io"),
-                    (capabilities.HasStackWalks, "stack_walks"),
+                    (hasFileIoStacks, "file_io_stacks"),
+                    (hasDiskIoStacks, "disk_io_stacks"),
                 ],
                 BuildFlowCaveats(
                     (!capabilities.HasFileIo, "file_io_top_files will be empty without FileIO events."),
-                    (!capabilities.HasStackWalks, "IO stack attribution will be unavailable without stackwalks."))));
+                    (capabilities.HasFileIo && !hasFileIoStacks, $"file_io_top_stacks omitted because file_io stack coverage is {fileIoStackCoverage?.CoverageState ?? "unknown"}."),
+                    (capabilities.HasDiskIo && !hasDiskIoStacks, $"disk_io_top_stacks omitted because disk_io stack coverage is {diskIoStackCoverage?.CoverageState ?? "unknown"}."))));
         }
 
         if (capabilities.HasMemoryProcessInfo || capabilities.HasHardFaults)
@@ -565,6 +679,9 @@ public sealed class MetaTools
 
         if (HasAnyClrCapability(capabilities))
         {
+            var hasClrAllocStacks = HasDomainStacks(capabilities, "clr_alloc");
+            var hasClrExceptionStacks = HasDomainStacks(capabilities, "clr_exception");
+            var hasClrContentionStacks = HasDomainStacks(capabilities, "clr_contention");
             flows.Add(Flow(
                 "dotnet_runtime",
                 "Use CLR-specific tools only for the runtime signals present in this trace; missing CLR providers cannot be reconstructed after capture.",
@@ -576,27 +693,42 @@ public sealed class MetaTools
                     (capabilities.HasClrException, "clr_exception"),
                     (capabilities.HasClrContention, "clr_contention"),
                     (capabilities.HasClrJit, "clr_jit"),
-                    (capabilities.HasStackWalks, "stack_walks"),
+                    (hasClrAllocStacks, "clr_alloc_stacks"),
+                    (hasClrExceptionStacks, "clr_exception_stacks"),
+                    (hasClrContentionStacks, "clr_contention_stacks"),
                 ],
-                BuildFlowCaveats((!capabilities.HasStackWalks, "CLR stack views will be degraded without stackwalks."))));
+                BuildDomainStackCaveats(
+                    capabilities,
+                    (capabilities.HasClrAlloc, "clr_alloc", "clr_alloc_top_stacks"),
+                    (capabilities.HasClrException, "clr_exception", "clr_exception_top_stacks"),
+                    (capabilities.HasClrContention, "clr_contention", "clr_contention_top_stacks"))));
         }
 
         if (capabilities.HasNetIo || capabilities.HasNetConnections)
         {
+            var hasNetIoStacks = HasDomainStacks(capabilities, "net_io");
+            var networkTools = new List<string>();
+            if (capabilities.HasNetConnections)
+                networkTools.Add("net_connections");
+            if (hasNetIoStacks)
+                networkTools.Add("net_top_stacks");
             flows.Add(Flow(
                 "network_activity",
                 "Use connection lifecycle rows for setup timing and network stack rows for byte attribution; either signal can exist without the other.",
-                ["net_connections", "net_top_stacks"],
+                networkTools,
                 ["network"],
                 [
                     (capabilities.HasNetConnections, "network_connections"),
                     (capabilities.HasNetIo, "network_io"),
-                    (capabilities.HasStackWalks, "stack_walks"),
+                    (hasNetIoStacks, "network_io_stacks"),
                 ],
                 BuildFlowCaveats(
-                    (!capabilities.HasNetConnections, "net_connections will be empty without connection lifecycle events."),
-                    (!capabilities.HasNetIo, "net_top_stacks will be empty without network byte events."),
-                    (!capabilities.HasStackWalks, "network stack attribution will be unavailable without stackwalks."))));
+                    (!capabilities.HasNetConnections, "net_connections omitted because connection lifecycle events were not observed."),
+                    (!capabilities.HasNetIo, "net_top_stacks omitted because network byte events were not observed."))
+                    .Concat(BuildDomainStackCaveats(
+                        capabilities,
+                        (capabilities.HasNetIo, "net_io", "net_top_stacks")))
+                    .ToList()));
         }
 
         return flows;
@@ -640,11 +772,11 @@ public sealed class MetaTools
         }
         if (capabilities.HasClrJit)
             tools.Add("clr_jit_analysis");
-        if (capabilities.HasClrAlloc)
+        if (capabilities.HasClrAlloc && HasDomainStacks(capabilities, "clr_alloc"))
             tools.Add("clr_alloc_top_stacks");
-        if (capabilities.HasClrException)
+        if (capabilities.HasClrException && HasDomainStacks(capabilities, "clr_exception"))
             tools.Add("clr_exception_top_stacks");
-        if (capabilities.HasClrContention)
+        if (capabilities.HasClrContention && HasDomainStacks(capabilities, "clr_contention"))
             tools.Add("clr_contention_top_stacks");
         return tools;
     }
@@ -680,6 +812,48 @@ public sealed class MetaTools
         capabilities.HasClrAlloc ||
         capabilities.HasClrException ||
         capabilities.HasClrContention;
+
+    private static DomainStackCoverage? GetDomainStackCoverage(
+        TraceCapabilities capabilities,
+        string domain)
+    {
+        if (capabilities.StackCoverageByDomain is not null &&
+            capabilities.StackCoverageByDomain.TryGetValue(domain, out var coverage))
+        {
+            return coverage;
+        }
+        return null;
+    }
+
+    private static bool HasDomainStacks(TraceCapabilities capabilities, string domain) =>
+        GetDomainStackCoverage(capabilities, domain)?.StackedEventCount > 0;
+
+    private static IReadOnlyList<string> BuildDomainStackCaveats(
+        TraceCapabilities capabilities,
+        params (bool HasEvents, string Domain, string ToolName)[] domains)
+    {
+        var caveats = new List<string>();
+        foreach (var (hasEvents, domain, toolName) in domains)
+        {
+            if (!hasEvents)
+                continue;
+
+            var coverage = GetDomainStackCoverage(capabilities, domain);
+            if (coverage is null)
+            {
+                caveats.Add($"{toolName} omitted: stack_coverage_state=unknown;domain={domain}.");
+            }
+            else if (coverage.StackedEventCount == 0)
+            {
+                caveats.Add($"{toolName} omitted: stack_coverage_state={coverage.CoverageState};domain={domain};stacked_event_count=0;total_event_count={coverage.TotalEventCount}.");
+            }
+            else if (coverage.CoverageState == "partial")
+            {
+                caveats.Add($"{toolName} is partial evidence: stack_coverage_state=partial;domain={domain};stack_coverage_pct={coverage.StackCoveragePct:0.##};stacked_event_count={coverage.StackedEventCount};total_event_count={coverage.TotalEventCount}.");
+            }
+        }
+        return caveats;
+    }
 
     private static string BuildMemoryResourceRecommendationReason(TraceCapabilities capabilities)
     {
@@ -846,7 +1020,8 @@ public sealed class MetaTools
 
         foreach (var module in trace.ModuleFiles)
         {
-            // Already-resolved modules don't need a recommendation.
+            // A recorded PDB name is identity metadata, not proof that functions resolved.
+            // Server recommendations here target modules lacking even that metadata.
             if (!string.IsNullOrEmpty(module.PdbName)) continue;
 
             var name = module.Name ?? string.Empty;
@@ -872,7 +1047,8 @@ public sealed class MetaTools
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Lists processes in the loaded trace. Default order is CPU time descending. " +
-        "WaitRatio = WallUs/CpuUs surfaces 'high wall, low CPU' processes (blocked on minifilter, IPC, etc.). " +
+        "WaitRatio = WallUs/CpuUs ranks 'high wall, low CPU' process-lifetime candidates; " +
+        "the ratio alone does not identify what they waited on. " +
         "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them. " +
         "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
         "trace end) and processes with near-zero sampled CPU are pushed to the bottom because " +
@@ -886,7 +1062,8 @@ public sealed class MetaTools
     {
         Validation.RequireTop(top);
         Validation.RequireText(orderBy);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var rows = ProcessProjection.Rows(trace, includeSystem).ToList();
         var totalCount = rows.Count;
         var hidden = includeSystem
@@ -912,23 +1089,31 @@ public sealed class MetaTools
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-fork timing for a parent process — given a PID, returns every child the kernel " +
         "reported as having that parent, with FirstImageLoadOffsetUs (the kernel-side window " +
-        "between ProcessStart and the first DLL load: where AV / process-create callbacks " +
-        "burn time invisibly to the child) and GapFromPreviousSpawnUs (lets you spot fork " +
+        "between ProcessStart and the first DLL load; this interval can include process-create " +
+        "callbacks, security inspection, suspension, and other mechanisms, but does not identify " +
+        "which mechanism caused the gap) and GapFromPreviousSpawnUs (lets you spot fork " +
         "bursts vs steady-state). Median/p95/max aggregates across kernel gaps surface " +
         "worst-case in a single number. No startUs/endUs: scope is the parent's child-process lifecycle, " +
-        "with rows ordered by child spawn time.")]
+        "with rows ordered by child spawn time. Reused-parent ambiguity is rejected; a missing exact " +
+        "parent lifetime returns ScopeStatus=scope_not_found.")]
     public ProcessCreateTimingResponse ProcessCreateTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
         int parentPid,
         [Description("Top N children by spawn order (default 50, max 1000). Children are " +
                      "sorted chronologically; 'top' caps response size on prolific spawners.")]
-        int top = 50)
+        int top = 50,
+        [Description("Exact parent process start in trace-relative microseconds. Required when the parent PID has multiple lifetimes.")]
+        long? processStartUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequirePositivePid(parentPid);
-        var trace = _cache.Get(path);
-        return ProcessCreateTimingAnalysis.Analyze(trace, parentPid, top);
+        Validation.RequireThreadSelector(
+            parentPid, tid: null, processStartUs, threadStartUs: null);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        return ProcessCreateTimingAnalysis.Analyze(
+            trace, parentPid, top, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -938,18 +1123,25 @@ public sealed class MetaTools
         "thrashing thread creation'.  Threads still alive at trace end are flagged " +
         "TraceResidentEnd; threads alive when capture started are flagged TraceResidentStart " +
         "(their StartTimeUs is 0 = trace start, not the real spawn).  PeakConcurrentThreads " +
-        "gives the maximum number of simultaneously-live threads for the PID.  Requires the Thread " +
+        "gives the maximum number of simultaneously-live threads for the selected process instance. " +
+        "A reused PID is rejected as ambiguous unless processStartUs selects one lifetime. Requires the Thread " +
         "keyword in the capture profile (in default kernel profiles). No startUs/endUs: this reports a " +
-        "per-PID thread lifecycle timeline; timestamps identify the interval boundaries.")]
+        "per-PID thread lifecycle timeline; timestamps identify the interval boundaries. A missing exact " +
+        "lifetime returns ScopeStatus=scope_not_found rather than falling back to another instance.")]
     public ThreadLifetimeResponse ThreadLifetime(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
-        [Description("Top N threads, ordered by start time (default 200, max 1000)")] int top = 200)
+        [Description("Top N threads, ordered by start time (default 200, max 1000)")] int top = 200,
+        [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes; ambiguity is rejected with candidate start times.")]
+        long? processStartUs = null)
     {
         Validation.RequireTop(top);
         Validation.RequirePositivePid(pid);
-        var trace = _cache.Get(path);
-        return ThreadLifetimeAnalysis.Analyze(trace, pid, top);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        return ThreadLifetimeAnalysis.Analyze(trace, pid, top, processStartUs);
     }
 
     // Trace-resident processes and near-zero-CPU rows get huge ratios from tiny denominators.

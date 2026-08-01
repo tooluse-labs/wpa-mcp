@@ -116,23 +116,16 @@ For team shared setups, a JSON/TOML `args` entry is usually the right answer: ch
 > cpu_top_functions C:\my\trace.etl
 ```
 
-Look at:
+Look at two different layers:
 
-- `diagnose_symbols` → `Modules` list. Every important module should have `Resolved: true`.
-- `cpu_top_functions` → `Stats.ResolutionRate`. Should be ≥ 0.8 for actionable output. < 0.5 means most of your top-N is `module!?` and the answer is unusable.
+- `diagnose_symbols` → `Modules`: `HasCompletePdbIdentity` means the trace has PDB name + GUID + age metadata; `LocalPdbReady` means a matching local PDB and native DIA support appear ready. Neither field proves that a stack frame resolved.
+- The relevant stack tool → `SymbolResolutionState` plus `Stats.ObservedUniqueCodeFrameNameResolutionRate` and `Stats.ObservedMetricWeightedCodeFrameNameResolutionRate`. These are measured only across real code frames reached by that query; synthetic `?!?` frames are excluded. A null rate means no eligible code frames were measured, not 0% resolution.
 
-If a module you expect to resolve is unresolved, the hint field tells you which server to add (or, for private DLLs, points at "provide local PDB folder").
+Use the module hint to improve PDB availability, then rerun the stack query. Interpret the observed rate with domain stack coverage and synthetic-frame counts; there is no universal threshold that makes every trace actionable.
 
 ## Changing paths mid-session
 
-After `set_symbol_path` / `add_symbol_server`, traces already loaded into the cache **do not re-resolve symbols** — `LookupWarmSymbols` is sticky per loaded `TraceLog`. To force re-resolution today, restart the MCP server. Once MCP exposes cache unload, the intended flow is:
-
-```
-> unload_trace C:\my\trace.etl
-> load_trace C:\my\trace.etl
-```
-
-For routine "add MS symbol server then load trace" flows this is a non-issue (set the path before the first `load_trace`). It only bites when you change the path after running an analyzer and the second run keeps showing the same `module!?`.
+Each stack query snapshots the currently configured path and adds the ETL directory to that query's `SymbolReader` without writing it back to `_NT_SYMBOL_PATH`. After `set_symbol_path` / `add_symbol_server`, rerun the relevant stack tool so lookup uses the new snapshot. Previously resolved names can remain cached in the resident `TraceLog`; the response's lookup state and observed frame rates describe the current query rather than claiming a pristine resolver session.
 
 ## Cache management
 
@@ -145,9 +138,9 @@ For routine "add MS symbol server then load trace" flows this is a non-issue (se
 
 | Symptom | Likely cause |
 |---|---|
-| `Stats.ResolutionRate` near 0 for all your DLLs | No `_NT_SYMBOL_PATH` set, or set but pointed at a server that doesn't have your symbols. |
+| An executed stack lookup has low observed code-frame resolution across your DLLs | The configured path may be missing, unreachable, or lack matching PDB signatures. Check `LookupState`, `LookupFailure`, and module readiness before attributing the cause. |
 | MS modules resolve, your DLL does not | Your build skipped PDB output, or PDB and deployed DLL are from different builds. |
-| Worked yesterday, fails today after `set_symbol_path` | You changed the path mid-session — see "Changing paths mid-session" above. |
+| Results differ after `set_symbol_path` | Rerun the stack query and compare its query-local lookup state/rates; already resolved frame names may remain cached in the loaded trace. |
 | Internal symsrv timeouts | VPN required; `_NT_SYMBOL_PROXY` env var if you need an HTTP proxy for the symbol fetch. |
 | Two MCP servers fighting over PDB locks | Point each at a different cache directory. |
 | `diagnose_symbols` says "PDB not indexed" for a Windows system DLL (e.g. `crypt32`, `bcrypt`, `setupapi`) | Symbols themselves still resolve normally if `msdl.microsoft.com` is on `_NT_SYMBOL_PATH` — only the per-module hint text is missing. The hint comes from an explicit allowlist (kernel + GDI + COM + .NET runtime + Defender + graphics + network + DWM); modules not on the list fall through to the generic message. |

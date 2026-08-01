@@ -16,6 +16,11 @@ public class PageFaultStackAnalysisTests
         Assert.NotEmpty(resp.Rows);
         Assert.True(resp.TotalPageInBytes > 0);
         Assert.True(resp.TotalFaultCount > 0);
+        var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("hard_fault", coverage.Domain);
+        Assert.Equal("bytes", coverage.MetricName);
+        Assert.Equal(resp.TotalFaultCount, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalPageInBytes, coverage.TotalMetric);
     }
 
     [Fact]
@@ -33,6 +38,19 @@ public class PageFaultStackAnalysisTests
         var tools = new HardFaultTools(new TraceCache(capacity: 2));
         var resp = tools.HardFaultTopStacks(MmapFixture, top: 5);
         Assert.Contains(resp.Warnings, w => w.Contains("MemoryHardFaults"));
+    }
+
+    [Fact]
+    public void HardFaultTopStacks_EmptyScopeDoesNotInferKeywordWasMissing()
+    {
+        var tools = new HardFaultTools(new TraceCache(capacity: 2));
+        var resp = tools.HardFaultTopStacks(MmapFixture, top: 5, startUs: 0, endUs: 1);
+        if (resp.TotalFaultCount == 0)
+        {
+            Assert.Contains(resp.Warnings, warning =>
+                warning.Contains("HardFaults", StringComparison.OrdinalIgnoreCase) &&
+                warning.Contains("does not prove", StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     [Fact]
@@ -80,6 +98,7 @@ public class PageFaultStackAnalysisTests
         Assert.Equal(picked, ccResp.FocusFunction);
         Assert.Equal("pageInBytes", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0);
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
     }
 
     [Fact]

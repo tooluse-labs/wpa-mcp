@@ -13,8 +13,8 @@ public sealed class HardFaultTools
     public HardFaultTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
-        "Top-N files by hard-fault paging-in bytes — answers 'which file caused the page-in " +
-        "load' (e.g., a network-share PDF, an oversized DLL).  PerfView equivalent: " +
+        "Top-N file mappings associated with observed hard-fault paging-in bytes (for example, " +
+        "a network-share PDF or DLL). PerfView equivalent: " +
         "'Memory Hard Fault → ByFile'.  Most hard faults are mmap'd files being touched for " +
         "the first time; some also come from paged-out heap/stack pages and the page file.  " +
         "Requires the HardFaults kernel keyword in the capture profile (NOT in default WPR " +
@@ -29,26 +29,32 @@ public sealed class HardFaultTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Sort key: bytes (default), count, or max_latency")]
-        string orderBy = "bytes")
+        string orderBy = "bytes",
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireText(orderBy);
         orderBy = HardFaultByFileAnalysis.NormalizeOrderBy(orderBy);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return HardFaultByFileAnalysis.Analyze(trace, top, pid, orderBy, window.StartUs, window.EndUs);
+        return HardFaultByFileAnalysis.Analyze(
+            trace, top, pid, orderBy, window.StartUs, window.EndUs, processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Top-N call stacks ranked by hard-fault paging-in bytes — answers 'which call chain " +
-        "is paging in cold pages from disk'.  PerfView equivalent: 'Memory Hard Fault Stacks'.  " +
+        "Top-N event-attached call stacks ranked by hard-fault paging-in bytes. PerfView " +
+        "equivalent: 'Memory Hard Fault Stacks'. " +
         "Pairs with hard_fault_by_file (per-file bucket); this one is per-stack so you can " +
-        "tell eager loader resolution apart from lazy use of a constructor or scanner-induced " +
-        "page-in.  Each row carries both PageInBytes (metric=ByteCount) and FaultCount.  " +
-        "Requires the HardFaults kernel keyword in the capture profile.")]
+        "form hypotheses about eager loader resolution, lazy access, or concurrent scanning; " +
+        "the stack alone does not establish higher-level causality. Each row carries both PageInBytes (metric=ByteCount) and FaultCount. " +
+        "Requires the HardFaults kernel keyword in the capture profile. StackCoverage is " +
+        "HardFault-only and identifies any bytes represented by the synthetic ?!? frame.")]
     public HardFaultStacksResponse HardFaultTopStacks(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
@@ -63,20 +69,24 @@ public sealed class HardFaultTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return PageFaultStackAnalysis.TopFaultStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -92,17 +102,22 @@ public sealed class HardFaultTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return PageFaultStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 }

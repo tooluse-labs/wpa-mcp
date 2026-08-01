@@ -20,7 +20,7 @@ public class HeapAllocStackAnalysisTests
         Assert.Equal(0, resp.TotalEventCount);
         Assert.Equal(0, resp.AllocBytes);
         Assert.Equal(0, resp.ReallocBytes);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBytes, r => r.InclusiveBytes);
+        Assert.Empty(resp.Rows);
         Assert.Contains(WarningBuilder.MissingPerProcessHeapTrace, resp.Warnings);
     }
 

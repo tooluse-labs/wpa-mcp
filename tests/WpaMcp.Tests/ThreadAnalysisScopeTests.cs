@@ -75,9 +75,38 @@ public sealed class ThreadAnalysisScopeTests
         Assert.Equal(InstanceResolutionStatus.Resolved, result.Status);
         Assert.Equal(new ProcessInstanceKey(50, 200), result.Value!.Value.Process!.Key);
         Assert.False(result.Value.Value.AggregatesPidLifetimes);
-        Assert.False(result.Value.Value.PidReuseObserved);
+        Assert.True(result.Value.Value.PidReuseObserved);
         Assert.False(result.Value.Value.MatchesPoint(50, 7, 25));
         Assert.True(result.Value.Value.MatchesPoint(50, 9, 225));
+    }
+
+    [Fact]
+    public void Resolve_PidOnlyWindowWithOneLifetimeSelectsItButReportsTraceWideReuse()
+    {
+        var result = ThreadAnalysisScope.Resolve(
+            new TimeWindow(200, 300), 50, null, null, null,
+            ReusedProcessIdentityIndex());
+
+        Assert.Equal(InstanceResolutionStatus.Resolved, result.Status);
+        var scope = result.Value!.Value;
+        Assert.Equal(new ProcessInstanceKey(50, 200), scope.Process!.Key);
+        Assert.False(scope.AggregatesPidLifetimes);
+        Assert.True(scope.PidReuseObserved);
+        Assert.False(scope.MatchesPoint(50, 7, 50));
+        Assert.True(scope.MatchesPoint(50, 9, 225));
+    }
+
+    [Fact]
+    public void Resolve_PidOnlyUniqueLifetimeIsSingleProcessNotAggregate()
+    {
+        var result = ThreadAnalysisScope.Resolve(
+            new TimeWindow(0, 300), 50, null, null, null, IdentityIndex());
+
+        Assert.Equal(InstanceResolutionStatus.Resolved, result.Status);
+        var scope = result.Value!.Value;
+        Assert.Equal(new ProcessInstanceKey(50, 20), scope.Process!.Key);
+        Assert.False(scope.AggregatesPidLifetimes);
+        Assert.False(scope.PidReuseObserved);
     }
 
     [Fact]

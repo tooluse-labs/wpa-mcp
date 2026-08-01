@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Reflection;
 using WpaMcp.Core;
 using WpaMcp.Analyzers;
 using WpaMcp.Output;
@@ -34,6 +36,11 @@ public class ProcessCreateTimingAnalysisTests
         Assert.Equal(spawner, resp.ParentPid);
         Assert.True(resp.SpawnCount > 0);
         Assert.NotEmpty(resp.Children);
+        Assert.True(resp.MatchedEventCount > 0);
+        Assert.True(resp.MatchedEventCount <= resp.SpawnCount);
+        Assert.Equal("observed", resp.CapabilityStatus);
+        Assert.Equal("ok", resp.ScopeStatus);
+        Assert.Null(resp.NoDataReason);
         // Children must be in chronological order.
         for (var i = 1; i < resp.Children.Count; i++)
             Assert.True(resp.Children[i - 1].StartTimeUs <= resp.Children[i].StartTimeUs);
@@ -57,6 +64,10 @@ public class ProcessCreateTimingAnalysisTests
         Assert.Equal(0, resp.SpawnCount);
         Assert.Empty(resp.Children);
         Assert.Contains(resp.Warnings, w => w.Contains("No children found", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("scope_not_found", resp.ScopeStatus);
+        Assert.Equal("scope_not_found", resp.NoDataReason);
+        Assert.Equal("unknown", resp.CapabilityStatus);
+        Assert.Equal(0, resp.MatchedEventCount);
     }
 
     [Fact]
@@ -96,6 +107,8 @@ public class ProcessCreateTimingAnalysisTests
         Assert.Contains("child-b(101)=1000ms", warning, StringComparison.Ordinal);
         Assert.DoesNotContain("child-c", warning, StringComparison.Ordinal);
         Assert.Contains("AV/EDR", warning, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not identify", warning, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("usually points to", warning, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -110,5 +123,33 @@ public class ProcessCreateTimingAnalysisTests
             meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, top: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, top: 1001));
+    }
+
+    [Fact]
+    public void ProcessCreateTiming_ToolDescriptionDoesNotAttributeKernelGapToAv()
+    {
+        var method = typeof(MetaTools).GetMethod(nameof(MetaTools.ProcessCreateTiming));
+        var description = method?.GetCustomAttribute<DescriptionAttribute>()?.Description;
+
+        Assert.NotNull(description);
+        Assert.Contains("does not identify", description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("burn time", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ChildBelongsToParentInstance_RejectsChildFromReusedParentLifetime()
+    {
+        var selectedParent = new ProcessLifetime(
+            new ProcessInstanceKey(Pid: 42, StartUs: 100),
+            EndUs: 200,
+            StartObserved: true,
+            EndObserved: true);
+
+        Assert.True(ProcessCreateTimingAnalysis.ChildBelongsToParentInstance(
+            selectedParent, observedParentPid: 42, childStartUs: 150));
+        Assert.False(ProcessCreateTimingAnalysis.ChildBelongsToParentInstance(
+            selectedParent, observedParentPid: 42, childStartUs: 350));
+        Assert.False(ProcessCreateTimingAnalysis.ChildBelongsToParentInstance(
+            selectedParent, observedParentPid: 99, childStartUs: 150));
     }
 }

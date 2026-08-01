@@ -15,7 +15,8 @@ public sealed class HeapTools
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Top-N call stacks ranked by NT-heap allocation bytes (RtlAllocateHeap / HeapAlloc " +
         "/ malloc / new — anything that lands in the user-mode heap).  PerfView equivalent: " +
-        "'HeapAllocStacks'.  The canonical native-leak-finder.  Distinct from " +
+        "'HeapAllocStacks'. This is an observed allocation-flow view, not proof of retained " +
+        "objects or a native leak because free events do not carry sizes. Distinct from " +
         "virtual_alloc_top_stacks: VirtualAlloc reserves page-granular address space; the " +
         "heap allocator sub-allocates from that.  Each row carries Exclusive/InclusiveBytes " +
         "and event counts; response also reports AllocBytes vs ReallocBytes.  Free events " +
@@ -34,20 +35,24 @@ public sealed class HeapTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return HeapAllocStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, Console.Error, whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -62,17 +67,22 @@ public sealed class HeapTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return HeapAllocStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 }

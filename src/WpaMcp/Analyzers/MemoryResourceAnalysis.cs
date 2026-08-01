@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WpaMcp.Core;
 using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
@@ -22,58 +23,80 @@ public static class MemoryResourceAnalysis
         int top,
         int? pid,
         long? startUs,
-        long? endUs)
+        long? endUs,
+        long? processStartUs = null)
     {
-        var processes = new Dictionary<int, ProcessAccumulator>();
-        var handles = new Dictionary<int, HandleAccumulator>();
-        var pools = new PoolTracker(trace);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = new TimeWindow(startUs ?? 0, endUs ?? traceEndUs);
+        var identities = TraceIdentityIndex.For(trace);
+        var scope = ResolveScope(window, pid, processStartUs, identities);
+        var instances = new InstanceAccumulator(process => ProcessName(trace, process));
         var systemRows = new List<MemoryResourceSystemRow>();
-        var pressure = new MemoryPressureAccumulator();
         long processSampleCount = 0;
         long handleEventCount = 0;
         long poolEventCount = 0;
         long rawPoolEventCount = 0;
+        long unresolvedProcessEventCount = 0;
+        long globalProcessSampleCount = 0;
+        long globalHandleEventCount = 0;
+        long globalPoolEventCount = 0;
 
         foreach (var ev in trace.Events)
         {
-            var nowUs = ToUs(ev);
-            if (!PassesTimeWindow(nowUs, startUs, endUs)) continue;
             if (!IsPoolEventName(ev.EventName)) continue;
-            if (pid.HasValue && ev.ProcessID != pid.Value) continue;
             if (!TryReadPoolEvent(ev, out var poolEvent, out var rawPoolEvent)) continue;
+
+            globalPoolEventCount++;
+            var nowUs = ToUs(ev);
+            if (!window.ContainsPoint(nowUs)) continue;
+            if (!TryResolveEventProcess(
+                    scope, identities, ev.ProcessID, nowUs, out var process))
+            {
+                if (!pid.HasValue || ev.ProcessID == pid.Value)
+                    unresolvedProcessEventCount++;
+                continue;
+            }
 
             poolEventCount++;
             if (rawPoolEvent) rawPoolEventCount++;
-            pools.Add(ev.ProcessID, ev.ProcessName ?? string.Empty, ev.EventName, poolEvent);
+            instances.AddPool(
+                process,
+                IsPoolAllocationEvent(ev.EventName),
+                poolEvent.Entry,
+                poolEvent.Bytes,
+                poolEvent.Tag,
+                poolEvent.PoolKind);
         }
 
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.MemoryProcessMemInfo += data =>
             {
+                globalProcessSampleCount += data.Count;
                 var nowUs = ToUs(data);
-                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
 
                 for (var i = 0; i < data.Count; i++)
                 {
                     var values = data.Values(i);
-                    if (pid.HasValue && values.ProcessID != pid.Value) continue;
+                    if (!TryResolveEventProcess(
+                            scope, identities, values.ProcessID, nowUs, out var process))
+                    {
+                        if (!pid.HasValue || values.ProcessID == pid.Value)
+                            unresolvedProcessEventCount++;
+                        continue;
+                    }
 
                     processSampleCount++;
-                    pressure.AddProcessSnapshot(
-                        nowUs,
-                        values.ProcessID,
-                        workingSetBytes: PagesToBytes(values.WorkingSetPageCount),
-                        commitBytes: PagesToBytes(values.CommitPageCount),
-                        privateBytes: PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages)));
-                    GetProcess(processes, values.ProcessID, trace).Add(nowUs, values);
+                    instances.AddSnapshot(process, nowUs, values);
                 }
             };
 
             kernel.MemorySystemMemInfo += data =>
             {
+                if (!scope.IsResolved) return;
                 var nowUs = ToUs(data);
-                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
 
                 var row = new MemoryResourceSystemRow(
                     TimeUs: nowUs,
@@ -83,13 +106,14 @@ public static class MemoryResourceAnalysis
                     ModifiedNoWriteBytes: null,
                     BadBytes: null);
                 systemRows.Add(row);
-                pressure.AddSystem(row);
+                instances.AddSystem(row);
             };
 
             kernel.MemoryMemInfo += data =>
             {
+                if (!scope.IsResolved) return;
                 var nowUs = ToUs(data);
-                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
 
                 var row = new MemoryResourceSystemRow(
                     TimeUs: nowUs,
@@ -99,67 +123,102 @@ public static class MemoryResourceAnalysis
                     ModifiedNoWriteBytes: PagesToBytes(data.ModifiedNoWritePageCount),
                     BadBytes: PagesToBytes(data.BadPageCount));
                 systemRows.Add(row);
-                pressure.AddSystem(row);
+                instances.AddSystem(row);
             };
 
             kernel.ObjectCreateHandle += data =>
             {
+                globalHandleEventCount++;
                 var nowUs = ToUs(data);
-                if (!PassesEvent(data, nowUs, pid, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
+                if (!TryResolveEventProcess(
+                        scope, identities, data.ProcessID, nowUs, out var process))
+                {
+                    if (!pid.HasValue || data.ProcessID == pid.Value)
+                        unresolvedProcessEventCount++;
+                    return;
+                }
 
                 handleEventCount++;
-                GetHandle(handles, data.ProcessID, trace).Created++;
+                instances.AddHandle(process, HandleEventKind.Create);
             };
 
             kernel.ObjectCloseHandle += data =>
             {
+                globalHandleEventCount++;
                 var nowUs = ToUs(data);
-                if (!PassesEvent(data, nowUs, pid, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
+                if (!TryResolveEventProcess(
+                        scope, identities, data.ProcessID, nowUs, out var process))
+                {
+                    if (!pid.HasValue || data.ProcessID == pid.Value)
+                        unresolvedProcessEventCount++;
+                    return;
+                }
 
                 handleEventCount++;
-                GetHandle(handles, data.ProcessID, trace).Closed++;
+                instances.AddHandle(process, HandleEventKind.Close);
             };
 
             kernel.ObjectDuplicateHandle += data =>
             {
+                globalHandleEventCount++;
                 var nowUs = ToUs(data);
-                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
+                if (!window.ContainsPoint(nowUs)) return;
 
                 var counted = false;
-                if (!pid.HasValue || data.TargetProcessID == pid.Value)
+                if (TryResolveEventProcess(
+                        scope, identities, data.TargetProcessID, nowUs, out var targetProcess))
                 {
                     counted = true;
-                    GetHandle(handles, data.TargetProcessID, trace).DuplicatedIn++;
+                    instances.AddHandle(targetProcess, HandleEventKind.DuplicateIn);
                 }
 
-                if (!pid.HasValue || data.SourceProcessID == pid.Value)
+                if (TryResolveEventProcess(
+                        scope, identities, data.SourceProcessID, nowUs, out var sourceProcess))
                 {
                     counted = true;
-                    GetHandle(handles, data.SourceProcessID, trace).DuplicatedOut++;
+                    instances.AddHandle(sourceProcess, HandleEventKind.DuplicateOut);
                 }
 
                 if (counted) handleEventCount++;
             };
         });
 
-        var processRows = processes.Values
-            .Select(process => process.ToRow())
-            .OrderByDescending(row => row.WorkingSetBytes)
-            .ThenByDescending(row => row.CommitBytes)
-            .Take(top)
-            .ToList();
-
-        var handleRows = handles.Values
-            .Select(handle => handle.ToRow())
-            .OrderByDescending(row => Math.Abs(row.NetDelta))
-            .ThenByDescending(row => row.Created + row.Closed + row.DuplicatedIn + row.DuplicatedOut)
-            .Take(top)
-            .ToList();
-
-        var poolRows = pools.ProcessRows(top);
-        var poolTagRows = pools.TagRows(top);
-        var pressureSummary = pressure.ToSummary(processes.Values, top);
-        var warnings = BuildWarnings(processSampleCount, handleEventCount, poolEventCount, rawPoolEventCount, pressureSummary);
+        var processRows = instances.ProcessRows(top);
+        var handleRows = instances.HandleRows(top);
+        var poolRows = instances.PoolProcessRows(top);
+        var poolTagRows = instances.PoolTagRows(top);
+        var pressureSummary = instances.PressureSummary(top);
+        var matchedEventCount = checked(processSampleCount + handleEventCount + poolEventCount);
+        var eventClassObserved =
+            globalProcessSampleCount > 0 || globalHandleEventCount > 0 || globalPoolEventCount > 0;
+        var contract = ClassifyDataContract(scope, eventClassObserved, matchedEventCount);
+        var warnings = BuildWarnings(
+            processSampleCount,
+            handleEventCount,
+            poolEventCount,
+            globalProcessSampleCount,
+            globalHandleEventCount,
+            globalPoolEventCount,
+            rawPoolEventCount,
+            pressureSummary,
+            pid,
+            processStartUs,
+            contract.NoDataReason);
+        warnings.Add(scope.IsResolved
+            ? "SystemMemory and the system-pressure fields in Pressure are window-global and are not changed by pid/processStartUs filtering; sampled-process totals and ranked process rows use the selected process scope."
+            : "SystemMemoryScope remains window_global as a field contract, but SystemMemory and system-pressure evidence are empty because the requested process scope was not found.");
+        if (scope.ScopeMode == "pid_aggregate")
+        {
+            warnings.Add(
+                "ambiguous_process_instance: pid-only memory scope explicitly aggregates multiple process lifetimes; rows remain separated by ProcessStartUs.");
+        }
+        if (scope.IsResolved && unresolvedProcessEventCount > 0)
+        {
+            warnings.Add(
+                $"process_instance_unresolved: skipped {unresolvedProcessEventCount} process-scoped event(s) whose PID and timestamp could not be mapped to one selected process lifetime.");
+        }
         var boundedSystemRows = systemRows
             .OrderBy(row => row.TimeUs)
             .TakeLast(MaxSystemSamples)
@@ -178,34 +237,65 @@ public static class MemoryResourceAnalysis
             ProcessSampleCount: processSampleCount,
             HandleEventCount: handleEventCount,
             PoolEventCount: poolEventCount,
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: scope.SelectedProcess,
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.IncludedProcesses,
+            SystemMemoryScope: "window_global",
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: matchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     private static List<string> BuildWarnings(
         long processSampleCount,
         long handleEventCount,
         long poolEventCount,
+        long globalProcessSampleCount,
+        long globalHandleEventCount,
+        long globalPoolEventCount,
         long rawPoolEventCount,
-        MemoryPressureSummary pressure)
+        MemoryPressureSummary pressure,
+        int? pid,
+        long? processStartUs,
+        string? noDataReason)
     {
         var warnings = new List<string>();
-        if (processSampleCount == 0)
+
+        if (noDataReason == "scope_not_found")
         {
             warnings.Add(
-                "No Memory/ProcessMemInfo events matched. Capture with the MemoryInfoWS keyword " +
-                "(for example tests/WpaMcp.Tests/fixtures/MemoryCapture.wprp) to get working set, commit, and private bytes.");
+                $"scope_not_found: no process lifetime for PID {pid}" +
+                (processStartUs.HasValue ? $" with processStartUs={processStartUs.Value}" : string.Empty) +
+                " intersects the requested window. No process or window-global system-memory evidence was returned.");
+            AddMemorySemanticsWarnings(warnings);
+            return warnings;
+        }
+
+        if (processSampleCount == 0)
+        {
+            warnings.Add(globalProcessSampleCount > 0
+                ? "no_events_in_scope: Memory/ProcessMemInfo entries were observed elsewhere in the trace, but none matched the selected process lifetimes and half-open window."
+                : "event_class_not_observed: " +
+                  WarningBuilder.MissingKeyword("Memory/ProcessMemInfo", "MemoryInfoWS"));
         }
 
         if (handleEventCount == 0)
         {
-            warnings.Add(
-                "No Object handle events matched. Capture with the Handle keyword to estimate handle-create/close deltas.");
+            warnings.Add(globalHandleEventCount > 0
+                ? "no_events_in_scope: Object handle events were observed elsewhere in the trace, but none matched the selected process lifetimes and half-open window."
+                : "event_class_not_observed: " +
+                  WarningBuilder.MissingKeyword("Object handle", "Handle"));
         }
 
         if (poolEventCount == 0)
         {
-            warnings.Add(
-                "No PoolAllocation/PoolFree events matched. Capture with the Pool keyword to estimate observed paged/nonpaged pool deltas.");
+            warnings.Add(globalPoolEventCount > 0
+                ? "no_events_in_scope: PoolAllocation/PoolFree events were observed elsewhere in the trace, but none matched the selected process lifetimes and half-open window."
+                : "event_class_not_observed: " +
+                  WarningBuilder.MissingKeyword("PoolAllocation/PoolFree", "Pool"));
         }
         else
         {
@@ -218,11 +308,7 @@ public static class MemoryResourceAnalysis
             }
         }
 
-        warnings.Add(
-            $"Page-count memory metrics are converted using {PageSizeBytes}-byte pages; this response does not currently expose trace-specific page size metadata.");
-        warnings.Add(
-            "Memory-pressure process totals are observed ETW sample-batch totals, not complete whole-system memory accounting. " +
-            "MinAvailableBytes is free+zero memory when zero-page data is present and excludes standby pages.");
+        AddMemorySemanticsWarnings(warnings);
 
         if (pressure.MinFreeBytes == 0)
         {
@@ -236,39 +322,53 @@ public static class MemoryResourceAnalysis
         return warnings;
     }
 
-    private static bool PassesEvent(TraceEvent data, long nowUs, int? pid, long? startUs, long? endUs)
-        => (!pid.HasValue || data.ProcessID == pid.Value) && PassesTimeWindow(nowUs, startUs, endUs);
-
-    private static bool PassesTimeWindow(long nowUs, long? startUs, long? endUs)
-        => (!startUs.HasValue || nowUs >= startUs.Value) &&
-           (!endUs.HasValue || nowUs < endUs.Value);
+    private static void AddMemorySemanticsWarnings(List<string> warnings)
+    {
+        warnings.Add(
+            $"Page-count memory metrics are converted using {PageSizeBytes}-byte pages; this response does not currently expose trace-specific page size metadata.");
+        warnings.Add(
+            "Memory-pressure process totals are observed ETW sample-batch totals, not complete whole-system memory accounting. " +
+            "MinAvailableBytes is free+zero memory when zero-page data is present and excludes standby pages.");
+    }
 
     private static long ToUs(TraceEvent data) => (long)(data.TimeStampRelativeMSec * 1000);
 
-    private static ProcessAccumulator GetProcess(Dictionary<int, ProcessAccumulator> processes, int pid, TraceLog trace)
-    {
-        if (!processes.TryGetValue(pid, out var process))
-        {
-            process = new ProcessAccumulator(pid, ProcessName(trace, pid));
-            processes.Add(pid, process);
-        }
+    internal static ProcessAnalysisScope ResolveScope(
+        TimeWindow window,
+        int? pid,
+        long? processStartUs,
+        TraceIdentityIndex identities)
+        => ProcessAnalysisScope.Resolve(window, pid, processStartUs, identities);
 
-        return process;
+    internal static (string CapabilityStatus, string? NoDataReason) ClassifyDataContract(
+        ProcessAnalysisScope scope,
+        bool eventClassObserved,
+        long matchedEventCount)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (!scope.IsResolved)
+            return ("unknown", "scope_not_found");
+        if (matchedEventCount > 0)
+            return ("observed", null);
+        return eventClassObserved
+            ? ("unknown", "no_events_in_scope")
+            : ("not_observed", "event_class_not_observed");
     }
 
-    private static HandleAccumulator GetHandle(Dictionary<int, HandleAccumulator> handles, int pid, TraceLog trace)
-    {
-        if (!handles.TryGetValue(pid, out var handle))
-        {
-            handle = new HandleAccumulator(pid, ProcessName(trace, pid));
-            handles.Add(pid, handle);
-        }
+    private static bool TryResolveEventProcess(
+        ProcessAnalysisScope scope,
+        TraceIdentityIndex identities,
+        int pid,
+        long timestampUs,
+        out ProcessInstanceKey process)
+        => scope.TryResolveEventProcess(identities, pid, timestampUs, out process);
 
-        return handle;
-    }
-
-    private static string ProcessName(TraceLog trace, int pid)
-        => trace.Processes.LastOrDefault(process => process.ProcessID == pid)?.Name ?? $"Process({pid})";
+    private static string ProcessName(TraceLog trace, ProcessInstanceKey process)
+        => trace.Processes
+               .Where(candidate => candidate.ProcessID == process.Pid)
+               .FirstOrDefault(candidate =>
+                   TraceTime.FromMilliseconds(candidate.StartTimeRelativeMsec) == process.StartUs)
+               ?.Name ?? $"Process({process.Pid})";
 
     private static long PagesToBytes(long pages) => pages <= 0 ? 0 : pages * PageSizeBytes;
 
@@ -494,7 +594,150 @@ public static class MemoryResourceAnalysis
         return null;
     }
 
-    private sealed class ProcessAccumulator(int pid, string processName)
+    internal enum HandleEventKind
+    {
+        Create,
+        Close,
+        DuplicateIn,
+        DuplicateOut,
+    }
+
+    internal sealed class InstanceAccumulator
+    {
+        private readonly Func<ProcessInstanceKey, string> _processName;
+        private readonly Dictionary<ProcessInstanceKey, ProcessAccumulator> _processes = new();
+        private readonly Dictionary<ProcessInstanceKey, HandleAccumulator> _handles = new();
+        private readonly PoolTracker _pools;
+        private readonly MemoryPressureAccumulator _pressure = new();
+
+        public InstanceAccumulator(Func<ProcessInstanceKey, string> processName)
+        {
+            _processName = processName ?? throw new ArgumentNullException(nameof(processName));
+            _pools = new PoolTracker(processName);
+        }
+
+        public void AddSnapshot(
+            ProcessInstanceKey process,
+            long timeUs,
+            MemoryProcessMemInfoValues values)
+        {
+            var accumulator = GetProcess(process);
+            accumulator.Add(timeUs, values);
+            _pressure.AddProcessSnapshot(
+                timeUs,
+                process,
+                PagesToBytes(values.WorkingSetPageCount),
+                PagesToBytes(values.CommitPageCount),
+                PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages)));
+        }
+
+        internal void AddSnapshot(
+            ProcessInstanceKey process,
+            long timeUs,
+            long workingSetBytes,
+            long commitBytes,
+            long privateBytes)
+        {
+            var accumulator = GetProcess(process);
+            accumulator.Add(
+                timeUs,
+                workingSetBytes,
+                privateWorkingSetBytes: 0,
+                commitBytes,
+                privateBytes,
+                sharedCommitBytes: Math.Max(0, commitBytes - privateBytes),
+                virtualSizeBytes: 0,
+                commitDebtBytes: 0,
+                storeBytes: 0);
+            _pressure.AddProcessSnapshot(
+                timeUs, process, workingSetBytes, commitBytes, privateBytes);
+        }
+
+        public void AddSystem(MemoryResourceSystemRow row) => _pressure.AddSystem(row);
+
+        public void AddHandle(ProcessInstanceKey process, HandleEventKind kind)
+        {
+            var accumulator = GetHandle(process);
+            switch (kind)
+            {
+                case HandleEventKind.Create:
+                    accumulator.Created++;
+                    break;
+                case HandleEventKind.Close:
+                    accumulator.Closed++;
+                    break;
+                case HandleEventKind.DuplicateIn:
+                    accumulator.DuplicatedIn++;
+                    break;
+                case HandleEventKind.DuplicateOut:
+                    accumulator.DuplicatedOut++;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(kind));
+            }
+        }
+
+        public void AddPool(
+            ProcessInstanceKey process,
+            bool isAllocation,
+            ulong entry,
+            long bytes,
+            string tag,
+            string poolKind) =>
+            _pools.Add(
+                process,
+                isAllocation,
+                new PoolEvent(entry, bytes, RawTag: 0, tag, poolKind));
+
+        public IReadOnlyList<MemoryResourceProcessRow> ProcessRows(int top) =>
+            _processes.Values
+                .Select(process => process.ToRow())
+                .OrderByDescending(row => row.WorkingSetBytes)
+                .ThenByDescending(row => row.CommitBytes)
+                .Take(top)
+                .ToList();
+
+        public IReadOnlyList<MemoryHandleProcessRow> HandleRows(int top) =>
+            _handles.Values
+                .Select(handle => handle.ToRow())
+                .OrderByDescending(row => Math.Abs(row.NetDelta))
+                .ThenByDescending(row => row.Created + row.Closed + row.DuplicatedIn + row.DuplicatedOut)
+                .Take(top)
+                .ToList();
+
+        public IReadOnlyList<MemoryPoolProcessRow> PoolProcessRows(int top) =>
+            _pools.ProcessRows(top);
+
+        public IReadOnlyList<MemoryPoolTagRow> PoolTagRows(int top) =>
+            _pools.TagRows(top);
+
+        public MemoryPressureSummary PressureSummary(int top) =>
+            _pressure.ToSummary(_processes.Values, top);
+
+        private ProcessAccumulator GetProcess(ProcessInstanceKey process)
+        {
+            if (!_processes.TryGetValue(process, out var accumulator))
+            {
+                accumulator = new ProcessAccumulator(process, _processName(process));
+                _processes.Add(process, accumulator);
+            }
+
+            return accumulator;
+        }
+
+        private HandleAccumulator GetHandle(ProcessInstanceKey process)
+        {
+            if (!_handles.TryGetValue(process, out var accumulator))
+            {
+                accumulator = new HandleAccumulator(process, _processName(process));
+                _handles.Add(process, accumulator);
+            }
+
+            return accumulator;
+        }
+    }
+
+    private sealed class ProcessAccumulator(ProcessInstanceKey process, string processName)
     {
         private long _firstSampleUs = long.MaxValue;
         private long _lastSampleUs = long.MinValue;
@@ -514,19 +757,40 @@ public static class MemoryResourceAnalysis
         public long PeakPrivateBytes { get; private set; }
 
         public void Add(long nowUs, MemoryProcessMemInfoValues values)
+            => Add(
+                nowUs,
+                PagesToBytes(values.WorkingSetPageCount),
+                PagesToBytes(values.PrivateWorkingSetPageCount),
+                PagesToBytes(values.CommitPageCount),
+                PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages)),
+                PagesToBytes(values.SharedCommitInPages),
+                PagesToBytes(values.VirtualSizeInPages),
+                PagesToBytes(values.CommitDebtInPages),
+                PagesToBytes(values.StoredPageCount + values.StoreSizePageCount));
+
+        public void Add(
+            long nowUs,
+            long workingSetBytes,
+            long privateWorkingSetBytes,
+            long commitBytes,
+            long privateBytes,
+            long sharedCommitBytes,
+            long virtualSizeBytes,
+            long commitDebtBytes,
+            long storeBytes)
         {
             SampleCount++;
             _firstSampleUs = Math.Min(_firstSampleUs, nowUs);
             _lastSampleUs = Math.Max(_lastSampleUs, nowUs);
 
-            _workingSetBytes = PagesToBytes(values.WorkingSetPageCount);
-            _privateWorkingSetBytes = PagesToBytes(values.PrivateWorkingSetPageCount);
-            _commitBytes = PagesToBytes(values.CommitPageCount);
-            _sharedCommitBytes = PagesToBytes(values.SharedCommitInPages);
-            _privateBytes = PagesToBytes(Math.Max(0, values.CommitPageCount - values.SharedCommitInPages));
-            _virtualSizeBytes = PagesToBytes(values.VirtualSizeInPages);
-            _commitDebtBytes = PagesToBytes(values.CommitDebtInPages);
-            _storeBytes = PagesToBytes(values.StoredPageCount + values.StoreSizePageCount);
+            _workingSetBytes = workingSetBytes;
+            _privateWorkingSetBytes = privateWorkingSetBytes;
+            _commitBytes = commitBytes;
+            _sharedCommitBytes = sharedCommitBytes;
+            _privateBytes = privateBytes;
+            _virtualSizeBytes = virtualSizeBytes;
+            _commitDebtBytes = commitDebtBytes;
+            _storeBytes = storeBytes;
 
             PeakWorkingSetBytes = Math.Max(PeakWorkingSetBytes, _workingSetBytes);
             PeakPrivateWorkingSetBytes = Math.Max(PeakPrivateWorkingSetBytes, _privateWorkingSetBytes);
@@ -536,7 +800,7 @@ public static class MemoryResourceAnalysis
 
         public MemoryResourceProcessRow ToRow() =>
             new(
-                Pid: pid,
+                Pid: process.Pid,
                 ProcessName: processName,
                 FirstSampleUs: _firstSampleUs == long.MaxValue ? 0 : _firstSampleUs,
                 LastSampleUs: _lastSampleUs == long.MinValue ? 0 : _lastSampleUs,
@@ -552,15 +816,17 @@ public static class MemoryResourceAnalysis
                 SharedCommitBytes: _sharedCommitBytes,
                 VirtualSizeBytes: _virtualSizeBytes,
                 CommitDebtBytes: _commitDebtBytes,
-                StoreBytes: _storeBytes);
+                StoreBytes: _storeBytes,
+                ProcessStartUs: process.StartUs);
 
         public MemoryPressureProcessRow ToPressureRow() =>
             new(
-                Pid: pid,
+                Pid: process.Pid,
                 ProcessName: processName,
                 PeakWorkingSetBytes: PeakWorkingSetBytes,
                 PeakCommitBytes: PeakCommitBytes,
-                PeakPrivateBytes: PeakPrivateBytes);
+                PeakPrivateBytes: PeakPrivateBytes,
+                ProcessStartUs: process.StartUs);
     }
 
     private sealed class MemoryPressureAccumulator
@@ -595,7 +861,7 @@ public static class MemoryResourceAnalysis
 
         public void AddProcessSnapshot(
             long timeUs,
-            int pid,
+            ProcessInstanceKey process,
             long workingSetBytes,
             long commitBytes,
             long privateBytes)
@@ -603,9 +869,9 @@ public static class MemoryResourceAnalysis
             if (!_processBatches.TryGetValue(timeUs, out var batch))
                 batch = new ProcessSnapshotBatch();
 
-            // ProcessMemInfo can repeat the same PID within one timestamped batch.
-            // Keep the last row for that PID so aggregate pressure totals are not inflated.
-            batch.Processes[pid] = new ProcessSnapshot(
+            // ProcessMemInfo can repeat the same process instance within one timestamped batch.
+            // Keep its last row so aggregate pressure totals are not inflated.
+            batch.Processes[process] = new ProcessSnapshot(
                 WorkingSetBytes: workingSetBytes,
                 CommitBytes: commitBytes,
                 PrivateBytes: privateBytes);
@@ -655,7 +921,7 @@ public static class MemoryResourceAnalysis
 
         private sealed class ProcessSnapshotBatch
         {
-            public readonly Dictionary<int, ProcessSnapshot> Processes = new();
+            public readonly Dictionary<ProcessInstanceKey, ProcessSnapshot> Processes = new();
 
             public ProcessSnapshot Totals() =>
                 new(
@@ -670,7 +936,7 @@ public static class MemoryResourceAnalysis
             long PrivateBytes);
     }
 
-    private sealed class HandleAccumulator(int pid, string processName)
+    private sealed class HandleAccumulator(ProcessInstanceKey process, string processName)
     {
         public long Created { get; set; }
         public long Closed { get; set; }
@@ -679,13 +945,14 @@ public static class MemoryResourceAnalysis
 
         public MemoryHandleProcessRow ToRow() =>
             new(
-                Pid: pid,
+                Pid: process.Pid,
                 ProcessName: processName,
                 Created: Created,
                 Closed: Closed,
                 DuplicatedIn: DuplicatedIn,
                 DuplicatedOut: DuplicatedOut,
-                NetDelta: CalculateHandleNetDelta(Created, Closed, DuplicatedIn, DuplicatedOut));
+                NetDelta: CalculateHandleNetDelta(Created, Closed, DuplicatedIn, DuplicatedOut),
+                ProcessStartUs: process.StartUs);
     }
 
     private readonly record struct PoolEvent(
@@ -695,31 +962,31 @@ public static class MemoryResourceAnalysis
         string Tag,
         string PoolKind);
 
-    private sealed class PoolTracker(TraceLog trace)
+    private sealed class PoolTracker(Func<ProcessInstanceKey, string> processName)
     {
         private readonly Dictionary<ulong, PoolAllocation> _live = new();
-        private readonly Dictionary<int, PoolProcessAccumulator> _processes = new();
+        private readonly Dictionary<ProcessInstanceKey, PoolProcessAccumulator> _processes = new();
         private readonly Dictionary<(string Tag, string PoolKind), PoolTagAccumulator> _tags = new();
 
-        public void Add(int pid, string processName, string eventName, PoolEvent poolEvent)
+        public void Add(ProcessInstanceKey process, bool isAllocation, PoolEvent poolEvent)
         {
-            var resolvedProcessName = string.IsNullOrEmpty(processName) ? ProcessName(trace, pid) : processName;
-            if (IsPoolAllocationEvent(eventName))
+            var resolvedProcessName = processName(process);
+            if (isAllocation)
             {
-                _live[poolEvent.Entry] = new PoolAllocation(pid, resolvedProcessName, poolEvent);
-                GetProcess(pid, resolvedProcessName).AddAllocation(poolEvent);
+                _live[poolEvent.Entry] = new PoolAllocation(process, resolvedProcessName, poolEvent);
+                GetProcess(process, resolvedProcessName).AddAllocation(poolEvent);
                 GetTag(poolEvent.Tag, poolEvent.PoolKind).AddAllocation(poolEvent.Bytes);
                 return;
             }
 
             if (_live.Remove(poolEvent.Entry, out var allocation))
             {
-                GetProcess(allocation.Pid, allocation.ProcessName).AddFree(allocation.Event, unknown: false);
+                GetProcess(allocation.Process, allocation.ProcessName).AddFree(allocation.Event, unknown: false);
                 GetTag(allocation.Event.Tag, allocation.Event.PoolKind).AddFree(allocation.Event.Bytes, unknown: false);
             }
             else
             {
-                GetProcess(pid, resolvedProcessName).AddFree(poolEvent, unknown: true);
+                GetProcess(process, resolvedProcessName).AddFree(poolEvent, unknown: true);
                 GetTag(poolEvent.Tag, poolEvent.PoolKind).AddFree(poolEvent.Bytes, unknown: true);
             }
         }
@@ -740,16 +1007,15 @@ public static class MemoryResourceAnalysis
                 .Take(top)
                 .ToList();
 
-        private PoolProcessAccumulator GetProcess(int pid, string processName)
+        private PoolProcessAccumulator GetProcess(ProcessInstanceKey process, string resolvedProcessName)
         {
-            if (!_processes.TryGetValue(pid, out var process))
+            if (!_processes.TryGetValue(process, out var accumulator))
             {
-                var name = string.IsNullOrEmpty(processName) ? ProcessName(trace, pid) : processName;
-                process = new PoolProcessAccumulator(pid, name);
-                _processes.Add(pid, process);
+                accumulator = new PoolProcessAccumulator(process, resolvedProcessName);
+                _processes.Add(process, accumulator);
             }
 
-            return process;
+            return accumulator;
         }
 
         private PoolTagAccumulator GetTag(string tag, string poolKind)
@@ -765,9 +1031,12 @@ public static class MemoryResourceAnalysis
         }
     }
 
-    private sealed record PoolAllocation(int Pid, string ProcessName, PoolEvent Event);
+    private sealed record PoolAllocation(
+        ProcessInstanceKey Process,
+        string ProcessName,
+        PoolEvent Event);
 
-    private sealed class PoolProcessAccumulator(int pid, string processName)
+    private sealed class PoolProcessAccumulator(ProcessInstanceKey process, string processName)
     {
         public long PagedOutstandingBytes { get; private set; }
         public long NonPagedOutstandingBytes { get; private set; }
@@ -796,7 +1065,7 @@ public static class MemoryResourceAnalysis
 
         public MemoryPoolProcessRow ToRow() =>
             new(
-                Pid: pid,
+                Pid: process.Pid,
                 ProcessName: processName,
                 PagedOutstandingBytes: PagedOutstandingBytes,
                 NonPagedOutstandingBytes: NonPagedOutstandingBytes,
@@ -806,7 +1075,8 @@ public static class MemoryResourceAnalysis
                 NonPagedFreedBytes: NonPagedFreedBytes,
                 AllocationCount: AllocationCount,
                 FreeCount: FreeCount,
-                UnknownFreeCount: UnknownFreeCount);
+                UnknownFreeCount: UnknownFreeCount,
+                ProcessStartUs: process.StartUs);
 
         private void AddAllocated(string kind, long bytes)
         {

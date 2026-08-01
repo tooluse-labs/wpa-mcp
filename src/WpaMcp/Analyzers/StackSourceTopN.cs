@@ -12,6 +12,180 @@ using CallerCalleeNode = WpaMcp.Output.CallerCalleeNode;
 
 namespace WpaMcp.Analyzers;
 
+internal static class StackMetricAccounting
+{
+    public const string ExactIntegerCount = "exact_integer_count";
+    public const string Float32PerSampleApproximate = "float32_per_sample_approximate";
+    public const string ExactLong = "exact_long";
+
+    // TraceEvent's StackSourceSample.Metric is a float. Unit-weight samples remain exact
+    // integer counts; byte and duration weights can round before per-frame aggregation.
+    public static string ForMetric(string metricName) => metricName.ToLowerInvariant() switch
+    {
+        "count" or "samples" or "loads" or "alpcevents" or "exceptions" or
+        "providerevents" or "readyevents" or "regops" => ExactIntegerCount,
+        _ => Float32PerSampleApproximate,
+    };
+}
+
+internal sealed class DomainStackCoverageAccumulator
+{
+    private readonly string _domain;
+    private readonly string _metricName;
+    private readonly string _stackSemantics;
+    private long _totalEventCount;
+    private long _stackedEventCount;
+    private long _totalMetric;
+    private long _stackedMetric;
+
+    public DomainStackCoverageAccumulator(
+        string domain,
+        string metricName = "count",
+        string stackSemantics = "event_call_stack")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(domain);
+        ArgumentException.ThrowIfNullOrWhiteSpace(metricName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stackSemantics);
+        _domain = domain;
+        _metricName = metricName;
+        _stackSemantics = stackSemantics;
+    }
+
+    public string MetricName => _metricName;
+
+    public void Observe(bool hasStack, long metric)
+    {
+        _totalEventCount = checked(_totalEventCount + 1);
+        _totalMetric = checked(_totalMetric + metric);
+        if (!hasStack)
+            return;
+
+        _stackedEventCount = checked(_stackedEventCount + 1);
+        _stackedMetric = checked(_stackedMetric + metric);
+    }
+
+    public DomainStackCoverage Snapshot()
+    {
+        var state = _totalEventCount == 0
+            ? "no_events"
+            : _stackedEventCount == 0
+                ? "no_stacks"
+                : _stackedEventCount == _totalEventCount
+                    ? "full"
+                    : "partial";
+        var containsSyntheticUnknown = _stackedEventCount < _totalEventCount;
+        return new DomainStackCoverage(
+            Domain: _domain,
+            TotalEventCount: _totalEventCount,
+            StackedEventCount: _stackedEventCount,
+            StackCoveragePct: PercentOrNull(_stackedEventCount, _totalEventCount),
+            CoverageState: state,
+            TotalMetric: _totalMetric,
+            StackedMetric: _stackedMetric,
+            MetricStackCoveragePct: PercentOrNull(_stackedMetric, _totalMetric),
+            MetricName: _metricName,
+            ContainsSyntheticUnknown: containsSyntheticUnknown,
+            SyntheticUnknownFrame: containsSyntheticUnknown ? "?!?" : null,
+            MetricAccounting: StackMetricAccounting.ExactLong,
+            StackSemantics: _stackSemantics);
+    }
+
+    private static double? PercentOrNull(long value, long total) =>
+        total == 0 ? null : 100.0 * value / total;
+}
+
+internal sealed record SymbolLookupAttempt(string State, string? Failure)
+{
+    public static SymbolLookupAttempt Skipped() => new("skipped", null);
+    public static SymbolLookupAttempt Executed() => new("executed", null);
+    public static SymbolLookupAttempt Failed(string failure) => new("failed", failure);
+    public static SymbolLookupAttempt Unknown() => new("unknown", null);
+}
+
+internal sealed class SymbolFrameMetricAccumulator
+{
+    private readonly string _metricName;
+    private readonly HashSet<int> _uniqueCodeFrames = new();
+    private readonly HashSet<int> _uniqueResolvedCodeFrames = new();
+    private readonly HashSet<int> _uniqueUnresolvedCodeFrames = new();
+    private readonly HashSet<int> _uniqueExcludedFrames = new();
+    private readonly Dictionary<string, long> _unresolvedByModule = new(StringComparer.OrdinalIgnoreCase);
+    private long _resolvedMetric;
+    private long _unresolvedMetric;
+    private long _excludedMetric;
+
+    public SymbolFrameMetricAccumulator(string metricName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(metricName);
+        _metricName = metricName;
+    }
+
+    public void ObserveCodeFrame(int frameIdentity, string module, bool resolved, long metric)
+    {
+        var firstObservation = _uniqueCodeFrames.Add(frameIdentity);
+        if (resolved)
+        {
+            if (firstObservation)
+                _uniqueResolvedCodeFrames.Add(frameIdentity);
+            _resolvedMetric = checked(_resolvedMetric + metric);
+        }
+        else
+        {
+            if (firstObservation)
+            {
+                _uniqueUnresolvedCodeFrames.Add(frameIdentity);
+                _unresolvedByModule[module] = checked(
+                    _unresolvedByModule.GetValueOrDefault(module) + 1);
+            }
+            _unresolvedMetric = checked(_unresolvedMetric + metric);
+        }
+    }
+
+    public void ObserveExcludedFrame(int frameIdentity, long metric)
+    {
+        _uniqueExcludedFrames.Add(frameIdentity);
+        _excludedMetric = checked(_excludedMetric + metric);
+    }
+
+    public SymbolStats Snapshot(
+        SymbolLookupAttempt lookupAttempt,
+        string metricAccounting = "exact_long")
+    {
+        var uniqueTotal = _uniqueCodeFrames.Count;
+        var totalMetric = checked(_resolvedMetric + _unresolvedMetric);
+        double? uniqueRate = uniqueTotal == 0
+            ? null
+            : _uniqueResolvedCodeFrames.Count / (double)uniqueTotal;
+        double? metricRate = totalMetric == 0
+            ? null
+            : _resolvedMetric / (double)totalMetric;
+        var topUnresolved = StackSourceTopN.TopByValue(
+            _unresolvedByModule, 10, (module, count) => new UnresolvedModule(module, count));
+
+        return new SymbolStats(
+            Resolved: _uniqueResolvedCodeFrames.Count,
+            Unresolved: _uniqueUnresolvedCodeFrames.Count,
+            ResolutionRate: uniqueRate,
+            TopUnresolvedModules: topUnresolved,
+            UniqueCodeFrameCount: uniqueTotal,
+            UniqueResolvedCodeFrameCount: _uniqueResolvedCodeFrames.Count,
+            UniqueUnresolvedCodeFrameCount: _uniqueUnresolvedCodeFrames.Count,
+            ObservedUniqueCodeFrameNameResolutionRate: uniqueRate,
+            TotalCodeFrameMetric: totalMetric,
+            ResolvedCodeFrameMetric: _resolvedMetric,
+            UnresolvedCodeFrameMetric: _unresolvedMetric,
+            ObservedMetricWeightedCodeFrameNameResolutionRate: metricRate,
+            ExcludedSyntheticOrPseudoUniqueFrames: _uniqueExcludedFrames.Count,
+            ExcludedSyntheticOrPseudoFrameMetric: _excludedMetric,
+            MetricName: _metricName,
+            LookupState: lookupAttempt.State,
+            WarmSymbolThreshold: StackSourceTopN.WarmSymbolThreshold,
+            ResolutionEvidence: "post_lookup_frame_name_heuristic",
+            LookupFailure: lookupAttempt.Failure,
+            MetricAccounting: metricAccounting);
+    }
+}
+
 // Shared "stack source → CallTree → top-N" pipeline used by both CpuAnalysis (metric=1
 // per CPU sample) and BlockedTimeStackAnalysis (metric=blocked μs per CSwitch resume).
 //
@@ -60,6 +234,10 @@ internal readonly record struct StackAnalysisRequest(
 
     public ThreadAnalysisScope? ThreadScope { get; init; }
 
+    public TraceIdentityIndex? IdentityIndex { get; init; }
+
+    public ProcessAnalysisScope? ProcessScope { get; init; }
+
     public bool? FilterSpecified { get; init; }
 
     /// <summary>
@@ -68,7 +246,32 @@ internal readonly record struct StackAnalysisRequest(
     /// baseline distinct from the filtered subset.
     /// </summary>
     public bool HasFilter => FilterSpecified ??
-        (Pid.HasValue || StartUs.HasValue || EndUs.HasValue);
+        (Pid.HasValue || ProcessScope?.ProcessStartUs.HasValue == true ||
+         StartUs.HasValue || EndUs.HasValue);
+
+    public static StackAnalysisRequest ForProcess(
+        TraceLog trace,
+        int? pid,
+        long? processStartUs,
+        long? startUs,
+        long? endUs,
+        TextWriter symbolLog,
+        StackSourceTopN.WhenHistogram when,
+        bool? filterSpecified = null)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = new TimeWindow(startUs ?? 0, endUs ?? traceEndUs);
+        var identities = TraceIdentityIndex.For(trace);
+        var processScope = ProcessAnalysisScope.Resolve(window, pid, processStartUs, identities);
+        return new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        {
+            IdentityIndex = identities,
+            ProcessScope = processScope,
+            FilterSpecified = filterSpecified ??
+                (pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue),
+        };
+    }
 
     /// <summary>
     /// True iff the event with the given process and timestamp passes pid + half-open
@@ -77,9 +280,15 @@ internal readonly record struct StackAnalysisRequest(
     /// block that recurs in every typed-event handler.
     /// </summary>
     public bool PassesFilter(int processId, long nowUs) =>
-        (!Pid.HasValue || processId == Pid.Value) &&
-        (!StartUs.HasValue || nowUs >= StartUs.Value) &&
-        (!EndUs.HasValue || nowUs < EndUs.Value);
+        ProcessScope is not null
+            ? ProcessScope.MatchesEvent(
+                IdentityIndex ?? throw new InvalidOperationException(
+                    "A process scope requires a trace identity index."),
+                processId,
+                nowUs)
+            : (!Pid.HasValue || processId == Pid.Value) &&
+              (!StartUs.HasValue || nowUs >= StartUs.Value) &&
+              (!EndUs.HasValue || nowUs < EndUs.Value);
 
     public bool PassesFilter(int processId, int threadId, long nowUs) =>
         ThreadScope.HasValue
@@ -93,6 +302,146 @@ internal readonly record struct StackAnalysisRequest(
     public bool PassesFilter(long nowUs) =>
         (!StartUs.HasValue || nowUs >= StartUs.Value) &&
         (!EndUs.HasValue || nowUs < EndUs.Value);
+}
+
+internal readonly record struct StackResultContract(
+    ProcessInstanceKey? SelectedProcess,
+    string ScopeMode,
+    bool PidReuseObserved,
+    IReadOnlyList<ProcessInstanceKey> IncludedProcesses,
+    string ScopeStatus,
+    string CapabilityStatus,
+    long MatchedEventCount,
+    string? NoDataReason,
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    string? ScopeWarning = null)
+{
+    public static StackResultContract From(
+        ProcessAnalysisScope? processScope,
+        bool filterSpecified,
+        DomainStackCoverage coverage,
+        bool focusRequested = false,
+        bool focusFound = true,
+        long? traceEventCount = null)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        var scopeStatus = processScope?.ScopeStatus ?? ProcessAnalysisScope.ResolvedStatus;
+        var scopeMode = processScope?.ScopeMode ?? "all_processes";
+        // All-process queries already declare ScopeMode=all_processes. Serializing every
+        // lifetime in a large system trace adds thousands of tokens without narrowing the
+        // scope; IncludedProcesses is useful only for PID-selected aggregate/exact scopes.
+        var included = processScope?.Pid.HasValue == true
+            ? processScope.IncludedProcesses
+            : [];
+        var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
+            ? "unknown"
+            : coverage.TotalEventCount > 0
+                ? "observed"
+                : traceEventCount switch
+                {
+                    0 => "not_observed",
+                    > 0 => "unknown",
+                    _ => filterSpecified ? "unknown" : "not_observed",
+                };
+        string? noDataReason = scopeStatus != ProcessAnalysisScope.ResolvedStatus
+            ? "scope_not_found"
+            : coverage.TotalEventCount == 0
+                ? traceEventCount switch
+                {
+                    0 => "event_class_not_observed",
+                    > 0 => "no_events_in_scope",
+                    _ => filterSpecified ? "no_events_in_scope" : "event_class_not_observed",
+                }
+                : coverage.StackedEventCount == 0
+                    ? "stacks_unavailable"
+                    : focusRequested && !focusFound
+                        ? "focus_not_found"
+                        : null;
+
+        return new StackResultContract(
+            processScope?.SelectedProcess,
+            scopeMode,
+            processScope?.PidReuseObserved ?? false,
+            included,
+            scopeStatus,
+            capabilityStatus,
+            coverage.TotalEventCount,
+            noDataReason);
+    }
+
+    public static StackResultContract FromThreadScope(
+        ThreadAnalysisScope? threadScope,
+        bool filterSpecified,
+        DomainStackCoverage coverage,
+        long? traceEventCount = null)
+    {
+        var contract = From(
+            processScope: null,
+            filterSpecified,
+            coverage,
+            traceEventCount: traceEventCount);
+        if (!threadScope.HasValue)
+            return contract;
+
+        var scope = threadScope.Value;
+        var selected = scope.Process?.Key ?? scope.Thread?.Key.Process;
+        var includedProcesses = scope.IncludedProcesses ??
+            (selected.HasValue ? [selected.Value] : []);
+        var includedThreads = scope.IncludedThreads ??
+            (scope.Thread is null
+                ? []
+                : [new ThreadScopeCandidate(
+                    scope.Thread.Key,
+                    scope.Thread.StartUs,
+                    scope.Thread.EndUs)]);
+        return contract with
+        {
+            SelectedProcess = selected,
+            ScopeMode = scope.ScopeMode,
+            PidReuseObserved = scope.PidReuseObserved,
+            IncludedProcesses = includedProcesses,
+            IncludedThreads = includedThreads,
+            ScopeStatus = scope.ScopeStatus,
+            CapabilityStatus = scope.IsResolved ? contract.CapabilityStatus : "unknown",
+            MatchedEventCount = scope.IsResolved ? contract.MatchedEventCount : 0,
+            NoDataReason = scope.NoDataReason ?? contract.NoDataReason,
+            ScopeWarning = scope.ScopeWarning,
+        };
+    }
+
+    public void AddWarning(ICollection<string> warnings)
+    {
+        ArgumentNullException.ThrowIfNull(warnings);
+        if (!string.IsNullOrWhiteSpace(ScopeWarning) && !warnings.Contains(ScopeWarning))
+            warnings.Add(ScopeWarning);
+        if (NoDataReason is null)
+            return;
+        var prefix = NoDataReason + ":";
+        if (warnings.Any(warning => warning.StartsWith(prefix, StringComparison.Ordinal)))
+            return;
+        warnings.Add(NoDataReason switch
+        {
+            "scope_not_found" =>
+                "scope_not_found: the requested process lifetime does not intersect the analysis window.",
+            "process_instance_not_found" =>
+                "process_instance_not_found: the requested process lifetime does not intersect the analysis window.",
+            "thread_instance_not_found" =>
+                "thread_instance_not_found: the requested thread lifetime does not intersect the analysis window.",
+            "ambiguous_process_instance" =>
+                "ambiguous_process_instance: multiple process lifetimes matched; supply processStartUs.",
+            "ambiguous_thread_instance" =>
+                "ambiguous_thread_instance: multiple thread lifetimes matched; supply processStartUs and threadStartUs from IncludedProcesses and IncludedThreads.",
+            "event_class_not_observed" =>
+                "event_class_not_observed: no matching event was observed in this unfiltered trace; this does not prove a capture keyword was disabled.",
+            "no_events_in_scope" =>
+                "no_events_in_scope: the selected process/window matched no events; capture capability remains unknown for this scope.",
+            "stacks_unavailable" =>
+                "stacks_unavailable: matching events were observed, but none carried an attached stack.",
+            "focus_not_found" =>
+                "focus_not_found: matching stacked events were observed, but the requested focus frame was absent.",
+            _ => $"{NoDataReason}: no data was produced.",
+        });
+    }
 }
 
 internal static class StackSourceTopN
@@ -124,30 +473,78 @@ internal static class StackSourceTopN
     public readonly record struct RawStackSource(
         MutableTraceEventStackSource Source,
         StackSourceCallStackIndex NoStackCallStack,
-        StackSourceSample Sample)
+        StackSourceSample Sample,
+        DomainStackCoverageAccumulator Coverage,
+        List<long> ExactSampleMetrics)
     {
         /// <summary>
         /// Push one sample at the resolved call stack (falling back to the synthetic ?!? root
         /// when the event has no stack walk attached). Centralised so PerfView-parity invariant
         /// #1 (no-stack samples → ?!? root) lives in one place across all stack analyzers.
         /// </summary>
-        public void AddSample(CallStackIndex csIdx, TraceEvent ev, double metric)
+        public void AddSample(CallStackIndex csIdx, TraceEvent ev, long metric)
         {
-            Sample.StackIndex = csIdx == CallStackIndex.Invalid
+            var hasStack = csIdx != CallStackIndex.Invalid;
+            var stackIndex = !hasStack
                 ? NoStackCallStack
                 : Source.GetCallStack(csIdx, ev);
-            Sample.TimeRelativeMSec = ev.TimeStampRelativeMSec;
+            AddSample(stackIndex, hasStack, ev.TimeStampRelativeMSec, metric);
+        }
+
+        /// <summary>
+        /// Push a sample whose TraceEvent stack was resolved earlier. Interval analyzers use
+        /// this after pairing start/stop events, while retaining the same exact-long coverage
+        /// accounting and synthetic-unknown contract as direct event analyzers.
+        /// </summary>
+        public void AddSample(
+            StackSourceCallStackIndex stackIndex,
+            bool hasStack,
+            double timeRelativeMSec,
+            long metric)
+        {
+            Coverage.Observe(hasStack, metric);
+            Sample.StackIndex = hasStack ? stackIndex : NoStackCallStack;
+            Sample.TimeRelativeMSec = timeRelativeMSec;
             Sample.Metric = (float)metric;
             Source.AddSample(Sample);
+            ExactSampleMetrics.Add(metric);
         }
     }
 
-    public static RawStackSource CreateRawSource(TraceLog trace)
+    public static RawStackSource CreateRawSource(
+        TraceLog trace,
+        string domain = "unknown",
+        string metricName = "count",
+        string stackSemantics = "event_call_stack")
     {
         var src = new MutableTraceEventStackSource(trace) { ShowUnknownAddresses = true };
         var noStackFrame = src.Interner.FrameIntern("?!?");
         var noStack = src.Interner.CallStackIntern(noStackFrame, StackSourceCallStackIndex.Invalid);
-        return new RawStackSource(src, noStack, new StackSourceSample(src));
+        return new RawStackSource(
+            src,
+            noStack,
+            new StackSourceSample(src),
+            new DomainStackCoverageAccumulator(domain, metricName, stackSemantics),
+            new List<long>());
+    }
+
+    public static void AddCoverageWarning(
+        ICollection<string> warnings,
+        DomainStackCoverage coverage)
+    {
+        if (coverage.CoverageState == "no_stacks")
+        {
+            warnings.Add(
+                $"stack_coverage_state=no_stacks: none of the {coverage.TotalEventCount:N0} " +
+                $"{coverage.Domain} event(s) had an attached stack; ?!? is synthetic unknown evidence, not a captured call chain.");
+        }
+        else if (coverage.CoverageState == "partial")
+        {
+            warnings.Add(
+                $"stack_coverage_state=partial: {coverage.StackedEventCount:N0} of " +
+                $"{coverage.TotalEventCount:N0} {coverage.Domain} event(s) had an attached stack " +
+                $"({coverage.StackCoveragePct:F2}%); ?!? represents the unstacked remainder.");
+        }
     }
 
     /// <summary>
@@ -200,7 +597,9 @@ internal static class StackSourceTopN
         bool hasContextSwitches = false,
         bool hasContextSwitchBlockingStacks = false,
         bool hasSampledProfileStacks = false,
-        string symbolResolutionState = "not_applicable")
+        string symbolResolutionState = "not_applicable",
+        DomainStackCoverage? stackCoverage = null,
+        StackResultContract? resultContract = null)
     {
         long focusExclusive = 0;
         long focusInclusive = 0;
@@ -262,14 +661,36 @@ internal static class StackSourceTopN
         var topCallees = callees.OrderByDescending(kv => kv.Value.incl).Take(top).Select(Project).ToList();
 
         var warnings = new List<string>(baseWarnings);
-        if (focusInclusive == 0)
+        var contract = resultContract ?? (stackCoverage is null
+            ? new StackResultContract(
+                selectedProcess,
+                selectedProcess.HasValue ? "single_process" : "all_processes",
+                PidReuseObserved: false,
+                IncludedProcesses: selectedProcess.HasValue ? [selectedProcess.Value] : [],
+                ScopeStatus: "ok",
+                CapabilityStatus: totalMetric > 0 ? "observed" : "unknown",
+                MatchedEventCount: 0,
+                NoDataReason: null)
+            : StackResultContract.From(
+                processScope: null,
+                filterSpecified: false,
+                stackCoverage));
+        if (focusInclusive == 0 && contract.NoDataReason is null)
+            contract = contract with { NoDataReason = "focus_not_found" };
+        if (focusInclusive == 0 &&
+            contract.ScopeStatus == ProcessAnalysisScope.ResolvedStatus &&
+            contract.NoDataReason is not
+                ("scope_not_found" or "no_events_in_scope" or "event_class_not_observed"))
         {
             warnings.Add(
                 $"Focus function '{focusFunction}' not found in the analyzed stack samples. " +
                 "Frame names are case-sensitive — copy verbatim from cpu_top_functions / " +
                 "wait_top_stacks / etc. output. Unresolved frames are stored as 'module!?'.");
         }
+        contract.AddWarning(warnings);
 
+        var metricAccounting = StackMetricAccounting.ForMetric(
+            stackCoverage?.MetricName ?? metricName);
         return new CallerCalleeResponse(
             FocusFunction: focusFunction,
             FocusExclusiveMetric: focusExclusive,
@@ -283,12 +704,24 @@ internal static class StackSourceTopN
             Warnings: warnings,
             SourceTotalMetric: sourceTotalMetric ?? totalMetric,
             UnmatchedIntervalCount: unmatchedIntervalCount,
-            SelectedProcess: selectedProcess,
+            SelectedProcess: selectedProcess ?? contract.SelectedProcess,
             SelectedThread: selectedThread,
             HasContextSwitches: hasContextSwitches,
             HasContextSwitchBlockingStacks: hasContextSwitchBlockingStacks,
             HasSampledProfileStacks: hasSampledProfileStacks,
-            SymbolResolutionState: symbolResolutionState);
+            SymbolResolutionState: symbolResolutionState,
+            StackCoverage: stackCoverage,
+            MetricPrecision: metricAccounting,
+            RowMetricAccounting: metricAccounting,
+            ExactTotalAccounting: StackMetricAccounting.ExactLong,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason,
+            IncludedThreads: contract.IncludedThreads);
     }
 
     public static string GetSymbolResolutionState(
@@ -298,8 +731,12 @@ internal static class StackSourceTopN
     {
         if (!hasSourceStacks)
             return "no_stacks";
+        if (stats.LookupState == "failed")
+            return "failed";
         if (!resolveSymbols)
             return "skipped";
+        if (stats.UniqueCodeFrameCount == 0)
+            return "no_code_frames";
         if (stats.Unresolved == 0)
             return "resolved";
         return stats.Resolved == 0 ? "unresolved" : "partial";
@@ -316,12 +753,48 @@ internal static class StackSourceTopN
     }
 
     /// <summary>
-    /// Constructs a SymbolReader pointed at the process-wide _NT_SYMBOL_PATH. Centralised
-    /// here so analyzers don't re-read the env var by hand and so a future SymbolService
-    /// migration only changes one site.
+    /// Constructs a SymbolReader from a configured-path snapshot. The TraceLog overload also
+    /// adds the original ETL directory to that reader only, without mutating _NT_SYMBOL_PATH.
     /// </summary>
     public static SymbolReader OpenSymbolReader(TextWriter symbolLog)
-        => new(symbolLog, Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
+        => new(symbolLog, SymbolPathState.CurrentPath);
+
+    public static SymbolReader OpenSymbolReader(TraceLog trace, TextWriter symbolLog)
+        => new(symbolLog, TraceSymbolContext.GetEffectivePath(trace));
+
+    public static SymbolLookupAttempt TryLookupWarmSymbols(
+        MutableTraceEventStackSource source,
+        bool resolveSymbols,
+        SymbolReader symbolReader,
+        Action<MutableTraceEventStackSource, int, SymbolReader>? lookup = null)
+    {
+        if (!resolveSymbols)
+            return SymbolLookupAttempt.Skipped();
+
+        try
+        {
+            if (lookup is null)
+                source.LookupWarmSymbols(WarmSymbolThreshold, symbolReader);
+            else
+                lookup(source, WarmSymbolThreshold, symbolReader);
+            return SymbolLookupAttempt.Executed();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return SymbolLookupAttempt.Failed($"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    public static void AddSymbolLookupWarning(
+        ICollection<string> warnings,
+        SymbolStats stats)
+    {
+        if (stats.LookupState == "failed")
+        {
+            warnings.Add(
+                $"symbol_lookup_state=failed: warm-symbol lookup failed; observed frame-name rates may reflect a partial attempt. {stats.LookupFailure}");
+        }
+    }
 
     /// <summary>
     /// Fixed-bucket time histogram builder. Caller passes a window (filter window or full
@@ -414,37 +887,71 @@ internal static class StackSourceTopN
     /// <c>LookupWarmSymbols</c> so resolution had its chance — and BEFORE the source is
     /// normalized.
     /// </summary>
+    public static SymbolStats ComputeSymbolStats(
+        RawStackSource raw,
+        SymbolLookupAttempt lookupAttempt)
+        => ComputeSymbolStats(
+            raw.Source,
+            raw.ExactSampleMetrics,
+            raw.Coverage.MetricName,
+            lookupAttempt);
+
     public static SymbolStats ComputeSymbolStats(MutableTraceEventStackSource rawSource)
+        => ComputeSymbolStats(
+            rawSource,
+            exactSampleMetrics: null,
+            metricName: "count",
+            SymbolLookupAttempt.Unknown());
+
+    private static SymbolStats ComputeSymbolStats(
+        MutableTraceEventStackSource rawSource,
+        IReadOnlyList<long>? exactSampleMetrics,
+        string metricName,
+        SymbolLookupAttempt lookupAttempt)
     {
-        long resolvedFrames = 0, unresolvedFrames = 0;
-        var unresolvedByModule = new Dictionary<string, long>();
-        for (var i = 0; i < (int)rawSource.CallFrameIndexLimit; i++)
+        var hasExactMetrics = exactSampleMetrics?.Count == (int)rawSource.SampleIndexLimit;
+        var accumulator = new SymbolFrameMetricAccumulator(metricName);
+
+        for (var sampleIndex = 0; sampleIndex < (int)rawSource.SampleIndexLimit; sampleIndex++)
         {
-            var frameName = rawSource.GetFrameName((StackSourceFrameIndex)i, fullModulePath: false);
-            // Resolved frames look like "module!Symbol" or "module!Symbol+0x..".
-            // Unresolved frames contain '?' or start with raw '0x' addresses.
-            var bang = frameName.IndexOf('!');
-            var symbolPart = bang >= 0 ? frameName[(bang + 1)..] : frameName;
-            var module = bang > 0 ? frameName[..bang] : "<unknown>";
-            var unresolved =
-                symbolPart.Length == 0 ||
-                symbolPart.Contains('?') ||
-                symbolPart.StartsWith("0x", StringComparison.Ordinal);
-            if (unresolved)
+            var sample = rawSource.GetSampleByIndex((StackSourceSampleIndex)sampleIndex);
+            var metric = hasExactMetrics
+                ? exactSampleMetrics![sampleIndex]
+                : checked((long)sample.Metric);
+            var stackIndex = sample.StackIndex;
+            while (stackIndex != StackSourceCallStackIndex.Invalid)
             {
-                unresolvedFrames++;
-                unresolvedByModule[module] = unresolvedByModule.GetValueOrDefault(module) + 1;
-            }
-            else
-            {
-                resolvedFrames++;
+                var frameIndex = rawSource.GetFrameIndex(stackIndex);
+                var frameIdentity = (int)frameIndex;
+                if (rawSource.GetFrameCodeAddress(frameIndex) == CodeAddressIndex.Invalid)
+                {
+                    accumulator.ObserveExcludedFrame(frameIdentity, metric);
+                }
+                else
+                {
+                    var frameName = rawSource.GetFrameName(frameIndex, fullModulePath: false);
+                    var (resolved, module) = ClassifyFrameName(frameName);
+                    accumulator.ObserveCodeFrame(frameIdentity, module, resolved, metric);
+                }
+                stackIndex = rawSource.GetCallerIndex(stackIndex);
             }
         }
-        var totalFrames = resolvedFrames + unresolvedFrames;
-        var resolutionRate = totalFrames == 0 ? 1.0 : (double)resolvedFrames / totalFrames;
 
-        var topUnresolved = TopByValue(unresolvedByModule, 10, (k, v) => new UnresolvedModule(k, v));
-        return new SymbolStats(resolvedFrames, unresolvedFrames, resolutionRate, topUnresolved);
+        return accumulator.Snapshot(
+            lookupAttempt,
+            hasExactMetrics ? "exact_long" : "float_fallback");
+    }
+
+    private static (bool Resolved, string Module) ClassifyFrameName(string frameName)
+    {
+        var bang = frameName.IndexOf('!');
+        var symbolPart = bang >= 0 ? frameName[(bang + 1)..] : frameName;
+        var module = bang > 0 ? frameName[..bang] : "<unknown>";
+        var unresolved =
+            symbolPart.Length == 0 ||
+            symbolPart.Contains('?') ||
+            symbolPart.StartsWith("0x", StringComparison.Ordinal);
+        return (!unresolved, module);
     }
 
     /// <summary>

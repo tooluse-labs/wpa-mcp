@@ -24,6 +24,12 @@ public class WaitBoundFixtureTests
         Assert.True(capabilities.HasCSwitchStacks);
         Assert.True(capabilities.HasReadyThreadStacks);
         Assert.True(metadata.Stackwalks.EventsWithCallStacks > 0);
+        Assert.False(metadata.Stackwalks.HasStackWalkEvents);
+        Assert.False(metadata.Stackwalks.HasExplicitStackWalkEvents);
+        Assert.True(metadata.Stackwalks.HasUsableEventStacks);
+        Assert.Equal(capabilities.HasExplicitStackWalkEvents, metadata.Stackwalks.HasExplicitStackWalkEvents);
+        Assert.Equal(capabilities.ExplicitStackWalkEventCount, metadata.Stackwalks.StackWalkEventCount);
+        Assert.Equal(capabilities.HasAttachedEventStacks, metadata.Stackwalks.HasUsableEventStacks);
         Assert.False(probe.HasExplicitStackWalkEvents);
         Assert.True(probe.HasUsableEventStacks);
         Assert.True(probe.CSwitchEvents > 0);

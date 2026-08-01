@@ -6,34 +6,37 @@ public static class WarningBuilder
         "time_semantics_v2: legacy DurationUs/PauseUs and duration totals are accounted overlap within the requested half-open window; use FullDurationUs/FullPauseUs for complete paired wall time.";
 
     public static string SymbolResolution(double rate)
-        => $"{rate * 100:F1}% frame resolution rate. Run diagnose_symbols() for fix suggestions.";
+        => $"observed_unique_code_frame_name_resolution_rate={rate * 100:F1}%; this post-lookup " +
+           "heuristic covers sample-reachable code frames only and is not a per-PDB success rate. " +
+           "Interpret it with LookupState and domain stack coverage; run diagnose_symbols() for path/readiness hints.";
 
     public static string SymbolResolutionSkipped(string toolName)
         => $"Native symbol resolution skipped for {toolName} fast mode; pass resolveSymbols=true after narrowing pid/startUs/endUs when exact function names matter.";
 
     public const string HardFaultKeywordHint =
         "MemoryHardFaults keyword required in capture profile. " +
-        "If row count is unexpectedly low, the trace may not include hard fault events.";
+        "A low or empty selected scope does not prove that HardFaults collection was disabled; " +
+        "no qualifying faults may have occurred or filters may exclude them.";
 
     /// <summary>
-    /// Standard "no events of class X matched" warning for analyzers whose required kernel
-    /// keyword isn't enabled by default WPR 'CPU' / 'CPU.light' profiles.  Use only when the
-    /// keyword genuinely isn't in the default profile — analyzers whose keyword IS enabled by
-    /// default should call <see cref="NoEventsInDefaultProfile"/> instead.
+    /// Standard "no events of class X were observed" warning for analyzers commonly requiring
+    /// an additional kernel keyword. Absence of observed events is not proof of capture settings.
     /// </summary>
     public static string MissingKeyword(string eventDescription, string keywordName) =>
-        $"No {eventDescription} events matched. The capture profile likely omits the " +
-        $"{keywordName} keyword (default WPR 'CPU' / 'CPU.light' profiles do); use " +
-        $"'GeneralProfile' or a custom .wprp that enables it.";
+        $"No {eventDescription} events were observed in the selected trace scope. This does not prove " +
+        $"that the {keywordName} keyword was disabled: no qualifying events may have occurred, filters " +
+        "may exclude them, or the capture/parser may not expose them. If these events were expected, " +
+        $"verify the capture profile and recapture with {keywordName} enabled.";
 
     /// <summary>
-    /// "No events matched" warning for analyzers whose keyword IS in the default WPR profile —
-    /// either no events occurred in the window, or a custom .wprp dropped the keyword.
+    /// "No events observed" warning for analyzers whose event family is commonly included by
+    /// default. The wording remains epistemically conservative about the actual capture profile.
     /// </summary>
     public static string NoEventsInDefaultProfile(string eventDescription, string keywordName) =>
-        $"No {eventDescription} events matched. {keywordName} is enabled by default WPR " +
-        $"profiles, so either no events occurred in the filter window, or a custom .wprp " +
-        "dropped the keyword (or its <Stacks> element).";
+        $"No {eventDescription} events were observed in the selected trace scope. This does not prove " +
+        $"whether {keywordName} collection or stack walking was enabled: no qualifying events may have " +
+        "occurred, filters may exclude them, or a custom capture/parser may not expose them. " +
+        $"{keywordName} is commonly present in default WPR profiles; verify the actual profile if events were expected.";
 
     /// <summary>
     /// Interrupt-specific stack warning. DPC/ISR events can exist without stack walks, which
@@ -51,10 +54,12 @@ public static class WarningBuilder
     /// keyword, and WPR profiles need an explicit &lt;EventCollectorId&gt; to capture it.
     /// </summary>
     public static string MissingClrKeyword(string eventDescription, string keywordName, string extraReason = "") =>
-        $"No CLR {eventDescription} events matched. Either the trace lacks the .NET runtime ETW " +
-        $"provider (Microsoft-Windows-DotNETRuntime, {keywordName} keyword)" +
-        (string.IsNullOrEmpty(extraReason) ? "" : $", {extraReason}") +
-        ". WPR profiles need an explicit <EventCollectorId> for the runtime provider.";
+        $"No CLR {eventDescription} events were observed in the selected trace scope. This does not prove " +
+        $"that the Microsoft-Windows-DotNETRuntime provider or its {keywordName} keyword was absent: " +
+        "the workload may not have emitted qualifying events, filters may exclude them, or capture/parser " +
+        "coverage may be incomplete" +
+        (string.IsNullOrEmpty(extraReason) ? "" : $"; {extraReason}") +
+        ". If these events were expected, verify an explicit runtime <EventCollectorId> and keyword configuration.";
 
     /// <summary>
     /// "No NT-heap events" warning — the heap kernel provider is enabled per-process at

@@ -42,7 +42,7 @@ public class ImageLoadStackAnalysisTests
     }
 
     [Fact]
-    public void ImageLoadTopStacks_OnMmapFixtureReturnsLoadsWithStacks()
+    public void ImageLoadTopStacks_OnMmapFixtureReturnsLoadsAndCoverage()
     {
         if (!File.Exists(MmapFixture)) return;
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
@@ -52,6 +52,10 @@ public class ImageLoadStackAnalysisTests
             $"expected ImageLoad events on small_mmap fixture, got {resp.TotalLoads} (warnings: " +
             $"{string.Join(", ", resp.Warnings)})");
         Assert.NotEmpty(resp.Rows);
+        var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("image_load", coverage.Domain);
+        Assert.Equal(resp.TotalLoads, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalLoads, coverage.TotalMetric);
     }
 
     [Fact]
@@ -88,6 +92,7 @@ public class ImageLoadStackAnalysisTests
         Assert.Equal(picked, ccResp.FocusFunction);
         Assert.Equal("loads", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0);
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
     }
 
     [Fact]

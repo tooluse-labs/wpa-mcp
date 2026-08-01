@@ -18,6 +18,10 @@ public class MarkerSearchTests
         Assert.NotNull(resp.Counts);
         Assert.NotEmpty(resp.Counts!);
         Assert.True(resp.TotalMatched >= resp.Counts!.Sum(c => c.Count));
+        Assert.Equal("ok", resp.ScopeStatus);
+        Assert.Equal("observed", resp.CapabilityStatus);
+        Assert.Equal(resp.TotalMatched, resp.MatchedEventCount);
+        Assert.Null(resp.NoDataReason);
         // Counts must be ordered descending.
         for (var i = 1; i < resp.Counts!.Count; i++)
             Assert.True(resp.Counts[i - 1].Count >= resp.Counts[i].Count);
@@ -85,6 +89,12 @@ public class MarkerSearchTests
             fieldMaxChars: Validation.MaxStringChars);
 
         Assert.Empty(accepted.Rows!);
+        Assert.Equal("ok", accepted.ScopeStatus);
+        Assert.Equal("not_observed", accepted.CapabilityStatus);
+        Assert.Equal(0, accepted.MatchedEventCount);
+        Assert.Equal("no_name_match", accepted.NoDataReason);
+        Assert.Contains(accepted.Warnings!, warning =>
+            warning.StartsWith("no_name_match:", StringComparison.Ordinal));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.FindMarker(
             "missing-before-validation.etl",
             "marker",

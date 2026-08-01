@@ -20,6 +20,11 @@ public sealed class VirtualMemoryTools
         "zero-page data is present, plus peak observed sampled-process batch totals across " +
         "the selected window. These pressure totals are ETW sample-batch evidence, not " +
         "complete whole-system memory accounting. " +
+        "SystemMemory and system-pressure fields remain window-global when pid/processStartUs " +
+        "is supplied; sampled-process totals and ranked rows follow the selected process scope. " +
+        "MatchedEventCount counts in-scope ProcessMemInfo entries plus handle and pool events; " +
+        "Pressure.SystemSampleCount is separate. Empty results distinguish scope_not_found, " +
+        "event_class_not_observed, and no_events_in_scope; absence does not prove a keyword was disabled. " +
         "Pool rows are not absolute current counters; they are captured-window deltas with " +
         "UnknownFreeCount for frees whose allocation was outside the window. Requires MemoryInfoWS " +
         "for process snapshots and Handle/Pool for handle or pool events; use MemoryCapture.wprp " +
@@ -31,23 +36,28 @@ public sealed class VirtualMemoryTools
         [Description("Top N process and handle rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional process lifetime start in microseconds; requires pid. Without it, a reused PID is explicitly returned as pid_aggregate with per-instance rows.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return Analyzers.MemoryResourceAnalysis.Analyze(trace, top, pid, window.StartUs, window.EndUs);
+        return Analyzers.MemoryResourceAnalysis.Analyze(
+            trace, top, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Top-N call stacks ranked by VirtualAlloc bytes — answers 'who's reserving / committing " +
-        "virtual memory'.  PerfView equivalent: 'VirtualAlloc Stacks' view.  Counts both " +
-        "VirtualMemAlloc and VirtualMemFree events; the metric is the allocation Length so " +
-        "Free events show up with the size that was originally reserved.  Each row carries both " +
-        "Bytes (metric=Length) and OpCount.  Requires the VirtualAlloc keyword in the capture " +
+        "Top-N call stacks ranked by observed VirtualAlloc operation bytes. PerfView equivalent: " +
+        "'VirtualAlloc Stacks' view. VirtualMemAlloc and VirtualMemFree Length values are both " +
+        "positive call-tree weights; exact allocation and free totals are reported separately. " +
+        "TotalOperationBytes is traffic, and NetObservedOperationBytes is alloc minus free event " +
+        "traffic—not live virtual size, commit, retained memory, or proof of a leak. Per-frame " +
+        "byte metrics use the response's precision contract. Requires the VirtualAlloc keyword in the capture " +
         "profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public VirtualAllocStacksResponse VirtualAllocTopStacks(
         [Description("Absolute path to .etl file")] string path,
@@ -55,7 +65,7 @@ public sealed class VirtualMemoryTools
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
-        [Description("If > 0, also return a When-histogram of allocation bytes over this many " +
+        [Description("If > 0, also return a When-histogram of alloc+free operation bytes over this many " +
                      "buckets across the filter window. Default 0 = histogram off.")]
         int whenBuckets = 0,
         [Description(StackResponseOptions.CompactStacksDescription)]
@@ -63,26 +73,31 @@ public sealed class VirtualMemoryTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return VirtualAllocStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Caller/callee drill-down for a focus function in the VirtualAlloc-stack data.  Metric " +
-        "is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO focus, callees " +
-        "by bytes OUT.  PerfView equivalent: 'Callers' / 'Callees' tabs of VirtualAlloc Stacks.")]
+        "Caller/callee drill-down for a focus function in VirtualAlloc-stack data. Metric is " +
+        "virtualMemoryOperationBytes: alloc and free Length values are both positive weights. " +
+        "This is operation traffic, not retained virtual memory or leak evidence. Top-N callers " +
+        "are ranked by bytes flowing INTO focus and callees by bytes OUT.")]
     public CallerCalleeResponse VirtualAllocCallerCallee(
         [Description("Absolute path to .etl file")] string path,
         [Description("Focus frame name, exactly as it appears in virtual_alloc_top_stacks output.")]
@@ -92,17 +107,22 @@ public sealed class VirtualMemoryTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return VirtualAllocStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 }

@@ -268,6 +268,18 @@ public sealed class InspectTraceTests
             HasClrException = true,
             HasNetIo = false,
             HasNetConnections = true,
+            StackCoverageByDomain = new Dictionary<string, DomainStackCoverage>(StringComparer.Ordinal)
+            {
+                ["clr_exception"] = new(
+                    Domain: "clr_exception",
+                    TotalEventCount: 5,
+                    StackedEventCount: 5,
+                    StackCoveragePct: 100,
+                    CoverageState: "full",
+                    TotalMetric: 5,
+                    StackedMetric: 5,
+                    MetricStackCoveragePct: 100),
+            },
         };
 
         var recommendations = MetaTools.BuildCapabilitySupportedTools(capabilities);
@@ -319,6 +331,51 @@ public sealed class InspectTraceTests
         Assert.Contains(window.Caveats, caveat => caveat.Contains("File IO evidence"));
 
         Assert.DoesNotContain(flows, flow => flow.FlowName == "network_activity");
+    }
+
+    [Fact]
+    public void BuildRecommendedDiagnosticFlows_GatesSchedulerStackToolsByTheirOwnDomains()
+    {
+        var noSchedulerStacks = AllCapabilities() with
+        {
+            HasStackWalks = true,
+            HasCSwitchStacks = true,
+            HasReadyThreadStacks = true,
+            StackCoverageByDomain = new Dictionary<string, DomainStackCoverage>(StringComparer.Ordinal)
+            {
+                ["cswitch"] = Coverage("cswitch", total: 20, stacked: 0),
+                ["ready_thread"] = Coverage("ready_thread", total: 10, stacked: 0),
+            },
+        };
+
+        var noStacksFlows = MetaTools.BuildRecommendedDiagnosticFlows(noSchedulerStacks);
+        var noStacksFlow = Assert.Single(
+            noStacksFlows,
+            flow => flow.FlowName == "high_wait");
+
+        Assert.Contains("diagnose_high_wait", noStacksFlow.ToolSequence);
+        Assert.Contains("wait_analysis", noStacksFlow.ToolSequence);
+        Assert.DoesNotContain("wait_top_stacks", noStacksFlow.ToolSequence);
+        Assert.DoesNotContain("ready_thread_top_stacks", noStacksFlow.ToolSequence);
+        Assert.DoesNotContain(noStacksFlows.SelectMany(flow => flow.ToolSequence), tool =>
+            tool is "wait_top_stacks" or "ready_thread_top_stacks");
+        Assert.Contains(noStacksFlow.Caveats, caveat => caveat.Contains("wait_top_stacks omitted", StringComparison.Ordinal));
+        Assert.Contains(noStacksFlow.Caveats, caveat => caveat.Contains("ready_thread_top_stacks omitted", StringComparison.Ordinal));
+
+        var schedulerStacks = noSchedulerStacks with
+        {
+            StackCoverageByDomain = new Dictionary<string, DomainStackCoverage>(StringComparer.Ordinal)
+            {
+                ["cswitch"] = Coverage("cswitch", total: 20, stacked: 5),
+                ["ready_thread"] = Coverage("ready_thread", total: 10, stacked: 4),
+            },
+        };
+
+        var stacksFlow = Assert.Single(
+            MetaTools.BuildRecommendedDiagnosticFlows(schedulerStacks),
+            flow => flow.FlowName == "high_wait");
+        Assert.Contains("wait_top_stacks", stacksFlow.ToolSequence);
+        Assert.Contains("ready_thread_top_stacks", stacksFlow.ToolSequence);
     }
 
     [Fact]
@@ -423,6 +480,17 @@ public sealed class InspectTraceTests
             ModuleResolutionRate: 1.0,
             TopUnresolvedModules: Array.Empty<InspectUnresolvedModule>(),
             Recommendations: Array.Empty<SymbolRecommendation>());
+
+    private static DomainStackCoverage Coverage(string domain, long total, long stacked) =>
+        new(
+            Domain: domain,
+            TotalEventCount: total,
+            StackedEventCount: stacked,
+            StackCoveragePct: total == 0 ? null : stacked * 100.0 / total,
+            CoverageState: total == 0 ? "no_events" : stacked == 0 ? "no_stacks" : stacked == total ? "full" : "partial",
+            TotalMetric: total,
+            StackedMetric: stacked,
+            MetricStackCoveragePct: total == 0 ? null : stacked * 100.0 / total);
 
     private static TraceCapabilities AllCapabilities() =>
         new(

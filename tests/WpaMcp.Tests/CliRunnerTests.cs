@@ -9,6 +9,7 @@ public class CliRunnerTests
     public void IsCliInvocation_RecognizesAllKnownVerbs()
     {
         Assert.True(CliRunner.IsCliInvocation(new[] { "--list-processes", "x.etl" }));
+        Assert.True(CliRunner.IsCliInvocation(new[] { "--inspect-trace", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--process-create-timing", "x.etl", "1234" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--cpu-top", "x.etl" }));
         Assert.True(CliRunner.IsCliInvocation(new[] { "--cpu-caller-callee", "x.etl", "fn" }));
@@ -63,7 +64,7 @@ public class CliRunnerTests
     [Fact]
     public void Run_CatchesAnalyzerExceptions_AndReturnsCode2()
     {
-        // Missing trace path → FileNotFoundException inside TraceCache.Get; CliRunner must catch.
+        // Missing trace path → FileNotFoundException inside TraceCache.Acquire; CliRunner must catch.
         var rc = CliRunner.Run(new[] { "--list-processes", "definitely-not-a-real-trace.etl" });
         Assert.Equal(2, rc);
     }

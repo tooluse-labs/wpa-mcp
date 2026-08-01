@@ -13,19 +13,16 @@ public sealed class ReadyThreadTools
     public ReadyThreadTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Top-N call stacks ranked by ReadyThread event count — answers 'who unblocked threads " +
-        "in process X'.  PerfView equivalent: ReadyThread Stacks computer.  The stack on each " +
-        "event is the READIER's stack (the code that did the SetEvent / ReleaseSemaphore / " +
-        "IOCP completion / ALPC reply that woke the awaiting thread up), closing the " +
-        "producer→consumer causality loop that wait_analysis only opens one side of.  Use this " +
-        "with `awakenedPid` set to the PID you previously found high `BlockedUs` for in " +
-        "`wait_analysis`.  Requires CSwitch / ReadyThread keywords (in default kernel profiles).")]
+        "Top-N associated readier/wakeup stack evidence ranked by ReadyThread event count. " +
+        "Events are aggregated by optional `awakenedPid` and requested window; the stack belongs " +
+        "to the readier, not the awakened thread. Results are not paired one-to-one with a " +
+        "specific wait interval or subsequent CSwitch and cannot alone establish root cause. " +
+        "Use after `wait_analysis` as supporting evidence. Requires CSwitch / ReadyThread events.")]
     public ReadyThreadStacksResponse ReadyThreadTopStacks(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
-        [Description("Filter to events that readied threads in this process (the AWAKENED PID, " +
-                     "not the readier).  Strongly recommended — without it, hot stacks are " +
-                     "dominated by the kernel's IOCP / scheduler self-traffic.")]
+        [Description("Aggregate events for threads in this awakened PID, not the readier PID. " +
+                     "This scope does not identify a specific wait interval.")]
         int? awakenedPid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -37,26 +34,32 @@ public sealed class ReadyThreadTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional awakened-process lifetime start in microseconds; requires awakenedPid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? awakenedProcessStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(awakenedPid, tid: null);
+        Validation.RequireThreadSelector(
+            awakenedPid, tid: null, awakenedProcessStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid,
             window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
-            filterSpecified: awakenedPid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: awakenedPid.HasValue || awakenedProcessStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            awakenedProcessStartUs: awakenedProcessStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
-        "Caller/callee drill-down for a focus function in the ReadyThread-stack data.  Metric " +
-        "is ready-event count; top-N callers ranked by inclusive count flowing INTO focus, " +
-        "callees by count OUT.")]
+        "Caller/callee drill-down for associated readier/wakeup stack evidence around a focus " +
+        "function. Metric is ReadyThread event count, aggregated by optional `awakenedPid` and " +
+        "requested window. Results are not paired one-to-one with a specific wait interval or " +
+        "subsequent CSwitch and cannot alone establish root cause.")]
     public CallerCalleeResponse ReadyThreadCallerCallee(
         [Description("Absolute path to .etl file")] string path,
         [Description("Focus frame name, exactly as it appears in ready_thread_top_stacks output.")]
@@ -67,17 +70,23 @@ public sealed class ReadyThreadTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional awakened-process lifetime start in microseconds; requires awakenedPid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? awakenedProcessStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(awakenedPid, tid: null);
+        Validation.RequireThreadSelector(
+            awakenedPid, tid: null, awakenedProcessStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.CallerCallee(
-            trace, function, top, awakenedPid, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, awakenedPid, window.StartUs, window.EndUs, Console.Error,
+            awakenedProcessStartUs,
+            filterSpecified: awakenedPid.HasValue || awakenedProcessStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 }

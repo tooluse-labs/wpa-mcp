@@ -25,11 +25,13 @@ public static class CpuPreciseAnalysis
     internal static CpuPreciseResponse Analyze(
         TraceLog trace,
         int top,
-        ThreadAnalysisScope scope)
+        ThreadAnalysisScope scope,
+        ProcessAnalysisScope? processScope = null)
     {
         var identities = TraceIdentityIndex.For(trace);
         var accumulator = new CpuPreciseAccumulator(
-            top, scope, identities.TraceEndUs, identities.Threads.EndUsFor);
+            top, scope, identities.TraceEndUs, identities.Threads.EndUsFor,
+            processScope);
         long unresolvedIdentityCount = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
@@ -98,6 +100,45 @@ public static class CpuPreciseAnalysis
 
         accumulator.ReportUnresolvedIdentity(unresolvedIdentityCount);
         return accumulator.BuildResponse();
+    }
+
+    internal static CpuPreciseResponse EmptyScope(ThreadAnalysisScope scope)
+    {
+        var warnings = BuildScopeWarnings(scope);
+        return new CpuPreciseResponse(
+            Rows: [],
+            TotalCpuUs: 0,
+            TotalContextSwitches: 0,
+            TotalReadyCount: 0,
+            TotalReadyLatencyUs: 0,
+            Warnings: warnings,
+            SelectedProcess: scope.Process?.Key ?? scope.Thread?.Key.Process,
+            SelectedThread: null,
+            HasContextSwitches: false,
+            TraceHasContextSwitches: null,
+            HasSampledProfileStacks: false,
+            SymbolResolutionState: "not_applicable",
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.IncludedProcesses ?? [],
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: "unknown",
+            MatchedEventCount: 0,
+            NoDataReason: scope.NoDataReason,
+            IncludedThreads: scope.IncludedThreads ?? []);
+    }
+
+    private static IReadOnlyList<string> BuildScopeWarnings(ThreadAnalysisScope scope)
+    {
+        var warnings = new List<string>();
+        if (!string.IsNullOrWhiteSpace(scope.ScopeWarning))
+            warnings.Add(scope.ScopeWarning);
+        if (scope.NoDataReason == ProcessAnalysisScope.NotFoundStatus)
+        {
+            warnings.Add(
+                "scope_not_found: the requested process/thread selector did not resolve in the requested half-open window.");
+        }
+        return warnings;
     }
 
     private static ThreadAnalysisScope ResolveLegacyScope(
@@ -173,6 +214,7 @@ internal sealed class CpuPreciseAccumulator
     private readonly ThreadAnalysisScope _scope;
     private readonly long _traceEndUs;
     private readonly bool _seedFirstObservedRunningInterval;
+    private readonly ProcessAnalysisScope? _processScope;
     private readonly SchedulerIntervalAccumulator _scheduler;
     private readonly Dictionary<ThreadInstanceKey, ThreadStats> _threads = new();
     private readonly Dictionary<ThreadInstanceKey, long> _pendingReadyUs = new();
@@ -208,6 +250,7 @@ internal sealed class CpuPreciseAccumulator
             PidReuseObserved: false);
         _traceEndUs = effectiveTraceEndUs;
         _seedFirstObservedRunningInterval = true;
+        _processScope = null;
         _scheduler = new SchedulerIntervalAccumulator();
     }
 
@@ -215,7 +258,8 @@ internal sealed class CpuPreciseAccumulator
         int top,
         ThreadAnalysisScope scope,
         long traceEndUs,
-        Func<ThreadInstanceKey, long?>? threadEndUs = null)
+        Func<ThreadInstanceKey, long?>? threadEndUs = null,
+        ProcessAnalysisScope? processScope = null)
     {
         if (traceEndUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(traceEndUs));
@@ -224,6 +268,7 @@ internal sealed class CpuPreciseAccumulator
         _scope = scope;
         _traceEndUs = traceEndUs;
         _seedFirstObservedRunningInterval = false;
+        _processScope = processScope;
         _scheduler = new SchedulerIntervalAccumulator(threadEndUs);
     }
 
@@ -405,29 +450,19 @@ internal sealed class CpuPreciseAccumulator
             GetStats(_scope.Thread.Key, processName: string.Empty);
 
         var matchingStats = _threads
-            .Where(item => _scope.MatchesThread(item.Key));
-        var projectedRows = _scope.Thread is not null
-            ? matchingStats.Select(item => ToRow(
-                item.Key.Process.Pid,
-                item.Key.Tid,
-                item.Value))
-            : matchingStats
-                .GroupBy(item => new RawThreadKey(item.Key.Process.Pid, item.Key.Tid))
-                .Select(group => ToRow(
-                    group.Key.Pid,
-                    group.Key.Tid,
-                    MergeStats(group
-                        .OrderBy(item => item.Key.Process.StartUs)
-                        .ThenBy(item => item.Key.Generation)
-                        .Select(item => item.Value))));
-        var allRows = projectedRows
+            .Where(item => _scope.MatchesThread(item.Key))
+            .ToArray();
+        var allRows = matchingStats
+            .Select(item => ToRow(item.Key, item.Value))
             .Where(row =>
                 _scope.Thread is not null ||
                 row.CpuUs > 0 || row.ReadyCount > 0 || row.ContextSwitches > 0)
             .OrderByDescending(row => row.CpuUs)
             .ThenByDescending(row => row.ReadyLatencyUs)
             .ThenBy(row => row.Pid)
+            .ThenBy(row => row.ProcessStartUs)
             .ThenBy(row => row.Tid)
+            .ThenBy(row => row.ThreadGeneration)
             .ToList();
         var rows = _scope.Thread is not null
             ? allRows
@@ -437,8 +472,32 @@ internal sealed class CpuPreciseAccumulator
         if (_scope.PidReuseObserved)
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+                "ambiguous_process_instance: pid-only scope includes multiple process lifetimes; " +
+                "totals cover the aggregate scope, while rows remain separated by ProcessStartUs and ThreadGeneration.");
         }
+        var hasScopeContract = _scope.IncludedProcesses is not null;
+        var includedProcesses = hasScopeContract
+            ? _scope.IncludedProcesses!
+            : _processScope?.IncludedProcesses ?? allRows
+            .Select(row => (ProcessInstanceKey?)new ProcessInstanceKey(
+                row.Pid, row.ProcessStartUs))
+            .Append(_scope.Process?.Key)
+            .Where(process => process.HasValue)
+            .Select(process => process.GetValueOrDefault())
+            .Distinct()
+            .OrderBy(process => process.Pid)
+            .ThenBy(process => process.StartUs)
+            .ToArray();
+        var capabilityStatus = _windowCSwitches > 0
+            ? "observed"
+            : _traceCSwitches == 0
+                ? "not_observed"
+                : "unknown";
+        var noDataReason = _traceCSwitches == 0
+            ? "event_class_not_observed"
+            : _windowCSwitches == 0 && allRows.Count == 0
+                ? "no_events_in_scope"
+                : null;
         return new CpuPreciseResponse(
             Rows: rows,
             TotalCpuUs: allRows.Sum(row => row.CpuUs),
@@ -446,11 +505,35 @@ internal sealed class CpuPreciseAccumulator
             TotalReadyCount: allRows.Sum(row => row.ReadyCount),
             TotalReadyLatencyUs: allRows.Sum(row => row.ReadyLatencyUs),
             Warnings: warnings,
-            SelectedProcess: _scope.Process?.Key,
+            SelectedProcess: hasScopeContract
+                ? _scope.Process?.Key ?? _scope.Thread?.Key.Process
+                : _processScope?.SelectedProcess ?? _scope.Process?.Key,
             SelectedThread: _scope.Thread?.Key,
-            HasContextSwitches: _traceCSwitches > 0,
+            HasContextSwitches: _windowCSwitches > 0,
+            TraceHasContextSwitches: _traceCSwitches > 0,
             HasSampledProfileStacks: false,
-            SymbolResolutionState: "not_applicable");
+            SymbolResolutionState: "not_applicable",
+            ScopeMode: hasScopeContract
+                ? _scope.ScopeMode
+                : _processScope?.ScopeMode ?? (_scope.Process is not null
+                    ? "single_process"
+                    : _scope.AggregatesPidLifetimes
+                        ? "pid_aggregate"
+                        : "all_processes"),
+            PidReuseObserved: _processScope?.PidReuseObserved ?? _scope.PidReuseObserved,
+            IncludedProcesses: includedProcesses,
+            ScopeStatus: ProcessAnalysisScope.ResolvedStatus,
+            CapabilityStatus: capabilityStatus,
+            MatchedEventCount: _windowCSwitches,
+            NoDataReason: noDataReason,
+            IncludedThreads: hasScopeContract
+                ? _scope.IncludedThreads ?? []
+                : _scope.Thread is null
+                    ? []
+                    : [new ThreadScopeCandidate(
+                        _scope.Thread.Key,
+                        _scope.Thread.StartUs,
+                        _scope.Thread.EndUs)]);
     }
 
     private void AccountRunning(RunningInterval interval)
@@ -493,46 +576,8 @@ internal sealed class CpuPreciseAccumulator
         return stats;
     }
 
-    private static ThreadStats MergeStats(IEnumerable<ThreadStats> sources)
-    {
-        var aggregate = new ThreadStats();
-        foreach (var source in sources)
-        {
-            if (string.IsNullOrEmpty(aggregate.ProcessName) &&
-                !string.IsNullOrEmpty(source.ProcessName))
-            {
-                aggregate.ProcessName = source.ProcessName;
-            }
-
-            aggregate.CpuUs = checked(aggregate.CpuUs + source.CpuUs);
-            aggregate.ContextSwitches = checked(
-                aggregate.ContextSwitches + source.ContextSwitches);
-            aggregate.ReadyCount = checked(aggregate.ReadyCount + source.ReadyCount);
-            aggregate.ReadyLatencyUs = checked(
-                aggregate.ReadyLatencyUs + source.ReadyLatencyUs);
-            if (source.MaxReadyLatencyUs.HasValue)
-            {
-                aggregate.MaxReadyLatencyUs = Math.Max(
-                    aggregate.MaxReadyLatencyUs ?? 0,
-                    source.MaxReadyLatencyUs.Value);
-            }
-            aggregate.QuantumEndSwitches = checked(
-                aggregate.QuantumEndSwitches + source.QuantumEndSwitches);
-            aggregate.PreemptedSwitches = checked(
-                aggregate.PreemptedSwitches + source.PreemptedSwitches);
-            foreach (var core in source.CoreCpuUs)
-            {
-                aggregate.CoreCpuUs[core.Key] = checked(
-                    aggregate.CoreCpuUs.GetValueOrDefault(core.Key) + core.Value);
-            }
-        }
-
-        return aggregate;
-    }
-
     private static CpuPreciseThreadRow ToRow(
-        int pid,
-        int tid,
+        ThreadInstanceKey thread,
         ThreadStats stats)
     {
         var topCores = stats.CoreCpuUs
@@ -545,9 +590,9 @@ internal sealed class CpuPreciseAccumulator
             .ToList();
 
         return new CpuPreciseThreadRow(
-            Pid: pid,
+            Pid: thread.Process.Pid,
             ProcessName: stats.ProcessName,
-            Tid: tid,
+            Tid: thread.Tid,
             CpuUs: stats.CpuUs,
             ContextSwitches: stats.ContextSwitches,
             ReadyCount: stats.ReadyCount,
@@ -559,7 +604,9 @@ internal sealed class CpuPreciseAccumulator
             PrimaryCore: topCores.Count > 0 ? topCores[0].Core : null,
             TopCores: topCores,
             QuantumEndSwitches: stats.QuantumEndSwitches,
-            PreemptedSwitches: stats.PreemptedSwitches);
+            PreemptedSwitches: stats.PreemptedSwitches,
+            ProcessStartUs: thread.Process.StartUs,
+            ThreadGeneration: thread.Generation);
     }
 
     private List<string> BuildWarnings(
@@ -570,8 +617,8 @@ internal sealed class CpuPreciseAccumulator
         if (_traceCSwitches == 0)
         {
             warnings.Add(
-                "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
-                "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+                "event_class_not_observed: no CSwitch events were observed in the trace. " +
+                "This does not prove the CSwitch keyword was disabled; no qualifying switches may have occurred or the materialized trace may not expose that event class.");
         }
         else if (_windowCSwitches == 0 &&
                  allRows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
@@ -583,7 +630,8 @@ internal sealed class CpuPreciseAccumulator
         if (_traceReadyEvents == 0)
         {
             warnings.Add(
-                "No DispatcherReadyThread events found. Ready latency cannot be computed without ReadyThread events.");
+                "event_class_not_observed: no DispatcherReadyThread events were observed, so ready latency is unavailable. " +
+                "This does not prove the ReadyThread capture keyword was disabled.");
         }
         else if (_windowReadyEvents == 0 && allRows.All(row => row.ReadyCount == 0))
         {
@@ -658,6 +706,4 @@ internal sealed class CpuPreciseAccumulator
         public long PreemptedSwitches { get; set; }
         public Dictionary<int, long> CoreCpuUs { get; } = new();
     }
-
-    private readonly record struct RawThreadKey(int Pid, int Tid);
 }

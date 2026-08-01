@@ -53,4 +53,109 @@ public class LruCacheTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new LruCache<string, int>(0));
     }
+
+    [Fact]
+    public void RemovalCallback_ObservesEvictionRemoveAndDisposeExactlyOnce()
+    {
+        var removed = new List<int>();
+        var cache = new LruCache<string, int>(capacity: 2, removed.Add);
+
+        cache.GetOrAdd("a", _ => 1);
+        cache.GetOrAdd("b", _ => 2);
+        cache.GetOrAdd("c", _ => 3); // evicts a
+        Assert.True(cache.Remove("b"));
+        cache.Dispose(); // retires c
+
+        Assert.Equal([1, 2, 3], removed);
+    }
+
+    [Fact]
+    public void RemovalCallback_RunsOutsideInternalLock()
+    {
+        using var callbackAccessedCache = new ManualResetEventSlim();
+        LruCache<string, int>? cache = null;
+        cache = new LruCache<string, int>(capacity: 1, removed =>
+        {
+            if (removed != 1)
+                return;
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                cache!.TryGet("b", out _);
+                callbackAccessedCache.Set();
+            });
+            Assert.True(callbackAccessedCache.Wait(TimeSpan.FromSeconds(5)));
+        });
+
+        cache.GetOrAdd("a", _ => 1);
+        cache.GetOrAdd("b", _ => 2);
+    }
+
+    [Fact]
+    public async Task GetOrAdd_ConcurrentLoserIsReportedWithoutReplacingWinner()
+    {
+        var removed = new List<int>();
+        var callbackLock = new object();
+        using var bothFactoriesReady = new Barrier(participantCount: 2);
+        using var cache = new LruCache<string, int>(capacity: 2, value =>
+        {
+            lock (callbackLock)
+                removed.Add(value);
+        });
+        var next = 0;
+
+        Task<int> Add() => Task.Run(() => cache.GetOrAdd("same", _ =>
+        {
+            var value = Interlocked.Increment(ref next);
+            Assert.True(bothFactoriesReady.SignalAndWait(TimeSpan.FromSeconds(5)));
+            return value;
+        }));
+
+        var first = Add();
+        var second = Add();
+        var values = await Task.WhenAll(first, second);
+
+        Assert.Equal(values[0], values[1]);
+        lock (callbackLock)
+        {
+            Assert.Single(removed);
+            Assert.NotEqual(values[0], removed[0]);
+        }
+    }
+
+    [Fact]
+    public async Task TryGetAndPin_LinearizesBeforeConcurrentRemove()
+    {
+        var removed = new List<int>();
+        using var pinEntered = new ManualResetEventSlim();
+        using var allowPin = new ManualResetEventSlim();
+        using var cache = new LruCache<string, int>(capacity: 1, removed.Add);
+        cache.GetOrAdd("a", _ => 1);
+
+        var pin = Task.Run(() => cache.TryGetAndPin("a", value =>
+        {
+            pinEntered.Set();
+            Assert.True(allowPin.Wait(TimeSpan.FromSeconds(5)));
+            return value == 1;
+        }, out var value) ? value : -1);
+
+        Assert.True(pinEntered.Wait(TimeSpan.FromSeconds(5)));
+        var remove = Task.Run(() => cache.Remove("a"));
+        await Task.Delay(100);
+        Assert.False(remove.IsCompleted);
+
+        allowPin.Set();
+        Assert.Equal(1, await pin);
+        Assert.True(await remove);
+        Assert.Equal([1], removed);
+    }
+
+    [Fact]
+    public void Dispose_RejectsNewOperations()
+    {
+        var cache = new LruCache<string, int>(capacity: 1);
+        cache.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => cache.GetOrAdd("a", _ => 1));
+        Assert.Throws<ObjectDisposedException>(() => cache.TryGet("a", out _));
+    }
 }

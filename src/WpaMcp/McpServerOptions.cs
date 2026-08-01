@@ -1,3 +1,5 @@
+using WpaMcp.Core;
+
 namespace WpaMcp;
 
 internal sealed record McpServerOptions(
@@ -38,7 +40,7 @@ internal sealed record McpServerOptions(
     public void ApplyToEnvironment()
     {
         if (!string.IsNullOrEmpty(SymbolPath))
-            Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", SymbolPath);
+            SymbolPathState.SetPath(SymbolPath, append: false);
 
         if (CacheSize is not null)
             Environment.SetEnvironmentVariable("WPAMCP_CACHE_SIZE", CacheSize.Value.ToString());

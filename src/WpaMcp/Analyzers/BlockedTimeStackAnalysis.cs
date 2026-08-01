@@ -153,6 +153,7 @@ public static class BlockedTimeStackAnalysis
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
 
         var rows = callTree.ByID
+            .Where(_ => context.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(node => node.ExclusiveMetric)
             .Take(top)
             .Select(node => new WaitStackRow(
@@ -167,6 +168,11 @@ public static class BlockedTimeStackAnalysis
                     request.HasFilter, context.TraceTotalBlockedUs, node.InclusiveMetric)))
             .ToList();
 
+        var contract = StackResultContract.FromThreadScope(
+            request.ThreadScope, request.HasFilter, context.StackCoverage,
+            traceEventCount: context.TraceEventCount);
+        contract.AddWarning(context.Warnings);
+
         return new WaitTopStacksResponse(
             Rows: rows,
             TotalBlockedUs: context.TotalBlockedUs,
@@ -180,7 +186,16 @@ public static class BlockedTimeStackAnalysis
             HasContextSwitches: context.HasContextSwitches,
             HasContextSwitchBlockingStacks: context.HasContextSwitchBlockingStacks,
             SymbolResolutionState: StackSourceTopN.GetSymbolResolutionState(
-                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks));
+                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks),
+            StackCoverage: context.StackCoverage,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason,
+            IncludedThreads: contract.IncludedThreads);
     }
 
     private static CallerCalleeResponse CallerCallee(
@@ -190,6 +205,9 @@ public static class BlockedTimeStackAnalysis
         StackAnalysisRequest request)
     {
         var context = BuildNormalized(trace, request);
+        var contract = StackResultContract.FromThreadScope(
+            request.ThreadScope, request.HasFilter, context.StackCoverage,
+            traceEventCount: context.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
             context.Normalized,
             focusFunction,
@@ -204,18 +222,22 @@ public static class BlockedTimeStackAnalysis
             hasContextSwitches: context.HasContextSwitches,
             hasContextSwitchBlockingStacks: context.HasContextSwitchBlockingStacks,
             symbolResolutionState: StackSourceTopN.GetSymbolResolutionState(
-                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks));
+                request.ResolveSymbols, context.Stats, context.HasContextSwitchBlockingStacks),
+            stackCoverage: context.StackCoverage,
+            resultContract: contract);
     }
 
     private sealed record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalBlockedUs,
+        long TraceEventCount,
         long TotalBlockedUs,
         long SampleCount,
         int UnmatchedBlockedIntervalCount,
         bool HasContextSwitches,
         bool HasContextSwitchBlockingStacks,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest request)
@@ -224,9 +246,11 @@ public static class BlockedTimeStackAnalysis
             throw new InvalidOperationException("Wait stacks require a resolved thread analysis scope.");
         var identities = TraceIdentityIndex.For(trace);
         var scheduler = new SchedulerIntervalAccumulator(identities.Threads.EndUsFor);
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(request.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, request.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(
+            trace, "wait", "us", stackSemantics: "switch_out_blocking_stack");
         long traceTotalBlockedUs = 0;
+        long traceEventCount = 0;
         long totalBlockedUs = 0;
         long sampleCount = 0;
         long totalContextSwitches = 0;
@@ -257,8 +281,6 @@ public static class BlockedTimeStackAnalysis
                 var blockingStack = oldThread.HasValue
                     ? data.BlockingStack()
                     : CallStackIndex.Invalid;
-                if (blockingStack != CallStackIndex.Invalid)
-                    hasContextSwitchBlockingStacks = true;
                 var closed = scheduler.ProcessSwitch(
                     oldThread,
                     newThread,
@@ -272,6 +294,8 @@ public static class BlockedTimeStackAnalysis
                 var interval = closed.Blocked.Value;
                 var fullDurationUs = checked(interval.EndUs - interval.StartUs);
                 traceTotalBlockedUs = checked(traceTotalBlockedUs + fullDurationUs);
+                if (scope.Window.IntersectDurationUs(interval.StartUs, interval.EndUs) > 0)
+                    traceEventCount++;
 
                 var accountedUs = scope.AccountInterval(
                     interval.Thread, interval.StartUs, interval.EndUs);
@@ -280,6 +304,8 @@ public static class BlockedTimeStackAnalysis
 
                 totalBlockedUs = checked(totalBlockedUs + accountedUs);
                 sampleCount++;
+                if (interval.BlockingStack != CallStackIndex.Invalid)
+                    hasContextSwitchBlockingStacks = true;
                 raw.AddSample(interval.BlockingStack, data, accountedUs);
                 request.When.AddDurationInterval(interval.StartUs, interval.EndUs);
             };
@@ -308,11 +334,12 @@ public static class BlockedTimeStackAnalysis
         var completion = scheduler.Complete(identities.TraceEndUs);
         raw.Source.DoneAddingSamples();
 
-        if (request.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, request.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(
             raw.Source, trace, excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
         var warnings = BuildWarnings(
             totalContextSwitches,
             sampleCount,
@@ -320,21 +347,25 @@ public static class BlockedTimeStackAnalysis
             completion,
             request.ResolveSymbols,
             stats);
-        if (scope.PidReuseObserved)
+        if (scope.ScopeMode == "pid_aggregate" && scope.PidReuseObserved)
         {
             warnings.Add(
                 "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
         }
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
 
         return new BuildContext(
             normalized,
             stats,
             traceTotalBlockedUs,
+            traceEventCount,
             totalBlockedUs,
             sampleCount,
             completion.UnmatchedBlockedIntervalCount,
             totalContextSwitches > 0,
             hasContextSwitchBlockingStacks,
+            coverage,
             warnings);
     }
 
@@ -387,8 +418,8 @@ public static class BlockedTimeStackAnalysis
         if (totalContextSwitches == 0)
         {
             warnings.Add(
-                "No CSwitch events found. The capture profile must include the CSwitch keyword. " +
-                "Default WPR 'CPU' / 'CPU.light' profiles include it; some custom .wprp files may not.");
+                "event_class_not_observed: no CSwitch events were observed in the trace. " +
+                "This does not prove the CSwitch keyword was disabled; no qualifying switches may have occurred or the materialized trace may not expose that event class.");
         }
         else if (sampleCount == 0)
         {
@@ -408,8 +439,8 @@ public static class BlockedTimeStackAnalysis
         }
         if (!resolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
 
         return warnings;
     }

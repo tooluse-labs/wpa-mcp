@@ -25,14 +25,19 @@ public sealed class ClrTools
         [Description("Filter to a single process ID (recommended — without it, all PIDs share rows)")]
         int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
-        var trace = _cache.Get(path);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return Analyzers.GcAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
+        return Analyzers.GcAnalysis.Analyze(
+            trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -48,15 +53,20 @@ public sealed class ClrTools
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Top N methods by JIT duration (default 50, max 1000)")] int top = 50,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return Analyzers.JitAnalysis.Analyze(trace, pid, top, window.StartUs, window.EndUs);
+        return Analyzers.JitAnalysis.Analyze(
+            trace, pid, top, window.StartUs, window.EndUs, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -79,20 +89,24 @@ public sealed class ClrTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrAllocStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, Console.Error, whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -107,18 +121,23 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrAllocStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -140,20 +159,24 @@ public sealed class ClrTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrExceptionStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, Console.Error, whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -168,18 +191,23 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrExceptionStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -201,20 +229,24 @@ public sealed class ClrTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrContentionStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, Console.Error, whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -229,64 +261,81 @@ public sealed class ClrTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrContentionStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR managed-heap snapshot timeline — one row per GCHeapStats event (the CLR " +
         "fires this once at the end of each GC), with TotalHeapBytes, Gen0/1/2/LOH/POH " +
         "sizes, PinnedObjectCount, and GcHandleCount.  PerfView surfaces this in 'GCStats' " +
-        "as the per-GC snapshot table; here it's a chronological time series so you can " +
-        "answer 'is the heap leaking over time' / 'are pinned objects climbing' without " +
+        "as the per-GC snapshot table; here it is a chronological time series for checking " +
+        "whether observed heap or pinned-object snapshots trend upward. A trend is not by " +
+        "itself proof of a leak or an object-retention path. This avoids " +
         "orchestrating multiple calls.  Pairs naturally with clr_gc_analysis (same trace, " +
-        "different aggregation).  Requires Microsoft-Windows-DotNETRuntime with the GC " +
-        "keyword.")]
+        "different aggregation). Because this is a lifecycle trend, a reused PID is rejected " +
+        "unless processStartUs selects exactly one process lifetime. Requires Microsoft-Windows-DotNETRuntime with the GC " +
+        "keyword. A missing exact instance returns ScopeStatus=scope_not_found rather than falling back.")]
     public GcHeapStatsResponse ClrGcHeapStats(
         [Description("Absolute path to .etl file")] string path,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Exact process start in trace-relative microseconds. Required when pid has multiple lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
-        var trace = _cache.Get(path);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return GcHeapStatsAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
+        return GcHeapStatsAnalysis.Analyze(
+            trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
-        ".NET CLR finalizer analysis — top types finalized + finalizer-thread pause batches.  " +
+        ".NET CLR finalizer analysis — top types finalized + observed finalizer-thread execution batches. " +
         "Two related streams matched here: GCFinalizeObject (per-object, carries TypeName) " +
         "is aggregated to the TopTypes table; GCFinalizersStart/Stop bracket each run of " +
         "the finalizer thread, with the Stop event carrying the count of finalizers run in " +
-        "that batch — those become the Batches list.  Use this to answer 'why are GCs slow' " +
-        "(finalizers can hold up the next GC because GC waits for the finalizer queue to " +
-        "drain on certain transitions) and 'what's allocating finalizable objects' (pair " +
-        "TopTypes with clr_alloc_top_stacks on the offender types).  Requires " +
+        "that batch — those become the Batches list. Use this as evidence when investigating " +
+        "whether finalizer work overlaps GC delays, and to identify types observed being " +
+        "finalized. The stream does not by itself attribute a slow GC or identify the allocation " +
+        "site; clr_alloc_top_stacks can supply separate allocator evidence. Requires " +
         "Microsoft-Windows-DotNETRuntime with the GC keyword.")]
     public FinalizerAnalysisResponse ClrFinalizerAnalysis(
         [Description("Absolute path to .etl file")] string path,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while batches remain separated by ProcessStartUs and TopTypes covers the aggregate scope.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
-        var trace = _cache.Get(path);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return FinalizerAnalysis.Analyze(trace, pid, window.StartUs, window.EndUs);
+        return FinalizerAnalysis.Analyze(
+            trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 }

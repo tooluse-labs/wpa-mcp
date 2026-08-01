@@ -7,6 +7,11 @@ public readonly record struct ThreadInstanceKey(
     int Tid,
     long Generation);
 
+public readonly record struct ThreadScopeCandidate(
+    ThreadInstanceKey Thread,
+    long ThreadStartUs,
+    long ThreadEndUs);
+
 internal readonly record struct ThreadSelector(
     int Pid,
     int Tid,

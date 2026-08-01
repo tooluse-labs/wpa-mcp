@@ -14,7 +14,7 @@ public class ClrExceptionStackAnalysisTests
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrExceptionTopStacks(FixturePath);
         Assert.Equal(0, resp.TotalEventCount);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveCount, r => r.InclusiveCount);
+        Assert.Empty(resp.Rows);
         Assert.Empty(resp.TopTypes);
         Assert.Contains(resp.Warnings, w => w.Contains("CLR", StringComparison.OrdinalIgnoreCase));
     }

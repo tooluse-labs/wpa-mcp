@@ -8,11 +8,24 @@ internal readonly record struct ThreadAnalysisScope(
     ProcessLifetime? Process,
     ThreadLifetime? Thread,
     bool AggregatesPidLifetimes,
-    bool PidReuseObserved)
+    bool PidReuseObserved,
+    string ScopeStatus = ProcessAnalysisScope.ResolvedStatus,
+    string? DeclaredScopeMode = null,
+    string? NoDataReason = null,
+    IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    string? ScopeWarning = null)
 {
+    public bool IsResolved => ScopeStatus == ProcessAnalysisScope.ResolvedStatus;
+
+    public string ScopeMode => DeclaredScopeMode ??
+        (Process is not null || Thread is not null
+            ? "single_process"
+            : Pid.HasValue ? "pid_aggregate" : "all_processes");
+
     public bool MatchesPoint(int pid, int tid, long timestampUs)
     {
-        if (!Window.ContainsPoint(timestampUs))
+        if (!IsResolved || !Window.ContainsPoint(timestampUs))
             return false;
         if (Thread is not null)
         {
@@ -30,7 +43,7 @@ internal readonly record struct ThreadAnalysisScope(
 
     public bool MatchesPoint(ThreadInstanceKey thread, long timestampUs)
     {
-        if (!Window.ContainsPoint(timestampUs) || !MatchesThread(thread))
+        if (!IsResolved || !Window.ContainsPoint(timestampUs) || !MatchesThread(thread))
             return false;
         if (Thread is not null)
             return Thread.StartUs <= timestampUs && timestampUs < Thread.EndUs;
@@ -39,10 +52,10 @@ internal readonly record struct ThreadAnalysisScope(
         return true;
     }
 
-    public bool MatchesThread(ThreadInstanceKey thread) =>
-        Thread is not null ? Thread.Key == thread :
-        Process is not null ? Process.Key == thread.Process :
-        Pid is null || Pid.Value == thread.Process.Pid;
+    public bool MatchesThread(ThreadInstanceKey thread) => IsResolved &&
+        (Thread is not null ? Thread.Key == thread :
+         Process is not null ? Process.Key == thread.Process :
+         Pid is null || Pid.Value == thread.Process.Pid);
 
     public long AccountInterval(ThreadInstanceKey thread, long startUs, long endUs)
     {
@@ -57,6 +70,175 @@ internal readonly record struct ThreadAnalysisScope(
             endUs = lifetimeEndUs;
         return Window.IntersectDurationUs(startUs, endUs);
     }
+
+    public static ThreadAnalysisScope Materialize(
+        TimeWindow window,
+        int? pid,
+        int? tid,
+        long? processStartUs,
+        long? threadStartUs,
+        TraceIdentityIndex identities,
+        ProcessAnalysisScope processScope,
+        InstanceResolution<ThreadAnalysisScope> resolution)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+        ArgumentNullException.ThrowIfNull(processScope);
+
+        var includedProcesses = processScope.Pid.HasValue
+            ? processScope.IncludedProcesses
+            : Array.Empty<ProcessInstanceKey>();
+        if (!processScope.IsResolved)
+        {
+            return new ThreadAnalysisScope(
+                window,
+                pid,
+                Process: null,
+                Thread: null,
+                AggregatesPidLifetimes: false,
+                PidReuseObserved: processScope.PidReuseObserved,
+                ScopeStatus: ProcessAnalysisScope.NotFoundStatus,
+                DeclaredScopeMode: "unresolved",
+                NoDataReason: ProcessAnalysisScope.NotFoundStatus,
+                IncludedProcesses: includedProcesses,
+                IncludedThreads: Array.Empty<ThreadScopeCandidate>(),
+                ScopeWarning: BuildNotFoundWarning(
+                    "process_instance_not_found", pid, tid, processStartUs, threadStartUs, window));
+        }
+
+        if (resolution.Status == InstanceResolutionStatus.Resolved &&
+            resolution.Value.HasValue)
+        {
+            var resolved = resolution.Value.Value;
+            var includedThreads = resolved.Thread is null
+                ? Array.Empty<ThreadScopeCandidate>()
+                : [new ThreadScopeCandidate(
+                    resolved.Thread.Key,
+                    resolved.Thread.StartUs,
+                    resolved.Thread.EndUs)];
+            IReadOnlyList<ProcessInstanceKey> resolvedProcesses = resolved.Thread is not null
+                ? [resolved.Thread.Key.Process]
+                : resolved.Process is not null
+                    ? [resolved.Process.Key]
+                    : includedProcesses;
+            var resolvedMode = resolved.Thread is not null || resolved.Process is not null
+                ? "single_process"
+                : processScope.ScopeMode;
+            return resolved with
+            {
+                ScopeStatus = ProcessAnalysisScope.ResolvedStatus,
+                DeclaredScopeMode = resolvedMode,
+                NoDataReason = null,
+                IncludedProcesses = resolvedProcesses,
+                IncludedThreads = includedThreads,
+                ScopeWarning = null,
+            };
+        }
+
+        var candidateProcesses = resolution.Candidates
+            .Select(candidate => candidate.Process?.Key ?? candidate.Thread?.Key.Process)
+            .Where(candidate => candidate.HasValue)
+            .Select(candidate => candidate!.Value)
+            .Distinct()
+            .OrderBy(candidate => candidate.Pid)
+            .ThenBy(candidate => candidate.StartUs)
+            .ToArray();
+        var candidateThreads = resolution.Candidates
+            .Where(candidate => candidate.Thread is not null)
+            .Select(candidate => new ThreadScopeCandidate(
+                candidate.Thread!.Key,
+                candidate.Thread.StartUs,
+                candidate.Thread.EndUs))
+            .Distinct()
+            .OrderBy(candidate => candidate.Thread.Process.Pid)
+            .ThenBy(candidate => candidate.Thread.Process.StartUs)
+            .ThenBy(candidate => candidate.Thread.Tid)
+            .ThenBy(candidate => candidate.ThreadStartUs)
+            .ToArray();
+        var selectedProcess = processScope.SelectedProcess.HasValue
+            ? identities.Processes.Lifetimes.FirstOrDefault(
+                lifetime => lifetime.Key == processScope.SelectedProcess.Value)
+            : null;
+
+        if (resolution.Status == InstanceResolutionStatus.Ambiguous)
+        {
+            var code = tid.HasValue
+                ? "ambiguous_thread_instance"
+                : "ambiguous_process_instance";
+            var warning = BuildAmbiguousWarning(
+                code,
+                resolution.Candidates,
+                pid,
+                tid,
+                processStartUs,
+                threadStartUs,
+                window);
+            return new ThreadAnalysisScope(
+                window,
+                pid,
+                Process: candidateProcesses.Length == 1 ? selectedProcess : null,
+                Thread: null,
+                AggregatesPidLifetimes: false,
+                PidReuseObserved: processScope.PidReuseObserved,
+                ScopeStatus: code,
+                DeclaredScopeMode: "unresolved",
+                NoDataReason: code,
+                IncludedProcesses: candidateProcesses,
+                IncludedThreads: candidateThreads,
+                ScopeWarning: warning);
+        }
+
+        var notFoundCode = tid.HasValue
+            ? "thread_instance_not_found"
+            : "process_instance_not_found";
+        return new ThreadAnalysisScope(
+            window,
+            pid,
+            Process: selectedProcess,
+            Thread: null,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: processScope.PidReuseObserved,
+            ScopeStatus: ProcessAnalysisScope.NotFoundStatus,
+            DeclaredScopeMode: "unresolved",
+            NoDataReason: ProcessAnalysisScope.NotFoundStatus,
+            IncludedProcesses: includedProcesses,
+            IncludedThreads: Array.Empty<ThreadScopeCandidate>(),
+            ScopeWarning: BuildNotFoundWarning(
+                notFoundCode, pid, tid, processStartUs, threadStartUs, window));
+    }
+
+    private static string BuildNotFoundWarning(
+        string code,
+        int? pid,
+        int? tid,
+        long? processStartUs,
+        long? threadStartUs,
+        TimeWindow window) =>
+        $"{code}: no lifetime matched pid={Format(pid)}, processStartUs={Format(processStartUs)}, " +
+        $"tid={Format(tid)}, threadStartUs={Format(threadStartUs)} in [{window.StartUs}, {window.EndUs}).";
+
+    private static string BuildAmbiguousWarning(
+        string code,
+        IReadOnlyList<ThreadAnalysisScope> candidates,
+        int? pid,
+        int? tid,
+        long? processStartUs,
+        long? threadStartUs,
+        TimeWindow window)
+    {
+        var selectors = candidates.Select(candidate =>
+            candidate.Thread is { } thread
+                ? $"pid={thread.Key.Process.Pid},processStartUs={thread.Key.Process.StartUs}," +
+                  $"tid={thread.Key.Tid},threadStartUs={thread.StartUs}"
+                : candidate.Process is { } process
+                    ? $"pid={process.Key.Pid},processStartUs={process.Key.StartUs}"
+                    : "unresolved");
+        return $"{code}: selector pid={Format(pid)}, processStartUs={Format(processStartUs)}, " +
+               $"tid={Format(tid)}, threadStartUs={Format(threadStartUs)} matched multiple lifetimes " +
+               $"in [{window.StartUs}, {window.EndUs}); candidates: {string.Join("; ", selectors)}.";
+    }
+
+    private static string Format<T>(T? value) where T : struct =>
+        value.HasValue ? value.Value.ToString()! : "null";
 
     public static InstanceResolution<ThreadAnalysisScope> Resolve(
         TimeWindow window,
@@ -77,19 +259,25 @@ internal readonly record struct ThreadAnalysisScope(
                 PidReuseObserved: false));
         }
 
-        var processLifetimes = identities.Processes.Lifetimes
+        var pidLifetimes = identities.Processes.Lifetimes
+            .Where(lifetime => lifetime.Key.Pid == pid.Value)
+            .ToArray();
+        var processLifetimes = pidLifetimes
             .Where(lifetime =>
-                lifetime.Key.Pid == pid.Value &&
                 lifetime.Key.StartUs < window.EndUs &&
                 lifetime.EndUs > window.StartUs)
             .ToArray();
+        var pidReuseObserved = pidLifetimes.Length > 1;
 
         if (!tid.HasValue && !processStartUs.HasValue)
         {
             return Resolved(new ThreadAnalysisScope(
-                window, pid, null, null,
-                AggregatesPidLifetimes: true,
-                PidReuseObserved: processLifetimes.Length > 1));
+                window,
+                pid,
+                Process: processLifetimes.Length == 1 ? processLifetimes[0] : null,
+                Thread: null,
+                AggregatesPidLifetimes: processLifetimes.Length > 1,
+                PidReuseObserved: pidReuseObserved));
         }
 
         ProcessLifetime? selectedProcess = null;
@@ -100,7 +288,8 @@ internal readonly record struct ThreadAnalysisScope(
                 .ToArray();
             if (matchingProcesses.Length != 1)
             {
-                return FromProcessCandidates(window, pid.Value, matchingProcesses);
+                return FromProcessCandidates(
+                    window, pid.Value, matchingProcesses, pidReuseObserved);
             }
             selectedProcess = matchingProcesses[0];
         }
@@ -110,7 +299,7 @@ internal readonly record struct ThreadAnalysisScope(
             return Resolved(new ThreadAnalysisScope(
                 window, pid, selectedProcess, null,
                 AggregatesPidLifetimes: false,
-                PidReuseObserved: false));
+                PidReuseObserved: pidReuseObserved));
         }
 
         var threadLifetimes = identities.Threads.Lifetimes
@@ -128,7 +317,7 @@ internal readonly record struct ThreadAnalysisScope(
                 .Select(process => new ThreadAnalysisScope(
                     window, pid, process, lifetime,
                     AggregatesPidLifetimes: false,
-                    PidReuseObserved: false)))
+                    PidReuseObserved: pidReuseObserved)))
             .ToArray();
 
         return FromCandidates(candidates);
@@ -178,12 +367,13 @@ internal readonly record struct ThreadAnalysisScope(
     private static InstanceResolution<ThreadAnalysisScope> FromProcessCandidates(
         TimeWindow window,
         int pid,
-        IReadOnlyList<ProcessLifetime> processes) =>
+        IReadOnlyList<ProcessLifetime> processes,
+        bool pidReuseObserved) =>
         FromCandidates(processes
             .Select(process => new ThreadAnalysisScope(
                 window, pid, process, null,
                 AggregatesPidLifetimes: false,
-                PidReuseObserved: false))
+                PidReuseObserved: pidReuseObserved))
             .ToArray());
 
     private static InstanceResolution<ThreadAnalysisScope> Resolved(

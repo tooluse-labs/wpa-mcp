@@ -16,6 +16,11 @@ public class FileIoStackAnalysisTests
         Assert.NotEmpty(resp.Rows);
         Assert.True(resp.TotalBytes > 0);
         Assert.True(resp.TotalOpCount > 0);
+        var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("file_io", coverage.Domain);
+        Assert.Equal("bytes", coverage.MetricName);
+        Assert.Equal(resp.TotalOpCount, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalBytes, coverage.TotalMetric);
     }
 
     [Fact]
@@ -107,6 +112,8 @@ public class FileIoStackAnalysisTests
         Assert.Equal(picked, ccResp.FocusFunction);
         Assert.Equal("ioBytes", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0);
+        Assert.NotNull(ccResp.StackCoverage);
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
     }
 
     [Fact]
@@ -122,13 +129,13 @@ public class FileIoStackAnalysisTests
     [Fact]
     public void FileIoTopStacks_OnTraceWithoutFileIoEmitsKeywordWarning()
     {
-        // small_cpu.etl was captured with CPU.light, which omits FileIO. Should yield no rows
-        // and a warning that points at the missing keyword.
+        // An empty event family cannot prove how the trace was configured.
         const string CpuFixture = "fixtures/small_cpu.etl";
         var tools = new IoTools(new TraceCache(capacity: 2));
         var resp = tools.FileIoTopStacks(CpuFixture, top: 10);
         if (resp.TotalOpCount == 0)
-            Assert.Contains(resp.Warnings,
-                w => w.Contains("FileIO", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(resp.Warnings, w =>
+                w.Contains("FileIO", StringComparison.OrdinalIgnoreCase) &&
+                w.Contains("does not prove", StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -34,12 +34,12 @@
 
 ```
 > 加载这个 trace：C:\path\to\trace.etl
-（load_trace——首次 30 秒~3 分钟构建 .etlx 索引，后续命中缓存即时返回。
- 返回 trace 元信息加 Capabilities map，列出 trace 中存在的 ETW keyword。）
+（load_trace——首次 30 秒~3 分钟构建 .etlx 索引，后续复用缓存。
+ 返回 trace 元信息和 materialization 后实际观测到的事件类型 map。）
 
 > 看一下这份 trace 能回答什么问题。
-（inspect_trace——capability flags、quality warnings、symbol health、
- 适用 next-tool 提示）
+（inspect_trace——已观测 capability、每事件域栈覆盖率、PDB identity / readiness、
+ quality warnings 和适用 next-tool 提示）
 
 > 诊断 PID <X> 在 <t0> 到 <t1> 的 high wait。
 （diagnose_high_wait——同一时间窗的一次调用，返回 candidates、evidence、
@@ -54,7 +54,7 @@
 
 同样的 `summary → stacks → caller/callee` 模式适用于 CPU（`cpu_top_functions` → `cpu_caller_callee`）、文件 / 磁盘 / mmap I/O、image load、CLR allocation / exception / contention、网络、注册表这些有 stack view 的域。生命周期和资源类（内存资源快照、thread lifetime、process creation 等）不是栈结构，在下面的工具表里有单独行。
 
-完整端到端走查（症状 → 工具链 → 证据 → 根因 → 改进建议）见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）。
+完整端到端走查（症状 → 工具链 → 证据 → 结论或假设 → 改进建议）见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文）。
 
 ---
 
@@ -205,13 +205,13 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WpaMcp
 
 ## 工具
 
-MCP 工具面覆盖多个 ETW 分析域，底层全部基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库——分析能力等同 PerfView。区别只在**界面（stdio MCP + JSON 替代 Windows GUI）**和**少量把 PerfView 多步操作打包成一次调用的 composite 工具**。
+MCP 工具面覆盖多个 ETW 分析域，底层基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库。共用 parser 不等于每个视图天然与 PerfView 等价；各分析器会返回实例范围、实际观测到的能力、覆盖率和空结果状态，供调用方判断证据边界。
 
 ### wpa-mcp 相对 PerfView 加了什么
 
 * **Agent 驱动而不是 UI 驱动**：PerfView 是 Windows GUI 一路点过去；wpa-mcp 是 stdio MCP server，自然语言对话即可。同样的数据，省去界面操作，方便编进 CI / 回归脚本。
 * **复合工具**：`diagnose_high_wait`、`diagnose_slow_startup`、`process_create_timing`、`image_load_top_gaps` 把 PerfView 多步操作打包成一次调用。
-* **Capabilities-aware**：每个工具"返回不出数据"的状态都对应到 `load_trace` 的 `Capabilities` map 里某个 keyword bit——不再需要"侦探式"排查"这个视图为什么是空"。
+* **Capabilities-aware**：`load_trace` 报告 ETLX materialization 后实际观测到的事件类型；单个响应进一步区分 `scope_not_found`、`event_class_not_observed`、`no_events_in_scope` 和 `stacks_unavailable`。没有观测到事件并不能反向证明某个 capture keyword 一定没开。
 * **per-trace symbol 推荐**：`load_trace` 扫描 trace 里出现的模块、推荐应加哪些 symbol server。在 PerfView 里这要靠用户自己摸索。
 
 ### 设计理念
@@ -220,11 +220,11 @@ wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理**。
 
 * **Orientation 工具**（`load_trace`、`inspect_trace`）提前暴露 capability、已启用信号列表、quality gap、推荐诊断路径、symbol 健康度，让模型从真实信号选下一步，而不是从空结果反推。
 * **Diagnostic composite**（`diagnose_high_wait`、`diagnose_slow_startup`）压缩调用路径但保留证据链——通过 `Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 字段输出，故意不返回综合出的 "root cause" 字段。
-* **Per-domain 行 / 栈工具**贴近 PerfView 形态。返回空结果时，配合 `load_trace` / `inspect_trace` 的 capability 信号能区分"这份 trace 里没有这类数据"和"查询条件没匹配到任何 work"。
+* **Per-domain 行 / 栈工具**贴近 PerfView 形态。进程级工具暴露所选 `(Pid, ProcessStartUs)` 生命周期，或明确标注按 PID 聚合；栈工具报告目标事件域自己的覆盖率，不拿其他事件的栈来推断当前工具可用。
 
 ### 使用方式
 
-**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回一个 `Capabilities` map 列出 trace 中存在的 ETW keyword。其他每个工具的行为都依赖这些 keyword。Map 覆盖：
+**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map，表示 materialized TraceLog 中实际观测到的受支持事件类型。这些字段是已解析事件的证据，不是原始 capture keyword 配置的证明。Map 覆盖：
 
 * **CPU 采样和调度** —— `HasCpuSamples`、`HasCSwitch`、`HasReadyThread`、`HasStackWalks`
 * **文件 / 磁盘 / mmap I/O 和 loader** —— `HasFileIo`、`HasDiskIo`、`HasHardFaults`、`HasImageLoad`
@@ -232,6 +232,8 @@ wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理**。
 * **网络** —— `HasNetIo`、`HasNetConnections`
 * **内核基础设施** —— `HasRegistry`、`HasInterrupt`、`HasAlpc`、`HasThreadEvents`
 * **CLR runtime** —— `HasClrGc`、`HasClrJit`、`HasClrAlloc`、`HasClrException`、`HasClrContention`
+
+`HasStackWalks` 仅是兼容用的全局并集。解释某个栈工具前，应查看该事件域的 `StackCoverage`：`TotalEventCount`、`StackedEventCount`、`StackCoveragePct` 和 `CoverageState`（`no_events`、`no_stacks`、`partial` 或 `full`）。`StackSemantics` 标识实际统计的栈来源；尤其 `cswitch` 域使用 switch-out `BlockingStack`，而调试 probe 的普通 CSwitch `CallStackIndex` 是另一类栈，两者覆盖率可能不同。合成的 `?!?` 行只是给无栈事件记账，不是真实调用链。
 
 完整调用流程：
 
@@ -271,20 +273,24 @@ load_trace  ──►  返回 Capabilities map
 
 接受 `startUs` 和 `endUs` 的工具使用半开区间：事件包含的条件是 `startUs <= timestamp < endUs`。边界为 null 分别表示 trace 开始和 trace 结束。
 
+PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `processStartUs`。只传 PID 的调用要么返回 `ScopeMode=pid_aggregate` 并保持各生命周期分离，要么在必须唯一实例的工具中拒绝歧义选择。解释空 `Rows` 前先检查 `ScopeStatus`、`CapabilityStatus`、`MatchedEventCount`、`NoDataReason`、`PidReuseObserved` 和 `IncludedProcesses`。`CapabilityStatus=observed` 只表示解析成功的目标范围匹配到源事件；`not_observed` 仅用于已确认的全局/未过滤缺失，其他情况为 `unknown`。
+
+对同时接受 `tid` 的 CPU/Wait 工具，应使用 `threadStartUs` 区分线程复用。缺失或歧义线程会返回结构化 `scope_not_found` / `ambiguous_thread_instance`，不会退化成 PID-only 数据；`IncludedThreads` 带 `ThreadStartUs` / `ThreadEndUs`，可直接用 `pid + processStartUs + tid + threadStartUs` 重放候选。
+
 不接受 `startUs` / `endUs` 的工具有意采用不同的作用域；每个工具的 MCP description 会说明是哪一种：
 
 * **全 trace orientation / 配置** —— `load_trace`、`inspect_trace`、`list_processes`、`find_marker`、`diagnose_symbols`、`set_symbol_path`、`add_symbol_server`。
 * **生命周期视图** —— `process_create_timing`、`thread_lifetime`、`image_load_timing`、`image_load_top_gaps`、`diagnose_slow_startup` 用进程启动相对或生命周期相对的窗口，而不是任意 trace 窗口。
-* **全 trace by-file 汇总** —— `file_io_top_files` 和 `hard_fault_by_file` 按文件名跨整条 trace 聚合。需要窗口归因时用对应的 stack 工具。
+* **全 trace 或窗口化 by-file 汇总** —— `file_io_top_files` 和 `hard_fault_by_file` 按文件名汇总，并支持显式 `startUs` / `endUs` 窗口。需要事件关联调用链证据时用对应的 stack 工具。
 
 ### Meta（元信息）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| **`load_trace`** | 加载 / 缓存 `.etl`。返回 trace 元信息、`Capabilities` keyword 出现 map、per-trace symbol-server 推荐。首次 30 秒~3 分钟构建 `.etlx`，后续命中缓存即时返回。 | 打开 trace 文件（无 `Capabilities` 等价物） |
-| **`inspect_trace`** | 一次性 orientation：capture capabilities、已启用信号名、system metadata、provider counts、stackwalk completeness、symbol quality、quality warnings、capability-supported next-tool hints、以及推荐诊断路径。capture profile 或调查路径不清楚时先用它。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
-| `list_processes` | 列出进程（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 找出"高 wall、低 CPU"的进程（卡在 minifilter / IPC 等）。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
-| `process_create_timing` | 给定父 PID，列出每个子进程的创建时序。`FirstImageLoadOffsetUs` = `ProcessStart` 到首个 DLL 加载之间的内核窗口——AV / EDR 进程创建回调烧时间的位置。中位数 / p95 / max 一次给全。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
+| **`load_trace`** | 加载 / 缓存 `.etl`，返回 trace 元信息、已观测事件能力和 per-trace symbol-server 推荐。`EventCount` 是 ETLX materialized logical-event count；原始 ETW record count 与 parser coverage ratio 未实测时明确返回 not measured，不做反推。 | 打开 trace 文件（无 `Capabilities` 等价物） |
+| **`inspect_trace`** | 一次性 orientation：已观测能力、system metadata、provider counts、每事件域栈覆盖率、PDB identity / local readiness、quality warnings 和 next-tool hints。仅有 PDB identity 不会被标成 frame 已解析；实际解析率只在栈 lookup 真正执行后统计。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
+| `list_processes` | 列出进程生命周期（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 只用于排序"高 wall、低 CPU"候选，不能识别具体等待对象。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
+| `process_create_timing` | 按父进程生命周期列出子进程创建时序。`FirstImageLoadOffsetUs` 是 `ProcessStart` 到首个 DLL 加载之间的观测区间；其中可能包含回调、扫描、挂起、调度等工作，单凭该区间不能确定机制或根因。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
 | `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | **[手动过滤]**——Events 视图，过滤 `Thread/Start` + `Thread/Stop` 后手动配对 |
 
 ### CPU 栈
@@ -302,15 +308,15 @@ load_trace  ──►  返回 Capabilities map
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `wait_analysis` | 每线程阻塞时间 + 主导 wait reason。当 CPU 不忙却 wall 高时回答"为啥这步慢"的标准工具。`WrFilterContext`（卡在 Filter Manager minifilter callback）这类 reason 直接定位到内核状态。 | Thread Time → 每线程阻塞时间 |
-| `wait_top_stacks` | 按阻塞 μs 加权的 top-N 调用栈，从每次 `ThreadCSwitch` 的 resume-point stack walk 构建。回答"**代码哪里**在等"（vs `wait_analysis` 回答"哪个线程 / 哪种 reason"）。 | Thread Time / Wait Time → BlockedTime metric（`ThreadTimeStackComputer`） |
+| `wait_analysis` | 每线程阻塞时间 + 观测到的 wait reason。`WrFilterContext` 这类 reason 表示 scheduler wait state，不能单独确定责任组件或根因。响应会区分全 trace 与目标范围的 CSwitch 计数，并报告目标范围栈覆盖率。 | Thread Time → 每线程阻塞时间 |
+| `wait_top_stacks` | 按阻塞 μs 加权的 top-N 调用栈，来自目标 switch-out `ThreadCSwitch` 区间附带的 blocking stack。这是与阻塞时间关联的代码路径证据，不能确定外部责任组件或根因。 | Thread Time / Wait Time → BlockedTime metric（`ThreadTimeStackComputer`） |
 | `wait_caller_callee` | 给定 focus frame 的 caller-callee 钻取；metric 是阻塞 μs。 | Thread Time → Callers / Callees tab |
 
 ### Image / DLL 加载
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `image_load_timing` | 单进程的 DLL 加载时序（按时间排序），每行带相对 `ProcessStart` 的偏移。用来发现"延迟加载的 DLL"或者"两个 DLL 之间长 gap"——后者常见于 minifilter / sig-scan 串行扫描。 | **[手动过滤]**——Events 视图，过滤 `ImageLoad` 后手动算偏移 |
+| `image_load_timing` | 单个进程生命周期的 DLL 加载时序，每行带相对 `ProcessStart` 的偏移。它能发现延迟加载与长区间，但不能仅凭区间把延迟归因给 minifilter、签名扫描或其他机制。 | **[手动过滤]**——Events 视图，过滤 `ImageLoad` 后手动算偏移 |
 | `image_load_top_gaps` | 相邻 DLL 加载之间 gap 最大的 top-N 行。和 `image_load_timing` 同源数据，按 gap 排序。响应里也带 `FirstLoadOffsetUs`（首个 DLL 之前的内核 fork 税）。 | **[手动过滤]**——同上的 `ImageLoad` 过滤，按相邻事件间隔排序 |
 | `image_load_top_stacks` | 按 `ImageLoad` 事件计数加权的 top-N 调用栈。区分 eager 加载（main 初始化里的 `LoadLibraryEx`）和 lazy / 级联加载（`CoCreateInstance`、`AmsiOpenSession`、EDR 注入的 provider）。 | Image Load Stacks |
 | `image_load_caller_callee` | 给定 focus frame 的 caller-callee 钻取；metric 是 image-load 计数。 | Image Load Stacks → Callers / Callees tab |
@@ -326,17 +332,17 @@ load_trace  ──►  返回 Capabilities map
 | `file_io_caller_callee` | 给定 focus frame 的钻取；metric 是文件 IO 字节。 | File I/O Stacks → Callers / Callees tab |
 | `disk_io_top_stacks` | 按**物理**磁盘 IO 字节加权的 top-N 栈——只统计真正打到物理介质的事件（无缓存）。需要 `DiskIO` keyword。 | Disk I/O Stacks |
 | `disk_io_caller_callee` | 给定 focus frame 的钻取；metric 是物理磁盘字节。 | Disk I/O Stacks → Callers / Callees tab |
-| `hard_fault_by_file` | 按**硬页错误（hard page-in）字节**排序的 top-N 文件。多数硬页错误来自首次访问的 mmap'd 文件（DLL、数据文件、网络共享内容），少数来自被换出的 heap/stack 和 page file。回答"哪个文件造成 page-in 加载"。需要 `HardFaults` keyword（**默认 WPR profile 不带**——见 [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)（英文））。 | Memory Hard Fault → ByFile |
-| `hard_fault_top_stacks` | 按硬页错误页入字节加权的 top-N 栈。区分 eager loader 引起的 page-in 和 lazy / 扫描器触发的 page-in。 | Memory Hard Fault Stacks |
+| `hard_fault_by_file` | 按**硬页错误（hard page-in）字节**排序相关 backing file mapping。多数硬页错误来自首次访问的 mmap'd 文件（DLL、数据文件、网络共享内容），少数来自被换出的 heap/stack 和 page file。该视图识别与 page-in 关联的映射，不证明上层原因。需要 `HardFaults` keyword（**默认 WPR profile 不带**——见 [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)（英文））。 | Memory Hard Fault → ByFile |
+| `hard_fault_top_stacks` | 按硬页错误页入字节加权事件附带栈。它可支持 eager/lazy 访问或并发扫描等假设，但不能单独证明上层原因。 | Memory Hard Fault Stacks |
 | `hard_fault_caller_callee` | 给定 focus frame 的钻取；metric 是 page-in 字节。 | Memory Hard Fault Stacks → Callers / Callees tab |
 
 ### 虚拟内存
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `virtual_alloc_top_stacks` | 按 `VirtualMemAlloc` + `VirtualMemFree` 字节加权的 top-N 栈。和物理驻留（`hard_fault_*`）不同——回答"谁在保留 4 GB 地址空间"/ "谁在泄漏 VirtualAllocs"。每行带 `Bytes` 和 `OpCount`。需要 `VirtualAlloc` 内核 keyword（**默认 WPR `CPU` profile 不带**）。 | VirtualAlloc Stacks |
+| `virtual_alloc_top_stacks` | 按观测到的 `VirtualMemAlloc` + `VirtualMemFree` 操作字节加权。响应分别报告 allocated / freed 字节与次数、总操作流量和观测净操作字节；它不是 live virtual size、commit、retention 或 leak 统计。需要 `VirtualAlloc` 内核 keyword（**默认 WPR `CPU` profile 不带**）。 | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是虚拟内存字节。 | VirtualAlloc Stacks → Callers / Callees tab |
-| `heap_alloc_top_stacks` | 按 **NT 堆**分配字节（`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new`——任何走 user-mode heap 的分配）加权的 top-N 栈。Native 内存泄漏的标准工具。和 VirtualAlloc 不同：VirtualAlloc 预留页粒度的地址空间，堆分配器在其上做子分配。响应里拆出 `AllocBytes` / `ReallocBytes`。Free 事件不携带 size，不计入。需要 **per-process** 启用 `Heap` provider（默认 WPR profile 不带；用 PerfView `/HeapTrace` 或自定义 `.wprp` 的 `<Heap>` 元素）。 | HeapAllocStacks |
+| `heap_alloc_top_stacks` | 按 **NT 堆**分配字节加权的 top-N 栈。这是 allocation flow，不是 retained-memory 或 leak 证明：Free 事件不携带 size，无法计入。响应拆出 `AllocBytes` / `ReallocBytes`；需要 **per-process** 启用 `Heap` provider。 | HeapAllocStacks |
 | `heap_alloc_caller_callee` | 给定 focus frame 的钻取；metric 是 NT 堆字节。 | HeapAllocStacks → Callers / Callees tab |
 
 ### 网络 I/O
@@ -345,7 +351,7 @@ load_trace  ──►  返回 Capabilities map
 |---|---|---|
 | `net_top_stacks` | 按网络字节加权的 top-N 栈——TCP + UDP、IPv4 + IPv6 send/recv 合并。响应里拆出 `TcpBytes` / `UdpBytes`。配合 `wait_analysis` 排查"高 wall、低 CPU"且阻塞在网络往返的场景。`Connect` / `Accept` / `Disconnect` 这类无字节 metric 的事件不计入——用 `find_marker`。需要 `NetworkTrace` keyword（**默认 `CPU` profile 不带**）。 | TCP/IP Stacks + UDP/IP Stacks（合并） |
 | `net_caller_callee` | 给定 focus frame 的钻取；metric 是网络字节。 | TCP/IP Stacks → Callers / Callees tab |
-| `net_connections` | 按 `connid` 配对 Connect/Accept 与 Disconnect/Reconnect，给出每条 TCP 连接"在 T1 打开、T2 关闭，持续 T2−T1"。适合"连接建立到关闭的延迟离群点"/"RPC 慢是因为连接建立慢吗"。IPv4 + IPv6 合并，带 `IsIPv6` 标志。trace 结束时仍开启的连接 `TraceResidentEnd=true`。 | **[手动过滤]**——Events 视图，按 `connid` 手动配对 `TcpIp/Connect` 与 `TcpIp/Disconnect` |
+| `net_connections` | 按 `connid` 配对 Connect/Accept 与 Disconnect/Reconnect，给出每条 TCP 连接"在 T1 打开、T2 关闭，持续 T2−T1"，用于寻找观测生命周期异常长的连接。该持续时间不是连接建立延迟、请求/响应延迟或 RTT，不能单独把 RPC 变慢归因于连接建立。IPv4 + IPv6 合并，带 `IsIPv6` 标志；trace 结束时仍开启的连接 `TraceResidentEnd=true`。 | **[手动过滤]**——Events 视图，按 `connid` 手动配对 `TcpIp/Connect` 与 `TcpIp/Disconnect` |
 
 ### 注册表
 
@@ -354,25 +360,25 @@ load_trace  ──►  返回 Capabilities map
 | `registry_top_stacks` | 按注册表操作计数加权的 top-N 栈（Query / Open / Create / SetValue / EnumerateKey 等）。回答"谁在每条热路径上敲注册表"。Metric 是操作数（注册表没有自然的字节度量）。需要 `Registry` keyword（**默认 `CPU` profile 不带**）。 | Registry Stacks |
 | `registry_caller_callee` | 给定 focus frame 的钻取；metric 是注册表操作数。 | Registry Stacks → Callers / Callees tab |
 
-### ReadyThread（因果链）
+### ReadyThread（关联证据）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `ready_thread_top_stacks` | top-N **唤醒方**栈（执行 `SetEvent` / 释放锁 / IOCP 完成等动作把阻塞线程叫醒的代码）。配合 `wait_analysis`：后者回答"线程 X 阻塞在 Y 等了 Z μs"——本工具补上"是谁最终叫醒它的"。`awakenedPid` 过滤"谁在唤醒该 PID 的线程"。需要 `CSwitch` / `ReadyThread` keyword（默认内核 profile 已带）。 | ReadyThread Stacks |
-| `ready_thread_caller_callee` | 给定 focus frame 的钻取；metric 是 ready 事件计数。 | ReadyThread Stacks → Callers / Callees tab |
+| `ready_thread_top_stacks` | top-N **readier/wakeup 关联栈证据**，按可选 `awakenedPid` 和请求时间窗聚合。栈属于 readier，而不是被唤醒线程；事件未与某个具体 wait interval 或后续 CSwitch 一一配对，不能单独证明根因。应与 `wait_analysis` 配合作为辅助证据。 | ReadyThread Stacks |
+| `ready_thread_caller_callee` | 围绕 focus frame 钻取同一类 readier/wakeup 关联证据；metric 是 ready 事件计数，并具有相同的非因果限制。 | ReadyThread Stacks → Callers / Callees tab |
 
 ### 中断（DPC / ISR）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `interrupt_top_stacks` | 按内核中断时间（DPC + ISR 微秒数）加权的 top-N 栈。找出在高 IRQL 烧 CPU 的驱动热例程——常见嫌疑是消费级 GPU 驱动、高负载下的网卡驱动、AV minifilter 回调。健康系统下该视图应占 <5% 的 trace CPU 时间。响应里拆出 `DpcUs` / `IsrUs`。需要 `Interrupt` + `DPC` keyword（默认 `CPU` profile 全带）。 | DPC/ISR Stacks |
+| `interrupt_top_stacks` | 按观测到的内核中断时间（DPC + ISR 微秒数）加权的 top-N 栈，响应拆出 `DpcUs` / `IsrUs`。应与可比工作负载和硬件基线比较；这里没有通用的“健康阈值”，热例程本身也不能证明驱动故障。需要 `Interrupt` + `DPC` keyword（默认 `CPU` profile 全带）。 | DPC/ISR Stacks |
 | `interrupt_caller_callee` | 给定 focus frame 的钻取；metric 是中断 μs。 | DPC/ISR Stacks → Callers / Callees tab |
 
 ### ALPC（跨进程 IPC）
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `alpc_top_stacks` | 按 ALPC 消息计数（Send + Receive）加权的 top-N 栈。ALPC 是 Windows 内核 IPC 原语，RPC、COM、AppContainer broker 调用、lsass、SCM 以及几乎所有 Windows 服务的对外接口都走它——用来回答"是不是慢在某次 LPC 往返"/ "哪条调用链做了所有跨进程 IPC"。需要 `ALPC` keyword（**默认 `CPU` profile 不带**）。 | ALPC Stacks |
+| `alpc_top_stacks` | 按 ALPC 消息计数（Send + Receive）加权的 top-N 栈。ALPC 是 RPC、COM、AppContainer broker、lsass、SCM 等组件使用的 Windows 内核 IPC 原语。该工具显示与消息活动关联的调用链；消息计数本身不测量一次 round-trip，也不能解释延迟。需要 `ALPC` keyword（**默认 `CPU` profile 不带**）。 | ALPC Stacks |
 | `alpc_caller_callee` | 给定 focus frame 的钻取；metric 是 ALPC 消息计数。 | ALPC Stacks → Callers / Callees tab |
 
 ### CLR（.NET runtime）
@@ -390,14 +396,14 @@ load_trace  ──►  返回 Capabilities map
 | `clr_exception_caller_callee` | 给定 focus frame 的钻取；metric 是异常计数。 | Exceptions Stacks → Callers / Callees tab |
 | `clr_contention_top_stacks` | 按托管 monitor 阻塞 μs 加权的 top-N 栈——即 `lock` / `Monitor.Enter` 的等待。按 `ThreadID` 匹配 `ContentionStart`→`ContentionStop`。只统计 `ContentionFlags.Managed`（同 provider 的 native 锁竞争被排除）。托管代码的锁热点标准工具。需要 `Contention` keyword。 | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | 给定 focus frame 的钻取；metric 是阻塞 μs。 | Monitor Contention Stacks → Callers / Callees tab |
-| `clr_gc_heap_stats` | 托管堆快照时序——每次 GC 结束时 CLR 触发一次 `GCHeapStats` 事件，每行带 `TotalHeapBytes`、`Gen0/1/2/LOH/POH` 大小、`PinnedObjectCount`、`GcHandleCount`。回答"堆是不是在泄漏"/"pinned 对象在不在涨"，无须多次工具调用。配合 `clr_gc_analysis` 使用。 | GCStats per-GC snapshot 表 |
-| `clr_finalizer_analysis` | top-N 被 finalize 的类型 + finalizer 线程的暂停批次。`GCFinalizeObject` 按 `TypeName` 聚合得到 TopTypes 表；`GCFinalizersStart`→`GCFinalizersStop` 配对得到每批次列表（Stop 携带这批次跑了多少个 finalizer）。回答"GC 为啥慢"（finalizer 队列会拖住下一次 GC）和"谁在分配可 finalize 的对象"。 | **[复合]**——把 GCStats 字段 + Events 视图过滤合并到一次调用 |
+| `clr_gc_heap_stats` | 托管堆快照时序，包含各代 heap 大小、pinned-object 与 GC-handle 计数。用于识别趋势；持续上升本身并不能证明 leak 或给出对象 retention path。配合 `clr_gc_analysis` 使用。 | GCStats per-GC snapshot 表 |
+| `clr_finalizer_analysis` | top-N 观测到被 finalize 的类型 + finalizer 线程执行批次。`GCFinalizeObject` 按 `TypeName` 聚合，`GCFinalizersStart`→`GCFinalizersStop` 配对；批次时长不自动等于应用暂停。它可辅助判断 finalizer 工作是否与 GC 延迟重叠，但不能单独归因慢 GC，也不能定位分配点。 | **[复合]**——把 GCStats 字段 + Events 视图过滤合并到一次调用 |
 
 ### Marker / 通用 ETW 事件
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `find_marker` | 搜索所有名字 / task 包含给定 substring 的 ETW 事件。默认模式 `count_by_event` 返回直方图（避免 token 爆炸）；也支持 `count_by_process` 和 `rows`（完整事件细节）。挖自家 Defender / EDR provider 遥测最有效——比如 `Microsoft-Antimalware-AMFilter` provider 的 `AMFilter_FileScan` 行直接告诉你扫描器在干啥。 | Events 视图 |
+| `find_marker` | 搜索所有 materialized ETW 事件中名字 / task 包含给定 substring 的行。默认 `count_by_event` 返回直方图，也支持 `count_by_process` 和 `rows`。它可发现 Defender / EDR provider 事件（如 `AMFilter_FileScan`），但事件存在不等于耗时或性能因果；空结果返回 `no_name_match`。 | Events 视图 |
 | `generic_event_top_stacks` | 对**任意** user-mode ETW provider 做 stack-rank 的 top-N 栈：AspNetCore、Kestrel、EFCore、Antimalware-AMFilter、Sense（Defender for Endpoint）、`Microsoft-Windows-DxgKrnl`（GPU）、`Microsoft-Windows-Kernel-Power`（CPU 频率 / C-state），或任何自定义 EventSource。先用 `find_marker` 找出 trace 里有哪些 provider，然后把 `ProviderName` 喂给该工具。可选 `eventNameSubstring` 缩到具体事件类。栈质量取决于 `.wprp` 是否对该 provider 开了 stack-walk。 | Any Stacks（单 provider） |
 | `generic_event_caller_callee` | 给定 focus frame 的钻取；metric 是事件计数。 | Any Stacks → Callers / Callees tab |
 
@@ -405,7 +411,7 @@ load_trace  ──►  返回 Capabilities map
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `diagnose_high_wait` | 高阻塞时间排查的 preview composite。它用同一时间窗运行 `wait_analysis`，有 StackWalk 时补充栈证据，调度等待占主导时才 fan-out 到 ReadyThread 证据，并返回 candidates、evidence、not-concluded reasons、executed-call provenance 和可选 next tools，不输出 root-cause 字段。 | **[复合]**——把 wait、stack、ReadyThread 视图和证据 provenance 打包到一次调用 |
+| `diagnose_high_wait` | 高阻塞时间排查的 preview composite。候选按进程生命周期分离，仅在 scoped CSwitch 栈覆盖率支持时补充栈证据，并把 ReadyThread 栈作为关联 wakeup 证据而非 wait 根因证明。它返回明确的 not-concluded reason，不输出 root-cause 字段。 | **[复合]**——把 wait、stack、ReadyThread 视图和证据 provenance 打包到一次调用 |
 | `diagnose_slow_startup` | 挑出 wait_ratio 最高的进程（或匹配 `nameSubstring` 的进程），对每个跑 `wait_analysis` + `image_load_timing` + `cpu_top_functions`，覆盖启动窗口。一次调用替代手工编排四次。 | **[复合]**——把 PerfView 四个视图打包成一次调用 |
 
 ### Symbols（符号）
@@ -414,7 +420,7 @@ load_trace  ──►  返回 Capabilities map
 |---|---|---|
 | `set_symbol_path` | 给运行中的 server 设 `_NT_SYMBOL_PATH`（替换或追加）。 | File → Set Symbol Path… |
 | `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WpaMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
-| `diagnose_symbols` | 针对已加载的 trace 报告每个模块的符号状态，给未解析模块的修复建议（应该加哪些服务器）。 | **[程序化]**——以结构化 JSON + 自动推荐替代 Modules 标签 + Set Symbol Path 对话框 |
+| `diagnose_symbols` | 报告模块的 PDB identity / local readiness 并给出 symbol-path 建议。不会因为 trace 中存在 PDB 名称就标成函数帧已解析；真正执行栈 lookup 前，frame count 与 resolution rate 为 null / not measured。 | **[程序化]**——以结构化 JSON + 自动推荐替代 Modules 标签 + Set Symbol Path 对话框 |
 
 ---
 
@@ -422,7 +428,7 @@ load_trace  ──►  返回 Capabilities map
 
 ### Trace 缓存
 
-LRU，默认容量 2 条 trace。用 `WPAMCP_CACHE_SIZE=N` 覆盖。首次加载构建 `.etlx`（慢），命中缓存后即时返回。`Capabilities` 和 `TraceLog` 都按 `(path, mtime)` 缓存——重新加载相同 `.etl` 是零成本。
+LRU，默认容量 2 条 trace，可用 `WPAMCP_CACHE_SIZE=N` 覆盖。每个查询在完整使用期间持有 cache lease；eviction、unload 或 shutdown 只会 retire entry，最后一个活动 lease 结束后才释放 TraceLog。并发首次访问只允许胜出的 Lazy 打开 / 转换 ETL，不会重复加载同一份大 trace。
 
 ### 自己抓 trace
 
@@ -436,7 +442,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 ### Symbols（符号）
 
-> **如果 `cpu_top_functions` 满屏 `module!?`、`Stats.ResolutionRate < 0.8`，说明你的符号没工作。** 这是"输出垃圾"的最大单一来源。
+> **应从真正执行过 lookup 的栈工具判断符号质量。** `inspect_trace` 能报告 PDB identity 与 local readiness，但不能证明函数帧已经解析。若栈响应的 `SymbolResolutionState=executed` 且观测 code-frame 解析率很低，才需要修正 symbol path；解析率为 null 表示没有可测 code frame，不等于 0%。
 
 #### 路径在哪里设
 
@@ -480,6 +486,6 @@ wpr.exe -stop C:\path\to\my_capture.etl
 > cpu_top_functions C:\my\trace.etl
 ```
 
-`diagnose_symbols` 给每个模块的解析状态，未解析的会带修复 hint；`cpu_top_functions` 的 `Stats.ResolutionRate` ≥ 0.8 才算可用。中途改了路径之后，已加载的 trace 不会重查符号；目前先重启 MCP server，等 cache-unload 工具暴露后再用 `unload_trace` + `load_trace` 强制重查。
+`diagnose_symbols` 给出 PDB identity、local readiness 与配置 hint；实际 frame 是否解析成功，要运行对应栈工具后查看它的 `SymbolResolutionState`、code-frame resolution rate、事件域栈覆盖率和 synthetic-frame 数，不能套一个通用阈值。普通只读查询使用 query-local effective symbol path，不修改 `_NT_SYMBOL_PATH`；只有 `set_symbol_path` 和 `add_symbol_server` 会有意改变进程状态。
 
 完整配方（UNC 路径、私有 vendor、Chromium 浏览器、缓存管理、踩坑排查）见 [`docs/SYMBOL_RECIPES.zh-CN.md`](docs/SYMBOL_RECIPES.zh-CN.md)（中文）/ [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。

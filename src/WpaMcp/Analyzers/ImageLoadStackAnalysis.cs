@@ -29,14 +29,17 @@ public static class ImageLoadStackAnalysis
         long? endUs,
         TextWriter symbolLog,
         int whenBuckets = 0,
-        bool? filterSpecified = null)
+        bool? filterSpecified = null,
+        long? processStartUs = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
-        {
-            FilterSpecified = filterSpecified,
-        };
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
+        contract.AddWarning(ctx.Warnings);
 
         // Metric=1 per load means ExclusiveCount and ExclusiveMetric are equal — pick
         // ExclusiveCount for parity with CpuAnalysis.
@@ -44,6 +47,7 @@ public static class ImageLoadStackAnalysis
         var totalSamples = (double)Math.Max(1, callTree.Root.InclusiveCount);
 
         var rows = callTree.ByID
+            .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(n => n.ExclusiveCount)
             .Take(top)
             .Select(n => new ImageLoadStackRow(
@@ -61,7 +65,16 @@ public static class ImageLoadStackAnalysis
             TotalLoads: ctx.TotalLoads,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build());
+            When: when.Build(),
+            StackCoverage: ctx.StackCoverage,
+            SelectedProcess: contract.SelectedProcess,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -71,27 +84,39 @@ public static class ImageLoadStackAnalysis
         int? pid,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        long? processStartUs = null,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "loads", ctx.Stats, ctx.Warnings);
+            ctx.Normalized, focusFunction, top, metricName: "loads", ctx.Stats, ctx.Warnings,
+            sourceTotalMetric: ctx.TotalLoads,
+            stackCoverage: ctx.StackCoverage,
+            resultContract: contract);
     }
 
     private record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalLoads,
+        long TraceEventCount,
         long TotalLoads,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, req.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(trace, "image_load");
         long traceTotalLoads = 0;
+        long traceEventCount = 0;
         long totalLoads = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
@@ -100,6 +125,7 @@ public static class ImageLoadStackAnalysis
             {
                 traceTotalLoads++;
                 var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
+                if (req.PassesFilter(nowUs)) traceEventCount++;
                 if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
                 totalLoads++;
@@ -109,13 +135,14 @@ public static class ImageLoadStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        if (req.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, req.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
 
         var warnings = new List<string>();
-        if (totalLoads == 0)
+        if (totalLoads == 0 && !req.HasFilter)
         {
             warnings.Add(
                 "No ImageLoad events matched. Either no DLLs were mapped in this filter window, " +
@@ -123,9 +150,11 @@ public static class ImageLoadStackAnalysis
         }
         if (!req.ResolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
 
-        return new BuildContext(normalized, stats, traceTotalLoads, totalLoads, warnings);
+        return new BuildContext(normalized, stats, traceTotalLoads, traceEventCount, totalLoads, coverage, warnings);
     }
 }

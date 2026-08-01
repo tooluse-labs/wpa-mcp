@@ -1,5 +1,6 @@
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
+using WpaMcp.Core;
 using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
@@ -27,9 +28,8 @@ namespace WpaMcp.Analyzers;
 // FileIOFileDelete, FileIOFileRundown — confirmed in Task 11). We also fold in any
 // FileName the hard-fault event itself supplies, since it can be present.
 //
-// Two-pass design (mirrors FileIoAnalysis.TopFiles): one trace pass to populate the
-// FileKey -> FileName map, then a second pass to aggregate hard faults. This avoids
-// the ordering hazard where a fault arrives before the Rundown that names its key.
+// FileKey names and hard faults are processed in trace order. A fault never receives a
+// name first observed later in the trace, and FileDelete terminates that key's mapping.
 public static class HardFaultByFileAnalysis
 {
     public static HardFaultByFileResponse Analyze(
@@ -38,27 +38,51 @@ public static class HardFaultByFileAnalysis
         int? pid,
         string orderBy = "bytes",
         long? startUs = null,
-        long? endUs = null)
+        long? endUs = null,
+        long? processStartUs = null,
+        bool? filterSpecified = null)
     {
         var normalizedOrderBy = NormalizeOrderBy(orderBy);
+        var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var window = new TimeWindow(startUs ?? 0, endUs ?? traceEndUs);
+        var identities = TraceIdentityIndex.For(trace);
+        var scope = ProcessAnalysisScope.Resolve(window, pid, processStartUs, identities);
 
-        // Pass 1: build FileKey -> FileName map from FileIONameTraceData events.
-        var fileNames = BuildFileKeyMap(trace);
-
-        // Pass 2: aggregate MemoryHardFault events.
+        var fileNames = new TemporalFileNameMap<ulong>();
+        long globalEventCount = 0;
+        long matchedEventCount = 0;
         var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs, long maxLatencyTimeUs)>();
         KernelEventWalker.Walk(trace, kernel =>
         {
+            void Capture(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIONameTraceData data)
+            {
+                if (data.FileKey != 0 && !string.IsNullOrEmpty(data.FileName))
+                    fileNames.Add(data.FileKey, ToUs(data), data.EventIndex, data.FileName);
+            }
+
+            kernel.FileIOName += Capture;
+            kernel.FileIOFileCreate += Capture;
+            kernel.FileIOFileDelete += data =>
+            {
+                Capture(data);
+                if (data.FileKey != 0)
+                    fileNames.End(data.FileKey, ToUs(data), data.EventIndex);
+            };
+            kernel.FileIOFileRundown += Capture;
             kernel.MemoryHardFault += data =>
             {
+                globalEventCount++;
                 var nowUs = ToUs(data);
-                if (!PassesTimeWindow(nowUs, startUs, endUs)) return;
-                if (pid is { } p && data.ProcessID != p) return;
+                if (!scope.MatchesEvent(identities, data.ProcessID, nowUs)) return;
+                matchedEventCount++;
 
                 // Prefer the FileName the event carries; otherwise fall back to the FileKey map.
-                var name = !string.IsNullOrEmpty(data.FileName)
-                    ? data.FileName
-                    : fileNames.TryGetValue(data.FileKey, out var mapped) ? mapped : $"<unmapped:0x{data.FileKey:X}>";
+                var name = ResolveFileName(
+                    data.FileName,
+                    data.FileKey,
+                    nowUs,
+                    data.EventIndex,
+                    fileNames);
 
                 var cur = agg.GetValueOrDefault(name);
                 var latencyUs = (long)(data.ElapsedTimeMSec * 1000);
@@ -91,12 +115,60 @@ public static class HardFaultByFileAnalysis
             .ToList();
 
         var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
-        return new HardFaultByFileResponse(rows, warnings);
+        var scopeMissing = !scope.IsResolved;
+        var capabilityStatus = scopeMissing
+            ? "unknown"
+            : matchedEventCount > 0
+                ? "observed"
+                : globalEventCount == 0
+                    ? "not_observed"
+                    : "unknown";
+        var noDataReason = scopeMissing
+            ? "scope_not_found"
+            : matchedEventCount > 0
+                ? null
+                : globalEventCount == 0
+                    ? "event_class_not_observed"
+                    : "no_events_in_scope";
+        AddNoDataWarning(warnings, noDataReason);
+        return new HardFaultByFileResponse(
+            rows,
+            warnings,
+            SelectedProcess: scope.SelectedProcess,
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.Pid.HasValue
+                ? scope.IncludedProcesses
+                : Array.Empty<ProcessInstanceKey>(),
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: capabilityStatus,
+            MatchedEventCount: matchedEventCount,
+            NoDataReason: noDataReason);
     }
 
-    private static bool PassesTimeWindow(long nowUs, long? startUs, long? endUs)
-        => (!startUs.HasValue || nowUs >= startUs.Value) &&
-           (!endUs.HasValue || nowUs < endUs.Value);
+    private static void AddNoDataWarning(
+        ICollection<string> warnings,
+        string? noDataReason)
+    {
+        switch (noDataReason)
+        {
+            case "scope_not_found":
+                warnings.Add(
+                    "scope_not_found: the requested process lifetime does not intersect the analysis window.");
+                break;
+            case "event_class_not_observed":
+                warnings.Add(
+                    "event_class_not_observed: " +
+                    WarningBuilder.MissingKeyword(
+                        "MemoryHardFault",
+                        "MemoryHardFaults"));
+                break;
+            case "no_events_in_scope":
+                warnings.Add(
+                    "no_events_in_scope: MemoryHardFault events were observed elsewhere in the trace, but none matched the selected process lifetimes and half-open window.");
+                break;
+        }
+    }
 
     private static long ToUs(Microsoft.Diagnostics.Tracing.TraceEvent data) =>
         (long)(data.TimeStampRelativeMSec * 1000);
@@ -126,23 +198,29 @@ public static class HardFaultByFileAnalysis
             _ => row.PageInBytes
         };
 
-    private static Dictionary<ulong, string> BuildFileKeyMap(TraceLog trace)
+    internal static string ResolveFileName(
+        string? eventFileName,
+        ulong fileKey,
+        long timestampUs,
+        TemporalFileNameMap<ulong> fileNames)
     {
-        var map = new Dictionary<ulong, string>();
-        // FileIONameTraceData events expose FileKey + FileName together. Subscribing to all
-        // four catches files named at any point in the trace lifecycle (open, rundown at
-        // start, delete, etc.).
-        void Capture(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIONameTraceData d)
-        {
-            if (!string.IsNullOrEmpty(d.FileName)) map[d.FileKey] = d.FileName;
-        }
-        KernelEventWalker.Walk(trace, kernel =>
-        {
-            kernel.FileIOName += Capture;
-            kernel.FileIOFileCreate += Capture;
-            kernel.FileIOFileDelete += Capture;
-            kernel.FileIOFileRundown += Capture;
-        });
-        return map;
+        if (!string.IsNullOrEmpty(eventFileName)) return eventFileName;
+        return fileNames.TryResolveAt(fileKey, timestampUs, out var mapped)
+            ? mapped
+            : $"<unmapped:0x{fileKey:X}>";
     }
+
+    private static string ResolveFileName(
+        string? eventFileName,
+        ulong fileKey,
+        long timestampUs,
+        Microsoft.Diagnostics.Tracing.EventIndex eventIndex,
+        TemporalFileNameMap<ulong> fileNames)
+    {
+        if (!string.IsNullOrEmpty(eventFileName)) return eventFileName;
+        return fileNames.TryResolveAt(fileKey, timestampUs, eventIndex, out var mapped)
+            ? mapped
+            : $"<unmapped:0x{fileKey:X}>";
+    }
+
 }

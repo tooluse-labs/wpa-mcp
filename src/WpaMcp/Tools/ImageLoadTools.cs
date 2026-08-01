@@ -16,40 +16,49 @@ public sealed class ImageLoadTools
         "Per-process DLL/image-load timeline in chronological order — every ImageLoad event " +
         "with absolute timestamp, offset from ProcessStart, and gap from the previous load.  " +
         "PerfView equivalent: filter the 'Events' view to ImageLoad for one PID (no native " +
-        "composite view).  Use to spot late-loading DLLs, unusually long inter-load gaps that " +
-        "hint at minifilter / sig-scan delays, or a single DLL that took a long time to map.  " +
+        "composite view). Use to spot late ImageLoad events and unusually long inter-event gaps. " +
+        "A gap does not identify the intervening work or measure one DLL's map duration. " +
         "Pair with image_load_top_gaps (same data ranked by gap, with FirstLoadOffsetUs) and " +
-        "image_load_top_stacks (the call chain that triggered each load).  For load *durations* " +
+        "image_load_top_stacks (the call stack attached to each load event, when captured). For load *durations* " +
         "(not gaps between loads), combine with wait_analysis on the PID's main thread.  " +
         "Requires the Loader keyword (default WPR profiles include it). No startUs/endUs: this is " +
-        "a per-process image-load lifecycle timeline; use image_load_top_stacks for windowed stacks.")]
+        "a single process-instance image-load lifecycle timeline; when a PID was reused, pass " +
+        "processStartUs from list_processes. Ambiguous PID-only selection is rejected; a missing " +
+        "exact instance returns ScopeStatus=scope_not_found. Use image_load_top_stacks for windowed stacks.")]
     public ImageLoadTimingResponse ImageLoadTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
-        [Description("Top N loads (default 100, max 1000)")] int top = 100)
+        [Description("Top N loads (default 100, max 1000)")] int top = 100,
+        [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes.")]
+        long? processStartUs = null)
     {
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
-        return ImageLoadAnalysis.PerProcess(trace, pid, top);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        return ImageLoadAnalysis.PerProcess(trace, pid, top, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N image loads with the LARGEST gap from the previous load (chronological). Use to " +
-        "spot 'loader was frozen for ~Xms between DLL Y and DLL Z' patterns that hint at per-DLL " +
-        "minifilter scans / signature checks. Response also carries FirstLoadOffsetUs (kernel-side " +
-        "gap before any DLL loaded — process-creation-callback time). Pairs with image_load_timing " +
+        "spot long intervals between adjacent ImageLoad events. Response also carries " +
+        "FirstLoadOffsetUs, the ProcessStart-to-first-ImageLoad interval. Neither interval " +
+        "identifies callbacks, scanning, suspension, scheduling, or another mechanism. Pairs with image_load_timing " +
         "(chronological list) — same data, different ordering. No startUs/endUs: gaps are computed " +
-        "over the per-process image-load lifecycle.")]
+        "over one process-instance lifecycle; reused PIDs require processStartUs. Ambiguity is " +
+        "rejected and a missing exact instance returns ScopeStatus=scope_not_found.")]
     public ImageLoadTopGapsResponse ImageLoadTopGaps(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
-        [Description("Top N gap rows (default 20, max 1000)")] int top = 20)
+        [Description("Top N gap rows (default 20, max 1000)")] int top = 20,
+        [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes.")]
+        long? processStartUs = null)
     {
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
-        return ImageLoadAnalysis.TopGaps(trace, pid, top);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
+        return ImageLoadAnalysis.TopGaps(trace, pid, top, processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -57,7 +66,8 @@ public sealed class ImageLoadTools
         "the most DLLs'. PerfView equivalent: 'Image Load Stacks' view. Use to distinguish eager " +
         "loads (LoadLibraryEx in main initializer) from lazy / cascading loads (CoCreateInstance, " +
         "AmsiOpenSession, EDR-injected providers). Requires stack-walk-on-ImageLoad in the capture " +
-        "profile; default WPR profiles include it.")]
+        "profile; default WPR profiles include it. StackCoverage is ImageLoad-only; ?!? is " +
+        "synthetic unknown evidence, not a captured loader call chain.")]
     public ImageLoadStacksResponse ImageLoadTopStacks(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
@@ -72,26 +82,31 @@ public sealed class ImageLoadTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ImageLoadStackAnalysis.TopLoadStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the image-load-stack data. Metric " +
         "is load count; top-N callers ranked by inclusive loads flowing INTO focus, callees " +
-        "by loads flowing OUT to them. Use to ask 'who triggers all these calls into LdrLoadDll'.")]
+        "by loads flowing OUT to them. This is associated stack evidence for calls into loader " +
+        "frames; it does not prove the higher-level cause of each load.")]
     public CallerCalleeResponse ImageLoadCallerCallee(
         [Description("Absolute path to .etl file")] string path,
         [Description("Focus frame name, exactly as it appears in image_load_top_stacks output.")]
@@ -101,17 +116,22 @@ public sealed class ImageLoadTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ImageLoadStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 }

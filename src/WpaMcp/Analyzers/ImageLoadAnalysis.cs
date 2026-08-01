@@ -1,9 +1,16 @@
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using WpaMcp.Core;
 using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
+
+internal readonly record struct ImageLoadObservation(
+    int Pid,
+    long TimeUs,
+    string FileName,
+    long ImageSize);
 
 // Per-process DLL/image-load sequence with timestamps relative to process start.
 //
@@ -19,22 +26,26 @@ namespace WpaMcp.Analyzers;
 public static class ImageLoadAnalysis
 {
     /// <summary>
-    /// Bucket ImageLoad events by process for the given PIDs in a single trace pass.
-    /// Returns ordered (chronological) lists per requested PID; PIDs not present in the
-    /// trace map to an empty list. Use this from composite analyzers (DiagnoseTools) to
-    /// avoid running one full event-source pass per candidate.
+    /// Bucket ImageLoad events by exact process instance in a single trace pass.
+    /// Returns ordered (chronological) lists per requested instance; instances with no
+    /// matching events map to an empty list.
     /// </summary>
-    public static Dictionary<int, List<ImageLoadRow>> ForPids(TraceLog trace, IReadOnlyCollection<int> pids)
+    internal static Dictionary<ProcessInstanceKey, List<ImageLoadRow>> ForProcesses(
+        TraceLog trace,
+        IReadOnlyCollection<ProcessInstanceKey> processes)
     {
-        var processStart = pids
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(processes);
+        var lifetimes = TraceIdentityIndex.For(trace).Processes.Lifetimes;
+        var selected = processes
             .Distinct()
-            .Select(pid => (pid, proc: trace.Processes.FirstOrDefault(p => p.ProcessID == pid)))
             .ToDictionary(
-                t => t.pid,
-                t => t.proc is null ? 0L : (long)(t.proc.StartTimeRelativeMsec * 1000));
-        var pidSet = new HashSet<int>(processStart.Keys);
-        // Build raw rows here (gaps NULL); FillGaps below populates GapFromPrevUs after sort.
-        var buckets = pidSet.ToDictionary(p => p, _ => new List<ImageLoadRow>());
+                key => key,
+                key => SelectProcessInstance(lifetimes, key.Pid, key.StartUs));
+        var pidSet = selected.Keys.Select(key => key.Pid).ToHashSet();
+        var observations = pidSet.ToDictionary(
+            pid => pid,
+            _ => new List<ImageLoadObservation>());
 
         KernelEventWalker.Walk(trace, kernel =>
         {
@@ -42,33 +53,60 @@ public static class ImageLoadAnalysis
             {
                 if (!pidSet.Contains(data.ProcessID)) return;
                 var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-                buckets[data.ProcessID].Add(new ImageLoadRow(
-                    TimeUs: tsUs,
-                    TimeFromProcessStartUs: tsUs - processStart[data.ProcessID],
-                    FileName: data.FileName ?? "<unknown>",
-                    ImageSize: data.ImageSize,
-                    GapFromPrevUs: null));
+                observations[data.ProcessID].Add(new ImageLoadObservation(
+                    data.ProcessID,
+                    tsUs,
+                    data.FileName ?? "<unknown>",
+                    data.ImageSize));
             };
         });
 
-        foreach (var pid in pidSet)
-        {
-            buckets[pid].Sort((a, b) => a.TimeUs.CompareTo(b.TimeUs));
-            buckets[pid] = FillGaps(buckets[pid]);
-        }
-        return buckets;
+        return selected.ToDictionary(
+            item => item.Key,
+            item => ProjectLoads(observations[item.Key.Pid], item.Value));
     }
 
-    public static ImageLoadTimingResponse PerProcess(TraceLog trace, int pid, int top)
+    public static ImageLoadTimingResponse PerProcess(
+        TraceLog trace,
+        int pid,
+        int top,
+        long? processStartUs = null)
     {
         if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
 
-        var process = trace.Processes.FirstOrDefault(p => p.ProcessID == pid)
-            ?? throw new ArgumentException($"PID {pid} not found in trace", nameof(pid));
+        var identities = TraceIdentityIndex.For(trace);
+        var scope = ResolveSingleProcessScope(
+            identities, pid, processStartUs);
+        if (!scope.IsResolved)
+        {
+            return new ImageLoadTimingResponse(
+                Pid: pid,
+                ProcessName: string.Empty,
+                ProcessStartUs: null,
+                TotalImageLoads: 0,
+                FirstLoadOffsetUs: null,
+                MaxGapUs: null,
+                Loads: [],
+                Warnings:
+                [
+                    $"scope_not_found: no process lifetime matched PID {pid}" +
+                    (processStartUs.HasValue
+                        ? $" at processStartUs={processStartUs.Value}"
+                        : string.Empty) + ".",
+                ],
+                SelectedProcess: null,
+                ScopeMode: scope.ScopeMode,
+                PidReuseObserved: scope.PidReuseObserved,
+                IncludedProcesses: scope.IncludedProcesses,
+                ScopeStatus: scope.ScopeStatus,
+                CapabilityStatus: "unknown",
+                MatchedEventCount: 0,
+                NoDataReason: "scope_not_found");
+        }
 
-        var processStartUs = (long)(process.StartTimeRelativeMsec * 1000);
-        var ordered = CollectAndSortLoads(trace, pid, processStartUs);
-        var withGaps = FillGaps(ordered);
+        var process = ExactLifetime(identities, scope.SelectedProcess!.Value);
+        var collected = CollectAndSortLoads(trace, process);
+        var withGaps = collected.Loads;
         var totalLoads = withGaps.Count;
         var truncated = withGaps.Take(top).ToList();
 
@@ -81,35 +119,81 @@ public static class ImageLoadAnalysis
         var warnings = new List<string>();
         if (totalLoads == 0)
         {
-            warnings.Add(
-                "No ImageLoad events found for this PID. Either the process loaded no DLLs after the trace " +
-                "started (rare), or the capture profile omitted the Loader keyword (default WPR profiles include it).");
+            warnings.Add(collected.GlobalEventCount == 0
+                ? "event_class_not_observed: no ImageLoad events were observed in the materialized trace. This does not prove that Loader capture was disabled."
+                : "no_events_in_scope: ImageLoad events were observed in the trace, but none matched the selected process lifetime.");
         }
 
         return new ImageLoadTimingResponse(
             Pid: pid,
-            ProcessName: process.Name ?? string.Empty,
-            ProcessStartUs: processStartUs,
+            ProcessName: ProcessName(trace, process.Key),
+            ProcessStartUs: process.Key.StartUs,
             TotalImageLoads: totalLoads,
             FirstLoadOffsetUs: firstLoadOffset,
             MaxGapUs: maxGap,
             Loads: truncated,
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: scope.SelectedProcess,
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.IncludedProcesses,
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: totalLoads > 0
+                ? "observed"
+                : collected.GlobalEventCount == 0
+                    ? "not_observed"
+                    : "unknown",
+            MatchedEventCount: totalLoads,
+            NoDataReason: totalLoads > 0
+                ? null
+                : collected.GlobalEventCount == 0
+                    ? "event_class_not_observed"
+                    : "no_events_in_scope");
     }
 
     // Returns the top-N loads with the largest GapFromPrevUs (the "where did the loader
     // freeze for a long stretch" question). Different ordering from PerProcess (which is
     // chronological); same underlying event walk.
-    public static ImageLoadTopGapsResponse TopGaps(TraceLog trace, int pid, int top)
+    public static ImageLoadTopGapsResponse TopGaps(
+        TraceLog trace,
+        int pid,
+        int top,
+        long? processStartUs = null)
     {
         if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
 
-        var process = trace.Processes.FirstOrDefault(p => p.ProcessID == pid)
-            ?? throw new ArgumentException($"PID {pid} not found in trace", nameof(pid));
+        var identities = TraceIdentityIndex.For(trace);
+        var scope = ResolveSingleProcessScope(
+            identities, pid, processStartUs);
+        if (!scope.IsResolved)
+        {
+            return new ImageLoadTopGapsResponse(
+                Pid: pid,
+                ProcessName: string.Empty,
+                ProcessStartUs: null,
+                TotalImageLoads: 0,
+                FirstLoadOffsetUs: null,
+                TopGaps: [],
+                Warnings:
+                [
+                    $"scope_not_found: no process lifetime matched PID {pid}" +
+                    (processStartUs.HasValue
+                        ? $" at processStartUs={processStartUs.Value}"
+                        : string.Empty) + ".",
+                ],
+                SelectedProcess: null,
+                ScopeMode: scope.ScopeMode,
+                PidReuseObserved: scope.PidReuseObserved,
+                IncludedProcesses: scope.IncludedProcesses,
+                ScopeStatus: scope.ScopeStatus,
+                CapabilityStatus: "unknown",
+                MatchedEventCount: 0,
+                NoDataReason: "scope_not_found");
+        }
 
-        var processStartUs = (long)(process.StartTimeRelativeMsec * 1000);
-        var ordered = CollectAndSortLoads(trace, pid, processStartUs);
-        var withGaps = FillGaps(ordered);
+        var process = ExactLifetime(identities, scope.SelectedProcess!.Value);
+        var collected = CollectAndSortLoads(trace, process);
+        var withGaps = collected.Loads;
         var totalLoads = withGaps.Count;
         long? firstLoadOffset = withGaps.Count > 0 ? withGaps[0].TimeFromProcessStartUs : (long?)null;
 
@@ -123,9 +207,9 @@ public static class ImageLoadAnalysis
         var warnings = new List<string>();
         if (totalLoads == 0)
         {
-            warnings.Add(
-                "No ImageLoad events found for this PID. Either the process loaded no DLLs after the trace " +
-                "started (rare), or the capture profile omitted the Loader keyword (default WPR profiles include it).");
+            warnings.Add(collected.GlobalEventCount == 0
+                ? "event_class_not_observed: no ImageLoad events were observed in the materialized trace. This does not prove that Loader capture was disabled."
+                : "no_events_in_scope: ImageLoad events were observed in the trace, but none matched the selected process lifetime.");
         }
         else if (totalLoads < 2)
         {
@@ -134,33 +218,147 @@ public static class ImageLoadAnalysis
 
         return new ImageLoadTopGapsResponse(
             Pid: pid,
-            ProcessName: process.Name ?? string.Empty,
-            ProcessStartUs: processStartUs,
+            ProcessName: ProcessName(trace, process.Key),
+            ProcessStartUs: process.Key.StartUs,
             TotalImageLoads: totalLoads,
             FirstLoadOffsetUs: firstLoadOffset,
             TopGaps: topGaps,
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: scope.SelectedProcess,
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.IncludedProcesses,
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: totalLoads > 0
+                ? "observed"
+                : collected.GlobalEventCount == 0
+                    ? "not_observed"
+                    : "unknown",
+            MatchedEventCount: totalLoads,
+            NoDataReason: totalLoads > 0
+                ? null
+                : collected.GlobalEventCount == 0
+                    ? "event_class_not_observed"
+                    : "no_events_in_scope");
     }
 
-    private static List<ImageLoadRow> CollectAndSortLoads(TraceLog trace, int pid, long processStartUs)
+    internal static ProcessLifetime SelectProcessInstance(
+        IEnumerable<ProcessLifetime> lifetimes,
+        int pid,
+        long? processStartUs)
     {
-        var loads = new List<ImageLoadRow>();
+        ArgumentNullException.ThrowIfNull(lifetimes);
+        var candidates = lifetimes
+            .Where(lifetime =>
+                lifetime.Key.Pid == pid &&
+                (!processStartUs.HasValue ||
+                 lifetime.Key.StartUs == processStartUs.Value))
+            .GroupBy(lifetime => lifetime.Key)
+            .Select(group => group.OrderByDescending(lifetime => lifetime.EndUs).First())
+            .OrderBy(lifetime => lifetime.Key.StartUs)
+            .ToArray();
+
+        if (candidates.Length == 1)
+            return candidates[0];
+        if (candidates.Length == 0)
+        {
+            var code = processStartUs.HasValue
+                ? "process_instance_not_found"
+                : "pid_not_found";
+            throw new ArgumentException(
+                $"{code}: PID {pid}" +
+                (processStartUs.HasValue
+                    ? $" with processStartUs={processStartUs.Value}"
+                    : string.Empty) +
+                " was not found in the trace.",
+                nameof(pid));
+        }
+
+        var starts = string.Join(", ", candidates.Select(
+            lifetime => lifetime.Key.StartUs));
+        throw new ArgumentException(
+            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
+            $"specify processStartUs. candidates=[{starts}]",
+            nameof(pid));
+    }
+
+    internal static List<ImageLoadRow> ProjectLoads(
+        IEnumerable<ImageLoadObservation> observations,
+        ProcessLifetime process)
+    {
+        ArgumentNullException.ThrowIfNull(observations);
+        var ordered = observations
+            .Where(observation =>
+                observation.Pid == process.Key.Pid &&
+                process.Contains(observation.TimeUs))
+            .OrderBy(observation => observation.TimeUs)
+            .Select(observation => new ImageLoadRow(
+                TimeUs: observation.TimeUs,
+                TimeFromProcessStartUs: observation.TimeUs - process.Key.StartUs,
+                FileName: observation.FileName,
+                ImageSize: observation.ImageSize,
+                GapFromPrevUs: null))
+            .ToList();
+        return FillGaps(ordered);
+    }
+
+    private static (List<ImageLoadRow> Loads, long GlobalEventCount) CollectAndSortLoads(
+        TraceLog trace,
+        ProcessLifetime process)
+    {
+        var loads = new List<ImageLoadObservation>();
+        long globalEventCount = 0;
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ImageLoad += data =>
             {
-                if (data.ProcessID != pid) return;
+                globalEventCount++;
+                if (data.ProcessID != process.Key.Pid) return;
                 var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
-                loads.Add(new ImageLoadRow(
-                    TimeUs: tsUs,
-                    TimeFromProcessStartUs: tsUs - processStartUs,
-                    FileName: data.FileName ?? "<unknown>",
-                    ImageSize: data.ImageSize,
-                    GapFromPrevUs: null));
+                loads.Add(new ImageLoadObservation(
+                    data.ProcessID,
+                    tsUs,
+                    data.FileName ?? "<unknown>",
+                    data.ImageSize));
             };
         });
-        return loads.OrderBy(l => l.TimeUs).ToList();
+        return (ProjectLoads(loads, process), globalEventCount);
     }
+
+    private static ProcessAnalysisScope ResolveSingleProcessScope(
+        TraceIdentityIndex identities,
+        int pid,
+        long? processStartUs)
+    {
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, identities.TraceEndUs),
+            pid,
+            processStartUs,
+            identities);
+        if (scope.ScopeMode != "pid_aggregate")
+            return scope;
+
+        var starts = string.Join(", ", scope.IncludedProcesses.Select(
+            process => process.StartUs));
+        throw new ArgumentException(
+            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
+            $"specify processStartUs. candidates=[{starts}]",
+            nameof(pid));
+    }
+
+    private static ProcessLifetime ExactLifetime(
+        TraceIdentityIndex identities,
+        ProcessInstanceKey process) =>
+        identities.Processes.FindExact(process)
+            .OrderByDescending(candidate => candidate.EndUs)
+            .First();
+
+    private static string ProcessName(TraceLog trace, ProcessInstanceKey key) =>
+        trace.Processes
+            .Where(process => process.ProcessID == key.Pid)
+            .FirstOrDefault(process =>
+                TraceTime.FromMilliseconds(process.StartTimeRelativeMsec) == key.StartUs)
+            ?.Name ?? string.Empty;
 
     private static List<ImageLoadRow> FillGaps(List<ImageLoadRow> ordered)
     {

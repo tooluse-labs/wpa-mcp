@@ -80,10 +80,16 @@ public class CpuPreciseAnalysisTests
         Assert.Equal(10, response.TotalCpuUs);
         Assert.Equal(1, response.TotalReadyCount);
         Assert.Equal(20, response.TotalReadyLatencyUs);
+        Assert.Equal(process.Key.StartUs, row.ProcessStartUs);
+        Assert.Equal(selectedLifetime.Key.Generation, row.ThreadGeneration);
+        Assert.Equal("single_process", response.ScopeMode);
+        Assert.Equal([process.Key], response.IncludedProcesses);
+        Assert.Equal(2, response.MatchedEventCount);
+        Assert.Equal("observed", response.CapabilityStatus);
     }
 
     [Fact]
-    public void CpuPreciseAccumulator_PidScopeAggregatesReusedPidAndTidInstances()
+    public void CpuPreciseAccumulator_PidScopeKeepsReusedPidAndTidInstancesSeparate()
     {
         var firstThread = new ThreadInstanceKey(
             new ProcessInstanceKey(Pid: 100, StartUs: 0),
@@ -100,7 +106,7 @@ public class CpuPreciseAnalysisTests
             Thread: null,
             AggregatesPidLifetimes: true,
             PidReuseObserved: true);
-        var accumulator = new CpuPreciseAccumulator(top: 1, scope, traceEndUs: 200);
+        var accumulator = new CpuPreciseAccumulator(top: 2, scope, traceEndUs: 200);
 
         accumulator.ProcessReady(new CpuPreciseResolvedReadyEvent(firstThread, TimestampUs: 0));
         accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
@@ -140,21 +146,103 @@ public class CpuPreciseAnalysisTests
 
         var response = accumulator.BuildResponse();
 
-        var row = Assert.Single(response.Rows);
-        Assert.Equal(100, row.Pid);
-        Assert.Equal(42, row.Tid);
-        Assert.Equal(100, row.CpuUs);
-        Assert.Equal(4, row.ContextSwitches);
-        Assert.Equal(2, row.ReadyCount);
-        Assert.Equal(30, row.ReadyLatencyUs);
-        Assert.Equal(20, row.MaxReadyLatencyUs);
-        Assert.Equal(2, row.TopCores.Count);
+        Assert.Equal(2, response.Rows.Count);
+        var firstRow = Assert.Single(response.Rows, row => row.ProcessStartUs == 0);
+        Assert.Equal(100, firstRow.Pid);
+        Assert.Equal(42, firstRow.Tid);
+        Assert.Equal(1, firstRow.ThreadGeneration);
+        Assert.Equal(40, firstRow.CpuUs);
+        Assert.Equal(2, firstRow.ContextSwitches);
+        Assert.Equal(1, firstRow.ReadyCount);
+        Assert.Equal(10, firstRow.ReadyLatencyUs);
+        Assert.Equal(10, firstRow.MaxReadyLatencyUs);
+        Assert.Single(firstRow.TopCores);
+
+        var secondRow = Assert.Single(response.Rows, row => row.ProcessStartUs == 100);
+        Assert.Equal(100, secondRow.Pid);
+        Assert.Equal(42, secondRow.Tid);
+        Assert.Equal(1, secondRow.ThreadGeneration);
+        Assert.Equal(60, secondRow.CpuUs);
+        Assert.Equal(2, secondRow.ContextSwitches);
+        Assert.Equal(1, secondRow.ReadyCount);
+        Assert.Equal(20, secondRow.ReadyLatencyUs);
+        Assert.Equal(20, secondRow.MaxReadyLatencyUs);
+        Assert.Single(secondRow.TopCores);
         Assert.Equal(100, response.TotalCpuUs);
         Assert.Equal(2, response.TotalReadyCount);
         Assert.Equal(30, response.TotalReadyLatencyUs);
+        Assert.Equal("pid_aggregate", response.ScopeMode);
+        Assert.True(response.PidReuseObserved);
+        Assert.Equal(
+            [firstThread.Process, secondThread.Process],
+            response.IncludedProcesses);
+        Assert.Equal(4, response.MatchedEventCount);
         Assert.Contains(
             response.Warnings,
             warning => warning.StartsWith("ambiguous_process_instance:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CpuPreciseAccumulator_ProcessScopeKeepsReusedTidGenerationsSeparate()
+    {
+        var process = new ProcessLifetime(
+            new ProcessInstanceKey(Pid: 100, StartUs: 10),
+            EndUs: 200,
+            StartObserved: true,
+            EndObserved: true);
+        var firstThread = new ThreadInstanceKey(process.Key, Tid: 42, Generation: 1);
+        var secondThread = new ThreadInstanceKey(process.Key, Tid: 42, Generation: 2);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 200),
+            Pid: 100,
+            Process: process,
+            Thread: null,
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+        var accumulator = new CpuPreciseAccumulator(top: 10, scope, traceEndUs: 200);
+
+        accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+            OldThread: null,
+            OldProcessName: string.Empty,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewThread: firstThread,
+            NewProcessName: "target",
+            ProcessorNumber: 0,
+            TimestampUs: 20));
+        accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+            OldThread: firstThread,
+            OldProcessName: "target",
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewThread: null,
+            NewProcessName: string.Empty,
+            ProcessorNumber: 0,
+            TimestampUs: 50));
+        accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+            OldThread: null,
+            OldProcessName: string.Empty,
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewThread: secondThread,
+            NewProcessName: "target",
+            ProcessorNumber: 0,
+            TimestampUs: 80));
+        accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
+            OldThread: secondThread,
+            OldProcessName: "target",
+            OldThreadWaitReason: (ThreadWaitReason)13,
+            NewThread: null,
+            NewProcessName: string.Empty,
+            ProcessorNumber: 0,
+            TimestampUs: 120));
+
+        var response = accumulator.BuildResponse();
+
+        Assert.Equal(2, response.Rows.Count);
+        Assert.All(response.Rows, row => Assert.Equal(process.Key.StartUs, row.ProcessStartUs));
+        Assert.Equal([1L, 2L], response.Rows.OrderBy(row => row.ThreadGeneration)
+            .Select(row => row.ThreadGeneration));
+        Assert.Equal("single_process", response.ScopeMode);
+        Assert.False(response.PidReuseObserved);
+        Assert.Equal([process.Key], response.IncludedProcesses);
     }
 
     [Fact]
@@ -201,6 +289,8 @@ public class CpuPreciseAnalysisTests
         var row = Assert.Single(response.Rows);
         Assert.Equal(0, row.ContextSwitches);
         Assert.Equal(0, response.TotalContextSwitches);
+        Assert.False(response.HasContextSwitches);
+        Assert.True(response.TraceHasContextSwitches);
         Assert.Contains(
             response.Warnings,
             warning =>
@@ -260,6 +350,23 @@ public class CpuPreciseAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.CpuPreciseAnalysis("nonexistent.etl", top: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.CpuPreciseAnalysis("nonexistent.etl", top: 1001));
+    }
+
+    [Fact]
+    public void CpuPreciseAnalysis_MissingExactProcessReturnsStructuredEmptyResponse()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 2));
+
+        var response = tools.CpuPreciseAnalysis(
+            FixturePath,
+            pid: 999_999,
+            processStartUs: 123);
+
+        Assert.Empty(response.Rows);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
     }
 
     [Fact]

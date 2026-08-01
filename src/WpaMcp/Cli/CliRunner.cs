@@ -22,6 +22,7 @@ public static class CliRunner
     {
         ["--help"] = _ => PrintHelp(toError: false),
         ["-h"] = _ => PrintHelp(toError: false),
+        ["--inspect-trace"] = RunInspectTrace,
         ["--list-processes"] = RunListProcesses,
         ["--process-create-timing"] = RunProcessCreateTiming,
         ["--cpu-top"] = RunCpuTop,
@@ -66,12 +67,27 @@ public static class CliRunner
         }
     }
 
+    private static int RunInspectTrace(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Console.Error.WriteLine("usage: --inspect-trace <trace.etl>");
+            return 2;
+        }
+
+        using var cache = new TraceCache(capacity: 1);
+        Emit(new MetaTools(cache).InspectTrace(args[1]));
+        return 0;
+    }
+
     private static int RunListProcesses(string[] args)
     {
-        if (args.Length < 2) { Console.Error.WriteLine("usage: --list-processes <trace.etl> [orderBy]"); return 2; }
+        if (args.Length < 2) { Console.Error.WriteLine("usage: --list-processes <trace.etl> [orderBy] [top]"); return 2; }
         var orderBy = args.Length >= 3 ? args[2] : "cpu";
-        var meta = new MetaTools(new TraceCache(capacity: 1));
-        Emit(meta.ListProcesses(args[1], orderBy: orderBy));
+        var top = args.Length >= 4 ? int.Parse(args[3]) : 50;
+        using var cache = new TraceCache(capacity: 1);
+        var meta = new MetaTools(cache);
+        Emit(meta.ListProcesses(args[1], orderBy: orderBy, top: top));
         return 0;
     }
 
@@ -84,7 +100,8 @@ public static class CliRunner
         }
         var parentPid = int.Parse(args[2]);
         var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
-        var meta = new MetaTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var meta = new MetaTools(cache);
         Emit(meta.ProcessCreateTiming(args[1], parentPid: parentPid, top: top));
         return 0;
     }
@@ -94,7 +111,8 @@ public static class CliRunner
         if (args.Length < 2) { Console.Error.WriteLine("usage: --cpu-top <trace.etl> [pid] [top]"); return 2; }
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
-        var tools = new CpuTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new CpuTools(cache);
         Emit(tools.CpuTopFunctions(args[1], top: top, pid: pid));
         return 0;
     }
@@ -109,7 +127,8 @@ public static class CliRunner
         var function = args[2];
         int? pid = args.Length >= 4 ? int.Parse(args[3]) : (int?)null;
         var top = args.Length >= 5 ? int.Parse(args[4]) : 20;
-        var tools = new CpuTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new CpuTools(cache);
         Emit(tools.CpuCallerCallee(args[1], function: function, top: top, pid: pid));
         return 0;
     }
@@ -119,7 +138,8 @@ public static class CliRunner
         if (args.Length < 2) { Console.Error.WriteLine("usage: --wait-analysis <trace.etl> [pid] [top]"); return 2; }
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
-        var tools = new WaitTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new WaitTools(cache);
         Emit(tools.WaitAnalysis(args[1], top: top, pid: pid));
         return 0;
     }
@@ -135,7 +155,8 @@ public static class CliRunner
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         long? startUs = args.Length >= 5 ? long.Parse(args[4]) : (long?)null;
         long? endUs = args.Length >= 6 ? long.Parse(args[5]) : (long?)null;
-        var tools = new WaitTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new WaitTools(cache);
         Emit(tools.WaitTopStacks(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs));
         return 0;
     }
@@ -145,7 +166,8 @@ public static class CliRunner
         if (args.Length < 3) { Console.Error.WriteLine("usage: --image-load-timing <trace.etl> <pid> [top]"); return 2; }
         var pid = int.Parse(args[2]);
         var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
-        var tools = new ImageLoadTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new ImageLoadTools(cache);
         Emit(tools.ImageLoadTiming(args[1], pid: pid, top: top));
         return 0;
     }
@@ -160,7 +182,8 @@ public static class CliRunner
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
-        var tools = new ImageLoadTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new ImageLoadTools(cache);
         Emit(tools.ImageLoadTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
         return 0;
     }
@@ -174,7 +197,8 @@ public static class CliRunner
         }
         var pid = int.Parse(args[2]);
         var top = args.Length >= 4 ? int.Parse(args[3]) : 20;
-        var tools = new ImageLoadTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new ImageLoadTools(cache);
         Emit(tools.ImageLoadTopGaps(args[1], pid: pid, top: top));
         return 0;
     }
@@ -189,7 +213,8 @@ public static class CliRunner
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
-        var tools = new HardFaultTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new HardFaultTools(cache);
         Emit(tools.HardFaultTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
         return 0;
     }
@@ -207,7 +232,8 @@ public static class CliRunner
         long? startUs = HasOptionalArg(args, 4) ? long.Parse(args[4]) : null;
         long? endUs = HasOptionalArg(args, 5) ? long.Parse(args[5]) : null;
         var orderBy = HasOptionalArg(args, 6) ? args[6] : "bytes";
-        var tools = new HardFaultTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new HardFaultTools(cache);
         Emit(tools.HardFaultByFile(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs, orderBy: orderBy));
         return 0;
     }
@@ -224,7 +250,8 @@ public static class CliRunner
         int? pid = HasOptionalArg(args, 3) ? int.Parse(args[3]) : null;
         long? startUs = HasOptionalArg(args, 4) ? long.Parse(args[4]) : null;
         long? endUs = HasOptionalArg(args, 5) ? long.Parse(args[5]) : null;
-        var tools = new VirtualMemoryTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new VirtualMemoryTools(cache);
         Emit(tools.MemoryResourceAnalysis(args[1], top: top, pid: pid, startUs: startUs, endUs: endUs));
         return 0;
     }
@@ -239,7 +266,8 @@ public static class CliRunner
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
-        var tools = new IoTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new IoTools(cache);
         Emit(tools.FileIoTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
         return 0;
     }
@@ -247,20 +275,20 @@ public static class CliRunner
     // Caller/callee drill-down helpers — same arg shape across all 4 stack sources, just
     // different tool wiring. Each requires <function> as the focus frame name.
     private static int RunWaitCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--wait-caller-callee", (path, fn, pid, top) =>
-            new WaitTools(new TraceCache(capacity: 1)).WaitCallerCallee(path, fn, top, pid));
+        RunCallerCalleeVerb(args, "--wait-caller-callee", (cache, path, fn, pid, top) =>
+            new WaitTools(cache).WaitCallerCallee(path, fn, top, pid));
 
     private static int RunImageLoadCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--image-load-caller-callee", (path, fn, pid, top) =>
-            new ImageLoadTools(new TraceCache(capacity: 1)).ImageLoadCallerCallee(path, fn, top, pid));
+        RunCallerCalleeVerb(args, "--image-load-caller-callee", (cache, path, fn, pid, top) =>
+            new ImageLoadTools(cache).ImageLoadCallerCallee(path, fn, top, pid));
 
     private static int RunHardFaultCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--hard-fault-caller-callee", (path, fn, pid, top) =>
-            new HardFaultTools(new TraceCache(capacity: 1)).HardFaultCallerCallee(path, fn, top, pid));
+        RunCallerCalleeVerb(args, "--hard-fault-caller-callee", (cache, path, fn, pid, top) =>
+            new HardFaultTools(cache).HardFaultCallerCallee(path, fn, top, pid));
 
     private static int RunFileIoCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--file-io-caller-callee", (path, fn, pid, top) =>
-            new IoTools(new TraceCache(capacity: 1)).FileIoCallerCallee(path, fn, top, pid));
+        RunCallerCalleeVerb(args, "--file-io-caller-callee", (cache, path, fn, pid, top) =>
+            new IoTools(cache).FileIoCallerCallee(path, fn, top, pid));
 
     private static int RunDiskIoTopStacks(string[] args)
     {
@@ -272,7 +300,8 @@ public static class CliRunner
         int? pid = args.Length >= 3 ? int.Parse(args[2]) : (int?)null;
         var top = args.Length >= 4 ? int.Parse(args[3]) : 30;
         var whenBuckets = args.Length >= 5 ? int.Parse(args[4]) : 0;
-        var tools = new IoTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new IoTools(cache);
         Emit(tools.DiskIoTopStacks(args[1], top: top, pid: pid, whenBuckets: whenBuckets));
         return 0;
     }
@@ -288,18 +317,19 @@ public static class CliRunner
         var top = args.Length >= 3 ? int.Parse(args[2]) : 30;
         long? startUs = args.Length >= 4 ? long.Parse(args[3]) : (long?)null;
         long? endUs = args.Length >= 5 ? long.Parse(args[4]) : (long?)null;
-        var tools = new InterruptTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new InterruptTools(cache);
         Emit(tools.InterruptTopStacks(args[1], top: top, startUs: startUs, endUs: endUs));
         return 0;
     }
 
     private static int RunDiskIoCallerCallee(string[] args) =>
-        RunCallerCalleeVerb(args, "--disk-io-caller-callee", (path, fn, pid, top) =>
-            new IoTools(new TraceCache(capacity: 1)).DiskIoCallerCallee(path, fn, top, pid));
+        RunCallerCalleeVerb(args, "--disk-io-caller-callee", (cache, path, fn, pid, top) =>
+            new IoTools(cache).DiskIoCallerCallee(path, fn, top, pid));
 
     private static int RunCallerCalleeVerb(
         string[] args, string verb,
-        Func<string, string, int?, int, WpaMcp.Output.CallerCalleeResponse> invoke)
+        Func<TraceCache, string, string, int?, int, WpaMcp.Output.CallerCalleeResponse> invoke)
     {
         if (args.Length < 3)
         {
@@ -309,7 +339,8 @@ public static class CliRunner
         var function = args[2];
         int? pid = args.Length >= 4 ? int.Parse(args[3]) : (int?)null;
         var top = args.Length >= 5 ? int.Parse(args[4]) : 20;
-        Emit(invoke(args[1], function, pid, top));
+        using var cache = new TraceCache(capacity: 1);
+        Emit(invoke(cache, args[1], function, pid, top));
         return 0;
     }
 
@@ -322,7 +353,8 @@ public static class CliRunner
         }
         var nameSubstring = args.Length >= 3 ? args[2] : null;
         var minWaitRatio = args.Length >= 4 ? double.Parse(args[3]) : 3.0;
-        var tools = new DiagnoseTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new DiagnoseTools(cache);
         Emit(tools.DiagnoseSlowStartup(
             args[1],
             nameSubstring: nameSubstring,
@@ -350,7 +382,8 @@ public static class CliRunner
         var pathSubstring = HasOptionalArg(args, 7) ? args[7] : null;
         var providerSubstring = HasOptionalArg(args, 8) ? args[8] : null;
 
-        var tools = new SecurityTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new SecurityTools(cache);
         Emit(tools.SecurityScanAnalysis(
             args[1],
             top: top,
@@ -372,7 +405,8 @@ public static class CliRunner
         }
         var mode = args.Length >= 4 ? args[3] : "count_by_event";
         var top = args.Length >= 5 ? int.Parse(args[4]) : 50;
-        var tools = new MarkerTools(new TraceCache(capacity: 1));
+        using var cache = new TraceCache(capacity: 1);
+        var tools = new MarkerTools(cache);
         Emit(tools.FindMarker(args[1], args[2], top: top, mode: mode));
         return 0;
     }
@@ -385,8 +419,9 @@ public static class CliRunner
             return 2;
         }
 
-        var cache = new TraceCache(capacity: 1);
-        var trace = cache.Get(args[1]);
+        using var cache = new TraceCache(capacity: 1);
+        using var traceLease = cache.Acquire(args[1]);
+        var trace = traceLease.Trace;
         Emit(StackProbeAnalysis.Analyze(trace, args[1]));
         return 0;
     }
@@ -405,7 +440,8 @@ public static class CliRunner
         w.WriteLine("Usage: WpaMcp.dll <verb> [args]");
         w.WriteLine();
         w.WriteLine("Verbs:");
-        w.WriteLine("  --list-processes        <trace.etl> [orderBy=cpu|wall|wait_ratio]");
+        w.WriteLine("  --inspect-trace         <trace.etl>");
+        w.WriteLine("  --list-processes        <trace.etl> [orderBy=cpu|wall|wait_ratio] [top=50]");
         w.WriteLine("  --process-create-timing <trace.etl> <parentPid> [top=100]");
         w.WriteLine("  --cpu-top               <trace.etl> [pid] [top=30]");
         w.WriteLine("  --cpu-caller-callee     <trace.etl> <function> [pid] [top=20]");

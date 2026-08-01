@@ -26,7 +26,7 @@ namespace WpaMcp.Analyzers;
 // and AV-injected mini-drivers are frequent offenders.
 //
 // Requires the Interrupt + DPC kernel keywords in the capture profile.  Default WPR 'CPU'
-// profiles enable them; check Capabilities.HasStackWalks for stack quality.
+// profiles enable them; inspect the interrupt domain's StackCoverage for stack quality.
 public static class InterruptStackAnalysis
 {
     public static InterruptStacksResponse TopStacks(
@@ -45,11 +45,18 @@ public static class InterruptStackAnalysis
             FilterSpecified = filterSpecified,
         };
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            processScope: null,
+            filterSpecified: req.HasFilter,
+            coverage: ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
+        contract.AddWarning(ctx.Warnings);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
 
         var rows = callTree.ByID
+            .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new InterruptStackRow(
@@ -72,7 +79,15 @@ public static class InterruptStackAnalysis
             TotalCount: ctx.TotalCount,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build());
+            When: when.Build(),
+            StackCoverage: ctx.StackCoverage,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -81,30 +96,45 @@ public static class InterruptStackAnalysis
         int top,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when);
+        var req = new StackAnalysisRequest(Pid: null, startUs, endUs, symbolLog, when)
+        {
+            FilterSpecified = filterSpecified,
+        };
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            processScope: null,
+            filterSpecified: req.HasFilter,
+            coverage: ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "interruptUs", ctx.Stats, ctx.Warnings);
+            ctx.Normalized, focusFunction, top, metricName: "interruptUs", ctx.Stats, ctx.Warnings,
+            sourceTotalMetric: ctx.TotalUs,
+            stackCoverage: ctx.StackCoverage,
+            resultContract: contract);
     }
 
     private record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalUs,
+        long TraceEventCount,
         long TotalUs,
         long DpcUs,
         long IsrUs,
         long TotalCount,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, req.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(trace, "interrupt", "us");
         long traceTotalUs = 0;
+        long traceEventCount = 0;
         long totalUs = 0;
         long dpcUs = 0;
         long isrUs = 0;
@@ -121,6 +151,7 @@ public static class InterruptStackAnalysis
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (!req.PassesFilter(nowUs)) return;
 
+            traceEventCount++;
             totalUs += us;
             dpcUs += us;
             totalCount++;
@@ -140,6 +171,7 @@ public static class InterruptStackAnalysis
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (!req.PassesFilter(nowUs)) return;
 
+            traceEventCount++;
             totalUs += us;
             isrUs += us;
             totalCount++;
@@ -159,13 +191,14 @@ public static class InterruptStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        if (req.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, req.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
 
         var warnings = new List<string>();
-        if (totalCount == 0)
+        if (totalCount == 0 && !req.HasFilter)
             warnings.Add(WarningBuilder.NoEventsInDefaultProfile("DPC/ISR", "Interrupt + DPC"));
         // Warn only when missing stacks dominate the metric being ranked: interrupt time.
         // A few long no-stack DPC/ISR events can matter more than many short stacked events.
@@ -173,10 +206,12 @@ public static class InterruptStackAnalysis
             warnings.Add(WarningBuilder.MissingInterruptStacks(noStackCount, totalCount, noStackUs, totalUs));
         if (!req.ResolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
 
-        return new BuildContext(normalized, stats, traceTotalUs, totalUs, dpcUs, isrUs, totalCount, warnings);
+        return new BuildContext(normalized, stats, traceTotalUs, traceEventCount, totalUs, dpcUs, isrUs, totalCount, coverage, warnings);
     }
 
     internal static bool ShouldWarnMissingStacks(long noStackUs, long totalUs)

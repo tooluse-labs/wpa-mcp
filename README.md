@@ -35,12 +35,12 @@ Once installed ([one-liner below](#install)), ask the agent in plain language an
 ```
 > Load this trace: C:\path\to\trace.etl
 (load_trace — first call takes 30 s – 3 min while the .etlx index is built;
- subsequent calls are instant. Returns trace metadata plus a Capabilities map
- listing which ETW keywords are present.)
+ subsequent calls reuse the cached index. Returns trace metadata plus a
+ Capabilities map of event classes actually observed after materialization.)
 
 > Inspect the trace and tell me what it can answer.
-(inspect_trace — capability flags, quality warnings, symbol health, and
- applicable next tools)
+(inspect_trace — observed capabilities, per-domain stack coverage, PDB
+ identity/readiness, quality warnings, and applicable next tools)
 
 > Diagnose high wait in PID <X> between <t0> and <t1>.
 (diagnose_high_wait — one window-consistent call returning candidates,
@@ -56,7 +56,7 @@ Once installed ([one-liner below](#install)), ask the agent in plain language an
 
 The same `summary → stacks → caller/callee` pattern works across stack-oriented domains — CPU (`cpu_top_functions` → `cpu_caller_callee`), file / disk / mmap I/O, image loads, CLR allocation / exception / contention, network, registry. Lifecycle and resource tools that don't fit a stack shape (memory resource snapshots, thread lifetime, process creation) have their own rows in the tables below.
 
-For an end-to-end walkthrough — symptoms, tool chain, evidence, root cause, recommendations — see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md).
+For an end-to-end walkthrough — symptoms, tool chain, evidence, findings or hypotheses, and recommendations — see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md).
 
 ---
 
@@ -206,13 +206,13 @@ claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symb
 
 ## Tools
 
-The MCP surface covers multiple ETW analysis domains, all built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses — analysis quality matches PerfView. What changes is the surface (stdio MCP + JSON instead of a Windows GUI) plus a small set of composite tools that fold multi-step PerfView workflows into a single call.
+The MCP surface covers multiple ETW analysis domains and is built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses. The shared parser does not by itself guarantee view-for-view parity: each analyzer reports its scope, observed capabilities, coverage, and no-data state so callers can judge what the trace supports.
 
 ### What wpa-mcp adds vs PerfView
 
 * **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into CI / regression scripts.
 * **Composite tools.** `diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
-* **Capabilities-aware.** Every tool's "won't return data" state maps to a single keyword bit in `load_trace`'s `Capabilities` map — no more "why is this view empty" detective work.
+* **Capabilities-aware.** `load_trace` reports event classes actually observed after ETLX materialization, while individual responses distinguish `scope_not_found`, `event_class_not_observed`, `no_events_in_scope`, and `stacks_unavailable`. Observing no events does not prove which capture keyword was disabled.
 * **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
 
 ### Design philosophy
@@ -221,11 +221,11 @@ wpa-mcp is built to **avoid misleading the model without constraining what the m
 
 * **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, enabled-signal lists, quality gaps, recommended diagnostic flows, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
 * **Diagnostic composites** (`diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
-* **Per-domain row and stack tools** stay close to the PerfView shape. When they return empty, the capability signals from `load_trace` / `inspect_trace` distinguish "the data isn't in this trace" from "no work matched the query".
+* **Per-domain row and stack tools** stay close to the PerfView shape. Process-targeted tools expose the selected `(Pid, ProcessStartUs)` lifetime (or explicitly label PID aggregation), and stack tools report event-domain coverage instead of inferring stack support from unrelated events.
 
 ### Usage pattern
 
-**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map showing which ETW keywords are present. Every other tool's behavior depends on those keywords. The map covers:
+**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map showing which supported event classes were observed in the materialized TraceLog. These flags are evidence about parsed events, not proof of the original capture-keyword configuration. The map covers:
 
 * **CPU sampling and scheduling** — `HasCpuSamples`, `HasCSwitch`, `HasReadyThread`, `HasStackWalks`
 * **File / disk / mmap I/O and loader** — `HasFileIo`, `HasDiskIo`, `HasHardFaults`, `HasImageLoad`
@@ -233,6 +233,8 @@ wpa-mcp is built to **avoid misleading the model without constraining what the m
 * **Network** — `HasNetIo`, `HasNetConnections`
 * **Kernel infrastructure** — `HasRegistry`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`
 * **CLR runtime** — `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`
+
+`HasStackWalks` is a compatibility-wide union only. Before using a stack result, inspect that domain's `StackCoverage`: `TotalEventCount`, `StackedEventCount`, `StackCoveragePct`, and `CoverageState` (`no_events`, `no_stacks`, `partial`, or `full`). `StackSemantics` identifies the exact stack source. In particular, the `cswitch` domain uses the switch-out `BlockingStack`; the debug stack probe's ordinary CSwitch `CallStackIndex` is a different stack and can have a different coverage. A synthetic `?!?` row accounts for unstacked events; it is not a real call chain.
 
 The full call flow:
 
@@ -272,20 +274,24 @@ In the tables below, "PerfView equivalent" is the matching view in PerfView's GU
 
 Tools that accept `startUs` and `endUs` use a half-open interval: an event is included only when `startUs <= timestamp < endUs`. A null boundary means the trace start or trace end respectively.
 
+For PID-targeted tools, pass `processStartUs` from `list_processes` whenever the PID was reused. A PID-only call either reports `ScopeMode=pid_aggregate` and keeps lifetimes separate, or rejects an operation that requires exactly one lifetime. Check `ScopeStatus`, `CapabilityStatus`, `MatchedEventCount`, `NoDataReason`, `PidReuseObserved`, and `IncludedProcesses` before interpreting an empty `Rows` array. `CapabilityStatus=observed` means source events matched the resolved requested scope; `not_observed` is reserved for an established unfiltered/global absence; otherwise the value is `unknown`.
+
+For CPU/Wait tools that also accept `tid`, reuse is resolved with `threadStartUs`. Missing or ambiguous thread selectors return structured `scope_not_found` / `ambiguous_thread_instance` results rather than falling back to PID-only data. `IncludedThreads` contains `ThreadStartUs` and `ThreadEndUs`, so a candidate can be replayed with `pid + processStartUs + tid + threadStartUs`.
+
 Tools without `startUs` / `endUs` operate on intentionally different scopes; each tool's MCP description states which:
 
 * **Whole-trace orientation / configuration** — `load_trace`, `inspect_trace`, `list_processes`, `find_marker`, `diagnose_symbols`, `set_symbol_path`, `add_symbol_server`.
 * **Lifecycle views** — `process_create_timing`, `thread_lifetime`, `image_load_timing`, `image_load_top_gaps`, and `diagnose_slow_startup` use process-start or lifecycle-relative windows instead of an arbitrary trace window.
-* **Whole-trace or windowed by-file summaries** — `file_io_top_files` and `hard_fault_by_file` aggregate over file names and support explicit `startUs` / `endUs` windows. Use the corresponding stack tools when you need call-chain attribution.
+* **Whole-trace or windowed by-file summaries** — `file_io_top_files` and `hard_fault_by_file` aggregate over file names and support explicit `startUs` / `endUs` windows. Use the corresponding stack tools for event-associated call-chain evidence.
 
 ### Meta
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, the `Capabilities` keyword presence map, and per-trace symbol-server recommendations.  First call 30 s – 3 min while `.etlx` builds; subsequent are instant. | Open a trace file (no `Capabilities` equivalent) |
-| **`inspect_trace`** | One-shot orientation: capture capabilities, enabled-signal names, system metadata, provider counts, stackwalk completeness, symbol quality, quality warnings, capability-supported next-tool hints, and recommended diagnostic flows. Use when the capture profile or investigation path is unclear. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
-| `list_processes` | Lists processes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` surfaces "high wall, low CPU" processes (blocked on minifilter / IPC / etc.). PID 0 (Idle) and PID 4 (System) hidden by default. | Processes view |
-| `process_create_timing` | Per-child timing for a parent PID. `FirstImageLoadOffsetUs` = the kernel-side window between `ProcessStart` and the first DLL load — exactly where AV / EDR process-create callbacks burn time invisibly. Median / p95 / max aggregates across all children. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
+| **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, observed-event capabilities, and per-trace symbol-server recommendations. `EventCount` is the ETLX-materialized logical-event count; raw ETW record count and a parser-coverage ratio are reported as not measured rather than inferred. First call may take 30 s–3 min while `.etlx` builds; subsequent calls reuse it. | Open a trace file (no `Capabilities` equivalent) |
+| **`inspect_trace`** | One-shot orientation: observed capabilities, system metadata, provider counts, per-domain stack coverage, PDB identity/local-readiness information, quality warnings, and supported next-tool hints. PDB identity is not reported as successful frame resolution; real frame-resolution statistics appear only after a stack lookup actually runs. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
+| `list_processes` | Lists process lifetimes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` ranks "high wall, low CPU" candidates; the ratio does not identify what they waited on. PID 0 (Idle) and PID 4 (System) are hidden by default. | Processes view |
+| `process_create_timing` | Per-child timing for a parent process lifetime. `FirstImageLoadOffsetUs` is the observed interval between `ProcessStart` and the first DLL load. It can include callbacks, scanning, suspension, scheduling, and other work; the interval alone does not identify a mechanism or root cause. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |
 
 ### CPU stacks
@@ -303,15 +309,15 @@ Requires the `CSwitch` kernel keyword (default WPR `CPU` profiles include it).
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `wait_analysis` | Per-thread blocked time + dominant wait reasons. The canonical answer to "why was this slow?" when CPU is low. Reasons like `WrFilterContext` (blocked in a Filter Manager minifilter callback) directly identify the kernel state. | Thread Time → blocked-time per thread |
-| `wait_top_stacks` | Top-N call stacks ranked by blocked μs, built from the resume-point stack walk on each `ThreadCSwitch` event. Answers "*where in the code* is the wait happening" (vs `wait_analysis` which answers "which thread / which reason"). | Thread Time / Wait Time → BlockedTime metric (`ThreadTimeStackComputer`) |
+| `wait_analysis` | Per-thread blocked time + observed wait reasons. Reasons such as `WrFilterContext` identify the scheduler wait state; they do not by themselves identify the responsible component or root cause. The response separates trace-wide and scoped CSwitch counts and scoped stack coverage. | Thread Time → blocked-time per thread |
+| `wait_top_stacks` | Top-N call stacks ranked by blocked μs, built from the blocking stack attached to selected switch-out `ThreadCSwitch` intervals. This is code-path evidence associated with blocked time; it does not identify the responsible external component or root cause. | Thread Time / Wait Time → BlockedTime metric (`ThreadTimeStackComputer`) |
 | `wait_caller_callee` | Drill into a focus frame; metric is blocked μs. | Thread Time → Callers / Callees tabs |
 
 ### Image / DLL load
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `image_load_timing` | Per-process chronological list of every `ImageLoad` event with offset from `ProcessStart`. Spot late-loading DLLs or per-load minifilter / sig-scan delays between loads. | **[Manual filter]** — Events view, filter on `ImageLoad`, compute offsets by hand |
+| `image_load_timing` | Per-process-lifetime chronological list of every `ImageLoad` event with offset from `ProcessStart`. It reveals late loads and long intervals, but an interval alone cannot attribute the delay to a minifilter, signature scan, or another mechanism. | **[Manual filter]** — Events view, filter on `ImageLoad`, compute offsets by hand |
 | `image_load_top_gaps` | Top-N largest **gaps** between consecutive image loads. Pairs with the chronological view; same data, ranked by gap. Response also carries `FirstLoadOffsetUs` (kernel-side fork tax before any DLL loads). | **[Manual filter]** — same `ImageLoad` filter as above, sort by inter-event delta |
 | `image_load_top_stacks` | Top-N call stacks ranked by `ImageLoad` event count.  Distinguishes eager loads (`LoadLibraryEx` in a main initialiser) from lazy / cascading loads (`CoCreateInstance`, `AmsiOpenSession`, EDR-injected providers). | Image Load Stacks |
 | `image_load_caller_callee` | Drill into a focus frame; metric is image-load count. | Image Load Stacks → Callers / Callees tabs |
@@ -328,7 +334,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 | `disk_io_top_stacks` | Top-N stacks by **physical** disk-IO bytes — only events that hit physical media (no cache).  Requires the `DiskIO` keyword. | Disk I/O Stacks |
 | `disk_io_caller_callee` | Drill on a focus frame; metric is physical disk bytes. | Disk I/O Stacks → Callers / Callees tabs |
 | `hard_fault_by_file` | Top-N files by **hard page-in** bytes, optionally scoped by `startUs` / `endUs`. Most hard faults are mmap'd files being touched for the first time (DLLs, data files, network-share content); some also come from paged-out heap/stack pages and the page file. Rows include `MaxLatencyTimeUs`, so follow-up analysis can zoom into the exact worst page-in stall. Requires the `HardFaults` keyword (NOT in default WPR profiles — see [`docs/WPR_PROFILE.md`](docs/WPR_PROFILE.md)). | Memory Hard Fault → ByFile |
-| `hard_fault_top_stacks` | Top-N stacks by hard-fault page-in bytes. Distinguishes eager loader-driven page-in from lazy / scanner-induced page-in. | Memory Hard Fault Stacks |
+| `hard_fault_top_stacks` | Top-N event-attached stacks by hard-fault page-in bytes. These stacks support hypotheses about eager/lazy access or concurrent scanning; they do not by themselves establish the higher-level cause. | Memory Hard Fault Stacks |
 | `hard_fault_caller_callee` | Drill on a focus frame; metric is page-in bytes. | Memory Hard Fault Stacks → Callers / Callees tabs |
 
 ### Virtual memory
@@ -336,9 +342,9 @@ The three layers cover different parts of the I/O stack — diff them to localis
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `memory_resource_analysis` | Process memory resource snapshots from `Memory/ProcessMemInfo`: working set, commit, derived private bytes, private working set, virtual size, observed handle create/close deltas, and observed pool allocation/free deltas. Requires `MemoryInfoWS`, `Handle`, and `Pool`; use `MemoryCapture.wprp`. Rows are ordered by resource size/delta, not severity or causality. Pool rows are captured-window deltas, not absolute current counters. | Memory / Handles views |
-| `virtual_alloc_top_stacks` | Top-N stacks by `VirtualMemAlloc` + `VirtualMemFree` bytes. Distinct from physical residence (`hard_fault_*`) — answers "who's reserving 4 GB of address space" / "who's leaking VirtualAllocs". Each row carries both `Bytes` and `OpCount`. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
+| `virtual_alloc_top_stacks` | Top-N stacks by observed `VirtualMemAlloc` + `VirtualMemFree` operation bytes. Allocated and freed bytes/counts are reported separately, with total operation traffic and observed net operation bytes. This is not live virtual size, commit, retention, or leak accounting. Requires the `VirtualAlloc` kernel keyword (NOT in default WPR `CPU` profiles). | VirtualAlloc Stacks |
 | `virtual_alloc_caller_callee` | Drill on a focus frame; metric is virtual-memory bytes. | VirtualAlloc Stacks → Callers / Callees tabs |
-| `heap_alloc_top_stacks` | Top-N stacks by **NT-heap** allocation bytes (`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new` — anything that lands in the user-mode heap). Native-leak finder. Distinct from VirtualAlloc: VirtualAlloc reserves page-granular address space, the heap allocator sub-allocates from it. Splits `AllocBytes` / `ReallocBytes`. Free events carry no size on the wire and are not counted. Requires the `Heap` provider enabled **per-process** (default WPR profiles do NOT enable it; use PerfView's `/HeapTrace` flag or a custom `.wprp` `<Heap>` element). | HeapAllocStacks |
+| `heap_alloc_top_stacks` | Top-N stacks by **NT-heap** allocation bytes (`RtlAllocateHeap` / `HeapAlloc` / `malloc` / `new`). This is allocation flow, not retained-memory or leak proof: free events carry no size and are not counted. Distinct from VirtualAlloc; splits `AllocBytes` / `ReallocBytes`. Requires the `Heap` provider enabled **per-process**. | HeapAllocStacks |
 | `heap_alloc_caller_callee` | Drill on a focus frame; metric is NT-heap bytes. | HeapAllocStacks → Callers / Callees tabs |
 
 ### Network I/O
@@ -347,7 +353,7 @@ The three layers cover different parts of the I/O stack — diff them to localis
 |---|---|---|
 | `net_top_stacks` | Top-N stacks by network bytes — TCP + UDP, IPv4 + IPv6 send/recv merged. Splits `TcpBytes` / `UdpBytes` in the response.  Pairs well with `wait_analysis` for "high wall, low CPU" cases where the wait is on a network round-trip. `Connect` / `Accept` / `Disconnect` events have no byte metric — use `find_marker` for those. Requires the `NetworkTrace` keyword (NOT in default `CPU` profiles). | TCP/IP Stacks + UDP/IP Stacks (merged) |
 | `net_caller_callee` | Drill on a focus frame; metric is network bytes. | TCP/IP Stacks → Callers / Callees tabs |
-| `net_connections` | Per-connection lifecycle list — Connect/Accept paired with Disconnect/Reconnect by `connid` to give "connection X opened at T1, closed at T2, lasted T2−T1". Useful for "connect-to-disconnect latency outliers" / "is RPC slow because of connection setup". IPv4 + IPv6 merged with an `IsIPv6` flag. Connections still open at trace end have `TraceResidentEnd=true`. | **[Manual filter]** — Events view, pair `TcpIp/Connect` with `TcpIp/Disconnect` by `connid` by hand |
+| `net_connections` | Per-connection lifecycle list — Connect/Accept paired with Disconnect/Reconnect by `connid` to give "connection X opened at T1, closed at T2, lasted T2−T1". It finds unusually long observed lifecycles; the duration is not connection-establishment latency, request/response latency, or RTT, so it cannot by itself attribute a slow RPC to setup. IPv4 + IPv6 are merged with an `IsIPv6` flag. Connections still open at trace end have `TraceResidentEnd=true`. | **[Manual filter]** — Events view, pair `TcpIp/Connect` with `TcpIp/Disconnect` by `connid` by hand |
 
 ### Registry
 
@@ -356,25 +362,25 @@ The three layers cover different parts of the I/O stack — diff them to localis
 | `registry_top_stacks` | Top-N stacks by registry-operation count (Query / Open / Create / SetValue / EnumerateKey / etc.). Useful for "who's pounding the registry on every hot-path call". Metric is op count (no natural byte cost for registry). Requires the `Registry` keyword (NOT in default `CPU` profiles). | Registry Stacks |
 | `registry_caller_callee` | Drill on a focus frame; metric is registry op count. | Registry Stacks → Callers / Callees tabs |
 
-### ReadyThread (causality)
+### ReadyThread (association evidence)
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `ready_thread_top_stacks` | Top-N **readier** stacks (the code that did the `SetEvent` / lock release / IOCP completion that woke a blocked thread). Pair with `wait_analysis`: that one says "thread X blocked on Y for Z μs" — this one closes the loop with "and here's who finally unblocked it". Filter `awakenedPid` to focus on "who readied threads in this PID". Requires `CSwitch` / `ReadyThread` keywords (in default kernel profiles). | ReadyThread Stacks |
-| `ready_thread_caller_callee` | Drill on a focus frame; metric is ready-event count. | ReadyThread Stacks → Callers / Callees tabs |
+| `ready_thread_top_stacks` | Top-N associated **readier/wakeup** stacks, aggregated by optional `awakenedPid` and the requested window. The stack belongs to the readier, not the awakened thread. These events are not paired one-to-one with a specific wait interval or subsequent CSwitch and cannot alone establish root cause. Use with `wait_analysis` as supporting evidence. | ReadyThread Stacks |
+| `ready_thread_caller_callee` | Drill into the same associated readier/wakeup evidence around a focus frame; metric is ready-event count and carries the same non-causal limitation. | ReadyThread Stacks → Callers / Callees tabs |
 
 ### Interrupts (DPC / ISR)
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `interrupt_top_stacks` | Top-N stacks by kernel interrupt time (DPC + ISR microseconds). Surfaces hot driver routines burning CPU at high IRQL — frequent offenders are consumer-grade GPU drivers, network drivers under load, AV mini-filter callbacks. On a healthy system this should show <5% of trace CPU. Splits `DpcUs` / `IsrUs`. Requires `Interrupt` + `DPC` keywords (default `CPU` profiles enable both). | DPC/ISR Stacks |
+| `interrupt_top_stacks` | Top-N stacks by observed kernel interrupt time (DPC + ISR microseconds), split into `DpcUs` / `IsrUs`. Interpret concentration and CPU share against comparable workload/hardware baselines; there is no universal healthy threshold here, and a hot routine alone does not establish a driver fault. Requires `Interrupt` + `DPC` keywords (default `CPU` profiles enable both). | DPC/ISR Stacks |
 | `interrupt_caller_callee` | Drill on a focus frame; metric is interrupt μs. | DPC/ISR Stacks → Callers / Callees tabs |
 
 ### ALPC (cross-process IPC)
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `alpc_top_stacks` | Top-N stacks by ALPC message count (Send + Receive). ALPC is the kernel IPC primitive used by RPC, COM, AppContainer broker calls, lsass, the SCM, and most of the Windows service surface — useful for "is this slow because of an LPC round-trip" / "which call chain is doing all the cross-process IPC". Requires the `ALPC` keyword (NOT in default `CPU` profiles). | ALPC Stacks |
+| `alpc_top_stacks` | Top-N stacks by ALPC message count (Send + Receive). ALPC is the kernel IPC primitive used by RPC, COM, AppContainer broker calls, lsass, the SCM, and much of the Windows service surface. It identifies call chains associated with message activity; message counts alone do not measure a round-trip or explain latency. Requires the `ALPC` keyword (NOT in default `CPU` profiles). | ALPC Stacks |
 | `alpc_caller_callee` | Drill on a focus frame; metric is ALPC message count. | ALPC Stacks → Callers / Callees tabs |
 
 ### CLR (.NET runtime)
@@ -392,14 +398,14 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 | `clr_exception_caller_callee` | Drill on a focus frame; metric is exception count. | Exceptions Stacks → Callers / Callees tabs |
 | `clr_contention_top_stacks` | Top-N stacks by managed-monitor blocked μs — `lock` / `Monitor.Enter` waits. Matches `ContentionStart`→`ContentionStop` by `ThreadID`. Filters to `ContentionFlags.Managed` (native lock contention from the same provider is excluded). The canonical lock-hotspot tool for managed code. Requires the `Contention` keyword. | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | Drill on a focus frame; metric is blocked μs. | Monitor Contention Stacks → Callers / Callees tabs |
-| `clr_gc_heap_stats` | Managed-heap snapshot timeline — one row per `GCHeapStats` event (CLR fires it at the end of each GC) with `TotalHeapBytes`, `Gen0/1/2/LOH/POH` sizes, `PinnedObjectCount`, `GcHandleCount`. Use to answer "is the heap leaking" / "are pinned objects climbing" without orchestrating multiple calls. Pairs with `clr_gc_analysis`. | GCStats per-GC snapshot table |
-| `clr_finalizer_analysis` | Top types finalized + finalizer-thread pause batches. Aggregates `GCFinalizeObject` events by `TypeName` for the TopTypes table and pairs `GCFinalizersStart`→`GCFinalizersStop` for the per-batch list (each carries the count of finalizers run). Useful for "why are GCs slow" (finalizer queue can hold up the next GC) and "what's allocating finalizable objects". | **[Composite]** — GCStats fields + Events view filtering combined into one call |
+| `clr_gc_heap_stats` | Managed-heap snapshot timeline with heap-generation sizes, pinned-object count, and GC-handle count. Use it to identify trends; an upward trend alone is not proof of a leak or an object-retention path. Pairs with `clr_gc_analysis`. | GCStats per-GC snapshot table |
+| `clr_finalizer_analysis` | Top types observed being finalized + finalizer-thread execution batches. Aggregates `GCFinalizeObject` by `TypeName` and pairs `GCFinalizersStart`→`GCFinalizersStop`. Batch duration is not automatically an application pause. This supports investigating whether finalizer work overlaps GC delays; it does not by itself attribute a slow GC or identify allocation sites. | **[Composite]** — GCStats fields + Events view filtering combined into one call |
 
 ### Markers / generic ETW events
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `find_marker` | Search all ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram (avoids token blow-up); also `count_by_process` and `rows` (full event detail). Useful for surfacing first-party Defender / EDR provider telemetry — e.g., the `Microsoft-Antimalware-AMFilter` provider's `AMFilter_FileScan` rows directly show what the scanner is doing. | Events view |
+| `find_marker` | Search all materialized ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram; `count_by_process` and `rows` expose more detail. It can surface Defender / EDR provider events such as `AMFilter_FileScan`, but event presence is not a duration or performance-causality claim. Empty results return `no_name_match`. | Events view |
 | `generic_event_top_stacks` | Top-N stacks by event count for **any** user-mode ETW provider — AspNetCore, Kestrel, EFCore, Antimalware-AMFilter, Sense (Defender for Endpoint), `Microsoft-Windows-DxgKrnl` (GPU), `Microsoft-Windows-Kernel-Power` (CPU frequency / C-state), or any custom EventSource. Use `find_marker` first to identify which providers are in the trace, then plug the exact `ProviderName` here. Optional `eventNameSubstring` narrows to a specific event class. Stack quality depends on whether stack-walks were enabled for the provider in the `.wprp`. | Any Stacks (single-provider) |
 | `generic_event_caller_callee` | Drill on a focus frame; metric is event count. | Any Stacks → Callers / Callees tabs |
 
@@ -408,7 +414,7 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `diagnose_window` | Windowed evidence composite for one `startUs` / `endUs` interval, optionally scoped to one PID. It returns hard-fault by-file rows sorted by bytes and max latency, file IO top files, memory-pressure summary, security-scan evidence, wait rows, executed-call provenance, not-concluded reasons, and optional zoom-in tools. It has a `maxWindowDurationUs` guard and intentionally returns no root-cause verdict. | **[Composite]** — wraps hard faults, file IO, memory, security scan, and wait views |
-| `diagnose_high_wait` | Preview composite for high blocked-time investigations. It runs one window-consistent `wait_analysis`, adds stack evidence when StackWalks are present, conditionally fans out to ReadyThread evidence when scheduler waits dominate, and returns candidates, evidence, not-concluded reasons, executed-call provenance, and optional next tools without a root-cause field. | **[Composite]** — wraps wait, stack, and ReadyThread views with evidence provenance |
+| `diagnose_high_wait` | Preview composite for high blocked-time investigations. It keeps candidates separated by process lifetime, adds stack evidence only when scoped CSwitch stack coverage supports it, and treats ReadyThread stacks as associated wakeup evidence rather than proof of who caused a wait. It returns explicit not-concluded reasons and no root-cause field. | **[Composite]** — wraps wait, stack, and ReadyThread views with evidence provenance |
 | `diagnose_slow_startup` | Picks slowest-by-wait-ratio processes (or matches `nameSubstring`), then runs `wait_analysis` + `image_load_timing` + `cpu_top_functions` for each startup window. When a candidate's `ProcessStart -> first ImageLoad` gap meets `slowFirstImageLoadThresholdUs`, it also attaches `FirstImageLoadGapEvidence` from `diagnose_window` for that exact pre-user-mode gap. | **[Composite]** — wraps startup wait, loader, CPU, and window evidence |
 
 ### Symbols
@@ -417,7 +423,7 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 |---|---|---|
 | `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
 | `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WpaMcp\Symbols`). | File → Set Symbol Path… (single entry) |
-| `diagnose_symbols` | Reports per-module symbol status for a loaded trace and suggests fixes (which servers to add) for unresolved modules. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
+| `diagnose_symbols` | Reports module PDB identity/local-readiness state and suggests symbol-path fixes. It does not label a module resolved merely because the trace contains a PDB name. Frame counts and resolution rates are null/not measured until a stack lookup observes real code frames. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
 
 ---
 
@@ -425,7 +431,7 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 
 ### Trace cache
 
-LRU, default capacity 2 traces.  Override with `WPAMCP_CACHE_SIZE=N`.  First load builds `.etlx` (slow); cached calls are instant.  `Capabilities` and `TraceLog` are both cached per `(path, mtime)` — re-loading the same `.etl` is free.
+LRU, default capacity 2 traces. Override with `WPAMCP_CACHE_SIZE=N`. A query holds a cache lease for its entire use of the trace; eviction, unload, or shutdown retires an entry and disposes it only after the final active lease ends. Concurrent first access uses one winning Lazy open rather than converting the same large ETL multiple times.
 
 ### Capturing your own traces
 
@@ -439,7 +445,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 ### Symbols
 
-> **If `cpu_top_functions` shows `module!?` everywhere and `Stats.ResolutionRate < 0.8`, your symbols are not working.**  This is the single biggest source of "garbage output".
+> **Judge symbol quality from the stack tool that actually ran lookup.** `inspect_trace` can report PDB identity and local readiness, but not successful frame resolution. A stack response with `SymbolResolutionState=executed` and a low observed code-frame resolution rate needs symbol-path work; a null rate means no eligible code frames were measured, not 0% resolution.
 
 #### Where to set the path
 
@@ -483,6 +489,6 @@ A symbol server doesn't help if the build never produced a PDB, or if PDB and de
 > cpu_top_functions C:\my\trace.etl
 ```
 
-`diagnose_symbols` lists per-module status with hints for unresolved ones; `cpu_top_functions`'s `Stats.ResolutionRate` should be ≥ 0.8 for actionable output. After changing the symbol path mid-session, already loaded traces do not re-resolve symbols; restart the MCP server for now, or use `unload_trace` + `load_trace` once the cache-unload tool is exposed.
+`diagnose_symbols` lists PDB identity and local-readiness state with configuration hints. Run the relevant stack tool to measure actual observed code-frame resolution; interpret its rate together with `SymbolResolutionState`, domain stack coverage, and synthetic-frame count rather than applying a universal threshold. Normal read-only queries use a query-local effective symbol path and do not mutate `_NT_SYMBOL_PATH`; only `set_symbol_path` and `add_symbol_server` intentionally change process state.
 
 For full recipes (UNC paths, private vendors, Chromium-family browsers, cache management, troubleshooting), see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md) ([中文](docs/SYMBOL_RECIPES.zh-CN.md)). Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).

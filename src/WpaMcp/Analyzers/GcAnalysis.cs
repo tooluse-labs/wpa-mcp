@@ -13,19 +13,25 @@ public static class GcAnalysis
         TraceLog trace,
         int? pid,
         long? startUs,
-        long? endUs)
+        long? endUs,
+        long? processStartUs = null)
     {
         var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
         var window = TimeWindowInput.Validate(startUs, endUs, maxDurationUs: null)
             .Resolve(traceEndUs, maxDurationUs: null);
         var identities = TraceIdentityIndex.For(trace);
+        var scope = ProcessAnalysisScope.Resolve(
+            window, pid, processStartUs, identities);
         var accumulator = new GcIntervalAccumulator();
         var unresolvedProcessEventCount = 0;
+        long sourceEventCount = 0;
+        long matchedSourceEventCount = 0;
 
         ClrEventWalker.Walk(trace, clr =>
         {
             clr.GCStart += data =>
             {
+                sourceEventCount++;
                 var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
                 var process = ResolveProcess(
                     identities.Processes, data.ProcessID, timestampUs, atEndpoint: false);
@@ -34,6 +40,10 @@ public static class GcAnalysis
                     unresolvedProcessEventCount++;
                     return;
                 }
+
+                if (scope.IncludedProcesses.Contains(process.Value) &&
+                    window.ContainsPoint(timestampUs))
+                    matchedSourceEventCount++;
 
                 accumulator.AddGcStart(
                     process.Value,
@@ -46,6 +56,7 @@ public static class GcAnalysis
 
             clr.GCStop += data =>
             {
+                sourceEventCount++;
                 var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
                 var process = ResolveProcess(
                     identities.Processes, data.ProcessID, timestampUs, atEndpoint: true);
@@ -54,6 +65,10 @@ public static class GcAnalysis
                     unresolvedProcessEventCount++;
                     return;
                 }
+
+                if (scope.IncludedProcesses.Contains(process.Value) &&
+                    window.ContainsPoint(timestampUs))
+                    matchedSourceEventCount++;
 
                 accumulator.AddGcStop(
                     process.Value,
@@ -64,6 +79,7 @@ public static class GcAnalysis
 
             clr.GCSuspendEEStart += data =>
             {
+                sourceEventCount++;
                 var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
                 var process = ResolveProcess(
                     identities.Processes, data.ProcessID, timestampUs, atEndpoint: false);
@@ -73,6 +89,10 @@ public static class GcAnalysis
                     return;
                 }
 
+                if (scope.IncludedProcesses.Contains(process.Value) &&
+                    window.ContainsPoint(timestampUs))
+                    matchedSourceEventCount++;
+
                 accumulator.AddSuspendStart(
                     process.Value,
                     TryReadClrInstanceId(data),
@@ -81,6 +101,7 @@ public static class GcAnalysis
 
             clr.GCRestartEEStop += data =>
             {
+                sourceEventCount++;
                 var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
                 var process = ResolveProcess(
                     identities.Processes, data.ProcessID, timestampUs, atEndpoint: true);
@@ -90,6 +111,10 @@ public static class GcAnalysis
                     return;
                 }
 
+                if (scope.IncludedProcesses.Contains(process.Value) &&
+                    window.ContainsPoint(timestampUs))
+                    matchedSourceEventCount++;
+
                 accumulator.AddRestartStop(
                     process.Value,
                     TryReadClrInstanceId(data),
@@ -97,7 +122,9 @@ public static class GcAnalysis
             };
         });
 
-        var response = Project(accumulator.Complete(), window, pid);
+        var response = Project(
+            accumulator.Complete(), window, scope, sourceEventCount,
+            matchedSourceEventCount);
         if (unresolvedProcessEventCount == 0)
             return response;
 
@@ -117,6 +144,59 @@ public static class GcAnalysis
         TimeWindow window,
         int? pid)
     {
+        var inferredSourceEventCount = CountAllSourceEndpoints(intervals);
+        bool MatchesProcess(ProcessInstanceKey process) =>
+            !pid.HasValue || process.Pid == pid.Value;
+        return ProjectCore(
+            intervals,
+            window,
+            pid,
+            MatchesProcess,
+            selectedProcess: null,
+            scopeMode: pid.HasValue ? "pid_aggregate" : "all_processes",
+            pidReuseObserved: false,
+            includedProcesses: Array.Empty<ProcessInstanceKey>(),
+            scopeStatus: ProcessAnalysisScope.ResolvedStatus,
+            sourceEventCount: inferredSourceEventCount,
+            matchedSourceEventCount: CountMatchedSourceEndpoints(
+                intervals, window, MatchesProcess));
+    }
+
+    internal static GcAnalysisResponse Project(
+        GcIntervalSet intervals,
+        TimeWindow window,
+        ProcessAnalysisScope scope,
+        long sourceEventCount,
+        long? matchedSourceEventCount = null) =>
+        ProjectCore(
+            intervals,
+            window,
+            scope.Pid,
+            process => scope.IncludedProcesses.Contains(process),
+            scope.SelectedProcess,
+            scope.ScopeMode,
+            scope.PidReuseObserved,
+            scope.IncludedProcesses,
+            scope.ScopeStatus,
+            sourceEventCount,
+            matchedSourceEventCount ?? CountMatchedSourceEndpoints(
+                intervals,
+                window,
+                process => scope.IncludedProcesses.Contains(process)));
+
+    private static GcAnalysisResponse ProjectCore(
+        GcIntervalSet intervals,
+        TimeWindow window,
+        int? pid,
+        Func<ProcessInstanceKey, bool> matchesProcess,
+        ProcessInstanceKey? selectedProcess,
+        string scopeMode,
+        bool pidReuseObserved,
+        IReadOnlyList<ProcessInstanceKey> includedProcesses,
+        string scopeStatus,
+        long sourceEventCount,
+        long matchedSourceEventCount)
+    {
         ArgumentNullException.ThrowIfNull(intervals);
 
         var rows = new List<GcEventRow>();
@@ -130,7 +210,7 @@ public static class GcAnalysis
 
         foreach (var gc in intervals.Gcs)
         {
-            if (pid.HasValue && gc.Key.Process.Pid != pid.Value)
+            if (!matchesProcess(gc.Key.Process))
                 continue;
 
             var wall = DurationAccounting.Project(
@@ -202,7 +282,7 @@ public static class GcAnalysis
 
         foreach (var pause in intervals.OrphanPauses)
         {
-            if (pid.HasValue && pause.Key.Process.Pid != pid.Value)
+            if (!matchesProcess(pause.Key.Process))
                 continue;
 
             var projected = DurationAccounting.Project(
@@ -240,12 +320,41 @@ public static class GcAnalysis
         rows.Sort((left, right) => left.StartUs.CompareTo(right.StartUs));
 
         var warnings = new List<string>();
-        if (rows.Count == 0)
+        var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
+            ? "unknown"
+            : matchedSourceEventCount > 0 || rows.Count > 0
+                ? "observed"
+                : sourceEventCount == 0
+                    ? "not_observed"
+                    : "unknown";
+        if (rows.Count == 0 && sourceEventCount == 0)
         {
             warnings.Add(WarningBuilder.MissingClrKeyword(
                 "GC", "GC", "or no GC occurred in the filter window"));
         }
+        else if (rows.Count == 0)
+        {
+            warnings.Add(
+                "no_matching_gc_intervals: GC endpoint events were observed, but no completed GC or pause interval matched the selected scope and window.");
+        }
+        if (scopeStatus != ProcessAnalysisScope.ResolvedStatus)
+            warnings.Add("scope_not_found: no process lifetime matched the requested selector and window.");
+        if (scopeMode == "pid_aggregate")
+        {
+            warnings.Add(
+                "ambiguous_process_instance: pid-only scope explicitly aggregates multiple process lifetimes; rows remain separated by ProcessStartUs.");
+        }
         warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
+
+        var noDataReason = scopeStatus != ProcessAnalysisScope.ResolvedStatus
+            ? "scope_not_found"
+            : sourceEventCount == 0
+                ? "event_class_not_observed"
+                : rows.Count == 0
+                    ? matchedSourceEventCount > 0
+                        ? "no_completed_intervals_in_scope"
+                        : "no_events_in_scope"
+                    : null;
 
         return new GcAnalysisResponse(
             Pid: pid,
@@ -263,12 +372,57 @@ public static class GcAnalysis
             TotalAccountedPauseUs: totalAccountedPauseUs,
             AccountingMode: DurationAccounting.ClippedOverlapMode,
             IncompleteClrIdentityCount: intervals.IncompleteEvidence.Count(
-                row => row.Code == "missing_clr_instance"),
+                row => row.Code == "missing_clr_instance" &&
+                       matchesProcess(row.Process) &&
+                       window.ContainsPoint(row.TimestampUs)),
             UnmatchedGcIntervalCount:
                 intervals.UnmatchedGcStartCount + intervals.UnmatchedGcStopCount,
             UnmatchedPauseIntervalCount:
                 intervals.UnmatchedSuspendStartCount + intervals.UnmatchedRestartStopCount,
-            InvalidIntervalCount: intervals.InvalidIntervalCount);
+            InvalidIntervalCount: intervals.InvalidIntervalCount,
+            SelectedProcess: selectedProcess,
+            ScopeMode: scopeMode,
+            PidReuseObserved: pidReuseObserved,
+            IncludedProcesses: includedProcesses,
+            ScopeStatus: scopeStatus,
+            CapabilityStatus: capabilityStatus,
+            MatchedEventCount: matchedSourceEventCount,
+            NoDataReason: noDataReason,
+            MatchedIntervalCount: rows.Count);
+    }
+
+    private static long CountAllSourceEndpoints(GcIntervalSet intervals) =>
+        checked(
+            (long)intervals.Gcs.Count * 2 +
+            intervals.Gcs.Sum(gc => (long)gc.Pauses.Count * 2) +
+            (long)intervals.OrphanPauses.Count * 2);
+
+    private static long CountMatchedSourceEndpoints(
+        GcIntervalSet intervals,
+        TimeWindow window,
+        Func<ProcessInstanceKey, bool> matchesProcess)
+    {
+        long count = 0;
+        foreach (var gc in intervals.Gcs)
+        {
+            if (!matchesProcess(gc.Key.Process))
+                continue;
+            if (window.ContainsPoint(gc.StartUs)) count++;
+            if (window.ContainsPoint(gc.EndUs)) count++;
+            foreach (var pause in gc.Pauses)
+            {
+                if (window.ContainsPoint(pause.StartUs)) count++;
+                if (window.ContainsPoint(pause.EndUs)) count++;
+            }
+        }
+        foreach (var pause in intervals.OrphanPauses)
+        {
+            if (!matchesProcess(pause.Key.Process))
+                continue;
+            if (window.ContainsPoint(pause.StartUs)) count++;
+            if (window.ContainsPoint(pause.EndUs)) count++;
+        }
+        return count;
     }
 
     internal static ushort? TryReadClrInstanceId(TraceEvent data)

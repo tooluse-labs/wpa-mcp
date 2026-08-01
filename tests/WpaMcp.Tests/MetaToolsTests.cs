@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Reflection;
 using ModelContextProtocol.Server;
+using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
 using WpaMcp.Tools;
@@ -22,10 +24,60 @@ public class MetaToolsTests
     }
 
     [Fact]
+    public void EventCountsDeclareTraceLogMaterializedRepresentation_NotParserCoverage()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var tools = new MetaTools(cache);
+
+        var loaded = tools.LoadTrace(FixturePath);
+        var inspected = tools.InspectTrace(FixturePath);
+        var probe = StackProbeAnalysis.Analyze(cache.Get(FixturePath), FixturePath);
+
+        Assert.Equal("tracelog_etlx_materialized_logical_events", loaded.Trace.EventCountRepresentation);
+        Assert.Null(loaded.Trace.RawEtwRecordCount);
+        Assert.Equal("not_measured", loaded.Trace.RawEtwRecordCountState);
+        Assert.Null(loaded.Trace.ParserCoverageRate);
+        Assert.Equal("not_computed", loaded.Trace.ParserCoverageState);
+
+        Assert.Equal(
+            "tracelog_etlx_materialized_logical_events_grouped_by_provider",
+            inspected.Metadata.ProviderEvents.CountRepresentation);
+        Assert.Null(inspected.Metadata.ProviderEvents.RawEtwRecordCount);
+        Assert.Equal("not_measured", inspected.Metadata.ProviderEvents.RawEtwRecordCountState);
+        Assert.Equal("not_computed", inspected.Metadata.ProviderEvents.ParserCoverageState);
+        Assert.Contains(inspected.Metadata.Limitations, limitation =>
+            limitation.StartsWith("event_count_representation=tracelog_etlx_materialized_logical_events", StringComparison.Ordinal));
+
+        Assert.Equal(
+            inspected.Metadata.Stackwalks.EventStackCoveragePct!.Value * 100,
+            inspected.Metadata.Stackwalks.EventStackCoveragePercent!.Value,
+            precision: 8);
+        Assert.All(inspected.Metadata.ProviderEvents.TopProviders, provider =>
+            Assert.Equal(
+                provider.StackCoveragePct!.Value * 100,
+                provider.StackCoveragePercent!.Value,
+                precision: 8));
+
+        Assert.Equal("tracelog_etlx_materialized_logical_events", probe.EventCountRepresentation);
+        Assert.Null(probe.RawEtwRecordCount);
+        Assert.Equal("not_measured", probe.RawEtwRecordCountState);
+        Assert.Equal("not_computed", probe.ParserCoverageState);
+        Assert.Equal(probe.EventStackCoveragePct!.Value * 100, probe.EventStackCoveragePercent!.Value, precision: 8);
+        Assert.Equal(probe.CSwitchStackCoveragePct!.Value * 100, probe.CSwitchStackCoveragePercent!.Value, precision: 8);
+        Assert.Equal(probe.ReadyThreadStackCoveragePct!.Value * 100, probe.ReadyThreadStackCoveragePercent!.Value, precision: 8);
+        Assert.Equal("event_call_stack_not_switch_out_blocking_stack", probe.CSwitchStackSemantics);
+
+        var cswitchCoverage = inspected.Capabilities.StackCoverageByDomain!["cswitch"];
+        Assert.Equal("switch_out_blocking_stack", cswitchCoverage.StackSemantics);
+    }
+
+    [Fact]
     public void InspectTrace_ReturnsOrientationShape()
     {
-        var tools = new MetaTools(new TraceCache(capacity: 2));
+        var cache = new TraceCache(capacity: 2);
+        var tools = new MetaTools(cache);
         var resp = tools.InspectTrace(FixturePath);
+        var trace = cache.Get(FixturePath);
 
         Assert.Equal(FixturePath, resp.Trace.Path);
         Assert.True(resp.Trace.EventCount > 0);
@@ -34,8 +86,28 @@ public class MetaToolsTests
         Assert.NotNull(resp.Metadata);
         Assert.Equal(resp.Trace.EventCount, resp.Metadata.ProviderEvents.TotalEventCount);
         Assert.True(resp.Metadata.ProviderEvents.TotalProviderCount > 0);
-        Assert.True(resp.SymbolQuality.ModuleCount >= resp.SymbolQuality.ResolvedModuleCount);
-        var unresolvedModules = resp.SymbolQuality.TopUnresolvedModules.Select(module => module.Module).ToList();
+        Assert.Null(resp.SymbolQuality.ResolvedModuleCount);
+        Assert.Null(resp.SymbolQuality.ModuleResolutionRate);
+        Assert.Equal(
+            trace.ModuleFiles.Count(module => !string.IsNullOrWhiteSpace(module.PdbName)),
+            resp.SymbolQuality.ModulesWithPdbName);
+        Assert.Equal(
+            trace.ModuleFiles.Count(module =>
+                !string.IsNullOrWhiteSpace(module.PdbName) &&
+                module.PdbSignature != Guid.Empty &&
+                module.PdbAge > 0),
+            resp.SymbolQuality.ModulesWithCompletePdbIdentity);
+        Assert.Equal("not_measured", resp.SymbolQuality.FrameResolutionMeasurementState);
+        Assert.Null(resp.SymbolQuality.FrameResolution);
+        Assert.Empty(resp.SymbolQuality.TopUnresolvedModules);
+        var unresolvedModules = resp.SymbolQuality.TopModulesMissingPdbName.Select(module => module.Module).ToList();
+        var expectedModulesMissingPdbName = trace.ModuleFiles
+            .Where(module => string.IsNullOrWhiteSpace(module.PdbName))
+            .OrderBy(module => module.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Select(module => module.Name ?? "<unknown>")
+            .Take(20)
+            .ToList();
+        Assert.Equal(expectedModulesMissingPdbName, unresolvedModules);
         Assert.Equal(
             unresolvedModules.OrderBy(module => module, StringComparer.OrdinalIgnoreCase),
             unresolvedModules);
@@ -44,6 +116,21 @@ public class MetaToolsTests
         Assert.NotEmpty(resp.EnabledCapabilities);
         Assert.DoesNotContain(resp.EnabledCapabilities, capability => capability.StartsWith("missing_", StringComparison.OrdinalIgnoreCase));
         Assert.NotEmpty(resp.RecommendedDiagnosticFlows);
+    }
+
+    [Fact]
+    public void InspectSymbolQuality_LabelsMissingPdbMetadataWithoutClaimingFrameFailure()
+    {
+        var legacy = typeof(InspectSymbolQuality).GetProperty(nameof(InspectSymbolQuality.TopUnresolvedModules));
+        var missingPdb = typeof(InspectSymbolQuality).GetProperty(nameof(InspectSymbolQuality.TopModulesMissingPdbName));
+
+        Assert.NotNull(legacy);
+        Assert.NotNull(missingPdb);
+        var legacyDescription = Assert.IsType<DescriptionAttribute>(legacy.GetCustomAttribute<DescriptionAttribute>()).Description;
+        var missingPdbDescription = Assert.IsType<DescriptionAttribute>(missingPdb.GetCustomAttribute<DescriptionAttribute>()).Description;
+        Assert.Contains("Deprecated", legacyDescription);
+        Assert.Contains("does not prove stack-frame lookup failure", legacyDescription);
+        Assert.Contains("does not indicate whether stack-frame lookup succeeded or failed", missingPdbDescription);
     }
 
     [Fact]
@@ -98,10 +185,18 @@ public class MetaToolsTests
                 NtSymbolPath: null,
                 CacheDir: "",
                 ModuleCount: 1,
-                ResolvedModuleCount: 0,
-                ModuleResolutionRate: 0,
+                ResolvedModuleCount: null,
+                ModuleResolutionRate: null,
                 TopUnresolvedModules: Array.Empty<InspectUnresolvedModule>(),
-                Recommendations: Array.Empty<SymbolRecommendation>()));
+                Recommendations: Array.Empty<SymbolRecommendation>(),
+                ModulesWithPdbName: 0,
+                ModulesWithPdbNameRate: 0,
+                ModulesWithCompletePdbIdentity: 0,
+                CompletePdbIdentityRate: 0));
+
+        Assert.Contains(warnings, warning => warning.Code == "low_module_pdb_identity_coverage");
+        Assert.DoesNotContain(warnings, warning =>
+            warning.Message.Contains("resolved PDB", StringComparison.OrdinalIgnoreCase));
 
         foreach (var toolName in warnings
                      .SelectMany(warning => warning.AffectedTools.Concat(warning.DegradedTools))
@@ -117,8 +212,11 @@ public class MetaToolsTests
         var tools = new MetaTools(new TraceCache(capacity: 2));
         var resp = tools.InspectTrace(FixturePath);
 
-        if (resp.Capabilities.HasCpuSamples)
+        var cpuStacks = resp.Capabilities.StackCoverageByDomain?["cpu"];
+        if (resp.Capabilities.HasCpuSamples && cpuStacks?.StackedEventCount > 0)
             Assert.Contains(resp.CapabilitySupportedTools, r => r.ToolName == "cpu_top_functions");
+        else if (resp.Capabilities.HasCpuSamples)
+            Assert.DoesNotContain(resp.CapabilitySupportedTools, r => r.ToolName == "cpu_top_functions");
         else
             Assert.Contains(resp.Warnings, w => w.Code == "missing_cpu_samples");
 
@@ -155,7 +253,21 @@ public class MetaToolsTests
             Assert.True(provider.StackCoveragePct is null or (>= 0.0 and <= 1.0));
         });
 
-        Assert.Equal(resp.Capabilities.HasStackWalks, resp.Metadata.Stackwalks.HasStackWalkEvents);
+        Assert.Equal(
+            resp.Metadata.Stackwalks.StackWalkEventCount > 0,
+            resp.Metadata.Stackwalks.HasStackWalkEvents);
+        Assert.Equal(
+            resp.Metadata.Stackwalks.StackWalkEventCount > 0,
+            resp.Metadata.Stackwalks.HasExplicitStackWalkEvents);
+        Assert.Equal(
+            resp.Capabilities.HasExplicitStackWalkEvents,
+            resp.Metadata.Stackwalks.HasExplicitStackWalkEvents);
+        Assert.Equal(
+            resp.Capabilities.ExplicitStackWalkEventCount,
+            resp.Metadata.Stackwalks.StackWalkEventCount);
+        Assert.Equal(
+            resp.Capabilities.HasAttachedEventStacks,
+            resp.Metadata.Stackwalks.HasUsableEventStacks);
         Assert.True(resp.Metadata.Stackwalks.EventStackCoveragePct is null or (>= 0.0 and <= 1.0));
     }
 
@@ -191,7 +303,7 @@ public class MetaToolsTests
     }
 
     [Fact]
-    public void InspectTrace_AddsTraceDirectoryWhenSymbolPathUnset()
+    public void InspectTrace_DoesNotMutateUnsetConfiguredSymbolPath()
     {
         var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
         try
@@ -199,10 +311,9 @@ public class MetaToolsTests
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", null);
             var tools = new MetaTools(new TraceCache(capacity: 2));
             var resp = tools.InspectTrace(FixturePath);
-            Assert.DoesNotContain(resp.Warnings, w => w.Code == "symbol_path_unset");
-            Assert.Contains(
-                Path.GetDirectoryName(Path.GetFullPath(FixturePath))!,
-                resp.SymbolQuality.NtSymbolPath);
+            Assert.Contains(resp.Warnings, w => w.Code == "symbol_path_unset");
+            Assert.Null(resp.SymbolQuality.NtSymbolPath);
+            Assert.Null(Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
             Assert.Contains(resp.OrientationTools, r => r.ToolName == "diagnose_symbols");
         }
         finally
@@ -391,7 +502,7 @@ public class MetaToolsTests
     }
 
     [Fact]
-    public void LoadTrace_AddsTraceDirectoryWhenSymbolPathUnset()
+    public void LoadTrace_DoesNotMutateUnsetConfiguredSymbolPath()
     {
         var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
         try
@@ -399,10 +510,9 @@ public class MetaToolsTests
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", null);
             var tools = new MetaTools(new TraceCache(capacity: 2));
             var resp = tools.LoadTrace(FixturePath);
-            Assert.Null(resp.SymbolStatus.Warning);
-            Assert.Contains(
-                Path.GetDirectoryName(Path.GetFullPath(FixturePath))!,
-                resp.SymbolStatus.NtSymbolPath);
+            Assert.NotNull(resp.SymbolStatus.Warning);
+            Assert.Null(resp.SymbolStatus.NtSymbolPath);
+            Assert.Null(Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
         }
         finally
         {

@@ -67,25 +67,34 @@ public sealed class SymbolTools
         "Per-module symbol-resolution status for an already-loaded trace, with auto-suggested " +
         "fixes for unresolved modules (which symbol server to add for which module — e.g., " +
         "msdl.microsoft.com for ntdll/kernelbase, Chromium symbol server for chrome.exe / cef.dll).  " +
-        "The first sanity check to run when cpu_top_functions shows lots of `module!?` frames " +
-        "or `Stats.ResolutionRate < 0.8`.  PerfView equivalent: Modules tab + Set Symbol Path " +
+        "The first metadata/local-readiness check to run when cpu_top_functions shows lots of `module!?` frames " +
+        "or a low observed frame-name resolution rate. This tool does not execute frame lookup; " +
+        "actual resolution is measured by stack tools. PerfView equivalent: Modules tab + Set Symbol Path " +
         "dialog (this tool composes both, plus auto-recommends which server to add per module).  " +
         "Returns top 50 modules sorted unresolved-first, expected PDB name/GUID/Age, local disk " +
         "symbol-path candidates, native DIA DLL health, and trace-directory symbol-path status. " +
         "Local disk paths plus local disk SRV/CACHE caches and stores are probed read-only; remote " +
-        "SRV URLs are not contacted to avoid surprise downloads. If any are unresolved, includes a 'after fixing, " +
-        "re-run cpu_top_functions to verify' suggestion. No startUs/endUs: module symbol status " +
+        "SRV URLs are not contacted to avoid surprise downloads. If modules are not locally ready, " +
+        "the response recommends running the target stack tool after fixing the path to measure actual frame-name resolution. No startUs/endUs: module symbol status " +
         "is a whole-trace image/module property.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
         [Description("Absolute path to .etl file")] string path)
     {
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var rows = new List<ModuleSymbolStatus>();
         var suggestions = new List<string>();
-        var path0 = _symbols.CurrentPath;
-        var traceDirectory = Path.GetDirectoryName(Path.GetFullPath(path)) ?? "";
-        var localSymbolPath = ParseLocalSymbolPath(path0);
-        var traceDirectoryInSymbolPath = SymbolPathContainsLocalPath(localSymbolPath.Roots, traceDirectory);
+        var canonicalTracePath = Path.GetFullPath(path);
+        var symbolPathSnapshot = SymbolPathState.GetSnapshot(canonicalTracePath);
+        var configuredPath = symbolPathSnapshot.ConfiguredPath;
+        var traceDirectory = Path.GetDirectoryName(canonicalTracePath) ?? "";
+        var effectivePath = symbolPathSnapshot.EffectivePath;
+        var configuredLocalSymbolPath = ParseLocalSymbolPath(configuredPath);
+        var localSymbolPath = ParseLocalSymbolPath(effectivePath);
+        var traceDirectoryInConfiguredPath = SymbolPathContainsLocalPath(
+            configuredLocalSymbolPath.Roots, traceDirectory);
+        var traceDirectoryInEffectivePath = SymbolPathContainsLocalPath(
+            localSymbolPath.Roots, traceDirectory);
         var nativeSupport = BuildNativeSymbolSupport();
         suggestions.AddRange(localSymbolPath.Warnings);
 
@@ -103,30 +112,29 @@ public sealed class SymbolTools
                 "Native DIA support is missing; install the release zip layout or place msdia140.dll under native\\amd64 beside the installed bin directory.");
         }
 
-        if (!traceDirectoryInSymbolPath)
+        if (rows.Any(r => !r.LocalPdbReady))
         {
             suggestions.Add(
-                "Trace directory is not in _NT_SYMBOL_PATH; load_trace normally adds it automatically, but set_symbol_path append=false can remove it.");
-        }
-
-        if (rows.Any(r => !r.Resolved))
-        {
-            suggestions.Add(
-                "After updating symbols, re-run cpu_top_functions to verify resolution_rate improved.");
+                "After updating symbols, run the target stack tool with resolveSymbols=true and verify its observed frame-name resolution rates.");
         }
 
         return new DiagnoseSymbolsResponse(
-            CurrentSymbolPath: path0 ?? "<unset>",
+            CurrentSymbolPath: configuredPath ?? "<unset>",
             CacheDir: _symbols.DefaultCacheDir,
             Modules: rows
-                .OrderBy(r => r.Resolved ? 1 : 0)
+                .OrderBy(r => r.LocalPdbReady ? 1 : 0)
                 .ThenBy(r => r.Module, StringComparer.OrdinalIgnoreCase)
                 .Take(50)
                 .ToList(),
             Suggestions: suggestions,
             TraceDirectory: traceDirectory,
-            TraceDirectoryInSymbolPath: traceDirectoryInSymbolPath,
-            NativeSymbolSupport: nativeSupport);
+            TraceDirectoryInSymbolPath: traceDirectoryInEffectivePath,
+            NativeSymbolSupport: nativeSupport,
+            ConfiguredSymbolPath: configuredPath ?? "<unset>",
+            EffectiveSymbolPath: effectivePath,
+            TraceDirectoryInConfiguredSymbolPath: traceDirectoryInConfiguredPath,
+            TraceDirectoryInEffectiveSymbolPath: traceDirectoryInEffectivePath,
+            FrameResolutionMeasurementState: "not_measured");
     }
 
     // Per-module hint lookup is centralised in SymbolHintCatalog (see Core/).
@@ -134,6 +142,14 @@ public sealed class SymbolTools
     internal static string SuggestServerForModule(string moduleName)
         => SymbolHintCatalog.Match(moduleName)?.DiagnoseHint
            ?? "PDB not indexed; provide local PDB folder via set_symbol_path or contact the module owner.";
+
+    internal static bool HasCompletePdbIdentity(
+        string? pdbName,
+        Guid pdbSignature,
+        int pdbAge)
+        => !string.IsNullOrWhiteSpace(Path.GetFileName(pdbName)) &&
+           pdbSignature != Guid.Empty &&
+           pdbAge > 0;
 
     internal static NativeSymbolSupportStatus BuildNativeSymbolSupport()
     {
@@ -202,15 +218,15 @@ public sealed class SymbolTools
             moduleName = "<unknown>";
 
         var pdbName = Path.GetFileName(module.PdbName);
-        var hasPdbIdentity = !string.IsNullOrWhiteSpace(pdbName) &&
-                             module.PdbSignature != Guid.Empty &&
-                             module.PdbAge > 0;
+        var hasPdbName = !string.IsNullOrWhiteSpace(pdbName);
+        var hasPdbIdentity = HasCompletePdbIdentity(
+            pdbName, module.PdbSignature, module.PdbAge);
         if (!hasPdbIdentity)
         {
             return new ModuleSymbolStatus(
                 Module: moduleName,
-                FrameCount: 0,
-                Resolved: false,
+                FrameCount: null,
+                Resolved: null,
                 Suggestion: SuggestServerForModule(moduleName),
                 FilePath: EmptyToNull(module.FilePath),
                 ExpectedPdbName: EmptyToNull(pdbName),
@@ -219,7 +235,12 @@ public sealed class SymbolTools
                 BinaryFormat: module.BinaryFormat.ToString(),
                 LookupStatus: "missing_pdb_identity",
                 FailureReason: "Trace/module metadata does not include a complete PDB name + GUID + Age identity. Recapture or merge the ETL on the collection machine so PDB signatures are present.",
-                LocalSymbolCandidates: Array.Empty<string>());
+                LocalSymbolCandidates: Array.Empty<string>(),
+                HasPdbName: hasPdbName,
+                HasCompletePdbIdentity: false,
+                LocalPdbReady: false,
+                FrameResolutionState: "not_measured",
+                EvidenceScope: "module_metadata_and_local_candidate_probe");
         }
 
         var localCandidates = FindLocalSymbolCandidateDetails(
@@ -241,7 +262,7 @@ public sealed class SymbolTools
             "found_in_local_symbol_path" => null,
             "found_but_native_dia_missing" => "A matching local PDB candidate exists, but msdia140.dll is missing so TraceEvent cannot open Windows PDBs.",
             "found_flat_candidate_identity_unverified" => "A flat PDB with the expected file name exists, but diagnose_symbols did not verify its GUID/Age. Run a stack tool with resolveSymbols=true or provide a symbol-store layout PDB to confirm it matches this trace.",
-            _ => "No matching local PDB candidate was found in local disk _NT_SYMBOL_PATH entries. UNC paths are skipped to avoid SMB latency; if your symbol store is on a network share, copy it to a local disk first. Remote SRV entries are not probed by diagnose_symbols to avoid downloads."
+            _ => "No matching local PDB candidate was found in local disk entries of the effective query path (configured path plus trace directory). UNC paths are skipped to avoid SMB latency; if your symbol store is on a network share, copy it to a local disk first. Remote SRV entries are not probed by diagnose_symbols to avoid downloads."
         };
         var suggestion = lookupStatus switch
         {
@@ -252,8 +273,8 @@ public sealed class SymbolTools
 
         return new ModuleSymbolStatus(
             Module: moduleName,
-            FrameCount: 0,
-            Resolved: lookupStatus == "found_in_local_symbol_path",
+            FrameCount: null,
+            Resolved: null,
             Suggestion: suggestion,
             FilePath: EmptyToNull(module.FilePath),
             ExpectedPdbName: pdbName,
@@ -262,7 +283,12 @@ public sealed class SymbolTools
             BinaryFormat: module.BinaryFormat.ToString(),
             LookupStatus: lookupStatus,
             FailureReason: failureReason,
-            LocalSymbolCandidates: candidatePaths);
+            LocalSymbolCandidates: candidatePaths,
+            HasPdbName: true,
+            HasCompletePdbIdentity: true,
+            LocalPdbReady: foundExactPdb && nativeSupport.Msdia140Present,
+            FrameResolutionState: "not_measured",
+            EvidenceScope: "module_metadata_and_local_candidate_probe");
     }
 
     internal static IReadOnlyList<string> FindLocalSymbolCandidates(

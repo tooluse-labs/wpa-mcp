@@ -98,6 +98,11 @@ public class CpuAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10);
         Assert.True(resp.Rows.Count <= 10);
+        var coverage = Assert.IsType<DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("cpu", coverage.Domain);
+        Assert.Equal("count", coverage.MetricName);
+        Assert.Equal(resp.TotalSamples, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalSamples, coverage.TotalMetric);
     }
 
     [Fact]
@@ -110,11 +115,22 @@ public class CpuAnalysisTests
     }
 
     [Fact]
-    public void CpuTopFunctions_EmitsResolutionStats()
+    public void CpuTopFunctions_ResolutionStatsAreNullableWhenNoCodeFramesAreObserved()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10);
-        Assert.True(resp.Stats.ResolutionRate >= 0.0 && resp.Stats.ResolutionRate <= 1.0);
+
+        if (resp.Stats.UniqueCodeFrameCount == 0)
+        {
+            Assert.Null(resp.Stats.ResolutionRate);
+            Assert.Null(resp.Stats.ObservedUniqueCodeFrameNameResolutionRate);
+            Assert.Null(resp.Stats.ObservedMetricWeightedCodeFrameNameResolutionRate);
+        }
+        else
+        {
+            Assert.NotNull(resp.Stats.ResolutionRate);
+            Assert.InRange(resp.Stats.ResolutionRate.Value, 0.0, 1.0);
+        }
     }
 
     [Fact]
@@ -198,6 +214,7 @@ public class CpuAnalysisTests
             Assert.Equal(single.Warnings, batched.Warnings);
             Assert.Equal(single.HasSampledProfileStacks, batched.HasSampledProfileStacks);
             Assert.Equal(single.SymbolResolutionState, batched.SymbolResolutionState);
+            Assert.Equal(single.StackCoverage, batched.StackCoverage);
         }
     }
 
@@ -243,6 +260,286 @@ public class CpuAnalysisTests
         Assert.False(batch.Partial);
         Assert.Equal(pids.Length, batch.RequestedPidCount);
         Assert.Equal(batch.PerPid.Count, batch.CompletedPidCount);
+        Assert.Equal(pids, batch.CompletedPids);
+        Assert.Empty(batch.PidsNotFound ?? []);
+        Assert.Empty(batch.PidsWithNoSamples ?? []);
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_RejectsSelectorLengthMismatchBeforeTraceLoad()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+
+        var error = Assert.Throws<ArgumentException>(() => tools.CpuTopFunctionsBatch(
+            "missing.etl",
+            pids: [10, 20],
+            processStartUs: [100]));
+
+        Assert.Contains("process_start_selector_count_mismatch", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_RejectsConflictingDuplicatePidSelectorsBeforeTraceLoad()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+
+        var error = Assert.Throws<ArgumentException>(() => tools.CpuTopFunctionsBatch(
+            "missing.etl",
+            pids: [10, 10],
+            processStartUs: [null, 100]));
+
+        Assert.Contains("duplicate_pid_selector_conflict", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_MissingPidIsScopeNotFound_NotCompletedEmptyResult()
+    {
+        var missingPid = int.MaxValue;
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+
+        var response = tools.CpuTopFunctionsBatch(FixturePath, [missingPid], top: 5);
+
+        Assert.Empty(response.PerPid);
+        Assert.Empty(response.CompletedPids ?? []);
+        Assert.Equal([missingPid], response.PidsNotFound);
+        Assert.Empty(response.PidsWithNoSamples ?? []);
+        Assert.Empty(response.SkippedPids ?? []);
+        Assert.Equal(0, response.CompletedPidCount);
+        Assert.False(response.Partial);
+        var scope = Assert.Single(response.ScopeResults ?? []);
+        Assert.Equal("scope_not_found", scope.ScopeStatus);
+        Assert.Equal("scope_not_found", scope.ResultStatus);
+        Assert.Equal("scope_not_found", scope.NoDataReason);
+        Assert.Equal("unknown", scope.CapabilityStatus);
+    }
+
+    [Fact]
+    public void CpuTopFunctions_MissingExactProcessReturnsStructuredScopeNotFound()
+    {
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+
+        var response = tools.CpuTopFunctions(
+            FixturePath,
+            pid: int.MaxValue,
+            processStartUs: 42,
+            top: 5);
+
+        Assert.Empty(response.Rows);
+        Assert.Equal("unresolved", response.ScopeMode);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Null(response.SelectedProcess);
+        Assert.Empty(response.IncludedProcesses ?? []);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("scope_not_found:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_ExistingInstanceWithoutSamplesIsCompletedAndClassified()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var identities = TraceIdentityIndex.For(trace);
+        var samplePoints = trace.Events
+            .OfType<SampledProfileTraceData>()
+            .Select(sample => (sample.ProcessID, TimeUs: TraceTime.FromMilliseconds(sample.TimeStampRelativeMSec)))
+            .ToHashSet();
+        var candidate = identities.Processes.Lifetimes
+            .Where(lifetime =>
+                lifetime.Key.Pid > 0 &&
+                lifetime.Key.StartUs >= 0 &&
+                lifetime.EndUs > lifetime.Key.StartUs)
+            .Select(lifetime =>
+            {
+                var end = Math.Min(lifetime.EndUs, identities.TraceEndUs);
+                var time = lifetime.Key.StartUs;
+                while (time < end && samplePoints.Contains((lifetime.Key.Pid, time)))
+                    time++;
+                return (Lifetime: lifetime, TimeUs: time, EndUs: end);
+            })
+            .First(item => item.TimeUs < item.EndUs);
+        var tools = new CpuTools(new TraceCache(capacity: 1));
+
+        var response = tools.CpuTopFunctionsBatch(
+            FixturePath,
+            [candidate.Lifetime.Key.Pid],
+            top: 5,
+            startUs: candidate.TimeUs,
+            endUs: candidate.TimeUs + 1,
+            processStartUs: [candidate.Lifetime.Key.StartUs]);
+
+        var perPid = Assert.Single(response.PerPid);
+        Assert.Equal(candidate.Lifetime.Key.Pid, perPid.Key);
+        Assert.Empty(perPid.Value.Rows);
+        Assert.Equal(0, perPid.Value.TotalSamples);
+        Assert.Equal("single_process", perPid.Value.ScopeMode);
+        Assert.Equal(candidate.Lifetime.Key, perPid.Value.SelectedProcess);
+        Assert.Equal("no_events_in_scope", perPid.Value.NoDataReason);
+        Assert.Equal([candidate.Lifetime.Key.Pid], response.CompletedPids);
+        Assert.Empty(response.PidsNotFound ?? []);
+        Assert.Equal([candidate.Lifetime.Key.Pid], response.PidsWithNoSamples);
+        Assert.Equal(1, response.CompletedPidCount);
+        Assert.False(response.Partial);
+        var scope = Assert.Single(response.ScopeResults ?? []);
+        Assert.Equal("completed_no_samples", scope.ResultStatus);
+        Assert.Equal("no_events_in_scope", scope.NoDataReason);
+        Assert.Equal(0, scope.MatchedSampleCount);
+        Assert.Equal("unknown", scope.CapabilityStatus);
+        Assert.Contains(perPid.Value.Warnings, warning =>
+            warning.StartsWith("no_events_in_scope:", StringComparison.Ordinal));
+        Assert.DoesNotContain(perPid.Value.Warnings, warning =>
+            warning.Contains("keyword disabled", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CpuSampleCapabilityContract_TraceAbsentClassifiesTopCallerCalleeAndBatch()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var identities = TraceIdentityIndex.For(trace);
+        var samplePoints = trace.Events
+            .OfType<SampledProfileTraceData>()
+            .Select(sample => (
+                sample.ProcessID,
+                TimeUs: TraceTime.FromMilliseconds(sample.TimeStampRelativeMSec)))
+            .ToHashSet();
+        var candidate = identities.Processes.Lifetimes
+            .Where(lifetime =>
+                lifetime.Key.Pid > 0 &&
+                lifetime.Key.StartUs >= 0 &&
+                lifetime.EndUs > lifetime.Key.StartUs)
+            .Select(lifetime =>
+            {
+                var end = Math.Min(lifetime.EndUs, identities.TraceEndUs);
+                var time = lifetime.Key.StartUs;
+                while (time < end && samplePoints.Contains((lifetime.Key.Pid, time)))
+                    time++;
+                return (Lifetime: lifetime, TimeUs: time, EndUs: end);
+            })
+            .First(item => item.TimeUs < item.EndUs);
+        var window = new TimeWindow(candidate.TimeUs, candidate.TimeUs + 1);
+        var processScope = ProcessAnalysisScope.Resolve(
+            window,
+            candidate.Lifetime.Key.Pid,
+            candidate.Lifetime.Key.StartUs,
+            identities);
+        var threadScope = CpuTools.ResolveStackScope(
+            window,
+            candidate.Lifetime.Key.Pid,
+            tid: null,
+            candidate.Lifetime.Key.StartUs,
+            threadStartUs: null,
+            identities,
+            processScope);
+
+        var top = CpuAnalysis.TopFunctions(
+            trace,
+            top: 5,
+            scope: threadScope,
+            symbolLog: TextWriter.Null,
+            resolveSymbols: false,
+            hasFilter: true,
+            processScope: processScope,
+            traceHasCpuSamples: false);
+        var callerCallee = CpuAnalysis.CallerCallee(
+            trace,
+            focusFunction: "missing::focus",
+            top: 5,
+            scope: threadScope,
+            symbolLog: TextWriter.Null,
+            resolveSymbols: false,
+            processScope: processScope,
+            traceHasCpuSamples: false);
+        var batch = CpuAnalysis.ExecuteTopFunctionsBatch(
+            trace,
+            top: 5,
+            selectors:
+            [
+                new CpuAnalysis.BatchSelector(
+                    candidate.Lifetime.Key.Pid,
+                    candidate.Lifetime.Key.StartUs),
+            ],
+            window,
+            TextWriter.Null,
+            excludeEtwSelfOverhead: false,
+            includeTracePct: false,
+            resolveSymbols: false,
+            timeBudgetMs: 100_000,
+            traceHasCpuSamples: false);
+
+        Assert.Equal("not_observed", top.CapabilityStatus);
+        Assert.Equal("event_class_not_observed", top.NoDataReason);
+        Assert.Equal(0, top.MatchedEventCount);
+        Assert.Equal("not_observed", callerCallee.CapabilityStatus);
+        Assert.Equal("event_class_not_observed", callerCallee.NoDataReason);
+        Assert.Equal(0, callerCallee.MatchedEventCount);
+        var perPid = Assert.Single(batch.PerPid).Value;
+        Assert.Equal("not_observed", perPid.CapabilityStatus);
+        Assert.Equal("event_class_not_observed", perPid.NoDataReason);
+        var scope = Assert.Single(batch.ScopeResults);
+        Assert.Equal("not_observed", scope.CapabilityStatus);
+        Assert.Equal("event_class_not_observed", scope.NoDataReason);
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_BudgetStopClassifiesResolvedPidAsSkipped()
+    {
+        var trace = new TraceCache(capacity: 1).Get(FixturePath);
+        var pid = CpuSamplePids().First();
+        var window = new TimeWindow(
+            0,
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds));
+        var execution = CpuAnalysis.ExecuteTopFunctionsBatch(
+            trace,
+            top: 5,
+            selectors: [new CpuAnalysis.BatchSelector(pid, ProcessStartUs: null)],
+            window,
+            TextWriter.Null,
+            excludeEtwSelfOverhead: false,
+            includeTracePct: false,
+            resolveSymbols: false,
+            timeBudgetMs: 100_000,
+            stopRequested: () => true);
+
+        Assert.Empty(execution.PerPid);
+        Assert.Empty(execution.CompletedPids);
+        Assert.Equal([pid], execution.SkippedPids);
+        Assert.True(execution.Partial);
+        var scope = Assert.Single(execution.ScopeResults);
+        Assert.Equal("budget_skipped", scope.ResultStatus);
+        Assert.Equal("budget_exhausted", scope.NoDataReason);
+        Assert.Contains(execution.Warnings, warning =>
+            warning.StartsWith("time_budget_exhausted:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CpuTopFunctionsBatch_ReuseScopeMetadataDistinguishesAggregateAndExactInstance()
+    {
+        ProcessLifetime[] lifetimes =
+        [
+            new(new ProcessInstanceKey(42, 100), 200, true, true),
+            new(new ProcessInstanceKey(42, 300), 400, true, true),
+        ];
+        var window = new TimeWindow(0, 500);
+
+        var aggregate = Assert.Single(CpuAnalysis.ResolveBatchScopes(
+            window,
+            [new CpuAnalysis.BatchSelector(42, ProcessStartUs: null)],
+            lifetimes));
+        var exact = Assert.Single(CpuAnalysis.ResolveBatchScopes(
+            window,
+            [new CpuAnalysis.BatchSelector(42, ProcessStartUs: 300)],
+            lifetimes));
+
+        Assert.Equal("pid_aggregate", aggregate.Scope.ScopeMode);
+        Assert.True(aggregate.Scope.PidReuseObserved);
+        Assert.Null(aggregate.Scope.SelectedProcess);
+        Assert.Equal(
+            [new ProcessInstanceKey(42, 100), new ProcessInstanceKey(42, 300)],
+            aggregate.Scope.IncludedProcesses);
+        Assert.Equal("single_process", exact.Scope.ScopeMode);
+        Assert.True(exact.Scope.PidReuseObserved);
+        Assert.Equal(new ProcessInstanceKey(42, 300), exact.Scope.SelectedProcess);
+        Assert.Equal([new ProcessInstanceKey(42, 300)], exact.Scope.IncludedProcesses);
     }
 
     [Fact]
@@ -317,6 +614,7 @@ public class CpuAnalysisTests
         Assert.Equal("samples", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0,
             $"?!? should have inclusive samples > 0; got {ccResp.FocusInclusiveMetric}");
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
         Assert.Equal(noStackRow.InclusiveSamples, ccResp.FocusInclusiveMetric);
         // ?!? is the leaf of every no-stack sample, so exclusive == inclusive.
         Assert.Equal(ccResp.FocusInclusiveMetric, ccResp.FocusExclusiveMetric);

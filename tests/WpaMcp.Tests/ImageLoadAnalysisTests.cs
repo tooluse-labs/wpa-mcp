@@ -1,3 +1,4 @@
+using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
 using WpaMcp.Tools;
@@ -39,6 +40,10 @@ public class ImageLoadAnalysisTests
 
         Assert.NotNull(success);
         Assert.NotEmpty(success!.Loads);
+        Assert.Equal(success.TotalImageLoads, success.MatchedEventCount);
+        Assert.Equal("observed", success.CapabilityStatus);
+        Assert.Equal("ok", success.ScopeStatus);
+        Assert.Null(success.NoDataReason);
         for (var i = 1; i < success.Loads.Count; i++)
             Assert.True(success.Loads[i - 1].TimeUs <= success.Loads[i].TimeUs);
     }
@@ -109,11 +114,17 @@ public class ImageLoadAnalysisTests
     }
 
     [Fact]
-    public void ImageLoadTopGaps_UnknownPidThrows()
+    public void ImageLoadTopGaps_UnknownPidReturnsStructuredEmptyResponse()
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
-        Assert.Throws<ArgumentException>(() =>
-            tools.ImageLoadTopGaps(FixturePath, pid: 999_999, top: 10));
+        var response = tools.ImageLoadTopGaps(
+            FixturePath, pid: 999_999, top: 10, processStartUs: 123);
+
+        Assert.Empty(response.TopGaps);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
     }
 
     [Fact]
@@ -138,9 +149,71 @@ public class ImageLoadAnalysisTests
     }
 
     [Fact]
-    public void ImageLoadTiming_UnknownPidThrows()
+    public void ImageLoadTiming_UnknownPidReturnsStructuredEmptyResponse()
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
-        Assert.Throws<ArgumentException>(() => tools.ImageLoadTiming(FixturePath, pid: 999_999, top: 10));
+        var response = tools.ImageLoadTiming(
+            FixturePath, pid: 999_999, top: 10, processStartUs: 123);
+
+        Assert.Empty(response.Loads);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
+    }
+
+    [Fact]
+    public void ProjectLoads_ExcludesEventsFromReusedPidLifetime()
+    {
+        var selected = new ProcessLifetime(
+            new ProcessInstanceKey(Pid: 42, StartUs: 100),
+            EndUs: 200,
+            StartObserved: true,
+            EndObserved: true);
+        var observations = new[]
+        {
+            new ImageLoadObservation(42, 110, "first.dll", 1),
+            new ImageLoadObservation(42, 190, "second.dll", 2),
+            new ImageLoadObservation(42, 210, "reused.dll", 3),
+            new ImageLoadObservation(99, 150, "other.dll", 4),
+        };
+
+        var loads = ImageLoadAnalysis.ProjectLoads(observations, selected);
+
+        Assert.Collection(
+            loads,
+            row =>
+            {
+                Assert.Equal("first.dll", row.FileName);
+                Assert.Equal(10, row.TimeFromProcessStartUs);
+                Assert.Null(row.GapFromPrevUs);
+            },
+            row =>
+            {
+                Assert.Equal("second.dll", row.FileName);
+                Assert.Equal(90, row.TimeFromProcessStartUs);
+                Assert.Equal(80, row.GapFromPrevUs);
+            });
+    }
+
+    [Fact]
+    public void SelectProcessInstance_RequiresStartForReusedPid()
+    {
+        var lifetimes = new[]
+        {
+            new ProcessLifetime(new ProcessInstanceKey(42, 100), 200, true, true),
+            new ProcessLifetime(new ProcessInstanceKey(42, 300), 400, true, true),
+        };
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            ImageLoadAnalysis.SelectProcessInstance(lifetimes, pid: 42, processStartUs: null));
+
+        Assert.Contains("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
+        Assert.Contains("100", error.Message, StringComparison.Ordinal);
+        Assert.Contains("300", error.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            new ProcessInstanceKey(42, 300),
+            ImageLoadAnalysis.SelectProcessInstance(
+                lifetimes, pid: 42, processStartUs: 300).Key);
     }
 }

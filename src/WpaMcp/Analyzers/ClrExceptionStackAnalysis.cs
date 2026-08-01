@@ -28,19 +28,23 @@ public static class ClrExceptionStackAnalysis
         long? endUs,
         TextWriter symbolLog,
         int whenBuckets = 0,
-        bool? filterSpecified = null)
+        bool? filterSpecified = null,
+        long? processStartUs = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
-        {
-            FilterSpecified = filterSpecified,
-        };
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
+        contract.AddWarning(ctx.Warnings);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
 
         var rows = callTree.ByID
+            .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new ClrExceptionStackRow(
@@ -59,7 +63,16 @@ public static class ClrExceptionStackAnalysis
             TopTypes: ctx.TopTypes,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build());
+            When: when.Build(),
+            StackCoverage: ctx.StackCoverage,
+            SelectedProcess: contract.SelectedProcess,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -69,28 +82,40 @@ public static class ClrExceptionStackAnalysis
         int? pid,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        long? processStartUs = null,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "exceptions", ctx.Stats, ctx.Warnings);
+            ctx.Normalized, focusFunction, top, metricName: "exceptions", ctx.Stats, ctx.Warnings,
+            sourceTotalMetric: ctx.TotalCount,
+            stackCoverage: ctx.StackCoverage,
+            resultContract: contract);
     }
 
     private record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalCount,
+        long TraceEventCount,
         long TotalCount,
         IReadOnlyList<ClrExceptionTypeRow> TopTypes,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, req.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(trace, "clr_exception", "count");
         long traceTotalCount = 0;
+        long traceEventCount = 0;
         long totalCount = 0;
         var countByType = new Dictionary<string, long>(StringComparer.Ordinal);
 
@@ -98,6 +123,7 @@ public static class ClrExceptionStackAnalysis
         {
             traceTotalCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
+            if (req.PassesFilter(nowUs)) traceEventCount++;
             if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
             totalCount++;
@@ -110,22 +136,25 @@ public static class ClrExceptionStackAnalysis
         ClrEventWalker.Walk(trace, clr => clr.ExceptionStart += Handle);
         raw.Source.DoneAddingSamples();
 
-        if (req.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, req.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
 
         var topTypes = StackSourceTopN.TopByValue(countByType, 20, (k, v) => new ClrExceptionTypeRow(k, v));
 
         var warnings = new List<string>();
-        if (totalCount == 0)
+        if (totalCount == 0 && !req.HasFilter)
             warnings.Add(WarningBuilder.MissingClrKeyword("exception", "Exception",
                 "or no exceptions were thrown in the filter window"));
         if (!req.ResolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
 
-        return new BuildContext(normalized, stats, traceTotalCount, totalCount, topTypes, warnings);
+        return new BuildContext(normalized, stats, traceTotalCount, traceEventCount, totalCount, topTypes, coverage, warnings);
     }
 }

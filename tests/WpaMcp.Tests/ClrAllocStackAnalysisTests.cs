@@ -15,7 +15,7 @@ public class ClrAllocStackAnalysisTests
         var resp = tools.ClrAllocTopStacks(FixturePath);
         Assert.Equal(0, resp.TotalBytes);
         Assert.Equal(0, resp.TotalEventCount);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBytes, r => r.InclusiveBytes);
+        Assert.Empty(resp.Rows);
         Assert.Empty(resp.TopTypes);
         Assert.Contains(resp.Warnings, w => w.Contains("CLR", StringComparison.OrdinalIgnoreCase));
     }

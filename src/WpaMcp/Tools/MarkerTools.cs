@@ -18,7 +18,8 @@ public sealed class MarkerTools
         "Default mode 'count_by_event' returns a histogram, which avoids dumping every matching row " +
         "for broad queries like 'Process'. Switch to 'rows' for full event detail. " +
         "No startUs/endUs: this is a whole-trace event-discovery scan; use returned timestamps " +
-        "to choose windows for downstream analyzers.")]
+        "to choose windows for downstream analyzers. An empty result returns no_name_match; it " +
+        "does not establish that a provider or capture keyword was disabled.")]
     public MarkerSearchResponse FindMarker(
         [Description("Absolute path to .etl file")] string path,
         [Description("Substring to match against event/task names")] string nameSubstring,
@@ -31,7 +32,8 @@ public sealed class MarkerTools
         Validation.RequireText(mode);
         if (fieldMaxChars < 0 || fieldMaxChars > Validation.MaxStringChars)
             throw new ArgumentOutOfRangeException(nameof(fieldMaxChars));
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         return MarkerSearch.Find(trace, nameSubstring, top, mode, fieldMaxChars);
     }
 }

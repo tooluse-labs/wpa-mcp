@@ -43,23 +43,44 @@ Output/{Records,Warnings}.cs   JSON DTOs
 
 ### Trace lifecycle (don't bypass)
 
-`TraceCache.Get(path)` is the only correct way to get a `TraceLog`. It:
+`TraceCache.Acquire(path)` is the only correct way to get a `TraceLog`. Keep the
+returned `TraceLease` alive for the complete query:
+
+```csharp
+using var traceLease = cache.Acquire(path);
+var trace = traceLease.Trace;
+```
+
+The cache:
 1. Canonicalizes the path and stats mtime — re-loads if the file has changed under the cache.
 2. LRU-evicts old entries (default capacity 2; override via `WPAMCP_CACHE_SIZE`).
 3. First load runs `TraceLog.OpenOrConvert` which builds a `.etlx` index alongside the `.etl` (30s–3min for large traces); subsequent loads are instant. The `.etlx` files are mmap'd and may hold 200 MB–1.5 GB of address space per trace.
+4. Retires evicted or explicitly unloaded entries. An active lease keeps its trace usable;
+   the final lease release disposes the retired `TraceLog`.
 
-Don't call `TraceLog.OpenOrConvert` directly from analyzers or tools — always go through the cache.
+Don't call `TraceLog.OpenOrConvert` directly from analyzers or tools, and don't retain
+`lease.Trace` after disposing its lease.
 
 ### Symbol resolution path
 
-`_NT_SYMBOL_PATH` is the source of truth. `SymbolService` mutates the process env var when `set_symbol_path`/`add_symbol_server` are called, so any later `SymbolReader` constructed inside an analyzer picks up the change. CPU analysis pulls the env var directly inside `CpuAnalysis.TopFunctions` — there's intentionally no plumbing of the symbol service into analyzers. Default cache dir is `%LocalAppData%\WpaMcp\Symbols` (kept separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). See `docs/SYMBOL_RECIPES.md`.
+`_NT_SYMBOL_PATH` is the configured source of truth. Only `set_symbol_path` and `add_symbol_server` mutate it. Read-only stack queries obtain an immutable `SymbolPathState` snapshot and add the owning ETL directory to that query's `SymbolReader`; they must never append a trace directory to the process environment. `TraceSymbolContext` associates a cached `TraceLog` with its source path. Default cache dir is `%LocalAppData%\WpaMcp\Symbols` (kept separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). See `docs/SYMBOL_RECIPES.md`.
 
 ### CpuAnalysis: PerfView-parity invariants (READ BEFORE EDITING `Analyzers/CpuAnalysis.cs`)
 
 Two non-obvious behaviors exist specifically to match PerfView's `SaveCPUStacksAsCsv` output:
 
 1. **No-stack samples are attributed to a synthetic `?!?` root**, not dropped. PerfView counts every CPU sample in its grand total; without this, wpa-mcp under-counts by ~20–30%. The `?!?` frame is interned as `Interner.FrameIntern("?!?")` then turned into a `CallStackIntern(noStackFrame, Invalid)` — re-using the same intern call ensures all no-stack samples share one stack identity.
-2. **Unresolved per-address frames are collapsed into per-module `module!?` buckets via a second normalized `MutableTraceEventStackSource`.** Without this, a single hot DLL fills the top-10 with hex offsets. Symbol resolution (`LookupWarmSymbols(50, …)`) **must** run on the raw source before normalization, or real symbols get wiped to `module!?`. The physical resolution rate (`SymbolStats.ResolutionRate`) is computed against the unnormalized frame set so it remains a true symbol-quality signal.
+2. **Unresolved per-address frames are collapsed into per-module `module!?` buckets via a second normalized `MutableTraceEventStackSource`.** Without this, a single hot DLL fills the top-10 with hex offsets. Symbol resolution (`LookupWarmSymbols(50, …)`) **must** run on the raw source before normalization, or real symbols get wiped to `module!?`. Symbol statistics are measured on sample-reachable code frames in the raw source, exclude synthetic frames, and expose both unique-frame and metric-weighted observed name-resolution rates. A null rate means no eligible code frames were measured.
+
+### Scope, capability, and empty-result contract
+
+Process-targeted tools should resolve a shared `ProcessAnalysisScope` from `(pid, processStartUs, half-open window)`. A PID-only selector may aggregate reused lifetimes only when the response says `ScopeMode=pid_aggregate` and keeps per-instance rows distinguishable. Exact and missing selectors return structured `ScopeStatus=scope_not_found`; they do not silently fall back to the PID aggregate.
+
+Thread-targeted CPU/Wait tools use `ThreadAnalysisScope` and expose replayable `IncludedThreads` entries with `ThreadStartUs`. A missing selector returns `scope_not_found`; multiple generations return `ambiguous_thread_instance` and candidates. Neither case may throw from a read-only analysis or fall back to PID-only matching.
+
+Responses that can be empty expose `ScopeStatus`, `CapabilityStatus`, `MatchedEventCount`, `NoDataReason`, and `Warnings`. `CapabilityStatus` follows one invariant: `observed` only when the resolved requested scope matched source events; `not_observed` only when an unfiltered/global check established that the supported event class was absent; otherwise it is `unknown`. `NoDataReason` distinguishes `scope_not_found`, `event_class_not_observed`, `no_events_in_scope`, `no_completed_intervals_in_scope`, `stacks_unavailable`, `focus_not_found`, and other stable cases. A matched endpoint without a completed GC/JIT/finalizer interval uses `no_completed_intervals_in_scope`, never `no_events_in_scope`. None of these fields proves that a WPR keyword was configured or disabled.
+
+Stack support is per event domain. Return `DomainStackCoverage` counts/metrics and `CoverageState`; never use the global compatibility `HasStackWalks` flag to claim that FileIO, DiskIO, HardFault, CLR, or another target event class has stacks. `?!?` represents accounted events with no stack and must not be described as a call chain.
 
 If you change CpuAnalysis, re-validate against PerfView on a representative trace before claiming correctness. Acceptance criteria: 7/10 top-N name overlap, ±10% sample counts, ±15pp percentages, grand total within ~1%. (Open the same `.etl` in PerfView, dump CPU Stacks → By Name, compare against `cpu_top_functions` output for the same pid+window.)
 
@@ -118,5 +139,5 @@ xUnit assembly-level parallelization is **disabled** (`tests/WpaMcp.Tests/Assemb
 
 - One `WpaMcp` csproj for now. The architecture doc mentions a future `WpaMcp.Analyzers`/`WpaMcp.Core` split, but until then everything stays under `src/WpaMcp/`.
 - All public response DTOs are `sealed record` types in `Output/Records.cs` — keep them immutable and add new fields rather than mutating shape so MCP clients don't break.
-- All MCP tool methods accept an absolute `path` to the `.etl` and route through `TraceCache.Get`. New tools should follow the same pattern.
+- All MCP tool methods accept an absolute `path` to the `.etl` and hold a `TraceCache.Acquire` lease for the complete query. New tools should follow the same pattern.
 - Symbol-related warnings are emitted as a `Warnings` list on the response (see `WarningBuilder`) instead of throwing — clients should surface them to the user.

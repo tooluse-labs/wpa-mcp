@@ -2,23 +2,12 @@ namespace WpaMcp.Core;
 
 internal static class SymbolPathDefaults
 {
-    private const string SymbolPathEnvVar = "_NT_SYMBOL_PATH";
-    private static readonly object Lock = new();
-
-    public static string? EnsureTraceDirectory(string tracePath)
+    internal static string BuildEffectivePath(string? configuredPath, string tracePath)
     {
         var traceDir = TraceDirectory(tracePath);
-        if (traceDir is null)
-            return Environment.GetEnvironmentVariable(SymbolPathEnvVar);
-
-        lock (Lock)
-        {
-            var current = Environment.GetEnvironmentVariable(SymbolPathEnvVar);
-            var effective = AddLocalPathBeforeSymbolServers(current, traceDir);
-            if (!string.Equals(current, effective, StringComparison.Ordinal))
-                Environment.SetEnvironmentVariable(SymbolPathEnvVar, effective);
-            return effective;
-        }
+        return traceDir is null
+            ? configuredPath ?? ""
+            : AddLocalPathBeforeSymbolServers(configuredPath, traceDir);
     }
 
     internal static string AddLocalPathBeforeSymbolServers(string? currentPath, string localPath)

@@ -49,7 +49,6 @@ internal static class TraceMetadataAnalysis
     {
         var providers = new Dictionary<string, ProviderAccumulator>(StringComparer.OrdinalIgnoreCase);
         long totalEvents = 0;
-        long stackWalkEvents = 0;
         long eventsWithCallStacks = 0;
 
         foreach (var ev in trace.Events)
@@ -65,8 +64,6 @@ internal static class TraceMetadataAnalysis
 
             var hasCallStack = trace.GetCallStackIndexForEvent(ev) != CallStackIndex.Invalid;
             if (hasCallStack) eventsWithCallStacks++;
-            if (IsStackWalkEvent(ev)) stackWalkEvents++;
-
             accumulator.EventCount++;
             if (hasCallStack) accumulator.EventsWithCallStacks++;
         }
@@ -79,7 +76,8 @@ internal static class TraceMetadataAnalysis
                 Provider: provider.Provider,
                 EventCount: provider.EventCount,
                 EventsWithCallStacks: provider.EventsWithCallStacks,
-                StackCoveragePct: RatioOrNull(provider.EventsWithCallStacks, provider.EventCount)))
+                StackCoveragePct: RatioOrNull(provider.EventsWithCallStacks, provider.EventCount),
+                StackCoveragePercent: PercentOrNull(provider.EventsWithCallStacks, provider.EventCount)))
             .ToList();
 
         var topProviderEventCount = topProviders.Sum(provider => provider.EventCount);
@@ -90,10 +88,13 @@ internal static class TraceMetadataAnalysis
             TopProviders: topProviders);
 
         var stackwalkSummary = new TraceStackwalkSummary(
-            HasStackWalkEvents: capabilities.HasStackWalks || stackWalkEvents > 0,
-            StackWalkEventCount: stackWalkEvents,
+            HasStackWalkEvents: capabilities.HasExplicitStackWalkEvents,
+            StackWalkEventCount: capabilities.ExplicitStackWalkEventCount,
             EventsWithCallStacks: eventsWithCallStacks,
-            EventStackCoveragePct: RatioOrNull(eventsWithCallStacks, totalEvents));
+            EventStackCoveragePct: RatioOrNull(eventsWithCallStacks, totalEvents),
+            HasExplicitStackWalkEvents: capabilities.HasExplicitStackWalkEvents,
+            HasUsableEventStacks: capabilities.HasAttachedEventStacks,
+            EventStackCoveragePercent: PercentOrNull(eventsWithCallStacks, totalEvents));
 
         return (stackwalkSummary, providerSummary);
     }
@@ -127,6 +128,9 @@ internal static class TraceMetadataAnalysis
     {
         var limitations = new List<string>();
 
+        limitations.Add(
+            "event_count_representation=tracelog_etlx_materialized_logical_events;raw_etw_record_count=not_measured;parser_coverage=not_computed;TraceLog materialization can fold or transform records, so do not interpret an external-raw/count ratio as parser loss");
+
         if (system.CpuModel is null)
         {
             limitations.Add(
@@ -138,10 +142,6 @@ internal static class TraceMetadataAnalysis
 
         return limitations;
     }
-
-    private static bool IsStackWalkEvent(TraceEvent ev) =>
-        ContainsOrdinalIgnoreCase(ev.ProviderName, "StackWalk") ||
-        ContainsOrdinalIgnoreCase(ev.EventName, "StackWalk");
 
     private static bool IsDriverModule(TraceModuleFile module) =>
         EndsWithSys(module.Name) || EndsWithSys(module.FilePath);
@@ -171,15 +171,15 @@ internal static class TraceMetadataAnalysis
         !string.IsNullOrEmpty(value) &&
         value.EndsWith(".sys", StringComparison.OrdinalIgnoreCase);
 
-    private static bool ContainsOrdinalIgnoreCase(string? value, string needle) =>
-        value?.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
-
     private static int? PositiveOrNull(int value) => value > 0 ? value : null;
 
     private static long ToLongSaturating(long value) => Math.Max(0, value);
 
     private static double? RatioOrNull(long numerator, long denominator) =>
         denominator == 0 ? null : numerator / (double)denominator;
+
+    private static double? PercentOrNull(long numerator, long denominator) =>
+        denominator == 0 ? null : 100.0 * numerator / denominator;
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;

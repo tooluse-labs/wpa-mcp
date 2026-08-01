@@ -15,13 +15,18 @@ public class DiskIoStackAnalysisTests
     {
         var tools = new IoTools(new TraceCache(capacity: 2));
         var resp = tools.DiskIoTopStacks(FileIoFixture, top: 20);
-        // Disk IO may be absent on a tiny fixture (everything served from cache); either we
-        // get rows OR we get the missing-keyword warning. Both are valid contract outcomes.
+        // Disk IO may be absent on a tiny fixture. The warning must not infer capture settings.
         if (resp.Rows.Count == 0)
-            Assert.Contains(resp.Warnings,
-                w => w.Contains("DiskIO", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(resp.Warnings, w =>
+                w.Contains("DiskIO", StringComparison.OrdinalIgnoreCase) &&
+                w.Contains("does not prove", StringComparison.OrdinalIgnoreCase));
         else
             Assert.True(resp.TotalBytes > 0);
+        var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("disk_io", coverage.Domain);
+        Assert.Equal("bytes", coverage.MetricName);
+        Assert.Equal(resp.TotalOpCount, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalBytes, coverage.TotalMetric);
     }
 
     [Fact]
@@ -64,6 +69,7 @@ public class DiskIoStackAnalysisTests
         Assert.Equal(picked, ccResp.FocusFunction);
         Assert.Equal("diskBytes", ccResp.MetricName);
         Assert.True(ccResp.FocusInclusiveMetric > 0);
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
     }
 
     [Fact]

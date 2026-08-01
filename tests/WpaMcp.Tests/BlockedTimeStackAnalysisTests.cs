@@ -41,6 +41,12 @@ public class BlockedTimeStackAnalysisTests
                      w.Contains("no blocked-time samples", StringComparison.OrdinalIgnoreCase));
         else
             Assert.True(resp.TotalBlockedUs > 0);
+        var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
+        Assert.Equal("wait", coverage.Domain);
+        Assert.Equal("us", coverage.MetricName);
+        Assert.Equal("switch_out_blocking_stack", coverage.StackSemantics);
+        Assert.Equal(resp.SampleCount, coverage.TotalEventCount);
+        Assert.Equal(resp.TotalBlockedUs, coverage.TotalMetric);
     }
 
     [Fact]
@@ -57,7 +63,10 @@ public class BlockedTimeStackAnalysisTests
     {
         var tools = new WaitTools(new TraceCache(capacity: 2));
         var resp = tools.WaitTopStacks(FixturePath, top: 10);
-        Assert.True(resp.Stats.ResolutionRate >= 0.0 && resp.Stats.ResolutionRate <= 1.0);
+        if (resp.Stats.UniqueCodeFrameCount == 0)
+            Assert.Null(resp.Stats.ResolutionRate);
+        else
+            Assert.InRange(resp.Stats.ResolutionRate!.Value, 0.0, 1.0);
     }
 
     [Fact]
@@ -135,6 +144,7 @@ public class BlockedTimeStackAnalysisTests
         Assert.Equal(
             topResp.UnmatchedBlockedIntervalCount,
             ccResp.UnmatchedIntervalCount);
+        Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
     }
 
     [Fact]

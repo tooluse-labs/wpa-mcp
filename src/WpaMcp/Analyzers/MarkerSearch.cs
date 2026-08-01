@@ -69,7 +69,11 @@ public static class MarkerSearch
             Mode: byProcess ? ModeCountByProcess : ModeCountByEvent,
             TotalMatched: total,
             Counts: rows,
-            Rows: null);
+            Rows: null,
+            CapabilityStatus: total > 0 ? "observed" : "not_observed",
+            MatchedEventCount: total,
+            NoDataReason: total == 0 ? "no_name_match" : null,
+            Warnings: NoMatchWarnings(total));
     }
 
     private static MarkerSearchResponse CollectRows(
@@ -103,8 +107,17 @@ public static class MarkerSearch
             Mode: ModeRows,
             TotalMatched: total,
             Counts: null,
-            Rows: rows);
+            Rows: rows,
+            CapabilityStatus: total > 0 ? "observed" : "not_observed",
+            MatchedEventCount: total,
+            NoDataReason: total == 0 ? "no_name_match" : null,
+            Warnings: NoMatchWarnings(total));
     }
+
+    private static IReadOnlyList<string> NoMatchWarnings(long total) =>
+        total == 0
+            ? ["no_name_match: no materialized event name or task matched the requested substring; this does not prove that any provider or capture keyword was disabled."]
+            : Array.Empty<string>();
 
     private static bool Matches(TraceEvent ev, string nameSubstring) =>
         ev.EventName.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase) ||

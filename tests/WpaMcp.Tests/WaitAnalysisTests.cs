@@ -1,4 +1,5 @@
 using System.Diagnostics;       // ThreadWaitReason (BCL)
+using Microsoft.Diagnostics.Tracing.Etlx;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Tools;
@@ -194,7 +195,94 @@ public class WaitAnalysisTests
         Assert.Null(response.SelectedThread);
         Assert.Equal(30, response.TotalBlockedUs);
         Assert.Contains(response.Warnings, warning =>
-            warning.Contains("ambiguous_process_instance", StringComparison.Ordinal));
+            warning.StartsWith("pid_aggregate:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WaitAccumulator_PreservesReusedProcessAndThreadInstances()
+    {
+        var first = Thread(10, 0, 7, 1);
+        var second = Thread(10, 200, 7, 1);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 300), Pid: 10, Process: null, Thread: null,
+            AggregatesPidLifetimes: true, PidReuseObserved: true);
+
+        var response = WpaMcp.Analyzers.WaitAnalysis.Project(
+            [
+                new BlockedInterval(first, 10, 20, "Executive"),
+                new BlockedInterval(second, 210, 230, "WrQueue"),
+            ],
+            scope,
+            top: 10);
+
+        Assert.Collection(
+            response.Rows.OrderBy(row => row.ProcessStartUs),
+            row =>
+            {
+                Assert.Equal(first.Process.StartUs, row.ProcessStartUs);
+                Assert.Equal(first.Generation, row.ThreadGeneration);
+                Assert.Equal(10, row.BlockedUs);
+            },
+            row =>
+            {
+                Assert.Equal(second.Process.StartUs, row.ProcessStartUs);
+                Assert.Equal(second.Generation, row.ThreadGeneration);
+                Assert.Equal(20, row.BlockedUs);
+            });
+    }
+
+    [Fact]
+    public void WaitAccumulator_StackCoverageIsScopedToSwitchOutThreadAndWindow()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var other = Thread(20, 0, 8, 1);
+        var scope = ScopeFor(target, startUs: 100, endUs: 200);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(scope);
+
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            other, "other", target, "target", 110, (CallStackIndex)1));
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            target, "target", other, "other", 120, CallStackIndex.Invalid));
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            target, "target", other, "other", 130, (CallStackIndex)2));
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            target, "target", other, "other", 210, (CallStackIndex)3));
+
+        var response = projection.Build(
+            top: 10,
+            unmatchedBlockedIntervalCount: 0,
+            warnings: null);
+
+        Assert.Equal(3, response.WindowCSwitchesAllThreads);
+        Assert.Equal(response.WindowCSwitchesAllThreads, response.TotalCSwitches);
+        Assert.Equal(2, response.ScopedCSwitches);
+        Assert.Equal(1, response.ScopedStackedSwitches);
+        Assert.Equal(50, response.ScopedStackCoveragePct);
+        Assert.True(response.HasContextSwitchBlockingStacks);
+    }
+
+    [Fact]
+    public void WaitAccumulator_OtherThreadStackDoesNotClaimScopedStacks()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var other = Thread(20, 0, 8, 1);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(
+            ScopeFor(target, startUs: 100, endUs: 200));
+
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            other, "other", target, "target", 110, (CallStackIndex)1));
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            target, "target", other, "other", 120, CallStackIndex.Invalid));
+
+        var response = projection.Build(
+            top: 10,
+            unmatchedBlockedIntervalCount: 0,
+            warnings: null);
+
+        Assert.Equal(1, response.ScopedCSwitches);
+        Assert.Equal(0, response.ScopedStackedSwitches);
+        Assert.Equal(0, response.ScopedStackCoveragePct);
+        Assert.False(response.HasContextSwitchBlockingStacks);
     }
 
     [Fact]
@@ -269,6 +357,79 @@ public class WaitAnalysisTests
         Assert.Equal(100_000, row.BlockedUs);
         Assert.Equal(0, resp.TotalCSwitches);
         Assert.DoesNotContain(resp.Warnings, warning => warning.Contains("none landed inside", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(0, 0, "not_observed", "event_class_not_observed")]
+    [InlineData(2, 0, "unknown", "no_events_in_scope")]
+    [InlineData(2, 1, "observed", null)]
+    public void WaitAccumulator_ReportsScopedCapabilityAndStableNoDataReason(
+        long traceSwitches,
+        long scopedSwitches,
+        string expectedCapability,
+        string? expectedNoDataReason)
+    {
+        var target = Thread(10, 0, 7, 1);
+        var response = WpaMcp.Analyzers.WaitAnalysis.Project(
+            intervals: [],
+            ScopeFor(target, startUs: 0, endUs: 100),
+            top: 10,
+            totalCSwitches: traceSwitches,
+            traceCSwitchCount: traceSwitches,
+            scopedCSwitches: scopedSwitches,
+            scopedStackedSwitches: 0);
+
+        Assert.Equal(expectedCapability, response.CapabilityStatus);
+        Assert.Equal(scopedSwitches, response.MatchedEventCount);
+        Assert.Equal(expectedNoDataReason, response.NoDataReason);
+        if (expectedNoDataReason is not null)
+        {
+            Assert.Contains(response.Warnings, warning =>
+                warning.StartsWith(expectedNoDataReason + ":", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void WaitAccumulator_ProcessMetadataComesFromProcessAnalysisScope()
+    {
+        var first = new ProcessInstanceKey(10, 0);
+        var second = new ProcessInstanceKey(10, 100);
+        var lifetimes = new[]
+        {
+            new ProcessLifetime(first, 100, StartObserved: true, EndObserved: true),
+            new ProcessLifetime(second, 200, StartObserved: true, EndObserved: true),
+        };
+        var window = new TimeWindow(0, 200);
+        var processScope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: 10,
+            processStartUs: null,
+            lifetimes);
+        var threadScope = new ThreadAnalysisScope(
+            window,
+            Pid: 10,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: true,
+            PidReuseObserved: true);
+
+        var response = WpaMcp.Analyzers.WaitAnalysis.Project(
+            [
+                new BlockedInterval(Thread(10, 0, 7, 1), 10, 20, "Executive"),
+                new BlockedInterval(Thread(10, 100, 7, 1), 110, 130, "WrQueue"),
+            ],
+            threadScope,
+            top: 10,
+            totalCSwitches: 2,
+            traceCSwitchCount: 2,
+            scopedCSwitches: 2,
+            processScope: processScope);
+
+        Assert.Equal("pid_aggregate", response.ScopeMode);
+        Assert.True(response.PidReuseObserved);
+        Assert.Equal([first, second], response.IncludedProcesses);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("pid_aggregate:", StringComparison.Ordinal));
     }
 
     private static List<long> CSwitchTimesUs()

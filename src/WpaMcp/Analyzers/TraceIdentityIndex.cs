@@ -53,12 +53,16 @@ internal sealed class TraceIdentityIndex
         ProcessInstanceResolver processes,
         ThreadInstanceCatalog threads,
         long traceEndUs,
-        IReadOnlyList<IdentityDiagnostic> diagnostics)
+        IReadOnlyList<IdentityDiagnostic> diagnostics,
+        long threadLifecycleEventCount,
+        IReadOnlyDictionary<ProcessInstanceKey, long> threadLifecycleEventCountsByProcess)
     {
         Processes = processes;
         Threads = threads;
         TraceEndUs = traceEndUs;
         Diagnostics = diagnostics;
+        ThreadLifecycleEventCount = threadLifecycleEventCount;
+        ThreadLifecycleEventCountsByProcess = threadLifecycleEventCountsByProcess;
     }
 
     public ProcessInstanceResolver Processes { get; }
@@ -68,6 +72,11 @@ internal sealed class TraceIdentityIndex
     public long TraceEndUs { get; }
 
     public IReadOnlyList<IdentityDiagnostic> Diagnostics { get; }
+
+    public long ThreadLifecycleEventCount { get; }
+
+    public IReadOnlyDictionary<ProcessInstanceKey, long>
+        ThreadLifecycleEventCountsByProcess { get; }
 
     public static TraceIdentityIndex For(TraceLog trace) =>
         For(trace, BuildFromTrace);
@@ -138,22 +147,24 @@ internal sealed class TraceIdentityIndex
                     break;
 
                 case ProcessLifecycleEventKind.RundownStop:
-                    if (active.Remove(processEvent.Pid, out var rundownStopped))
+                    if (active.TryGetValue(processEvent.Pid, out var rundownObserved))
                     {
-                        lifetimes.Add(CloseProcess(
-                            rundownStopped,
-                            traceEndUs,
-                            endObserved: false,
-                            endFromRundown: true));
+                        // ProcessDCStop is end-of-capture rundown evidence, not a real
+                        // process termination. Keep the lifetime active so a later
+                        // ProcessStop (which can arrive after rundown enumeration) closes
+                        // the same instance instead of inventing a second (pid, 0) row.
+                        active[processEvent.Pid] = rundownObserved with
+                        {
+                            EndFromRundown = true,
+                        };
                     }
                     else
                     {
-                        lifetimes.Add(new ProcessLifetime(
-                            new ProcessInstanceKey(processEvent.Pid, 0),
-                            traceEndUs,
+                        active[processEvent.Pid] = new ActiveProcess(
+                            processEvent.Pid,
+                            StartUs: 0,
                             StartObserved: false,
-                            EndObserved: false,
-                            EndFromRundown: true));
+                            EndFromRundown: true);
                     }
                     break;
             }
@@ -161,7 +172,11 @@ internal sealed class TraceIdentityIndex
 
         foreach (var process in active.Values)
         {
-            lifetimes.Add(CloseProcess(process, traceEndUs, endObserved: false));
+            lifetimes.Add(CloseProcess(
+                process,
+                traceEndUs,
+                endObserved: false,
+                endFromRundown: process.EndFromRundown));
         }
 
         foreach (var item in backfill.OrderBy(item => item.Pid).ThenBy(item => item.StartUs))
@@ -184,6 +199,7 @@ internal sealed class TraceIdentityIndex
         var processResolver = new ProcessInstanceResolver(processes);
         var threadCatalog = new ThreadInstanceCatalog(processResolver.Lifetimes);
         var diagnostics = new List<IdentityDiagnostic>();
+        var threadEventCountsByProcess = new Dictionary<ProcessInstanceKey, long>();
 
         foreach (var threadEvent in threads
                      .Select((value, index) => (value, index))
@@ -209,6 +225,8 @@ internal sealed class TraceIdentityIndex
             }
 
             var process = resolution.Value.Value;
+            threadEventCountsByProcess[process] = checked(
+                threadEventCountsByProcess.GetValueOrDefault(process) + 1);
             switch (threadEvent.Kind)
             {
                 case ThreadLifecycleEventKind.Start:
@@ -250,7 +268,9 @@ internal sealed class TraceIdentityIndex
             processResolver,
             threadCatalog,
             traceEndUs,
-            diagnostics.ToArray());
+            diagnostics.ToArray(),
+            threads.Count,
+            threadEventCountsByProcess);
     }
 
     private static long ProcessEndUs(
@@ -435,5 +455,6 @@ internal sealed class TraceIdentityIndex
     private readonly record struct ActiveProcess(
         int Pid,
         long StartUs,
-        bool StartObserved);
+        bool StartObserved,
+        bool EndFromRundown = false);
 }

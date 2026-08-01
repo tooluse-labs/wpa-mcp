@@ -36,7 +36,7 @@ public class GenericEventStackAnalysisTests
         var tools = new GenericProviderTools(new TraceCache(capacity: 2));
         var resp = tools.GenericEventTopStacks(FixturePath, "NoSuchProvider-DoesNotExist", top: 10);
         Assert.Equal(0, resp.TotalEventCount);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveCount, r => r.InclusiveCount);
+        Assert.Empty(resp.Rows);
         Assert.Empty(resp.TopEventNames);
         Assert.NotEmpty(resp.Warnings);
         Assert.Contains(resp.Warnings, w => w.Contains("NoSuchProvider-DoesNotExist", StringComparison.Ordinal));

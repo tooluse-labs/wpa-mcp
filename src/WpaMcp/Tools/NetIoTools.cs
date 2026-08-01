@@ -35,20 +35,24 @@ public sealed class NetIoTools
         [Description(StackResponseOptions.SummaryOnlyDescription)]
         bool summaryOnly = false,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
             window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
-            filterSpecified: pid.HasValue || startUs.HasValue || endUs.HasValue);
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
+            processStartUs: processStartUs);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -64,42 +68,54 @@ public sealed class NetIoTools
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description(StackResponseOptions.ResolveSymbolsDescription)]
-        bool resolveSymbols = false)
+        bool resolveSymbols = false,
+        [Description("Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            processStartUs,
+            filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-connection TCP lifecycle list — Connect/Accept paired with Disconnect/Reconnect " +
         "by `connid` to give 'connection X opened at T1, closed at T2, lasted T2−T1'.  " +
-        "Useful for 'connect-to-disconnect latency outliers' / 'is RPC slow because of " +
-        "connection setup'.  Role: connect = outbound, accept = inbound.  IPv4 + IPv6 merged " +
+        "Useful for finding unusually long observed connection lifecycles. This duration is " +
+        "not connection-establishment latency, request/response latency, or network RTT, so it " +
+        "cannot by itself attribute a slow RPC to setup. Role: connect = outbound, accept = inbound. IPv4 + IPv6 merged " +
         "into one list with an IsIPv6 flag.  Connections still open when capture stopped have " +
-        "TraceResidentEnd=true and CloseTimeUs at trace end.  Reconnect on a connid is " +
+        "TraceResidentEnd=true with null CloseTimeUs and DurationUs. Pairing uses the emitter's " +
+        "process lifetime plus connid, so PID/connid reuse cannot cross-pair sessions. Reconnect on a connid is " +
         "treated as the prior session ending.  Requires the NetworkTrace keyword in the " +
         "capture profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public NetConnectionsResponse NetConnections(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N connections by duration descending (default 100, max 1000)")] int top = 100,
         [Description("Filter to a single process ID")] int? pid = null,
-        [Description("Window start in microseconds since trace start (filter on connection open time)")] long? startUs = null,
-        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null)
+        [Description("Window start in microseconds since trace start; connections whose lifecycle intersects the window are included")] long? startUs = null,
+        [Description("Window end in microseconds since trace start (exclusive); connections whose lifecycle intersects the window are included")] long? endUs = null,
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs.")]
+        long? processStartUs = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequirePidTid(pid, tid: null);
+        Validation.RequireThreadSelector(
+            pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        return NetConnectionAnalysis.Analyze(trace, pid, top, window.StartUs, window.EndUs);
+        return NetConnectionAnalysis.Analyze(
+            trace, pid, top, window.StartUs, window.EndUs, processStartUs);
     }
 }

@@ -1,3 +1,4 @@
+using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
 using WpaMcp.Tools;
@@ -124,7 +125,7 @@ public class SymbolServiceTests
     }
 
     [Fact]
-    public void TraceCache_AddsTraceDirectoryToSymbolPath()
+    public void TraceCache_DoesNotMutateConfiguredSymbolPath()
     {
         var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
         try
@@ -132,10 +133,14 @@ public class SymbolServiceTests
             Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols");
             var cache = new TraceCache(capacity: 2);
 
-            cache.Get("fixtures/small_cpu.etl");
+            var configured = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+            var trace = cache.Get("fixtures/small_cpu.etl");
 
             var traceDir = Path.GetDirectoryName(Path.GetFullPath("fixtures/small_cpu.etl"))!;
-            Assert.StartsWith(traceDir + ";SRV*", Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
+            Assert.Equal(configured, Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
+            using var reader = StackSourceTopN.OpenSymbolReader(trace, TextWriter.Null);
+            Assert.StartsWith(traceDir + ";SRV*", reader.SymbolPath);
+            Assert.Equal(configured, Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
         }
         finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }
     }
@@ -156,6 +161,15 @@ public class SymbolServiceTests
     }
 
     [Fact]
+    public void PdbNameAlone_IsNotACompletePdbIdentity()
+    {
+        Assert.False(SymbolTools.HasCompletePdbIdentity(
+            "sample.pdb", Guid.Empty, pdbAge: 0));
+        Assert.True(SymbolTools.HasCompletePdbIdentity(
+            "sample.pdb", Guid.NewGuid(), pdbAge: 1));
+    }
+
+    [Fact]
     public void DiagnoseSymbols_ReturnsAtLeastOneModule()
     {
         var svc = new SymbolService();
@@ -169,7 +183,19 @@ public class SymbolServiceTests
             Path.GetDirectoryName(Path.GetFullPath("fixtures/small_cpu.etl")),
             resp.TraceDirectory);
         Assert.True(resp.TraceDirectoryInSymbolPath);
+        Assert.Equal(resp.CurrentSymbolPath, resp.ConfiguredSymbolPath);
+        Assert.Contains(resp.TraceDirectory, resp.EffectiveSymbolPath, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            resp.TraceDirectoryInSymbolPath,
+            resp.TraceDirectoryInEffectiveSymbolPath);
+        Assert.Equal("not_measured", resp.FrameResolutionMeasurementState);
         Assert.All(resp.Modules, module => Assert.False(string.IsNullOrWhiteSpace(module.LookupStatus)));
+        Assert.All(resp.Modules, module =>
+        {
+            Assert.Null(module.FrameCount);
+            Assert.Null(module.Resolved);
+            Assert.Equal("not_measured", module.FrameResolutionState);
+        });
     }
 
     [Fact]
@@ -249,7 +275,12 @@ public class SymbolServiceTests
 
             var status = SymbolTools.DiagnoseModule(module, root, NativeSupportReady());
 
-            Assert.False(status.Resolved);
+            Assert.Null(status.Resolved);
+            Assert.Null(status.FrameCount);
+            Assert.True(status.HasPdbName);
+            Assert.True(status.HasCompletePdbIdentity);
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("not_measured", status.FrameResolutionState);
             Assert.Equal("found_flat_candidate_identity_unverified", status.LookupStatus);
             Assert.Contains(flatPdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
         }
@@ -278,7 +309,12 @@ public class SymbolServiceTests
 
             var status = SymbolTools.DiagnoseModule(module, $"cache*{root}", NativeSupportReady());
 
-            Assert.True(status.Resolved);
+            Assert.Null(status.Resolved);
+            Assert.Null(status.FrameCount);
+            Assert.True(status.HasPdbName);
+            Assert.True(status.HasCompletePdbIdentity);
+            Assert.True(status.LocalPdbReady);
+            Assert.Equal("not_measured", status.FrameResolutionState);
             Assert.Equal("found_in_local_symbol_path", status.LookupStatus);
             Assert.Contains(storePdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
         }
@@ -286,6 +322,32 @@ public class SymbolServiceTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void EffectiveSymbolPathSnapshots_AreAtomicWithConcurrentUpdates()
+    {
+        var saved = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
+        try
+        {
+            var tracePath = Path.GetFullPath("fixtures/small_cpu.etl");
+            var traceDir = Path.GetDirectoryName(tracePath)!;
+            var service = new SymbolService();
+            var observed = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+            Parallel.For(0, 100, i =>
+            {
+                service.SetPath(i % 2 == 0 ? "A" : "B", append: false);
+                observed.Add(SymbolPathState.GetEffectivePath(tracePath));
+            });
+
+            Assert.All(observed, path =>
+                Assert.True(path == $"A;{traceDir}" || path == $"B;{traceDir}", path));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved);
         }
     }
 

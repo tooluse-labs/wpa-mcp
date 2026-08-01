@@ -151,9 +151,23 @@ public class DiagnoseToolsTests
         Assert.Equal(gap.FirstImageLoadTimeUs, gap.ChildEndUs);
         Assert.Equal(gap.ChildStartUs, gap.Window.WindowStartUs);
         Assert.Equal(gap.ChildEndUs, gap.Window.WindowEndUs);
+        Assert.Equal(
+            new ProcessInstanceKey(gap.Pid, gap.ProcessStartUs),
+            gap.Window.SelectedProcess);
+        Assert.Equal("single_process", gap.Window.ScopeMode);
         Assert.True(gap.ChildStartUs >= gap.ParentWindow.StartUs);
         Assert.True(gap.ChildEndUs <= gap.ParentWindow.EndUs);
         Assert.NotEmpty(gap.Window.ExecutedToolCalls);
+        Assert.All(gap.Window.ExecutedToolCalls, childCall =>
+        {
+            Assert.Equal(gap.Pid, childCall.Pid);
+            if (childCall.ToolName == "security_scan_analysis")
+                Assert.Equal(gap.ProcessStartUs, childCall.TargetProcessStartUs);
+            else
+                Assert.Equal(gap.ProcessStartUs, childCall.ProcessStartUs);
+        });
+        Assert.All(gap.Window.NextTools.Where(tool => tool.Pid == gap.Pid), tool =>
+            Assert.Equal(gap.ProcessStartUs, tool.ProcessStartUs));
         Assert.Contains(gap.Window.ExecutedToolCalls, call => call.ToolName == "hard_fault_by_file");
         var call = Assert.Single(resp.ExecutedToolCalls!, item => item.CallId == gap.CallId);
         Assert.Equal(gap.Pid, call.Pid);
@@ -274,6 +288,8 @@ public class DiagnoseToolsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", timeBudgetMs: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", startUs: -1));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseHighWait("nonexistent.etl", startUs: 2, endUs: 1));
+        Assert.Throws<ArgumentException>(() => tools.DiagnoseHighWait(
+            "nonexistent.etl", processStartUs: 1));
     }
 
     [Fact]
@@ -286,6 +302,112 @@ public class DiagnoseToolsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: -1, endUs: 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 2, endUs: 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, maxWindowDurationUs: 0));
+        Assert.Throws<ArgumentException>(() => tools.DiagnoseWindow(
+            "nonexistent.etl", startUs: 0, endUs: 1, processStartUs: 1));
+    }
+
+    [Fact]
+    public void DiagnoseWindow_MissingExactProcessReturnsStructuredScopeFailure()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var response = tools.DiagnoseWindow(
+            FixturePath,
+            startUs: 0,
+            endUs: 100_000,
+            pid: int.MaxValue,
+            top: 5,
+            processStartUs: 123);
+
+        Assert.Null(response.SelectedProcess);
+        Assert.Equal("unresolved", response.ScopeMode);
+        Assert.False(response.PidReuseObserved);
+        Assert.NotNull(response.IncludedProcesses);
+        Assert.Empty(response.IncludedProcesses!);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Empty(response.ExecutedToolCalls);
+        Assert.Empty(response.Evidence);
+        Assert.Null(response.Pressure);
+        Assert.Contains(response.NotConcluded, item =>
+            item.Code == "scope_not_found" &&
+            item.Pid == int.MaxValue &&
+            item.ProcessStartUs == 123);
+    }
+
+    [Fact]
+    public void DiagnoseWindow_ExactProcessPropagatesOneInstanceAndEvidenceScope()
+    {
+        const int pid = 36772;
+        const long processStartUs = 0;
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var response = tools.DiagnoseWindow(
+            FixturePath,
+            startUs: 0,
+            endUs: 100_000,
+            pid: pid,
+            top: 5,
+            processStartUs: processStartUs);
+
+        Assert.Equal(new ProcessInstanceKey(pid, processStartUs), response.SelectedProcess);
+        Assert.Equal("single_process", response.ScopeMode);
+        Assert.NotNull(response.IncludedProcesses);
+        Assert.Contains(
+            new ProcessInstanceKey(pid, processStartUs),
+            response.IncludedProcesses!);
+        Assert.Equal("ok", response.ScopeStatus);
+        Assert.NotEmpty(response.ExecutedToolCalls);
+        Assert.All(response.ExecutedToolCalls, call =>
+        {
+            Assert.Equal(pid, call.Pid);
+            Assert.Null(call.AwakenedPid);
+            Assert.Null(call.AwakenedProcessStartUs);
+            if (call.ToolName == "security_scan_analysis")
+            {
+                Assert.Null(call.ProcessStartUs);
+                Assert.Equal(processStartUs, call.TargetProcessStartUs);
+            }
+            else
+            {
+                Assert.Equal(processStartUs, call.ProcessStartUs);
+                Assert.Null(call.TargetProcessStartUs);
+            }
+        });
+        Assert.All(response.NextTools.Where(tool => tool.Pid == pid), tool =>
+            Assert.Equal(processStartUs, tool.ProcessStartUs));
+        Assert.All(
+            response.NotConcluded.Where(item => item.RelatedCallId is not null),
+            item =>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(item.ScopeStatus));
+                Assert.False(string.IsNullOrWhiteSpace(item.CapabilityStatus));
+                if (item.NoDataReason is not null)
+                    Assert.False(string.IsNullOrWhiteSpace(item.NoDataReason));
+                Assert.Equal(processStartUs, item.ProcessStartUs);
+            });
+        var fileIoCall = Assert.Single(response.ExecutedToolCalls, call =>
+            call.ToolName == "file_io_top_files");
+        Assert.NotEmpty(fileIoCall.Warnings);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("file_io_top_files:", StringComparison.Ordinal));
+        Assert.All(response.Evidence, item =>
+        {
+            if (item.EvidenceScope == "window_global")
+            {
+                Assert.Null(item.Pid);
+                Assert.Null(item.ProcessStartUs);
+                Assert.Equal("window_global", item.ScopeMode);
+            }
+            else
+            {
+                Assert.Equal(pid, item.Pid);
+                Assert.Equal(processStartUs, item.ProcessStartUs);
+                Assert.Equal("single_process", item.ScopeMode);
+            }
+        });
     }
 
     [Fact]
@@ -297,6 +419,10 @@ public class DiagnoseToolsTests
 
         Assert.Empty(resp.ExecutedToolCalls);
         Assert.Null(resp.Pressure);
+        Assert.Equal("not_evaluated", resp.ScopeMode);
+        Assert.Equal("not_evaluated", resp.ScopeStatus);
+        Assert.Equal("unknown", resp.CapabilityStatus);
+        Assert.Equal("window_too_wide", resp.NoDataReason);
         Assert.Contains(resp.Warnings, warning => warning.Contains("window is"));
         Assert.Contains(resp.NotConcluded, item => item.Code == "window_too_wide");
     }
@@ -352,6 +478,27 @@ public class DiagnoseToolsTests
         Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "memory_resource_analysis");
         Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "security_scan_analysis");
         Assert.Contains(resp.ExecutedToolCalls, call => call.ToolName == "wait_analysis");
+    }
+
+    [Fact]
+    public void DiagnoseWindow_ScopedMissingWaitStacksDoesNotClaimTraceWideAbsence()
+    {
+        using var cache = new TraceCache(capacity: 2);
+        var trace = cache.Get(FixturePath);
+        var endUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
+        var tools = new DiagnoseTools(cache);
+
+        var response = tools.DiagnoseWindow(
+            FixturePath,
+            startUs: 0,
+            endUs: endUs,
+            top: 5,
+            maxWindowDurationUs: endUs);
+
+        var missingStacks = Assert.Single(response.NotConcluded, item =>
+            item.Code == "scoped_wait_stacks_unavailable");
+        Assert.Equal("unknown", missingStacks.CapabilityStatus);
+        Assert.Equal("stacks_unavailable", missingStacks.NoDataReason);
     }
 
     [Fact]
@@ -417,6 +564,7 @@ public class DiagnoseToolsTests
         var toolCallReplayableDescription = DescriptionOf<CompositeToolCall>("Replayable");
         var toolCallInternalTopDescription = DescriptionOf<CompositeToolCall>("InternalTop");
         var toolCallOrderByDescription = DescriptionOf<CompositeToolCall>("OrderBy");
+        var targetProcessStartDescription = DescriptionOf<CompositeToolCall>("TargetProcessStartUs");
         var toolDescription = DescriptionOf(typeof(DiagnoseTools).GetMethod(nameof(DiagnoseTools.DiagnoseHighWait))!);
         var fieldDescriptions = new[]
         {
@@ -430,6 +578,7 @@ public class DiagnoseToolsTests
             toolCallReplayableDescription,
             toolCallInternalTopDescription,
             toolCallOrderByDescription,
+            targetProcessStartDescription,
         };
 
         Assert.Contains("process_wait_summary", evidenceTypeDescription);
@@ -449,6 +598,7 @@ public class DiagnoseToolsTests
         Assert.Contains("Internal-only top", toolCallInternalTopDescription);
         Assert.Contains("do not pass to public tool", toolCallInternalTopDescription);
         Assert.Contains("orderBy", toolCallOrderByDescription);
+        Assert.Contains("targetProcessStartUs", targetProcessStartDescription);
         Assert.Contains("Candidates are ordered by total blocked microseconds", toolDescription);
         Assert.Contains("NextTools are optional hypothesis checks", toolDescription);
         Assert.All(fieldDescriptions, description => Assert.True(
@@ -513,6 +663,53 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void DiagnoseHighWait_PropagatesCandidateProcessStartToEvidenceAndFollowups()
+    {
+        var tools = new DiagnoseTools(new TraceCache(capacity: 2));
+
+        var response = tools.DiagnoseHighWait(FixturePath, maxCandidates: 3);
+
+        foreach (var candidate in response.Candidates)
+        {
+            Assert.Contains(response.Evidence, item =>
+                item.Pid == candidate.Pid &&
+                item.ProcessStartUs == candidate.ProcessStartUs);
+            Assert.All(
+                response.NextTools.Where(item =>
+                    item.Pid == candidate.Pid || item.AwakenedPid == candidate.Pid),
+                item =>
+                {
+                    if (item.AwakenedPid == candidate.Pid)
+                    {
+                        Assert.Equal(candidate.ProcessStartUs, item.AwakenedProcessStartUs);
+                        Assert.Null(item.ProcessStartUs);
+                    }
+                    else
+                    {
+                        Assert.Equal(candidate.ProcessStartUs, item.ProcessStartUs);
+                    }
+                });
+            Assert.All(
+                response.ExecutedToolCalls.Where(item =>
+                    item.CallId.Contains(
+                        $"pid-{candidate.Pid}-start-{candidate.ProcessStartUs}",
+                        StringComparison.Ordinal)),
+                item =>
+                {
+                    if (item.AwakenedPid == candidate.Pid)
+                    {
+                        Assert.Equal(candidate.ProcessStartUs, item.AwakenedProcessStartUs);
+                        Assert.Null(item.ProcessStartUs);
+                    }
+                    else
+                    {
+                        Assert.Equal(candidate.ProcessStartUs, item.ProcessStartUs);
+                    }
+                });
+        }
+    }
+
+    [Fact]
     public void DiagnoseHighWait_CandidatesUseFullWaitAggregation()
     {
         var cache = new TraceCache(capacity: 2);
@@ -543,6 +740,46 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void DiagnoseHighWait_CandidateAggregationNeverMergesReusedPidLifetimes()
+    {
+        var rows = new[]
+        {
+            new WaitAnalysisRow(
+                Pid: 42,
+                ProcessName: "first",
+                Tid: 101,
+                CpuUs: 10,
+                BlockedUs: 100,
+                WaitRatio: 10,
+                ContextSwitches: 2,
+                TopWaitReasons: [new WaitReasonBucket("WrUserRequest", 100, 1)],
+                ProcessStartUs: 1_000,
+                ThreadGeneration: 1),
+            new WaitAnalysisRow(
+                Pid: 42,
+                ProcessName: "second",
+                Tid: 202,
+                CpuUs: 20,
+                BlockedUs: 300,
+                WaitRatio: 15,
+                ContextSwitches: 3,
+                TopWaitReasons: [new WaitReasonBucket("WrLpcReceive", 300, 1)],
+                ProcessStartUs: 2_000,
+                ThreadGeneration: 1),
+        };
+
+        var candidates = DiagnoseTools.BuildHighWaitCandidateAggregates(
+            rows,
+            requestedPid: 42,
+            maxCandidates: 5);
+
+        Assert.Equal(2, candidates.Count);
+        Assert.Equal([2_000L, 1_000L], candidates.Select(candidate => candidate.ProcessStartUs));
+        Assert.Equal([300L, 100L], candidates.Select(candidate => candidate.TotalBlockedUs));
+        Assert.All(candidates, candidate => Assert.Equal(42, candidate.Pid));
+    }
+
+    [Fact]
     public void DiagnoseHighWait_SchedulerGateUsesTotalBlockedTimeDenominator()
     {
         var method = typeof(DiagnoseTools).GetMethod(
@@ -561,7 +798,7 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
-    public void DiagnoseHighWait_ReportsMissingStackwalkEvenWhenWindowHasNoCandidates()
+    public void DiagnoseHighWait_DoesNotBorrowTraceWideStackStateWhenScopeHasNoCandidates()
     {
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
@@ -569,8 +806,8 @@ public class DiagnoseToolsTests
             FixturePath, pid: int.MaxValue, startUs: 0, endUs: 100_000);
 
         Assert.Empty(resp.Candidates);
-        Assert.Contains(resp.NotConcluded, item => item.Code == "no_wait_candidates");
-        Assert.Contains(resp.NotConcluded, item => item.Code == "missing_stackwalks");
+        Assert.Contains(resp.NotConcluded, item => item.Code == "scope_not_found");
+        Assert.DoesNotContain(resp.NotConcluded, item => item.Code == "missing_stackwalks");
     }
 
     [Fact]

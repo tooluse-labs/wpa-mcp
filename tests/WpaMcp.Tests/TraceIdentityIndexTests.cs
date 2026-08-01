@@ -327,6 +327,30 @@ public sealed class TraceIdentityIndexTests
     }
 
     [Fact]
+    public void BuildProcessLifetimes_RundownStopBeforeRealStopDoesNotInventPidZeroStart()
+    {
+        var lifetimes = TraceIdentityIndex.BuildProcessLifetimes(
+            traceEndUs: 100,
+            events:
+            [
+                new ProcessLifecycleEvent(20, 10, ProcessLifecycleEventKind.Start),
+                new ProcessLifecycleEvent(20, 75, ProcessLifecycleEventKind.RundownStop),
+                new ProcessLifecycleEvent(20, 80, ProcessLifecycleEventKind.Stop),
+            ],
+            backfill:
+            [
+                new ProcessLifetimeBackfill(20, 10, 80),
+            ]);
+
+        var lifetime = Assert.Single(lifetimes);
+        Assert.Equal(new ProcessInstanceKey(20, 10), lifetime.Key);
+        Assert.Equal(80, lifetime.EndUs);
+        Assert.True(lifetime.StartObserved);
+        Assert.True(lifetime.EndObserved);
+        Assert.False(lifetime.EndFromRundown);
+    }
+
+    [Fact]
     public void BuildProcessLifetimes_MissingStopAcceptsEarlierBackfillEnd()
     {
         var lifetimes = TraceIdentityIndex.BuildProcessLifetimes(

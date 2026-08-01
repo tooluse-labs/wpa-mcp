@@ -31,19 +31,23 @@ public static class DiskIoStackAnalysis
         long? endUs,
         TextWriter symbolLog,
         int whenBuckets = 0,
-        bool? filterSpecified = null)
+        bool? filterSpecified = null,
+        long? processStartUs = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
-        {
-            FilterSpecified = filterSpecified,
-        };
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
+        contract.AddWarning(ctx.Warnings);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
         var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
 
         var rows = callTree.ByID
+            .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new DiskIoStackRow(
@@ -64,7 +68,16 @@ public static class DiskIoStackAnalysis
             TotalOpCount: ctx.TotalOps,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build());
+            When: when.Build(),
+            StackCoverage: ctx.StackCoverage,
+            SelectedProcess: contract.SelectedProcess,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -74,28 +87,40 @@ public static class DiskIoStackAnalysis
         int? pid,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        long? processStartUs = null,
+        bool? filterSpecified = null)
     {
         var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, 0);
-        var req = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when);
+        var req = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
         var ctx = BuildNormalized(trace, req);
+        var contract = StackResultContract.From(
+            req.ProcessScope, req.HasFilter, ctx.StackCoverage,
+            traceEventCount: ctx.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
-            ctx.Normalized, focusFunction, top, metricName: "diskBytes", ctx.Stats, ctx.Warnings);
+            ctx.Normalized, focusFunction, top, metricName: "diskBytes", ctx.Stats, ctx.Warnings,
+            sourceTotalMetric: ctx.TotalBytes,
+            stackCoverage: ctx.StackCoverage,
+            resultContract: contract);
     }
 
     private record BuildContext(
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalBytes,
+        long TraceEventCount,
         long TotalBytes,
         long TotalOps,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(TraceLog trace, StackAnalysisRequest req)
     {
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(req.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, req.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(trace, "disk_io", "bytes");
         long traceTotalBytes = 0;
+        long traceEventCount = 0;
         long totalBytes = 0;
         long totalOps = 0;
 
@@ -105,6 +130,7 @@ public static class DiskIoStackAnalysis
         {
             traceTotalBytes += data.TransferSize;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
+            if (req.PassesFilter(nowUs)) traceEventCount++;
             if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
             totalBytes += data.TransferSize;
@@ -120,24 +146,25 @@ public static class DiskIoStackAnalysis
         });
         raw.Source.DoneAddingSamples();
 
-        if (req.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, req.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(raw.Source, trace, excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
 
         var warnings = new List<string>();
-        if (totalOps == 0)
+        if (totalOps == 0 && !req.HasFilter)
         {
-            warnings.Add(
-                "No DiskIORead/DiskIOWrite events matched. The capture profile likely omits the DiskIO " +
-                "keyword (default WPR 'CPU' / 'CPU.light' profiles do); use 'FileIO.light' or a custom " +
-                ".wprp that enables it. Alternatively, no IO actually hit physical disk in this window.");
+            warnings.Add(WarningBuilder.MissingKeyword(
+                "DiskIORead/DiskIOWrite", "DiskIO"));
         }
         if (!req.ResolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
 
-        return new BuildContext(normalized, stats, traceTotalBytes, totalBytes, totalOps, warnings);
+        return new BuildContext(normalized, stats, traceTotalBytes, traceEventCount, totalBytes, totalOps, coverage, warnings);
     }
 }

@@ -19,8 +19,8 @@ public sealed class InterruptTools
         "hardware interrupts, runs at HIGH IRQL.  DPC (Deferred Procedure Call) is queued kernel " +
         "work that runs at DISPATCH_LEVEL.  Both are summed into a single 'interrupt time' " +
         "metric so a hot driver shows up regardless of where its work runs.  Response also " +
-        "splits DpcUs / IsrUs.  On a healthy system this should be <5% of trace CPU time; " +
-        "more than that, esp. from non-Microsoft drivers, is a red flag.  Requires Interrupt + " +
+        "splits DpcUs / IsrUs. Interpret the share against a comparable workload and hardware " +
+        "baseline; this tool does not impose a universal healthy threshold or infer driver fault. Requires Interrupt + " +
         "DPC keywords (default WPR 'CPU' profiles enable both).")]
     public InterruptStacksResponse InterruptTopStacks(
         [Description("Absolute path to .etl file")] string path,
@@ -40,7 +40,8 @@ public sealed class InterruptTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
@@ -67,11 +68,13 @@ public sealed class InterruptTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return InterruptStackAnalysis.CallerCallee(
-            trace, function, top, window.StartUs, window.EndUs, Console.Error);
+            trace, function, top, window.StartUs, window.EndUs, Console.Error,
+            filterSpecified: startUs.HasValue || endUs.HasValue);
     }
 }

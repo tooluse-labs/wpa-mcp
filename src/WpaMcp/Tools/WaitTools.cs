@@ -13,15 +13,19 @@ public sealed class WaitTools
     public WaitTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
-        "Per-thread blocked-time analysis — the canonical 'why was this slow' answer when CPU " +
-        "usage is low and wall-clock is high.  PerfView equivalent: 'Thread Time' view, " +
+        "Per-thread blocked-time evidence for investigations where CPU usage is low and " +
+        "wall-clock time is high. PerfView equivalent: 'Thread Time' view, " +
         "blocked-time aggregated per thread.  Built from ThreadCSwitch wait→resume intervals: " +
         "for each thread, sums the time it sat off-CPU between switch-out and switch-in.  Each " +
         "row carries dominant kernel wait reasons (WrFilterContext = blocked in a Filter " +
         "Manager minifilter callback, WrUserRequest = WaitForSingleObject, WrLpcReceive = " +
-        "ALPC reply, etc.) which directly identify the kernel state.  Pair with wait_top_stacks " +
+        "ALPC reply, etc.) which identify the recorded kernel wait-state label, not the " +
+        "responsible component or root cause. Pair with wait_top_stacks " +
         "to find the call chain (this answers 'which thread / which reason'; that one answers " +
-        "'where in the code').  Requires the CSwitch keyword (default WPR 'CPU' profiles do).")]
+        "'where in the code'). WindowCSwitchesAllThreads counts every CSwitch in the requested " +
+        "window; ScopedCSwitches and scoped stack coverage count only selected switch-out events. " +
+        "TotalCSwitches is a deprecated compatibility alias for WindowCSwitchesAllThreads. " +
+        "The analysis needs materialized CSwitch events; an unobserved event class does not by itself prove a capture keyword was disabled.")]
     public WaitAnalysisResponse WaitAnalysis(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
@@ -30,7 +34,7 @@ public sealed class WaitTools
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
         [Description("Optional thread ID; requires pid and is resolved within the requested half-open window.")]
         int? tid = null,
-        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
+        [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate only when multiple process lifetimes intersect the window.")]
         long? processStartUs = null,
         [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
         long? threadStartUs = null)
@@ -38,12 +42,23 @@ public sealed class WaitTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        var scope = ThreadAnalysisScope.ResolveRequired(
-            window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
-        return Analyzers.WaitAnalysis.Analyze(trace, top, scope);
+        var identities = TraceIdentityIndex.For(trace);
+        var processScope = ProcessAnalysisScope.Resolve(
+            window, pid, processStartUs, identities);
+        var scope = ResolveStackScope(
+            window, pid, tid, processStartUs, threadStartUs, identities);
+        if (!scope.IsResolved)
+            return Analyzers.WaitAnalysis.EmptyResolutionFailure(scope);
+
+        return Analyzers.WaitAnalysis.Analyze(
+            trace,
+            top,
+            scope,
+            processScope);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
@@ -52,7 +67,8 @@ public sealed class WaitTools
         "from the blocked thread's switch-out blocking stack on each ThreadCSwitch interval, " +
         "weighted by the exact blocked duration overlapping the requested window. " +
         "Mirrors PerfView's ThreadTimeStackComputer BlockedTime view. Requires the CSwitch keyword + " +
-        "stack-walk-on-CSwitch in the capture profile.")]
+        "stack-walk-on-CSwitch in the capture profile. StackCoverage counts selected closed blocked " +
+        "interval samples and covered microseconds; ?!? is synthetic unknown evidence.")]
     public WaitTopStacksResponse WaitTopStacks(
         [Description("Absolute path to .etl file")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
@@ -80,10 +96,11 @@ public sealed class WaitTools
         Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        var scope = ThreadAnalysisScope.ResolveRequired(
+        var scope = ResolveStackScope(
             window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
         var filterSpecified = pid.HasValue || startUs.HasValue || endUs.HasValue ||
                               tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue;
@@ -123,15 +140,39 @@ public sealed class WaitTools
         Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        var trace = _cache.Get(path);
+        using var traceLease = _cache.Acquire(path);
+        var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
-        var scope = ThreadAnalysisScope.ResolveRequired(
+        var scope = ResolveStackScope(
             window, pid, tid, processStartUs, threadStartUs, TraceIdentityIndex.For(trace));
         var filterSpecified = pid.HasValue || startUs.HasValue || endUs.HasValue ||
                               tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue;
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.CallerCallee(
             trace, function, top, scope, Console.Error, filterSpecified);
+    }
+
+    internal static ThreadAnalysisScope ResolveStackScope(
+        TimeWindow window,
+        int? pid,
+        int? tid,
+        long? processStartUs,
+        long? threadStartUs,
+        TraceIdentityIndex identities)
+    {
+        var processScope = ProcessAnalysisScope.Resolve(
+            window, pid, processStartUs, identities);
+        var resolution = ThreadAnalysisScope.Resolve(
+            window, pid, tid, processStartUs, threadStartUs, identities);
+        return ThreadAnalysisScope.Materialize(
+            window,
+            pid,
+            tid,
+            processStartUs,
+            threadStartUs,
+            identities,
+            processScope,
+            resolution);
     }
 }

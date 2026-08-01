@@ -116,23 +116,16 @@ PDB 和 DLL 必须共享同一个签名（GUID + age）。同样的源文件再 
 > cpu_top_functions C:\my\trace.etl
 ```
 
-看两个地方：
+要分两层看：
 
-- `diagnose_symbols` → `Modules` 列表。每个重要模块的 `Resolved` 都应该是 `true`。
-- `cpu_top_functions` → `Stats.ResolutionRate`。≥ 0.8 才有意义；< 0.5 说明大部分 top-N 是 `module!?`，结果不能用。
+- `diagnose_symbols` → `Modules`：`HasCompletePdbIdentity` 只表示 trace 带 PDB name + GUID + age；`LocalPdbReady` 表示匹配的本地 PDB 和 DIA 支持看起来就绪。两者都不证明某个栈 frame 已经解析。
+- 对应栈工具 → `SymbolResolutionState`、`Stats.ObservedUniqueCodeFrameNameResolutionRate` 和 `Stats.ObservedMetricWeightedCodeFrameNameResolutionRate`。它们只统计本次查询实际触达的 code frame，排除合成 `?!?`；值为 null 表示没有可测 code frame，不是 0%。
 
-某个模块你以为会解析但没解析，hint 字段会告诉你应该加哪个服务器（私有 DLL 会指向"提供本地 PDB 文件夹"）。
+先按 module hint 改善 PDB 可用性，再重跑栈查询。解析率还要结合事件域栈覆盖率与 synthetic-frame 数解释，不能用一个通用阈值决定所有 trace 是否可用。
 
 ## 中途改路径
 
-`set_symbol_path` / `add_symbol_server` 之后，**已经在缓存里的 trace 不会重新解析符号**——`LookupWarmSymbols` 在每个加载好的 `TraceLog` 上只跑一次。目前要强制重查需重启 MCP server；等 MCP 暴露 cache unload 后，预期流程是：
-
-```
-> unload_trace C:\my\trace.etl
-> load_trace C:\my\trace.etl
-```
-
-正常流程"先配 MS 符号服务器、再 load_trace"不会踩到这个坑（路径在第一次 `load_trace` 之前就配好了）。只有"跑过分析器之后改路径、再跑还是 `module!?`"才会卡这里。
+每次栈查询都会快照当前配置，并只在该查询的 `SymbolReader` 中加入 ETL 所在目录，不会把目录写回 `_NT_SYMBOL_PATH`。调用 `set_symbol_path` / `add_symbol_server` 后，重新运行相应栈工具即可使用新快照。已经解析过的 frame name 可能保留在 resident `TraceLog` 缓存中；响应的 lookup state 与观测解析率描述当前查询，不宣称这是全新的 resolver session。
 
 ## 缓存管理
 
@@ -145,9 +138,9 @@ PDB 和 DLL 必须共享同一个签名（GUID + age）。同样的源文件再 
 
 | 现象 | 大概率原因 |
 |---|---|
-| 所有 DLL 的 `Stats.ResolutionRate` 都接近 0 | 没设 `_NT_SYMBOL_PATH`，或者设了但服务器没你的符号。 |
+| 已执行 lookup 的栈响应中，自家 DLL 的观测 code-frame 解析率很低 | 配置路径可能缺失、不可达或没有匹配签名的 PDB；先检查 `LookupState`、`LookupFailure` 和 module readiness。 |
 | 微软模块解析了，你自己的 DLL 没解析 | 构建没出 PDB，或者 PDB 跟最终部署的 DLL 不是同一次构建。 |
-| 昨天还能用、今天 `set_symbol_path` 后就废了 | 中途改了路径——见上面的"中途改路径"章节。 |
+| `set_symbol_path` 后结果变化 | 重跑栈查询并比较 query-local lookup state / rates；已解析 frame name 可能仍缓存于加载中的 trace。 |
 | 内部 symsrv 超时 | 需要 VPN；要走 HTTP 代理就设 `_NT_SYMBOL_PROXY` 环境变量。 |
 | 两个 MCP server 抢 PDB lock | 给每个 server 指向不同的缓存目录。 |
 | `diagnose_symbols` 对某个 Windows 系统 DLL（如 `crypt32`/`bcrypt`/`setupapi`）报 "PDB not indexed" | 只要 `msdl.microsoft.com` 在 `_NT_SYMBOL_PATH` 里，符号本身照样能解出来——缺的只是每模块那行 hint。提示来自一个显式 allowlist（内核 + GDI + COM + .NET runtime + Defender + 图形 + 网络 + DWM），不在表内的模块会落到通用兜底文案。 |

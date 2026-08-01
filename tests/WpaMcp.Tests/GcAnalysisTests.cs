@@ -54,6 +54,8 @@ public class GcAnalysisTests
         Assert.Equal(row.AccountedPauseUs, row.PauseUs);
         Assert.Equal(response.TotalAccountedGcUs, response.TotalGcUs);
         Assert.Equal(response.TotalAccountedPauseUs, response.TotalPauseUs);
+        Assert.Equal(1, response.MatchedEventCount);
+        Assert.Equal(1, response.MatchedIntervalCount);
         Assert.Contains(response.Warnings,
             warning => warning.StartsWith("time_semantics_v2:", StringComparison.Ordinal));
     }
@@ -92,6 +94,151 @@ public class GcAnalysisTests
         Assert.Equal(0, response.TotalAccountedGcUs);
         Assert.Equal(40, response.TotalFullPauseUs);
         Assert.Equal(20, response.TotalAccountedPauseUs);
+        Assert.Equal(0, response.MatchedEventCount);
+        Assert.Equal(1, response.MatchedIntervalCount);
+    }
+
+    [Fact]
+    public void Project_ProcessScopeAggregatesButKeepsReusedPidInstancesSeparate()
+    {
+        var oldProcess = new ProcessInstanceKey(42, 0);
+        var newProcess = new ProcessInstanceKey(42, 100);
+        var intervals = new GcIntervalSet(
+            Gcs:
+            [
+                Gc(oldProcess, startUs: 10, endUs: 30, gcCount: 1),
+                Gc(newProcess, startUs: 110, endUs: 150, gcCount: 1),
+            ],
+            OrphanPauses: [],
+            IncompleteEvidence: [],
+            UnmatchedGcStartCount: 0,
+            UnmatchedGcStopCount: 0,
+            UnmatchedSuspendStartCount: 0,
+            UnmatchedRestartStopCount: 0,
+            InvalidIntervalCount: 0);
+        var window = new TimeWindow(0, 200);
+        var lifetimes = new[]
+        {
+            new ProcessLifetime(oldProcess, 100, true, true),
+            new ProcessLifetime(newProcess, 200, true, false),
+        };
+        var aggregateScope = ProcessAnalysisScope.Resolve(
+            window, pid: 42, processStartUs: null, lifetimes);
+
+        var aggregate = GcAnalysis.Project(
+            intervals, window, aggregateScope, sourceEventCount: 4);
+
+        Assert.Equal(2, aggregate.TotalGcCount);
+        Assert.Equal(60, aggregate.TotalAccountedGcUs);
+        Assert.Equal([0L, 100L], aggregate.Events.Select(row => row.ProcessStartUs));
+        Assert.Equal("pid_aggregate", aggregate.ScopeMode);
+        Assert.True(aggregate.PidReuseObserved);
+        Assert.Equal([oldProcess, newProcess], aggregate.IncludedProcesses);
+        Assert.Equal(4, aggregate.MatchedEventCount);
+        Assert.Equal(2, aggregate.MatchedIntervalCount);
+        Assert.Equal("observed", aggregate.CapabilityStatus);
+        Assert.Null(aggregate.NoDataReason);
+
+        var exactScope = ProcessAnalysisScope.Resolve(
+            window, pid: 42, processStartUs: 100, lifetimes);
+        var exact = GcAnalysis.Project(
+            intervals, window, exactScope, sourceEventCount: 4);
+
+        var row = Assert.Single(exact.Events);
+        Assert.Equal(newProcess.StartUs, row.ProcessStartUs);
+        Assert.Equal(40, exact.TotalAccountedGcUs);
+        Assert.Equal(newProcess, exact.SelectedProcess);
+        Assert.Equal("single_process", exact.ScopeMode);
+        Assert.Equal(2, exact.MatchedEventCount);
+        Assert.Equal(1, exact.MatchedIntervalCount);
+    }
+
+    [Fact]
+    public void Project_MissingExactProcessReturnsStructuredEmptyResponse()
+    {
+        var process = new ProcessInstanceKey(42, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: 42,
+            processStartUs: 50,
+            [new ProcessLifetime(process, 100, true, false)]);
+
+        var response = GcAnalysis.Project(
+            new GcIntervalSet([], [], [], 0, 0, 0, 0, 0),
+            window,
+            scope,
+            sourceEventCount: 2);
+
+        Assert.Empty(response.Events);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
+    }
+
+    [Fact]
+    public void Project_MatchedEndpointWithoutCompletedIntervalReportsIncompleteIntervalEvidence()
+    {
+        var process = new ProcessInstanceKey(42, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: 42,
+            processStartUs: process.StartUs,
+            [new ProcessLifetime(process, 100, true, true)]);
+
+        var response = GcAnalysis.Project(
+            new GcIntervalSet([], [], [], 1, 0, 0, 0, 0),
+            window,
+            scope,
+            sourceEventCount: 1,
+            matchedSourceEventCount: 1);
+
+        Assert.Empty(response.Events);
+        Assert.Equal(1, response.MatchedEventCount);
+        Assert.Equal(0, response.MatchedIntervalCount);
+        Assert.Equal("observed", response.CapabilityStatus);
+        Assert.Equal("no_completed_intervals_in_scope", response.NoDataReason);
+    }
+
+    [Fact]
+    public void Project_NoMatchedEndpointReportsNoEventsInScope()
+    {
+        var process = new ProcessInstanceKey(42, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: process.Pid,
+            processStartUs: process.StartUs,
+            [new ProcessLifetime(process, 100, true, true)]);
+        var response = GcAnalysis.Project(
+            new GcIntervalSet([], [], [], 1, 0, 0, 0, 0),
+            window,
+            scope,
+            sourceEventCount: 1,
+            matchedSourceEventCount: 0);
+
+        Assert.Equal(0, response.MatchedEventCount);
+        Assert.Equal("no_events_in_scope", response.NoDataReason);
+    }
+
+    [Fact]
+    public void GcPairing_SameClrInstanceAndCountCannotCrossProcessLifetime()
+    {
+        var accumulator = new GcIntervalAccumulator();
+        accumulator.AddGcStart(
+            new ProcessInstanceKey(42, 0), 1, gcCount: 7,
+            timestampUs: 10, generation: 2, reason: "Induced");
+        accumulator.AddGcStop(
+            new ProcessInstanceKey(42, 100), 1, gcCount: 7,
+            timestampUs: 120);
+
+        var result = accumulator.Complete();
+
+        Assert.Empty(result.Gcs);
+        Assert.Equal(1, result.UnmatchedGcStartCount);
+        Assert.Equal(1, result.UnmatchedGcStopCount);
     }
 
     [Fact]
@@ -163,4 +310,18 @@ public class GcAnalysisTests
         Assert.All(response.Events,
             row => Assert.Equal("clipped_overlap_v2", row.AccountingMode));
     }
+
+    private static GcWallWithPauses Gc(
+        ProcessInstanceKey process,
+        long startUs,
+        long endUs,
+        int gcCount) =>
+        new(
+            new ClrGcKey(process, ClrInstanceId: 1, GcCount: gcCount),
+            startUs,
+            endUs,
+            FullDurationUs: endUs - startUs,
+            Generation: 2,
+            Reason: "Induced",
+            Pauses: []);
 }

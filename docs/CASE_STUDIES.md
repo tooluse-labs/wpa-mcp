@@ -1,13 +1,13 @@
 # Case studies
 
 Real wpa-mcp investigations, sanitized for sharing.  Each case follows the same shape:
-**Symptom → Tool chain → Evidence → Root cause → Recommendations → Takeaways**.  The
+**Symptom → Tool chain → Evidence → Finding or hypothesis → Recommendations → Takeaways**.  The
 goal is to show how the tools compose, not to deliver a fix recipe — the same chain
 generalises to any startup / fork / I/O regression on Windows.
 
 ---
 
-## 1.  Process creation 50× slower than baseline — multiple EDR stacks colliding
+## 1.  Slow process creation with concurrent security-product activity
 
 > **Trace:** `<trace>.etl`, 248 s wall-clock, 328 processes, captured with CPU + CSwitch + FileIO + ImageLoad keywords (no StackWalk in this profile).
 > **Symptom reported by the user:** "Why is creating a process so slow on this machine?"
@@ -27,9 +27,9 @@ quickstart.
      • SvcHost-A   (PID 5432) — third-party service spawning workers
 ```
 
-Two parents in scope.  Run `process_create_timing` against each in parallel — one call
-gives the kernel-window distribution across all children of one parent, which is what
-matters here.  Then `diagnose_slow_startup` to surface the worst-startup candidates
+Two parents in scope. Run `process_create_timing` against each in parallel — one call
+gives the observed ProcessStart-to-first-ImageLoad interval distribution across the
+children of one parent. Then `diagnose_slow_startup` surfaces the largest candidates
 in one shot.
 
 ```text
@@ -39,13 +39,12 @@ in one shot.
     topImageLoads=15 topCpu=10
 ```
 
-`process_create_timing` is the load-bearing tool here.  Its `FirstImageLoadOffsetUs` is
-the kernel-side window between `ProcessStart` and the first `ImageLoad` event for a
-child PID — i.e. **time the child spent inside the kernel before any of its own user
-code runs**.  Process-create kernel callbacks (AV / EDR scanners, integrity providers,
-ETW providers, etc.) all bill against this window.  A healthy fork on Windows is
-~10–50 ms; anything north of a few hundred ms means a callback is doing real work
-synchronously on the create path.
+`process_create_timing` is the load-bearing tool here. Its `FirstImageLoadOffsetUs` is
+the observed interval between `ProcessStart` and the first `ImageLoad` event for a
+child process lifetime. Process callbacks, scanning, suspension, scheduling, and
+other work can all fall in this interval; the measurement alone does not identify
+which one consumed the time. Any healthy-host baseline must come from comparable
+captures rather than a universal threshold.
 
 ### Evidence
 
@@ -65,7 +64,9 @@ The two worst children sit back-to-back in time:
 | 19928 | 191.21 | **+6.01** |
 | 19656 | 190.83 | **+6.21** — first DLL was `myapp.exe` itself, arriving at t=197.04 |
 
-Six seconds with no user code executing.  All in kernel callbacks.
+Six seconds with no `ImageLoad` event observed for those children. That is an
+investigation anchor, not proof that all time was spent in kernel callbacks or that
+the children were continuously runnable.
 
 `image_load_timing pid=19656 top=25` confirmed this directly: the very first
 `ImageLoad` for PID 19656 was its own `myapp.exe`, dated t=197.04 s — six full seconds
@@ -90,7 +91,9 @@ after the process was created at t=190.83 s.
    → Kernel network filter doing inline scanning per-fork.
 ```
 
-Each fork window during the burst hit **at least three EDR stacks in series**:
+The same burst window also contained substantial CPU activity in several security
+products. These are correlated system-wide observations; CPU samples alone do not
+pair a product's work to each child-create interval or prove serial execution:
 
 | Stack | Processes in trace | Total CPU during burst |
 |---|---|---|
@@ -98,39 +101,40 @@ Each fork window during the burst hit **at least three EDR stacks in series**:
 | Vendor X EDR — service variant      | 2 instances | ~68 s |
 | Vendor X EDR — server variant       | 6 instances + 1 helper | ~61 s |
 
-### Root cause
+### Working hypothesis (not established by these tools alone)
 
-Multiple EDR stacks (Microsoft Defender + two services from a single third-party
-vendor) all register `PsSetCreateProcessNotifyRoutineEx` callbacks.  Windows
-**serialises** every registered create-callback before letting the new process load its
-first image.  With three stacks in line:
+The observations are consistent with security products contributing synchronous work
+during the fork burst, but this trace evidence does not establish the exact callback
+registration, ordering, or per-child attribution. Confirming that mechanism requires
+product/provider telemetry paired to each target lifetime or an controlled A/B capture.
+Under that hypothesis:
 
 1. The two outliers (PIDs 19656, 19928, 6 s gaps) hit a **cold-cache scan** in
    `mpengine`: the Lua signature engine and Boyer-Moore matcher show up in CPU samples,
-   indicating signature db (re)compilation.  Both happen in the same time window, which
-   is why the spike is co-incident — same cold-load, different victims.
+   which is consistent with signature work. Coincidence in one window does not prove
+   database recompilation or identify the affected child.
 2. Subsequent forks fall back to ~800 ms – 1 s — still 16–50× slower than baseline,
-   showing that **even the warm-cache path through three serial EDR callbacks costs
-   ~1 s per fork**.
+   which is consistent with a repeatable synchronous cost but does not by itself prove
+   a warm-cache path through three serial callbacks.
 
-Across the 23-fork burst, the fleet pays roughly **21 s of pure kernel wait** that
-contributes nothing to the application.
+Across the 23-fork burst, the summed intervals are about **21 s**. Because process
+intervals can overlap and contain multiple mechanisms, this is neither additive user
+latency nor a measured "pure kernel wait" total.
 
 ### Recommendations
 
 In priority order (highest leverage first):
 
-1. **Audit the EDR fleet.**  Most enterprise policies intend exactly one EDR per host;
-   accidental layering (legacy AV not removed when a new vendor was rolled out, or two
-   independent installs from different teams) is the dominant cause here.  Removing
-   any one of the three would meaningfully cut the warm-cache path.
+1. **Audit the EDR fleet and validate with A/B captures.** Check whether overlapping
+   products are intended, then change one approved variable at a time and compare the
+   same fork workload before attributing impact to a product.
 2. **Path-level exclusion** for the affected app folder
    (`C:\Users\<user>\AppData\Local\Programs\MyApp\`) on whichever scanner the security
    team allows tuning.  Useful only if the workload is trustworthy and the enterprise
    EDR's behavioural component remains active.
-3. **App-side mitigation:** rework the fork pattern.  23 short-lived child processes
-   in 57 s × ~1 s of kernel tax each = 21 s of latency the user sees as "the app froze".
-   A worker-pool / long-lived helper process eliminates the per-fork tax entirely.
+3. **App-side experiment:** evaluate a worker pool or long-lived helper. It can reduce
+   repeated process-creation work, but the trace does not prove that all summed gaps
+   were serialized user-visible latency or that this change eliminates them entirely.
 4. **Long-term:** add `process_create_timing` `medianFirstImageLoadOffsetUs` as a hard
    metric in EDR procurement / tuning.  A regression suite that captures a 10-fork
    burst before/after EDR config changes, and asserts the median stays below e.g.
@@ -139,17 +143,15 @@ In priority order (highest leverage first):
 
 ### Takeaways for the tools
 
-- `process_create_timing.FirstImageLoadOffsetUs` is the load-bearing measurement.
-  It cleanly separates **kernel-side fork tax** from **user-side startup cost** — two
-  fundamentally different problems that look identical in wall-clock time.
+- `process_create_timing.FirstImageLoadOffsetUs` is the load-bearing measurement, but
+  it is an event-to-event interval, not a decomposition of kernel versus user cost.
 - The investigation took **eight tool calls** end-to-end (`load_trace`,
   `list_processes`, two `process_create_timing` in parallel, `diagnose_slow_startup`,
   two `wait_analysis`, `image_load_timing`, two `cpu_top_functions` in parallel).  No
   trace exported, no PerfView UI, no symbol re-resolution loop.
-- The evidence chain closes itself: `process_create_timing` flags the gap →
-  `image_load_timing` proves the gap is empty of user code → `cpu_top_functions` shows
-  the kernel doing scanner work in the exact same window → CPU heat names the scanner
-  by function.  Each tool answers one question and hands off cleanly to the next.
+- The evidence chain narrows a hypothesis: `process_create_timing` flags an interval →
+  `image_load_timing` confirms the event boundary → `cpu_top_functions` shows
+  concurrent scanner work. Pairing or an A/B capture is still needed for causality.
 - **Beyond incident response:** the same chain works as a regression check.  Capture a
   fork-burst trace once a week, run `process_create_timing` on the same parent, alert
   if the median doubles.
@@ -158,8 +160,8 @@ In priority order (highest leverage first):
 
 The same trace was later analysed end-to-end by a different agent (OpenAI Codex 5.5
 xhigh) using the same wpa-mcp tools but choosing its own call sequence.  The
-conclusion converged on the same root cause — multiple EDR stacks synchronising on
-`PsSetCreateProcessNotifyRoutineEx` callbacks — and the reproduction surfaced three
+investigation converged on the same EDR-contribution hypothesis; it did not independently
+prove callback serialization. The reproduction surfaced three
 pieces of harder evidence that the original chain above did not collect.
 
 **1. First-party Defender ETW telemetry via `find_marker`**
@@ -181,7 +183,7 @@ original Investigation section.  Pulling the `AMFilter_FileScan{,Result}` rows w
 `mode=rows` revealed scans targeting MyApp user-data, LevelDB stores, journal files,
 and the EDR vendor's own state DBs — all in the burst window.
 
-**2. Direct AMSI provider injection (proof of "who is on the callback chain")**
+**2. AMSI provider DLLs observed in the target process**
 
 Pulling the full image-load list for one of the slowest children (PID 15904) with
 `image_load_timing` (not just `image_load_top_gaps`) showed two AMSI provider DLLs
@@ -192,21 +194,21 @@ loaded into the Quark child process:
 * `C:\Program Files (x86)\<Vendor X>\<Service>\...\<vendor>_amsi_provider_64.dll`
   — the third-party EDR's AMSI provider.
 
-This is direct evidence — not inference — that two AMSI scanners synchronously
-participate in every child-process create.  Each provider runs its own inline-scan
-pass, which compounds the kernel-callback latency.
+This is direct evidence that both provider DLLs were loaded in that process. It is not
+evidence that both synchronously participated in every child creation or a measurement
+of their contribution to the interval.
 
-**3. Trigger anchored to a concrete user action**
+**3. Workload correlated with a concrete user action**
 
 The parent process command-line was captured as a stack-trace label by
-`file_io_top_stacks`: `--brand-myapp "<path>\<file>.pdf"` — the 23-fork burst was
-triggered by the user opening a single PDF file.  This anchors "why so many forks at
-once" to a real end-user gesture, not background activity.
+`file_io_top_stacks`: `--brand-myapp "<path>\<file>.pdf"`. The 23-fork burst occurred
+with this PDF-oriented workload, which is consistent with a user opening one file.
+The label and timing do not by themselves prove a one-to-one trigger relationship.
 
 **Why this matters for the tools, not just for this case**
 
 * The same tool surface, no UI, no out-of-band exports — two independent agents
-  choosing different call orders both converge on the same root cause.  The wpa-mcp
+  choosing different call orders surfaced the same hypothesis and evidence gaps. The wpa-mcp
   surface is **agent-agnostic** by design (stdio MCP, structured JSON, no implicit
   state) and this run validates that empirically.
 * `find_marker` is under-used in EDR investigations.  Any security product that
@@ -214,13 +216,14 @@ once" to a real end-user gesture, not background activity.
   canonical example, but most vendors do this — becomes directly observable, no
   stack-walk needed, no symbol resolution loop.  Worth pulling into the default
   investigation muscle-memory.
-* `image_load_timing`'s complete DLL list (not just `image_load_top_gaps`'s top-N)
-  is independently valuable.  It directly answers "who is loaded into this process"
-  and surfaces injected security DLLs by name and on-disk path — much more legible
-  than a stack-trace inference.
+* `image_load_timing`'s returned image-load rows (rather than only
+  `image_load_top_gaps`'s largest intervals) are independently valuable. They show
+  which images were observed loading into the selected process lifetime and surface
+  security DLL names and paths. They do not prove that an image remains loaded or
+  that its component executed on a particular callback path.
 
 ---
 
 *Have a sanitised investigation worth recording?  Open a PR adding it here.  The
-template above (Symptom / Investigation / Evidence / Root cause / Recommendations /
+template above (Symptom / Investigation / Evidence / Finding or hypothesis / Recommendations /
 Takeaways) keeps cases comparable.*

@@ -53,6 +53,14 @@ public static class StackProbeAnalysis
         if (cswitchEvents > 0 && cswitchEventsWithCallStacks == 0)
             notes.Add("cswitch_events_without_callstacks");
 
+        if (cswitchEvents > 0)
+        {
+            notes.Add(
+                "cswitch_stack_semantics=event_call_stack_not_switch_out_blocking_stack; " +
+                "wait_top_stacks, wait_analysis, and inspect_trace cswitch coverage use the " +
+                "switch-out BlockingStack and can report a different coverage");
+        }
+
         if (readyThreadEvents > 0 && readyThreadEventsWithCallStacks == 0)
             notes.Add("ready_thread_events_without_callstacks");
 
@@ -70,9 +78,15 @@ public static class StackProbeAnalysis
             ReadyThreadStackCoveragePct: RatioOrNull(readyThreadEventsWithCallStacks, readyThreadEvents),
             HasExplicitStackWalkEvents: explicitStackWalkEvents > 0,
             HasUsableEventStacks: eventsWithCallStacks > 0,
-            Notes: notes);
+            Notes: notes,
+            EventStackCoveragePercent: PercentOrNull(eventsWithCallStacks, trace.EventCount),
+            CSwitchStackCoveragePercent: PercentOrNull(cswitchEventsWithCallStacks, cswitchEvents),
+            ReadyThreadStackCoveragePercent: PercentOrNull(readyThreadEventsWithCallStacks, readyThreadEvents));
     }
 
     private static double? RatioOrNull(long numerator, long denominator) =>
         denominator == 0 ? null : numerator / (double)denominator;
+
+    private static double? PercentOrNull(long numerator, long denominator) =>
+        denominator == 0 ? null : 100.0 * numerator / denominator;
 }

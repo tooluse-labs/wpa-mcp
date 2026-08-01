@@ -38,16 +38,22 @@ public static class ClrContentionStackAnalysis
         long? endUs,
         TextWriter symbolLog,
         int whenBuckets = 0,
-        bool? filterSpecified = null)
+        bool? filterSpecified = null,
+        long? processStartUs = null)
     {
-        var scope = ResolveLegacyScope(trace, pid, startUs, endUs);
-        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, whenBuckets);
-        var request = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, whenBuckets);
+        var request = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
+        var scope = ResolveThreadScope(trace, request.ProcessScope!, pid, processStartUs);
+        request = request with
         {
-            FilterSpecified = filterSpecified,
             ThreadScope = scope,
         };
         var context = BuildNormalized(trace, request);
+        var contract = StackResultContract.From(
+            request.ProcessScope, request.HasFilter, context.StackCoverage,
+            traceEventCount: context.TraceEventCount);
+        contract.AddWarning(context.Warnings);
 
         var callTree = new CallTree(ScalingPolicyKind.ScaleToData)
         {
@@ -55,6 +61,7 @@ public static class ClrContentionStackAnalysis
         };
         var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
         var completeNodes = callTree.ByID
+            .Where(_ => context.StackCoverage.TotalEventCount > 0)
             .OrderByDescending(node => node.ExclusiveMetric)
             .ToArray();
         var rows = completeNodes
@@ -92,7 +99,16 @@ public static class ClrContentionStackAnalysis
             UnmatchedIntervalCount: context.Projection.UnmatchedIntervalCount,
             InvalidIntervalCount: context.Projection.InvalidIntervalCount,
             HasMore: completeNodes.Length > rows.Length,
-            AccountingMode: DurationAccounting.ClippedOverlapMode);
+            AccountingMode: DurationAccounting.ClippedOverlapMode,
+            StackCoverage: context.StackCoverage,
+            SelectedProcess: contract.SelectedProcess,
+            ScopeMode: contract.ScopeMode,
+            PidReuseObserved: contract.PidReuseObserved,
+            IncludedProcesses: contract.IncludedProcesses,
+            ScopeStatus: contract.ScopeStatus,
+            CapabilityStatus: contract.CapabilityStatus,
+            MatchedEventCount: contract.MatchedEventCount,
+            NoDataReason: contract.NoDataReason);
     }
 
     public static CallerCalleeResponse CallerCallee(
@@ -102,22 +118,32 @@ public static class ClrContentionStackAnalysis
         int? pid,
         long? startUs,
         long? endUs,
-        TextWriter symbolLog)
+        TextWriter symbolLog,
+        long? processStartUs = null,
+        bool? filterSpecified = null)
     {
-        var scope = ResolveLegacyScope(trace, pid, startUs, endUs);
-        var when = StackSourceTopN.WhenHistogram.ForWindow(scope.Window, bucketCount: 0);
-        var request = new StackAnalysisRequest(pid, startUs, endUs, symbolLog, when)
+        var when = StackSourceTopN.WhenHistogram.ForWindow(startUs, endUs, trace, bucketCount: 0);
+        var request = StackAnalysisRequest.ForProcess(
+            trace, pid, processStartUs, startUs, endUs, symbolLog, when, filterSpecified);
+        var scope = ResolveThreadScope(trace, request.ProcessScope!, pid, processStartUs);
+        request = request with
         {
             ThreadScope = scope,
         };
         var context = BuildNormalized(trace, request);
+        var contract = StackResultContract.From(
+            request.ProcessScope, request.HasFilter, context.StackCoverage,
+            traceEventCount: context.TraceEventCount);
         return StackSourceTopN.ComputeCallerCallee(
             context.Normalized,
             focusFunction,
             top,
             metricName: "contentionUs",
             context.Stats,
-            context.Warnings);
+            context.Warnings,
+            sourceTotalMetric: context.Projection.TotalAccountedDurationUs,
+            stackCoverage: context.StackCoverage,
+            resultContract: contract);
     }
 
     internal static ContentionDurationProjection ProjectIntervals(
@@ -127,7 +153,8 @@ public static class ClrContentionStackAnalysis
             ContentionStopData>> pairs,
         ThreadAnalysisScope scope,
         int unmatchedIntervalCount,
-        int invalidIntervalCount)
+        int invalidIntervalCount,
+        ProcessAnalysisScope? processScope = null)
     {
         ArgumentNullException.ThrowIfNull(pairs);
 
@@ -137,6 +164,9 @@ public static class ClrContentionStackAnalysis
 
         foreach (var pair in pairs)
         {
+            if (!MatchesProcess(processScope, pair.Key.Process))
+                continue;
+
             var accountedDurationUs = scope.AccountInterval(
                 pair.Key,
                 pair.StartUs,
@@ -169,7 +199,9 @@ public static class ClrContentionStackAnalysis
         MutableTraceEventStackSource Normalized,
         SymbolStats Stats,
         long TraceTotalUs,
+        long TraceEventCount,
         ContentionDurationProjection Projection,
+        DomainStackCoverage StackCoverage,
         List<string> Warnings);
 
     private static BuildContext BuildNormalized(
@@ -184,8 +216,8 @@ public static class ClrContentionStackAnalysis
             ThreadInstanceKey,
             ContentionStartData,
             ContentionStopData>();
-        using var symbolReader = StackSourceTopN.OpenSymbolReader(request.SymbolLog);
-        var raw = StackSourceTopN.CreateRawSource(trace);
+        using var symbolReader = StackSourceTopN.OpenSymbolReader(trace, request.SymbolLog);
+        var raw = StackSourceTopN.CreateRawSource(trace, "clr_contention", "us");
         var stackByStart = new Dictionary<
             ContentionStackKey,
             StackSourceCallStackIndex>();
@@ -206,7 +238,9 @@ public static class ClrContentionStackAnalysis
                 if (resolution.Status != InstanceResolutionStatus.Resolved ||
                     !resolution.Value.HasValue)
                 {
-                    if (scope.MatchesPoint(data.ProcessID, data.ThreadID, timestampUs))
+                    if (scope.MatchesPoint(data.ProcessID, data.ThreadID, timestampUs) &&
+                        (request.ProcessScope?.MatchesEvent(
+                            identities, data.ProcessID, timestampUs) ?? true))
                         unresolvedIdentityCount++;
                     return;
                 }
@@ -236,7 +270,9 @@ public static class ClrContentionStackAnalysis
                 if (resolution.Status != InstanceResolutionStatus.Resolved ||
                     !resolution.Value.HasValue)
                 {
-                    if (scope.MatchesPoint(data.ProcessID, data.ThreadID, timestampUs))
+                    if (scope.MatchesPoint(data.ProcessID, data.ThreadID, timestampUs) &&
+                        (request.ProcessScope?.MatchesEvent(
+                            identities, data.ProcessID, timestampUs) ?? true))
                         unresolvedIdentityCount++;
                     return;
                 }
@@ -251,23 +287,30 @@ public static class ClrContentionStackAnalysis
         var result = pairer.Complete();
         var unmatchedIntervalCount =
             result.UnmatchedStarts.Count(endpoint =>
-                MatchesEvidence(scope, endpoint.Key, endpoint.TimeUs)) +
+                MatchesEvidence(scope, request.ProcessScope, endpoint.Key, endpoint.TimeUs)) +
             result.UnmatchedStops.Count(endpoint =>
-                MatchesEvidence(scope, endpoint.Key, endpoint.TimeUs)) +
+                MatchesEvidence(scope, request.ProcessScope, endpoint.Key, endpoint.TimeUs)) +
             unresolvedIdentityCount;
         var invalidIntervalCount = result.InvalidIntervals.Count(interval =>
             scope.MatchesThread(interval.Key) &&
+            MatchesProcess(request.ProcessScope, interval.Key.Process) &&
             (scope.Window.ContainsPoint(interval.StartUs) ||
              scope.Window.ContainsPoint(interval.EndUs)));
         var projection = ProjectIntervals(
             result.Pairs,
             scope,
             unmatchedIntervalCount,
-            invalidIntervalCount);
+            invalidIntervalCount,
+            request.ProcessScope);
 
         long traceTotalUs = 0;
+        long traceEventCount = 0;
         foreach (var pair in result.Pairs)
+        {
             traceTotalUs = checked(traceTotalUs + pair.FullDurationUs);
+            if (scope.Window.IntersectDurationUs(pair.StartUs, pair.EndUs) > 0)
+                traceEventCount++;
+        }
 
         foreach (var sample in projection.Samples)
         {
@@ -275,26 +318,29 @@ public static class ClrContentionStackAnalysis
                 sample.Thread,
                 sample.StartUs,
                 sample.Stack);
-            raw.Sample.StackIndex = stackByStart.TryGetValue(stackKey, out var stack)
-                ? stack
-                : raw.NoStackCallStack;
-            raw.Sample.TimeRelativeMSec = sample.EndUs / 1_000d;
-            raw.Sample.Metric = sample.AccountedDurationUs;
-            raw.Source.AddSample(raw.Sample);
+            var stack = raw.NoStackCallStack;
+            var hasStack = sample.Stack != CallStackIndex.Invalid &&
+                           stackByStart.TryGetValue(stackKey, out stack);
+            raw.AddSample(
+                hasStack ? stack : raw.NoStackCallStack,
+                hasStack,
+                sample.EndUs / 1_000d,
+                sample.AccountedDurationUs);
             request.When.AddDurationInterval(sample.StartUs, sample.EndUs);
         }
         raw.Source.DoneAddingSamples();
 
-        if (request.ResolveSymbols)
-            raw.Source.LookupWarmSymbols(StackSourceTopN.WarmSymbolThreshold, symbolReader);
-        var stats = StackSourceTopN.ComputeSymbolStats(raw.Source);
+        var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(
+            raw.Source, request.ResolveSymbols, symbolReader);
+        var stats = StackSourceTopN.ComputeSymbolStats(raw, lookupAttempt);
         var normalized = StackSourceTopN.BuildNormalized(
             raw.Source,
             trace,
             excludeEtwSelfOverhead: false);
+        var coverage = raw.Coverage.Snapshot();
 
         var warnings = new List<string>();
-        if (projection.Samples.Count == 0)
+        if (projection.Samples.Count == 0 && !request.HasFilter)
         {
             warnings.Add(WarningBuilder.MissingClrKeyword(
                 "contention",
@@ -303,17 +349,19 @@ public static class ClrContentionStackAnalysis
         }
         if (!request.ResolveSymbols)
             warnings.Add(WarningBuilder.SymbolResolutionSkipped("stack analysis"));
-        else if (stats.ResolutionRate < 0.8)
-            warnings.Add(WarningBuilder.SymbolResolution(stats.ResolutionRate));
+        else if (stats.ResolutionRate is { } resolutionRate && resolutionRate < 0.8)
+            warnings.Add(WarningBuilder.SymbolResolution(resolutionRate));
+        StackSourceTopN.AddCoverageWarning(warnings, coverage);
+        StackSourceTopN.AddSymbolLookupWarning(warnings, stats);
         if (unresolvedIdentityCount > 0)
         {
             warnings.Add(
                 $"identity_incomplete: skipped {unresolvedIdentityCount} contention endpoint events because their thread instance was unresolved or ambiguous.");
         }
-        if (scope.PidReuseObserved)
+        if (request.ProcessScope?.ScopeMode == "pid_aggregate")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+                "pid_aggregate: the PID-only scope aggregates multiple process lifetimes; inspect IncludedProcesses.");
         }
         warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
 
@@ -321,39 +369,51 @@ public static class ClrContentionStackAnalysis
             normalized,
             stats,
             traceTotalUs,
+            traceEventCount,
             projection,
+            coverage,
             warnings);
     }
 
-    private static ThreadAnalysisScope ResolveLegacyScope(
+    private static ThreadAnalysisScope ResolveThreadScope(
         TraceLog trace,
+        ProcessAnalysisScope processScope,
         int? pid,
-        long? startUs,
-        long? endUs)
+        long? processStartUs)
     {
-        var window = TimeWindowInput.Validate(startUs, endUs, maxDurationUs: null)
-            .Resolve(
-                TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds),
-                maxDurationUs: null);
         var resolution = ThreadAnalysisScope.Resolve(
-            window,
+            processScope.Window,
             pid,
             tid: null,
-            processStartUs: null,
+            processStartUs,
             threadStartUs: null,
             TraceIdentityIndex.For(trace));
         return resolution.Status == InstanceResolutionStatus.Resolved &&
                resolution.Value.HasValue
             ? resolution.Value.Value
-            : throw new InvalidOperationException(
-                $"Unable to resolve contention stack scope: {resolution.Status}.");
+            : new ThreadAnalysisScope(
+                processScope.Window,
+                pid,
+                Process: null,
+                Thread: null,
+                AggregatesPidLifetimes: false,
+                PidReuseObserved: processScope.PidReuseObserved);
     }
 
     private static bool MatchesEvidence(
         ThreadAnalysisScope scope,
+        ProcessAnalysisScope? processScope,
         ThreadInstanceKey thread,
         long timestampUs) =>
-        scope.MatchesThread(thread) && scope.Window.ContainsPoint(timestampUs);
+        scope.MatchesThread(thread) &&
+        MatchesProcess(processScope, thread.Process) &&
+        scope.Window.ContainsPoint(timestampUs);
+
+    private static bool MatchesProcess(
+        ProcessAnalysisScope? processScope,
+        ProcessInstanceKey process) =>
+        processScope is null ||
+        (processScope.IsResolved && processScope.IncludedProcesses.Contains(process));
 
     private readonly record struct ContentionStackKey(
         ThreadInstanceKey Thread,

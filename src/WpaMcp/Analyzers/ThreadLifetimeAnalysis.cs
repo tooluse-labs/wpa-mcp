@@ -20,28 +20,54 @@ namespace WpaMcp.Analyzers;
 // Requires the Thread keyword in the capture profile (in default kernel profiles).
 public static class ThreadLifetimeAnalysis
 {
-    public static ThreadLifetimeResponse Analyze(TraceLog trace, int pid, int top)
+    public static ThreadLifetimeResponse Analyze(
+        TraceLog trace,
+        int pid,
+        int top,
+        long? processStartUs = null)
     {
         var identities = TraceIdentityIndex.For(trace);
-        var threads = ProjectLifetimes(
-            identities.Threads.Lifetimes.Where(lifetime => lifetime.Key.Process.Pid == pid));
+        var scope = ResolveSingleProcessScope(
+            identities, pid, processStartUs);
+        var selected = scope.SelectedProcess.HasValue
+            ? identities.Processes.FindExact(scope.SelectedProcess.Value)
+                .OrderByDescending(candidate => candidate.EndUs)
+                .FirstOrDefault()
+            : null;
+        var processName = selected is null
+            ? $"Process({pid})"
+            : ResolveProcessName(trace, selected.Key);
+        return BuildResponse(identities, pid, top, selected, processName, scope);
+    }
+
+    private static ThreadLifetimeResponse BuildResponse(
+        TraceIdentityIndex identities,
+        int pid,
+        int top,
+        ProcessLifetime? selected,
+        string processName,
+        ProcessAnalysisScope scope)
+    {
+        var threads = selected is null
+            ? Array.Empty<ThreadLifetimeRow>()
+            : ProjectLifetimes(identities.Threads.Lifetimes.Where(
+                lifetime => lifetime.Key.Process == selected.Key));
         var topRows = threads.Take(top).ToArray();
-        var processNames = trace.Processes
-            .Where(process => process.ProcessID == pid)
-            .Select(process => process.Name)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        var processName = processNames.Length == 1
-            ? processNames[0]!
-            : $"Process({pid})";
+        var globalEventCount = identities.ThreadLifecycleEventCount;
+        var matchedEventCount = scope.IncludedProcesses.Sum(process =>
+            identities.ThreadLifecycleEventCountsByProcess.GetValueOrDefault(process));
 
         var warnings = new List<string>();
         if (threads.Count == 0)
         {
-            warnings.Add(
-                $"No ThreadStart / ThreadStop events for PID {pid}. The process may not exist " +
-                "in this trace, or the capture omits the Thread keyword (in default kernel profiles).");
+            warnings.Add(!scope.IsResolved
+                ? $"scope_not_found: no process lifetime matched PID {pid}" +
+                  (scope.ProcessStartUs.HasValue
+                      ? $" at processStartUs={scope.ProcessStartUs.Value}"
+                      : string.Empty) + "."
+                : globalEventCount == 0
+                    ? "event_class_not_observed: no ThreadStart/Stop or thread-rundown records were observed in the materialized trace. This does not prove that Thread capture was disabled."
+                    : "no_events_in_scope: thread lifecycles were materialized in the trace, but none matched the selected process lifetime.");
         }
         // ThreadLifetimeRow ≈ 40 B; 100k = ~4 MB. Anything north of that suggests a
         // thread-pool thrasher / fork bomb pattern and the consumer should know that
@@ -59,7 +85,56 @@ public static class ThreadLifetimeAnalysis
             TotalThreads: threads.Count,
             PeakConcurrentThreads: ComputePeakConcurrentThreads(threads),
             Threads: topRows,
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: scope.SelectedProcess,
+            ScopeMode: scope.ScopeMode,
+            PidReuseObserved: scope.PidReuseObserved,
+            IncludedProcesses: scope.IncludedProcesses,
+            ScopeStatus: scope.ScopeStatus,
+            CapabilityStatus: scope.IsResolved
+                ? matchedEventCount > 0
+                    ? "observed"
+                    : globalEventCount == 0
+                        ? "not_observed"
+                        : "unknown"
+                : "unknown",
+            MatchedEventCount: matchedEventCount,
+            NoDataReason: !scope.IsResolved
+                ? "scope_not_found"
+                : globalEventCount == 0
+                    ? "event_class_not_observed"
+                    : threads.Count == 0
+                        ? "no_events_in_scope"
+                        : null);
+    }
+
+    internal static ThreadLifetimeResponse AnalyzeEventsResponse(
+        long traceEndUs,
+        IReadOnlyList<ProcessLifetime> processLifetimes,
+        IReadOnlyList<ThreadLifecycleEvent> events,
+        int pid,
+        int top,
+        long? processStartUs,
+        string? processName = null)
+    {
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs,
+            processLifetimes,
+            events);
+        var scope = ResolveSingleProcessScope(
+            identities, pid, processStartUs);
+        var selected = scope.SelectedProcess.HasValue
+            ? identities.Processes.FindExact(scope.SelectedProcess.Value)
+                .OrderByDescending(candidate => candidate.EndUs)
+                .FirstOrDefault()
+            : null;
+        return BuildResponse(
+            identities,
+            pid,
+            top,
+            selected,
+            processName ?? $"Process({pid})",
+            scope);
     }
 
     internal static IReadOnlyList<ThreadLifetimeRow> AnalyzeEvents(
@@ -68,12 +143,34 @@ public static class ThreadLifetimeAnalysis
         IReadOnlyList<ThreadLifecycleEvent> events,
         ProcessInstanceKey selector)
     {
-        var identities = TraceIdentityIndex.BuildFromEvents(
+        return AnalyzeEventsResponse(
             traceEndUs,
             processLifetimes,
-            events);
-        return ProjectLifetimes(
-            identities.Threads.Lifetimes.Where(lifetime => lifetime.Key.Process == selector));
+            events,
+            selector.Pid,
+            top: int.MaxValue,
+            processStartUs: selector.StartUs).Threads;
+    }
+
+    private static ProcessAnalysisScope ResolveSingleProcessScope(
+        TraceIdentityIndex identities,
+        int pid,
+        long? processStartUs)
+    {
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, identities.TraceEndUs),
+            pid,
+            processStartUs,
+            identities);
+        if (scope.ScopeMode != "pid_aggregate")
+            return scope;
+
+        var starts = string.Join(", ", scope.IncludedProcesses.Select(
+            process => process.StartUs));
+        throw new ArgumentException(
+            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
+            $"specify processStartUs. candidates=[{starts}]",
+            nameof(pid));
     }
 
     private static IReadOnlyList<ThreadLifetimeRow> ProjectLifetimes(
@@ -89,8 +186,27 @@ public static class ThreadLifetimeAnalysis
                 EndTimeUs: lifetime.EndUs,
                 LifetimeUs: checked(lifetime.EndUs - lifetime.StartUs),
                 TraceResidentStart: !lifetime.StartObserved,
-                TraceResidentEnd: !lifetime.EndObserved))
+                TraceResidentEnd: !lifetime.EndObserved,
+                ProcessStartUs: lifetime.Key.Process.StartUs,
+                ThreadGeneration: lifetime.Key.Generation))
             .ToArray();
+
+    private static string ResolveProcessName(TraceLog trace, ProcessInstanceKey process)
+    {
+        var exact = trace.Processes.FirstOrDefault(candidate =>
+            candidate.ProcessID == process.Pid &&
+            TraceTime.FromMilliseconds(candidate.StartTimeRelativeMsec) == process.StartUs);
+        if (!string.IsNullOrWhiteSpace(exact?.Name))
+            return exact.Name;
+
+        var names = trace.Processes
+            .Where(candidate => candidate.ProcessID == process.Pid)
+            .Select(candidate => candidate.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return names.Length == 1 ? names[0]! : $"Process({process.Pid})";
+    }
 
     private static int ComputePeakConcurrentThreads(IReadOnlyList<ThreadLifetimeRow> threads)
     {

@@ -22,6 +22,9 @@ public class ThreadLifetimeAnalysisTests
         // Top is bounded.
         Assert.True(resp.Threads.Count <= 50);
         Assert.True(resp.PeakConcurrentThreads >= 0);
+        Assert.Equal("single_process", resp.ScopeMode);
+        Assert.Equal(4, resp.SelectedProcess?.Pid);
+        Assert.Equal([resp.SelectedProcess.GetValueOrDefault()], resp.IncludedProcesses);
     }
 
     [Fact]
@@ -33,6 +36,15 @@ public class ThreadLifetimeAnalysisTests
         Assert.Equal(0, resp.TotalThreads);
         Assert.Empty(resp.Threads);
         Assert.NotEmpty(resp.Warnings);
+        Assert.Null(resp.SelectedProcess);
+        Assert.Equal("unresolved", resp.ScopeMode);
+        Assert.Equal("scope_not_found", resp.ScopeStatus);
+        Assert.Equal("scope_not_found", resp.NoDataReason);
+        Assert.Equal("unknown", resp.CapabilityStatus);
+        Assert.Equal(0, resp.MatchedEventCount);
+        Assert.False(resp.PidReuseObserved);
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<ProcessInstanceKey>>(
+            resp.IncludedProcesses));
     }
 
     [Fact]
@@ -67,6 +79,8 @@ public class ThreadLifetimeAnalysisTests
 
         var row = Assert.Single(rows);
         Assert.Equal(7, row.Tid);
+        Assert.Equal(selected.StartUs, row.ProcessStartUs);
+        Assert.Equal(1, row.ThreadGeneration);
         Assert.Equal(110, row.StartTimeUs);
         Assert.Equal(190, row.EndTimeUs);
         Assert.All(rows, candidate => Assert.True(candidate.StartTimeUs >= selected.StartUs));
@@ -90,5 +104,87 @@ public class ThreadLifetimeAnalysisTests
 
         Assert.False(Assert.Single(rows, row => row.Tid == 7).TraceResidentStart);
         Assert.True(Assert.Single(rows, row => row.Tid == 8).TraceResidentStart);
+    }
+
+    [Fact]
+    public void AnalyzeEventsResponse_ReusedPidWithoutSelectorRejectsWithCandidates()
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            ThreadLifetimeAnalysis.AnalyzeEventsResponse(
+                traceEndUs: 400,
+                processLifetimes:
+                [
+                    new ProcessLifetime(new ProcessInstanceKey(20, 100), 200, true, true),
+                    new ProcessLifetime(new ProcessInstanceKey(20, 300), 400, true, false),
+                ],
+                events: [],
+                pid: 20,
+                top: 20,
+                processStartUs: null));
+
+        Assert.Contains("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
+        Assert.Contains("candidates=[100, 300]", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnalyzeEventsResponse_ExactSelectorFiltersProcessAndPreservesThreadGeneration()
+    {
+        var selected = new ProcessInstanceKey(20, 300);
+        var response = ThreadLifetimeAnalysis.AnalyzeEventsResponse(
+            traceEndUs: 500,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(20, 100), 250, true, true),
+                new ProcessLifetime(selected, 500, true, false),
+            ],
+            events:
+            [
+                new ThreadLifecycleEvent(20, 7, 110, ThreadLifecycleEventKind.Start, true),
+                new ThreadLifecycleEvent(20, 7, 200, ThreadLifecycleEventKind.Stop, true),
+                new ThreadLifecycleEvent(20, 7, 310, ThreadLifecycleEventKind.Start, true),
+                new ThreadLifecycleEvent(20, 7, 350, ThreadLifecycleEventKind.Stop, true),
+                new ThreadLifecycleEvent(20, 7, 370, ThreadLifecycleEventKind.Start, true),
+                new ThreadLifecycleEvent(20, 7, 450, ThreadLifecycleEventKind.Stop, true),
+            ],
+            pid: 20,
+            top: 20,
+            processStartUs: selected.StartUs,
+            processName: "selected");
+
+        Assert.Equal(selected, response.SelectedProcess);
+        Assert.Equal("single_process", response.ScopeMode);
+        Assert.True(response.PidReuseObserved);
+        Assert.Equal([selected], response.IncludedProcesses);
+        Assert.Equal("selected", response.ProcessName);
+        Assert.Equal(2, response.TotalThreads);
+        Assert.Equal(4, response.MatchedEventCount);
+        Assert.Equal("observed", response.CapabilityStatus);
+        Assert.Null(response.NoDataReason);
+        Assert.Equal(1, response.PeakConcurrentThreads);
+        Assert.All(response.Threads, row => Assert.Equal(selected.StartUs, row.ProcessStartUs));
+        Assert.Equal([1L, 2L], response.Threads.Select(row => row.ThreadGeneration));
+        Assert.Equal([310L, 370L], response.Threads.Select(row => row.StartTimeUs));
+    }
+
+    [Fact]
+    public void AnalyzeEventsResponse_MissingExactSelectorReturnsStructuredEmptyResponse()
+    {
+        var response = ThreadLifetimeAnalysis.AnalyzeEventsResponse(
+                traceEndUs: 200,
+                processLifetimes:
+                [
+                    new ProcessLifetime(
+                        new ProcessInstanceKey(20, 100), 200, true, false),
+                ],
+                events: [],
+                pid: 20,
+                top: 20,
+                processStartUs: 101);
+
+        Assert.Empty(response.Threads);
+        Assert.Equal("scope_not_found", response.ScopeStatus);
+        Assert.Equal("scope_not_found", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
     }
 }

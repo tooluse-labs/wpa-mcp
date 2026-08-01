@@ -23,10 +23,16 @@ public class ClrContentionStackAnalysisTests
         accumulator.AddStop(newThread, 130, new ContentionStopData());
 
         var result = accumulator.Complete();
+        var coverage = TraceCapabilitiesDetector.ProjectClrContentionCoverage(result);
 
         Assert.Empty(result.Pairs);
         Assert.Single(result.UnmatchedStarts);
         Assert.Single(result.UnmatchedStops);
+        Assert.Equal("clr_contention", coverage.Domain);
+        Assert.Equal("us", coverage.MetricName);
+        Assert.Equal("no_events", coverage.CoverageState);
+        Assert.Equal(0, coverage.TotalEventCount);
+        Assert.Equal(0, coverage.TotalMetric);
     }
 
     [Fact]
@@ -75,7 +81,7 @@ public class ClrContentionStackAnalysisTests
         Assert.Equal(0, resp.TotalAccountedBlockedUs);
         Assert.Equal("clipped_overlap_v2", resp.AccountingMode);
         Assert.Equal(0, resp.TotalEventCount);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBlockedUs, r => r.InclusiveBlockedUs);
+        Assert.Empty(resp.Rows);
         Assert.All(resp.Rows, row =>
         {
             Assert.Equal(row.ExclusiveBlockedUs, row.ExclusiveAccountedBlockedUs);
@@ -97,7 +103,7 @@ public class ClrContentionStackAnalysisTests
         var tools = new ClrTools(new TraceCache(capacity: 2));
         var resp = tools.ClrContentionTopStacks(FixturePath, pid: 4); // System
         Assert.Equal(0, resp.TotalEventCount);
-        StackAssertions.AssertRootOnly(resp.Rows, r => r.ExclusiveBlockedUs, r => r.InclusiveBlockedUs);
+        Assert.Empty(resp.Rows);
     }
 
     [Fact]
