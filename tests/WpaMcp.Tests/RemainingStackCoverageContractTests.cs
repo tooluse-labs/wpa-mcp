@@ -240,6 +240,27 @@ public sealed class RemainingStackCoverageContractTests
         }
     }
 
+    [Fact]
+    public void TraceCapabilities_AndUnfilteredAnalyzersUseIdenticalZeroMetricEventSemantics()
+    {
+        var capabilities = Assert.IsAssignableFrom<IReadOnlyDictionary<string, DomainStackCoverage>>(
+            Cache.GetCapabilities(CpuFixture).StackCoverageByDomain);
+
+        var virtualAlloc = new VirtualMemoryTools(Cache).VirtualAllocTopStacks(CpuFixture, top: 5);
+        var clrAlloc = new ClrTools(Cache).ClrAllocTopStacks(CpuFixture, top: 5);
+        var heapAlloc = new HeapTools(Cache).HeapAllocTopStacks(CpuFixture, top: 5);
+
+        Assert.Equal(
+            Assert.IsType<DomainStackCoverage>(virtualAlloc.StackCoverage),
+            capabilities["virtual_alloc"]);
+        Assert.Equal(
+            Assert.IsType<DomainStackCoverage>(clrAlloc.StackCoverage),
+            capabilities["clr_alloc"]);
+        Assert.Equal(
+            Assert.IsType<DomainStackCoverage>(heapAlloc.StackCoverage),
+            capabilities["heap_alloc"]);
+    }
+
     private static string Pick<TRow>(IReadOnlyList<TRow> rows, Func<TRow, string> selector) =>
         rows.Count == 0 ? "?!?" : selector(rows[0]);
 

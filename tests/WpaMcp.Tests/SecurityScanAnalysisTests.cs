@@ -322,6 +322,8 @@ public sealed class SecurityScanAnalysisTests
 
         Assert.Equal(0, response.PairedScanCount);
         Assert.Equal(1, response.TargetIdentityMismatchCount);
+        Assert.Equal(1, response.ScopedUnattributedEventCount);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
         Assert.Contains(response.Warnings, warning => warning.StartsWith("target_identity_mismatch:", StringComparison.Ordinal));
     }
 
@@ -379,6 +381,122 @@ public sealed class SecurityScanAnalysisTests
     }
 
     [Fact]
+    public void SecurityProjection_PairedEmitterFallbackRetainsResolvedTarget()
+    {
+        var emitter = new ProcessInstanceKey(7, 0);
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["__Source"] = "Microsoft Defender",
+            ["__ProviderName"] = "Microsoft-Antimalware-Engine",
+            ["__Id"] = "scan-1",
+            ["Path"] = "c:\\sample.dll",
+        };
+        var target = new SecurityScanAnalysis.ScanTarget(
+            "Microsoft Defender",
+            "Microsoft-Antimalware-Engine",
+            "scanner.exe",
+            7,
+            "c:\\sample.dll");
+        var pair = new PairedInterval<SecurityScanPairKey, SecurityScanStartData, SecurityScanStopData>(
+            new SecurityScanPairKey(emitter, "Microsoft-Antimalware-Engine", "scan-1"),
+            10,
+            20,
+            new SecurityScanStartData(fields, emitter, "emitter_fallback", target),
+            new SecurityScanStopData(fields, emitter, "emitter_fallback", target));
+
+        var response = SecurityScanAnalysis.ProjectPairs(
+            [pair],
+            new TimeWindow(0, 100),
+            top: 10,
+            pid: 7,
+            processSubstring: null,
+            pathSubstring: null,
+            providerSubstring: null);
+
+        var row = Assert.Single(response.Rows);
+        Assert.Equal(7, row.Pid);
+        Assert.Equal("scanner.exe", row.Process);
+        Assert.Equal(0, row.ProcessStartUs);
+        Assert.Equal("emitter_fallback", row.TargetIdentitySource);
+        Assert.Equal(1, response.PairedScanCount);
+        Assert.Equal(1, response.EmitterFallbackIdentityCount);
+    }
+
+    [Fact]
+    public void SecurityProjection_OneUnresolvedEndpointDoesNotAttributePairToResolvedTarget()
+    {
+        var targetProcess = new ProcessInstanceKey(42, 0);
+        var emitter = new ProcessInstanceKey(7, 0);
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["__Source"] = "Microsoft Defender",
+            ["__ProviderName"] = "Microsoft-Antimalware-Engine",
+            ["__Id"] = "scan-1",
+            ["PID"] = "42",
+        };
+        var target = new SecurityScanAnalysis.ScanTarget(
+            "Microsoft Defender",
+            "Microsoft-Antimalware-Engine",
+            "target.exe",
+            42,
+            string.Empty);
+        var pair = new PairedInterval<SecurityScanPairKey, SecurityScanStartData, SecurityScanStopData>(
+            new SecurityScanPairKey(emitter, "Microsoft-Antimalware-Engine", "scan-1"),
+            10,
+            60,
+            new SecurityScanStartData(
+                fields, targetProcess, "payload_target_pid", target),
+            new SecurityScanStopData(
+                fields,
+                TargetProcess: null,
+                TargetIdentitySource: "payload_target_pid",
+                Target: target));
+
+        var response = SecurityScanAnalysis.ProjectPairs(
+            [pair],
+            new TimeWindow(0, 100),
+            top: 10,
+            pid: null,
+            processSubstring: null,
+            pathSubstring: null,
+            providerSubstring: null);
+
+        Assert.Equal(0, response.PairedScanCount);
+        Assert.Equal(0, response.TotalDurationUs);
+        Assert.Empty(response.Rows);
+        Assert.Equal(1, response.TargetIdentityMismatchCount);
+        Assert.Equal(1, response.ScopedUnattributedEventCount);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("target_identity_mismatch:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SecurityUnmatchedData_UsesSavedEmitterFallbackTarget()
+    {
+        var emitter = new ProcessInstanceKey(7, 0);
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["__Source"] = "Microsoft Defender",
+            ["__ProviderName"] = "Microsoft-Antimalware-Engine",
+            ["__Id"] = "scan-1",
+        };
+        var fallback = new SecurityScanAnalysis.ScanTarget(
+            "Microsoft Defender",
+            "Microsoft-Antimalware-Engine",
+            "scanner.exe",
+            7,
+            string.Empty);
+        var start = new SecurityScanStartData(
+            fields, emitter, "emitter_fallback", fallback);
+        var stop = new SecurityScanStopData(
+            fields, emitter, "emitter_fallback", fallback);
+
+        Assert.Equal(fallback, SecurityScanAnalysis.TargetFromData(start));
+        Assert.Equal(fallback, SecurityScanAnalysis.TargetFromData(stop));
+    }
+
+    [Fact]
     public void SecurityProjection_UnresolvedPayloadTargetIsReportedInsteadOfRelabeledAsEmitter()
     {
         var target = new SecurityScanAnalysis.ScanTarget(
@@ -411,6 +529,46 @@ public sealed class SecurityScanAnalysisTests
         Assert.Equal(1, response.PayloadTargetIdentityCount);
         Assert.Equal(0, response.EmitterFallbackIdentityCount);
         Assert.Contains(response.Warnings, warning => warning.StartsWith("target_identity_incomplete:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SecurityProjection_SelectedRawTargetWithUnresolvedLifetimeIsUnattributed()
+    {
+        var targetKey = new ProcessInstanceKey(42, 0);
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 200),
+            pid: 42,
+            processStartUs: 0,
+            Lifetimes((targetKey, 200)));
+        var target = new SecurityScanAnalysis.ScanTarget(
+            "Security/EDR", "Contoso-Security", string.Empty, 42, "sample.bin");
+        var evidence = SecurityScanAnalysis.ClassifyEvidence(
+            target.ProviderName,
+            "ScanResult",
+            new Dictionary<string, string>())!.Value;
+
+        var response = SecurityScanAnalysis.ProjectPointEvents(
+            [new SecurityScanAnalysis.SecurityScanPointEvent(
+                target,
+                target.Source,
+                target.ProviderName,
+                "ScanResult",
+                IsStart: false,
+                IsStop: false,
+                IsResult: true,
+                Reasons: [],
+                Statuses: [],
+                evidence,
+                TargetProcess: null,
+                TargetIdentitySource: "payload_target_pid")],
+            top: 10,
+            scope,
+            eventClassObserved: true);
+
+        Assert.Empty(response.Rows);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.ScopedUnattributedEventCount);
+        Assert.Equal(0, response.MatchedEventCount);
     }
 
     [Theory]
@@ -469,7 +627,7 @@ public sealed class SecurityScanAnalysisTests
         var description = method?.GetCustomAttribute<DescriptionAttribute>()?.Description;
 
         Assert.NotNull(tool);
-        Assert.False(tool!.OpenWorld);
+        Assert.True(tool!.OpenWorld);
         Assert.Contains("third-party", description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("degrade", description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("confidence", description, StringComparison.OrdinalIgnoreCase);

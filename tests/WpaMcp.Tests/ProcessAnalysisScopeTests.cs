@@ -29,6 +29,22 @@ public sealed class ProcessAnalysisScopeTests
     }
 
     [Fact]
+    public void RequireSingleProcess_ConvertsCleanAggregateToStructuredReplayRequest()
+    {
+        var aggregate = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 500), pid: 42, processStartUs: null, Lifetimes);
+
+        var exactOnly = aggregate.RequireSingleProcess();
+
+        Assert.False(exactOnly.IsResolved);
+        Assert.Equal("unresolved", exactOnly.ScopeMode);
+        Assert.Equal("process_start_required", exactOnly.ScopeStatus);
+        Assert.True(exactOnly.PidReuseObserved);
+        Assert.Null(exactOnly.SelectedProcess);
+        Assert.Equal(aggregate.IncludedProcesses, exactOnly.IncludedProcesses);
+    }
+
+    [Fact]
     public void Resolve_ExactStart_SelectsOneInstance()
     {
         var scope = ProcessAnalysisScope.Resolve(
@@ -102,5 +118,93 @@ public sealed class ProcessAnalysisScopeTests
         Assert.False(scope.TryResolveEventProcess(
             identities, eventPid: 999, timestampUs: 200, out _));
         Assert.False(scope.MatchesEvent(identities, eventPid: 999, timestampUs: 400));
+    }
+
+    [Fact]
+    public void DuplicateExactKey_IsCanonicalizedConsistentlyByScopeAndResolver()
+    {
+        var key = new ProcessInstanceKey(42, 0);
+        ProcessLifetime[] duplicates =
+        [
+            new(key, 75, StartObserved: false, EndObserved: true),
+            new(key, 100, StartObserved: false, EndObserved: false),
+        ];
+
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 100), pid: 42, processStartUs: 0, duplicates);
+        var resolver = new ProcessInstanceResolver(duplicates);
+        var resolution = resolver.Resolve(42, timestampUs: 50, processStartUs: 0);
+
+        Assert.Equal("single_process", scope.ScopeMode);
+        Assert.Equal([key], scope.IncludedProcesses);
+        Assert.Equal(InstanceResolutionStatus.Resolved, resolution.Status);
+        Assert.Equal(key, resolution.Value);
+        Assert.Equal(75, Assert.Single(resolver.Lifetimes).EndUs);
+
+        var afterObservedStop = ProcessAnalysisScope.Resolve(
+            new TimeWindow(80, 90), pid: 42, processStartUs: 0, duplicates);
+        Assert.Equal(ProcessAnalysisScope.NotFoundStatus, afterObservedStop.ScopeStatus);
+        Assert.Equal(
+            InstanceResolutionStatus.Unresolved,
+            resolver.Resolve(42, timestampUs: 80, processStartUs: 0).Status);
+    }
+
+    [Fact]
+    public void ConflictingObservedStops_AreAuditableAndUseEarliestSafeBound()
+    {
+        var key = new ProcessInstanceKey(42, 0);
+        ProcessLifetime[] conflicts =
+        [
+            new(key, 75, StartObserved: true, EndObserved: true),
+            new(key, 90, StartObserved: true, EndObserved: true),
+        ];
+
+        var resolver = new ProcessInstanceResolver(conflicts);
+        var beforeStop = resolver.Resolve(42, timestampUs: 50, processStartUs: 0);
+        var beforeStopScope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 70), pid: 42, processStartUs: 0, conflicts);
+        var afterFirstStopScope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(80, 85), pid: 42, processStartUs: 0, conflicts);
+
+        Assert.Equal(75, Assert.Single(resolver.Lifetimes).EndUs);
+        Assert.Equal(InstanceResolutionStatus.Ambiguous, beforeStop.Status);
+        Assert.Equal([key], beforeStop.Candidates);
+        Assert.Equal("ambiguous_process_instance", beforeStopScope.ScopeStatus);
+        Assert.Equal("unresolved", beforeStopScope.ScopeMode);
+        Assert.Equal([key], beforeStopScope.IncludedProcesses);
+        Assert.Equal(ProcessAnalysisScope.NotFoundStatus, afterFirstStopScope.ScopeStatus);
+        Assert.Equal(
+            InstanceResolutionStatus.Unresolved,
+            resolver.Resolve(42, timestampUs: 80, processStartUs: 0).Status);
+    }
+
+    [Fact]
+    public void Resolve_OverlappingReusedPidIsAmbiguousForAggregateAndExactSelector()
+    {
+        ProcessLifetime[] overlapping =
+        [
+            new(new ProcessInstanceKey(42, 0), 100, true, true),
+            new(new ProcessInstanceKey(42, 50), 150, true, true),
+        ];
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 150,
+            overlapping,
+            Array.Empty<ThreadLifecycleEvent>());
+
+        var aggregate = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 150), pid: 42, processStartUs: null, identities);
+        var exact = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 150), pid: 42, processStartUs: 0, identities);
+
+        Assert.Equal("ambiguous_process_instance", aggregate.ScopeStatus);
+        Assert.Equal("ambiguous_process_instance", exact.ScopeStatus);
+        Assert.Equal("unresolved", aggregate.ScopeMode);
+        Assert.Equal("unresolved", exact.ScopeMode);
+        Assert.Equal(
+            [new ProcessInstanceKey(42, 0), new ProcessInstanceKey(42, 50)],
+            aggregate.IncludedProcesses);
+        Assert.Equal(aggregate.IncludedProcesses, exact.IncludedProcesses);
+        Assert.False(aggregate.TryResolveEventProcess(identities, 42, 75, out _));
+        Assert.False(exact.TryResolveEventProcess(identities, 42, 75, out _));
     }
 }

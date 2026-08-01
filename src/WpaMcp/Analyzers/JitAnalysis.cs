@@ -32,9 +32,11 @@ public static class JitAnalysis
         var scope = ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, identities);
         var pairer = new IntervalPairAccumulator<JitPairKey, JitStartData, JitStopData>();
-        var incompleteIdentityCount = 0;
+        var traceIdentityUnresolvedEndpointCount = 0;
+        var scopedIdentityUnresolvedEndpointCount = 0;
         long sourceEventCount = 0;
         long matchedSourceEventCount = 0;
+        long scopedUsableSourceEventCount = 0;
 
         ClrEventWalker.Walk(trace, clr =>
         {
@@ -50,18 +52,26 @@ public static class JitAnalysis
                 if (process.Status != InstanceResolutionStatus.Resolved ||
                     !process.Value.HasValue)
                 {
-                    incompleteIdentityCount++;
+                    traceIdentityUnresolvedEndpointCount++;
+                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                        scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
 
-                if (scope.IncludedProcesses.Contains(process.Value.Value) &&
-                    window.ContainsPoint(timestampUs))
+                var matchesScope = scope.IsResolved &&
+                                   scope.IncludedProcesses.Contains(process.Value.Value) &&
+                                   window.ContainsPoint(timestampUs);
+                if (matchesScope)
                     matchedSourceEventCount++;
                 if (!clrInstanceId.HasValue)
                 {
-                    incompleteIdentityCount++;
+                    traceIdentityUnresolvedEndpointCount++;
+                    if (matchesScope)
+                        scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
+                if (matchesScope)
+                    scopedUsableSourceEventCount++;
 
                 var fullName =
                     $"{data.MethodNamespace}.{data.MethodName}{data.MethodSignature}";
@@ -82,18 +92,26 @@ public static class JitAnalysis
                 if (process.Status != InstanceResolutionStatus.Resolved ||
                     !process.Value.HasValue)
                 {
-                    incompleteIdentityCount++;
+                    traceIdentityUnresolvedEndpointCount++;
+                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                        scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
 
-                if (scope.IncludedProcesses.Contains(process.Value.Value) &&
-                    window.ContainsPoint(timestampUs))
+                var matchesScope = scope.IsResolved &&
+                                   scope.IncludedProcesses.Contains(process.Value.Value) &&
+                                   window.ContainsPoint(timestampUs);
+                if (matchesScope)
                     matchedSourceEventCount++;
                 if (!clrInstanceId.HasValue)
                 {
-                    incompleteIdentityCount++;
+                    traceIdentityUnresolvedEndpointCount++;
+                    if (matchesScope)
+                        scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
+                if (matchesScope)
+                    scopedUsableSourceEventCount++;
 
                 pairer.AddStop(
                     new JitPairKey(process.Value.Value, clrInstanceId.Value, data.MethodID),
@@ -111,23 +129,39 @@ public static class JitAnalysis
             sourceEventCount,
             matchedSourceEventCount,
             unmatchedIntervalCount:
-                result.UnmatchedStarts.Count +
-                result.UnmatchedStops.Count +
-                incompleteIdentityCount,
-            invalidIntervalCount: result.InvalidIntervals.Count);
+                result.UnmatchedStarts.Count + result.UnmatchedStops.Count,
+            invalidIntervalCount: result.InvalidIntervals.Count,
+            scopedUnmatchedIntervalCount:
+                result.UnmatchedStarts.Count(item =>
+                    scope.IsResolved &&
+                    scope.IncludedProcesses.Contains(item.Key.Process) &&
+                    window.ContainsPoint(item.TimeUs)) +
+                result.UnmatchedStops.Count(item =>
+                    scope.IsResolved &&
+                    scope.IncludedProcesses.Contains(item.Key.Process) &&
+                    window.ContainsPoint(item.TimeUs)),
+            scopedInvalidIntervalCount: result.InvalidIntervals.Count(item =>
+                scope.IsResolved &&
+                scope.IncludedProcesses.Contains(item.Key.Process) &&
+                (window.ContainsPoint(item.StartUs) ||
+                 window.ContainsPoint(item.EndUs))),
+            scopedUsableSourceEventCount: scopedUsableSourceEventCount,
+            traceIdentityUnresolvedEndpointCount:
+                traceIdentityUnresolvedEndpointCount,
+            scopedIdentityUnresolvedEndpointCount:
+                scopedIdentityUnresolvedEndpointCount,
+            traceUnmatchedStartCount: result.UnmatchedStarts.Count,
+            traceUnmatchedStopCount: result.UnmatchedStops.Count,
+            scopedUnmatchedStartCount: result.UnmatchedStarts.Count(item =>
+                scope.IsResolved &&
+                scope.IncludedProcesses.Contains(item.Key.Process) &&
+                window.ContainsPoint(item.TimeUs)),
+            scopedUnmatchedStopCount: result.UnmatchedStops.Count(item =>
+                scope.IsResolved &&
+                scope.IncludedProcesses.Contains(item.Key.Process) &&
+                window.ContainsPoint(item.TimeUs)));
 
-        if (incompleteIdentityCount == 0)
-            return response;
-
-        return response with
-        {
-            Warnings = response.Warnings
-                .Concat(
-                [
-                    $"identity_incomplete: skipped {incompleteIdentityCount} JIT endpoint events because their process or CLR instance identity was unresolved or ambiguous.",
-                ])
-                .ToArray(),
-        };
+        return response;
     }
 
     internal static JitAnalysisResponse ProjectPairs(
@@ -136,11 +170,30 @@ public static class JitAnalysis
         int? pid,
         int top,
         int unmatchedIntervalCount = 0,
-        int invalidIntervalCount = 0)
+        int invalidIntervalCount = 0,
+        int? scopedUnmatchedIntervalCount = null,
+        int? scopedInvalidIntervalCount = null,
+        long traceIdentityUnresolvedEndpointCount = 0,
+        long scopedIdentityUnresolvedEndpointCount = 0,
+        long? scopedUsableSourceEventCount = null,
+        int? traceUnmatchedStartCount = null,
+        int? traceUnmatchedStopCount = null,
+        int? scopedUnmatchedStartCount = null,
+        int? scopedUnmatchedStopCount = null)
     {
-        var inferredSourceEventCount = checked((long)pairs.Count * 2);
+        var inferredSourceEventCount = checked(
+            (long)pairs.Count * 2 +
+            unmatchedIntervalCount +
+            (long)invalidIntervalCount * 2 +
+            traceIdentityUnresolvedEndpointCount);
         bool MatchesProcess(ProcessInstanceKey process) =>
             !pid.HasValue || process.Pid == pid.Value;
+        var matchedPairEndpointCount = CountMatchedSourceEndpoints(
+            pairs, window, MatchesProcess);
+        var inferredScopedUsableEndpointCount = checked(
+            matchedPairEndpointCount +
+            (scopedUnmatchedIntervalCount ?? unmatchedIntervalCount) +
+            (long)(scopedInvalidIntervalCount ?? invalidIntervalCount) * 2);
         return ProjectPairsCore(
             pairs,
             window,
@@ -150,13 +203,25 @@ public static class JitAnalysis
             inferredSourceEventCount,
             unmatchedIntervalCount,
             invalidIntervalCount,
+            scopedUnmatchedIntervalCount ?? unmatchedIntervalCount,
+            scopedInvalidIntervalCount ?? invalidIntervalCount,
             selectedProcess: null,
             scopeMode: pid.HasValue ? "pid_aggregate" : "all_processes",
             pidReuseObserved: false,
             includedProcesses: Array.Empty<ProcessInstanceKey>(),
             scopeStatus: ProcessAnalysisScope.ResolvedStatus,
-            matchedSourceEventCount: CountMatchedSourceEndpoints(
-                pairs, window, MatchesProcess));
+            matchedSourceEventCount: inferredScopedUsableEndpointCount,
+            scopedUsableSourceEventCount:
+                scopedUsableSourceEventCount ??
+                inferredScopedUsableEndpointCount,
+            traceIdentityUnresolvedEndpointCount:
+                traceIdentityUnresolvedEndpointCount,
+            scopedIdentityUnresolvedEndpointCount:
+                scopedIdentityUnresolvedEndpointCount,
+            traceUnmatchedStartCount: traceUnmatchedStartCount,
+            traceUnmatchedStopCount: traceUnmatchedStopCount,
+            scopedUnmatchedStartCount: scopedUnmatchedStartCount,
+            scopedUnmatchedStopCount: scopedUnmatchedStopCount);
     }
 
     internal static JitAnalysisResponse ProjectPairs(
@@ -167,25 +232,56 @@ public static class JitAnalysis
         long sourceEventCount,
         long? matchedSourceEventCount = null,
         int unmatchedIntervalCount = 0,
-        int invalidIntervalCount = 0) =>
-        ProjectPairsCore(
+        int invalidIntervalCount = 0,
+        int? scopedUnmatchedIntervalCount = null,
+        int? scopedInvalidIntervalCount = null,
+        long traceIdentityUnresolvedEndpointCount = 0,
+        long scopedIdentityUnresolvedEndpointCount = 0,
+        long? scopedUsableSourceEventCount = null,
+        int? traceUnmatchedStartCount = null,
+        int? traceUnmatchedStopCount = null,
+        int? scopedUnmatchedStartCount = null,
+        int? scopedUnmatchedStopCount = null)
+    {
+        var matchedPairEndpointCount = CountMatchedSourceEndpoints(
+            pairs,
+            window,
+            process => scope.IsResolved && scope.IncludedProcesses.Contains(process));
+        var inferredScopedUsableEndpointCount = checked(
+            matchedPairEndpointCount +
+            (scopedUnmatchedIntervalCount ?? unmatchedIntervalCount) +
+            (long)(scopedInvalidIntervalCount ?? invalidIntervalCount) * 2);
+        var matched = matchedSourceEventCount ??
+            inferredScopedUsableEndpointCount;
+        return ProjectPairsCore(
             pairs,
             window,
             scope.Pid,
-            process => scope.IncludedProcesses.Contains(process),
+            process => scope.IsResolved && scope.IncludedProcesses.Contains(process),
             top,
             sourceEventCount,
             unmatchedIntervalCount,
             invalidIntervalCount,
+            scopedUnmatchedIntervalCount ?? unmatchedIntervalCount,
+            scopedInvalidIntervalCount ?? invalidIntervalCount,
             scope.SelectedProcess,
             scope.ScopeMode,
             scope.PidReuseObserved,
             scope.IncludedProcesses,
             scope.ScopeStatus,
-            matchedSourceEventCount ?? CountMatchedSourceEndpoints(
-                pairs,
-                window,
-                process => scope.IncludedProcesses.Contains(process)));
+            matched,
+            scopedUsableSourceEventCount ??
+                (matchedSourceEventCount.HasValue
+                    ? Math.Max(
+                        0, matched - scopedIdentityUnresolvedEndpointCount)
+                    : inferredScopedUsableEndpointCount),
+            traceIdentityUnresolvedEndpointCount,
+            scopedIdentityUnresolvedEndpointCount,
+            traceUnmatchedStartCount,
+            traceUnmatchedStopCount,
+            scopedUnmatchedStartCount,
+            scopedUnmatchedStopCount);
+    }
 
     private static JitAnalysisResponse ProjectPairsCore(
         IReadOnlyList<PairedInterval<JitPairKey, JitStartData, JitStopData>> pairs,
@@ -196,12 +292,21 @@ public static class JitAnalysis
         long sourceEventCount,
         int unmatchedIntervalCount,
         int invalidIntervalCount,
+        int scopedUnmatchedIntervalCount,
+        int scopedInvalidIntervalCount,
         ProcessInstanceKey? selectedProcess,
         string scopeMode,
         bool pidReuseObserved,
         IReadOnlyList<ProcessInstanceKey> includedProcesses,
         string scopeStatus,
-        long matchedSourceEventCount)
+        long matchedSourceEventCount,
+        long scopedUsableSourceEventCount,
+        long traceIdentityUnresolvedEndpointCount,
+        long scopedIdentityUnresolvedEndpointCount,
+        int? traceUnmatchedStartCount,
+        int? traceUnmatchedStopCount,
+        int? scopedUnmatchedStartCount,
+        int? scopedUnmatchedStopCount)
     {
         ArgumentNullException.ThrowIfNull(pairs);
         if (top < 1)
@@ -244,41 +349,64 @@ public static class JitAnalysis
         var warnings = new List<string>();
         var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
             ? "unknown"
-            : matchedSourceEventCount > 0 || completed.Count > 0
+            : scopedUsableSourceEventCount > 0 || completed.Count > 0
                 ? "observed"
                 : sourceEventCount == 0
                     ? "not_observed"
                     : "unknown";
-        if (completed.Count == 0 && sourceEventCount == 0)
+        if (scopeStatus != ProcessAnalysisScope.ResolvedStatus)
+        {
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(scopeStatus));
+        }
+        else if (completed.Count == 0 && sourceEventCount == 0)
         {
             warnings.Add(WarningBuilder.MissingClrKeyword(
                 "JIT",
                 "JIT",
                 "or all executed code was R2R/NGen pre-compiled, or filtered out"));
         }
+        else if (completed.Count == 0 &&
+                 scopedIdentityUnresolvedEndpointCount > 0 &&
+                 scopedUsableSourceEventCount == 0)
+        {
+            warnings.Add(
+                "source_events_unattributed: JIT endpoints with matching raw PID/time were observed, but process or CLR instance identity was unresolved; no method interval attribution was guessed.");
+        }
         else if (completed.Count == 0)
         {
             warnings.Add(
                 "no_matching_jit_intervals: JIT endpoint events were observed, but no completed method interval matched the selected scope and window.");
         }
-        if (scopeStatus != ProcessAnalysisScope.ResolvedStatus)
-            warnings.Add("scope_not_found: no process lifetime matched the requested selector and window.");
         if (scopeMode == "pid_aggregate")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope explicitly aggregates multiple process lifetimes; rows remain separated by ProcessStartUs.");
+                "pid_aggregate: pid-only scope explicitly aggregates multiple process lifetimes; rows remain separated by ProcessStartUs.");
+        }
+        if (traceIdentityUnresolvedEndpointCount > 0)
+        {
+            warnings.Add(
+                $"identity_unresolved: {traceIdentityUnresolvedEndpointCount} JIT endpoint event(s) were dropped because process or CLR instance identity was unresolved or ambiguous.");
         }
         warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
 
         var noDataReason = scopeStatus != ProcessAnalysisScope.ResolvedStatus
-            ? "scope_not_found"
+            ? scopeStatus
             : sourceEventCount == 0
                 ? "event_class_not_observed"
                 : completed.Count == 0
-                    ? matchedSourceEventCount > 0
+                    ? scopedUsableSourceEventCount > 0
                         ? "no_completed_intervals_in_scope"
-                        : "no_events_in_scope"
+                        : scopedIdentityUnresolvedEndpointCount > 0
+                            ? "source_events_unattributed"
+                            : "no_events_in_scope"
                     : null;
+
+        var traceCompatibilityUnmatchedCount = checked(
+            unmatchedIntervalCount +
+            checked((int)traceIdentityUnresolvedEndpointCount));
+        var scopedCompatibilityUnmatchedCount = checked(
+            scopedUnmatchedIntervalCount +
+            checked((int)scopedIdentityUnresolvedEndpointCount));
 
         return new JitAnalysisResponse(
             Pid: pid,
@@ -289,7 +417,7 @@ public static class JitAnalysis
             TotalFullJitUs: totalFullJitUs,
             TotalAccountedJitUs: totalAccountedJitUs,
             HasMore: completed.Count > rows.Length,
-            UnmatchedIntervalCount: unmatchedIntervalCount,
+            UnmatchedIntervalCount: traceCompatibilityUnmatchedCount,
             InvalidIntervalCount: invalidIntervalCount,
             AccountingMode: DurationAccounting.ClippedOverlapMode,
             SelectedProcess: selectedProcess,
@@ -300,7 +428,19 @@ public static class JitAnalysis
             CapabilityStatus: capabilityStatus,
             MatchedEventCount: matchedSourceEventCount,
             NoDataReason: noDataReason,
-            MatchedIntervalCount: completed.Count);
+            MatchedIntervalCount: completed.Count,
+            TraceUnmatchedIntervalCount: traceCompatibilityUnmatchedCount,
+            ScopedUnmatchedIntervalCount: scopedCompatibilityUnmatchedCount,
+            TraceInvalidIntervalCount: invalidIntervalCount,
+            ScopedInvalidIntervalCount: scopedInvalidIntervalCount,
+            TraceIdentityUnresolvedEndpointCount:
+                traceIdentityUnresolvedEndpointCount,
+            ScopedIdentityUnresolvedEndpointCount:
+                scopedIdentityUnresolvedEndpointCount,
+            TraceUnmatchedStartCount: traceUnmatchedStartCount,
+            TraceUnmatchedStopCount: traceUnmatchedStopCount,
+            ScopedUnmatchedStartCount: scopedUnmatchedStartCount,
+            ScopedUnmatchedStopCount: scopedUnmatchedStopCount);
     }
 
     private static long CountMatchedSourceEndpoints(
@@ -318,4 +458,12 @@ public static class JitAnalysis
         }
         return count;
     }
+
+    private static bool MatchesRawScope(
+        ProcessAnalysisScope scope,
+        int pid,
+        long timestampUs) =>
+        scope.IsResolved &&
+        scope.Window.ContainsPoint(timestampUs) &&
+        (!scope.Pid.HasValue || scope.Pid.Value == pid);
 }

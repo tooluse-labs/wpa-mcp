@@ -222,6 +222,54 @@ public class NetConnectionAnalysisTests
         Assert.Equal(0, response.MatchedEventCount);
     }
 
+    [Fact]
+    public void AnalyzeEvents_OrphanCloseReportsUnpairedEndpointAndNoCompletedLifecycle()
+    {
+        var process = new ProcessInstanceKey(10, 0);
+        var response = NetConnectionAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes:
+            [
+                new ProcessLifetime(process, 100, true, false),
+            ],
+            events: [Close(10, connId: 7, timeUs: 50)],
+            pid: 10,
+            top: 10,
+            window: new TimeWindow(0, 100),
+            processStartUs: null);
+
+        Assert.Empty(response.Connections);
+        Assert.Equal(0, response.TotalConnections);
+        Assert.Equal(1, response.MatchedEventCount);
+        Assert.Equal(1, response.UnpairedCloseCount);
+        Assert.Equal("observed", response.CapabilityStatus);
+        Assert.Equal("unpaired_endpoints_in_scope", response.NoDataReason);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("unpaired_network_close:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_UnresolvedInWindowEndpointIsNotMisreportedAsNoEvents()
+    {
+        var response = NetConnectionAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes: [],
+            events: [Open(10, connId: 7, timeUs: 50)],
+            pid: null,
+            top: 10,
+            window: new TimeWindow(0, 100),
+            processStartUs: null);
+
+        Assert.Empty(response.Connections);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal(0, response.MatchedEventCount);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEndpointCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedEndpointCount);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("source_events_unattributed:", StringComparison.Ordinal));
+    }
+
     private static NetConnectionEvent Open(int pid, ulong connId, long timeUs) =>
         new(
             Pid: pid,

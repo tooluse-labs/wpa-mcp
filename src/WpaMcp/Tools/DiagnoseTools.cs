@@ -26,10 +26,10 @@ public sealed class DiagnoseTools
     public DiagnoseTools(TraceCache cache) => _cache = cache;
 
     [McpServerTool(
-        ReadOnly = true,
+        ReadOnly = false,
         Idempotent = true,
         OpenWorld = true,
-        Destructive = false,
+        Destructive = true,
         UseStructuredContent = true), Description(
         "Windowed evidence composite for a specific trace interval. Aggregates per-file hard faults " +
         "by bytes and max latency, top file IO, memory-pressure samples, security-scan evidence, " +
@@ -151,12 +151,8 @@ public sealed class DiagnoseTools
 
         if (!scope.IsResolved)
         {
-            var warning =
-                $"scope_not_found: no process lifetime for PID {pid}" +
-                (processStartUs.HasValue
-                    ? $" with processStartUs={processStartUs.Value}"
-                    : string.Empty) +
-                " intersects the requested half-open window.";
+            var warning = ProcessAnalysisScope.ResolutionFailureWarning(
+                scope.ScopeStatus);
             return EmptyDiagnoseWindow(
                 startUs,
                 endUs,
@@ -165,7 +161,7 @@ public sealed class DiagnoseTools
                 new[]
                 {
                     new CompositeNotConcluded(
-                        Code: "scope_not_found",
+                        Code: scope.ScopeStatus,
                         Reason: warning,
                         Pid: pid,
                         BlockingCapability: null,
@@ -173,7 +169,7 @@ public sealed class DiagnoseTools
                         ProcessStartUs: processStartUs,
                         ScopeStatus: scope.ScopeStatus,
                         CapabilityStatus: "unknown",
-                        NoDataReason: "scope_not_found"),
+                        NoDataReason: scope.ScopeStatus),
                 },
                 Array.Empty<CompositeNextTool>(),
                 Array.Empty<CompositeToolCall>(),
@@ -185,7 +181,7 @@ public sealed class DiagnoseTools
                 scopeStatus: scope.ScopeStatus,
                 capabilityStatus: "unknown",
                 matchedEventCount: 0,
-                noDataReason: "scope_not_found");
+                noDataReason: scope.ScopeStatus);
         }
 
         var hardFaultBytes = HardFaultByFileAnalysis.Analyze(
@@ -587,7 +583,7 @@ public sealed class DiagnoseTools
             NoDataReason: noDataReason);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Composite startup evidence analysis; it does not return a root-cause verdict. Includes only process instances with an " +
         "observed ProcessStart, ranks them from CPU and wall time inside one bounded startup window, and " +
         "projects wait reasons and image loads from that same process-instance window. CPU functions use " +
@@ -1015,10 +1011,10 @@ public sealed class DiagnoseTools
     }
 
     [McpServerTool(
-        ReadOnly = true,
+        ReadOnly = false,
         Idempotent = true,
         OpenWorld = true,
-        Destructive = false,
+        Destructive = true,
         UseStructuredContent = true), Description(
         "Preview high-wait composite; no root-cause field. One pid/window across subcalls; " +
         "missing stacks degrade to non-stack evidence. Candidates are ordered by total blocked " +
@@ -1072,24 +1068,35 @@ public sealed class DiagnoseTools
             window, pid, processStartUs, identities);
         if (!processScope.IsResolved)
         {
-            var warning =
-                $"scope_not_found: PID {pid} processStartUs={processStartUs} did not match a process lifetime in the requested half-open window.";
+            var warning = ProcessAnalysisScope.ResolutionFailureWarning(
+                processScope.ScopeStatus);
             return new DiagnoseHighWaitResponse(
                 Candidates: Array.Empty<HighWaitCandidate>(),
                 Evidence: Array.Empty<CompositeEvidence>(),
                 NotConcluded:
                 [
                     new CompositeNotConcluded(
-                        Code: "scope_not_found",
+                        Code: processScope.ScopeStatus,
                         Reason: warning,
                         Pid: pid,
                         BlockingCapability: null,
                         RelatedCallId: null,
-                        ProcessStartUs: processStartUs),
+                        ProcessStartUs: processStartUs,
+                        ScopeStatus: processScope.ScopeStatus,
+                        CapabilityStatus: "unknown",
+                        NoDataReason: processScope.ScopeStatus),
                 ],
                 NextTools: Array.Empty<CompositeNextTool>(),
                 ExecutedToolCalls: Array.Empty<CompositeToolCall>(),
-                Warnings: [warning]);
+                Warnings: [warning],
+                SelectedProcess: processScope.SelectedProcess,
+                ScopeMode: processScope.ScopeMode,
+                PidReuseObserved: processScope.PidReuseObserved,
+                IncludedProcesses: processScope.IncludedProcesses,
+                ScopeStatus: processScope.ScopeStatus,
+                CapabilityStatus: "unknown",
+                MatchedEventCount: 0,
+                NoDataReason: processScope.ScopeStatus);
         }
 
         var waitScope = ThreadAnalysisScope.ResolveRequired(
@@ -1536,7 +1543,15 @@ public sealed class DiagnoseTools
             NotConcluded: notConcluded,
             NextTools: nextTools,
             ExecutedToolCalls: executedCalls,
-            Warnings: warnings);
+            Warnings: warnings,
+            SelectedProcess: processScope.SelectedProcess,
+            ScopeMode: processScope.ScopeMode,
+            PidReuseObserved: processScope.PidReuseObserved,
+            IncludedProcesses: processScope.IncludedProcesses,
+            ScopeStatus: processScope.ScopeStatus,
+            CapabilityStatus: waitResp.CapabilityStatus,
+            MatchedEventCount: waitResp.MatchedEventCount,
+            NoDataReason: waitResp.NoDataReason);
     }
 
     private static DiagnoseWindowResponse EmptyDiagnoseWindow(

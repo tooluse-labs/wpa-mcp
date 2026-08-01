@@ -30,17 +30,24 @@ internal static class Validation
         int? pid,
         int? tid,
         long? processStartUs,
-        long? threadStartUs)
+        long? threadStartUs,
+        long? threadGeneration = null)
     {
         RequirePidTid(pid, tid);
         if (processStartUs is < 0)
             throw new ArgumentOutOfRangeException(nameof(processStartUs));
         if (threadStartUs is < 0)
             throw new ArgumentOutOfRangeException(nameof(threadStartUs));
+        if (threadGeneration is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(threadGeneration));
         if (processStartUs.HasValue && !pid.HasValue)
             throw new ArgumentException("processStartUs requires pid", nameof(processStartUs));
         if (threadStartUs.HasValue && (!pid.HasValue || !tid.HasValue))
             throw new ArgumentException("threadStartUs requires pid and tid", nameof(threadStartUs));
+        if (threadGeneration.HasValue && (!pid.HasValue || !tid.HasValue))
+            throw new ArgumentException(
+                "threadGeneration requires pid and tid",
+                nameof(threadGeneration));
     }
 
     public static string RequireText(string value, bool allowEmpty = false)

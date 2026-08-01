@@ -17,7 +17,13 @@ internal readonly record struct SchedulerSwitchObservation(
     ThreadInstanceKey? NewThread,
     string NewProcessName,
     long TimestampUs,
-    CallStackIndex BlockingStack);
+    CallStackIndex BlockingStack,
+    int OldPid = 0,
+    int OldTid = 0,
+    bool OldIdentityUnresolved = false,
+    int NewPid = 0,
+    int NewTid = 0,
+    bool NewIdentityUnresolved = false);
 
 internal interface ISchedulerEventSink
 {
@@ -88,7 +94,15 @@ internal static class SchedulerIntervalTraceReader
                     newThread,
                     data.NewProcessName ?? string.Empty,
                     timestampUs,
-                    blockingStack);
+                    blockingStack,
+                    data.OldProcessID,
+                    data.OldThreadID,
+                    IsIdentityUnresolved(
+                        data.OldProcessID, data.OldThreadID, oldResolution),
+                    data.NewProcessID,
+                    data.NewThreadID,
+                    IsIdentityUnresolved(
+                        data.NewProcessID, data.NewThreadID, newResolution));
                 foreach (var eventSink in eventSinks)
                     eventSink.OnContextSwitch(observation);
 
@@ -160,6 +174,13 @@ internal static class SchedulerIntervalTraceReader
         resolution.Status == InstanceResolutionStatus.Resolved && resolution.Value.HasValue
             ? resolution.Value.Value
             : null;
+
+    private static bool IsIdentityUnresolved(
+        int pid,
+        int tid,
+        InstanceResolution<ThreadInstanceKey> resolution) =>
+        pid > 0 && tid > 0 &&
+        resolution.Status != InstanceResolutionStatus.Resolved;
 
     private static void RecordDiagnostic(
         int pid,

@@ -2,6 +2,9 @@ using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
 using Microsoft.Diagnostics.Symbols;
+using System.ComponentModel;
+using System.Reflection;
+using WpaMcp.Tools;
 using Xunit;
 
 namespace WpaMcp.Tests;
@@ -98,6 +101,32 @@ public class StackSourceTopNTests
     }
 
     [Fact]
+    public void StackContract_PreservesAmbiguousProcessStatusAsNoDataReason()
+    {
+        var key = new ProcessInstanceKey(42, 0);
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 50),
+            pid: 42,
+            processStartUs: 0,
+            lifetimes:
+            [
+                new ProcessLifetime(key, 75, true, true),
+                new ProcessLifetime(key, 90, true, true),
+            ]);
+
+        var contract = StackResultContract.From(
+            scope,
+            filterSpecified: true,
+            new DomainStackCoverageAccumulator("file_io").Snapshot(),
+            traceEventCount: 1);
+
+        Assert.Equal("ambiguous_process_instance", contract.ScopeStatus);
+        Assert.Equal("ambiguous_process_instance", contract.NoDataReason);
+        Assert.Equal("unknown", contract.CapabilityStatus);
+        Assert.Equal(0, contract.MatchedEventCount);
+    }
+
+    [Fact]
     public void SymbolFrameMetrics_ReportDifferentUniqueAndWeightedRates()
     {
         var accumulator = new SymbolFrameMetricAccumulator("bytes");
@@ -164,5 +193,27 @@ public class StackSourceTopNTests
         StackSourceTopN.AddSymbolLookupWarning(warnings, failedStats);
         Assert.Contains(warnings, warning =>
             warning.Contains("symbol_lookup_state=failed", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(typeof(ClrTools), nameof(ClrTools.ClrAllocCallerCallee))]
+    [InlineData(typeof(ClrTools), nameof(ClrTools.ClrExceptionCallerCallee))]
+    [InlineData(typeof(ClrTools), nameof(ClrTools.ClrContentionCallerCallee))]
+    [InlineData(typeof(GenericProviderTools), nameof(GenericProviderTools.GenericEventCallerCallee))]
+    [InlineData(typeof(HeapTools), nameof(HeapTools.HeapAllocCallerCallee))]
+    public void CallerCalleeFocusDescriptionsDeclareExactCaseSensitiveMatching(
+        Type toolType,
+        string methodName)
+    {
+        var parameter = Assert.Single(
+            Assert.IsAssignableFrom<MethodInfo>(toolType.GetMethod(methodName)!)
+                .GetParameters(),
+            value => value.Name == "focusFunction");
+        var description = Assert.IsType<DescriptionAttribute>(
+            parameter.GetCustomAttribute<DescriptionAttribute>()).Description;
+
+        Assert.Contains("exact", description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("case-sensitive", description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("substring", description, StringComparison.OrdinalIgnoreCase);
     }
 }

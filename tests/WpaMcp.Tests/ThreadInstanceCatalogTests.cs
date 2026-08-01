@@ -46,6 +46,30 @@ public sealed class ThreadInstanceCatalogTests
     }
 
     [Fact]
+    public void Resolve_ThreadGenerationSelectsLifetimeWhenStartsAreEqual()
+    {
+        var process = new ProcessInstanceKey(10, 0);
+        var catalog = new ThreadInstanceCatalog();
+        catalog.Stop(process, tid: 44, endUs: 20);
+        catalog.Stop(process, tid: 44, endUs: 40);
+        catalog.Complete(traceEndUs: 100);
+
+        var ambiguous = catalog.Resolve(
+            new ThreadSelector(
+                10, 44, ProcessStartUs: 0, ThreadStartUs: 0),
+            new TimeWindow(0, 50));
+        var exact = catalog.Resolve(
+            new ThreadSelector(
+                10, 44, ProcessStartUs: 0, ThreadStartUs: 0,
+                ThreadGeneration: 2),
+            new TimeWindow(0, 50));
+
+        Assert.Equal(InstanceResolutionStatus.Ambiguous, ambiguous.Status);
+        Assert.Equal(InstanceResolutionStatus.Resolved, exact.Status);
+        Assert.Equal(new ThreadInstanceKey(process, 44, 2), exact.Value);
+    }
+
+    [Fact]
     public void StartReuseWithoutStop_ClosesPreviousGenerationAsInferred()
     {
         var process = new ProcessInstanceKey(10, 0);

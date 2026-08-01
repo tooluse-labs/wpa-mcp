@@ -76,23 +76,94 @@ public class GcHeapStatsAnalysisTests
     }
 
     [Fact]
-    public void AnalyzeEvents_ReusedPidWithoutStartRejectsWithCandidates()
+    public void AnalyzeEvents_ReusedPidWithoutStartReturnsStructuredSelectorFailure()
     {
-        var error = Assert.Throws<ArgumentException>(() =>
-            GcHeapStatsAnalysis.AnalyzeEvents(
-                traceEndUs: 200,
-                processLifetimes:
-                [
-                    new ProcessLifetime(new ProcessInstanceKey(10, 0), 100, true, true),
-                    new ProcessLifetime(new ProcessInstanceKey(10, 100), 200, true, false),
-                ],
-                events: [],
-                pid: 10,
-                window: new TimeWindow(0, 200),
-                processStartUs: null));
+        var response = GcHeapStatsAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(10, 0), 100, true, true),
+                new ProcessLifetime(new ProcessInstanceKey(10, 100), 200, true, false),
+            ],
+            events: [],
+            pid: 10,
+            window: new TimeWindow(0, 200),
+            processStartUs: null);
 
-        Assert.Contains("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
-        Assert.Contains("candidates=[0, 100]", error.Message, StringComparison.Ordinal);
+        Assert.Empty(response.Rows);
+        Assert.Equal("unresolved", response.ScopeMode);
+        Assert.Equal("process_start_required", response.ScopeStatus);
+        Assert.Equal("process_start_required", response.NoDataReason);
+        Assert.Equal(
+            [new ProcessInstanceKey(10, 0), new ProcessInstanceKey(10, 100)],
+            response.IncludedProcesses);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("process_start_required:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_ReusedPidWindowIntersectingOneLifetimeDoesNotRequireSelector()
+    {
+        var selected = new ProcessInstanceKey(10, 100);
+        var response = GcHeapStatsAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(10, 0), 100, true, true),
+                new ProcessLifetime(selected, 200, true, false),
+            ],
+            events: [HeapStats(10, timeUs: 120, heapBytes: 2_000)],
+            pid: 10,
+            window: new TimeWindow(100, 200),
+            processStartUs: null);
+
+        var row = Assert.Single(response.Rows);
+        Assert.Equal(selected.StartUs, row.ProcessStartUs);
+        Assert.Equal("single_process", response.ScopeMode);
+        Assert.Equal("ok", response.ScopeStatus);
+        Assert.True(response.PidReuseObserved);
+    }
+
+    [Fact]
+    public void AnalyzeEvents_EventOutsideSelectedLifetimeIsNotScopedUnattributed()
+    {
+        var response = GcHeapStatsAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes:
+            [
+                new ProcessLifetime(
+                    new ProcessInstanceKey(10, 0), 50, true, true),
+            ],
+            events: [HeapStats(10, timeUs: 75, heapBytes: 2_000)],
+            pid: 10,
+            window: new TimeWindow(0, 100),
+            processStartUs: 0);
+
+        Assert.Empty(response.Rows);
+        Assert.Equal("no_events_in_scope", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEventCount);
+        Assert.Equal(0, response.ScopedIdentityUnresolvedEventCount);
+        Assert.DoesNotContain(response.Warnings, warning =>
+            warning.StartsWith("source_events_unattributed:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_AllProcessRawEventWithoutIdentityReportsUnattributed()
+    {
+        var response = GcHeapStatsAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes: [],
+            events: [HeapStats(10, timeUs: 75, heapBytes: 2_000)],
+            pid: null,
+            window: new TimeWindow(0, 100),
+            processStartUs: null);
+
+        Assert.Empty(response.Rows);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEventCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedEventCount);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("source_events_unattributed:", StringComparison.Ordinal));
     }
 
     [Fact]

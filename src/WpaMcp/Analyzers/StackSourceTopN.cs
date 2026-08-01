@@ -344,7 +344,7 @@ internal readonly record struct StackResultContract(
                     _ => filterSpecified ? "unknown" : "not_observed",
                 };
         string? noDataReason = scopeStatus != ProcessAnalysisScope.ResolvedStatus
-            ? "scope_not_found"
+            ? scopeStatus
             : coverage.TotalEventCount == 0
                 ? traceEventCount switch
                 {
@@ -409,6 +409,66 @@ internal readonly record struct StackResultContract(
         };
     }
 
+    public static StackResultContract FromIntervalEndpoints(
+        ProcessAnalysisScope? processScope,
+        ThreadAnalysisScope? threadScope,
+        bool filterSpecified,
+        DomainStackCoverage coverage,
+        long traceSourceEndpointCount,
+        long scopedSourceEndpointCount,
+        long scopedIdentityUnresolvedEndpointCount)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        if (traceSourceEndpointCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(traceSourceEndpointCount));
+        if (scopedSourceEndpointCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(scopedSourceEndpointCount));
+        if (scopedIdentityUnresolvedEndpointCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(scopedIdentityUnresolvedEndpointCount));
+        }
+
+        var contract = threadScope.HasValue
+            ? FromThreadScope(
+                threadScope,
+                filterSpecified,
+                coverage,
+                traceEventCount: traceSourceEndpointCount)
+            : From(
+                processScope,
+                filterSpecified,
+                coverage,
+                traceEventCount: traceSourceEndpointCount);
+        if (contract.ScopeStatus != ProcessAnalysisScope.ResolvedStatus)
+            return contract with { MatchedEventCount = 0 };
+
+        var hasCompletedInterval = coverage.TotalEventCount > 0;
+        var capabilityStatus = hasCompletedInterval || scopedSourceEndpointCount > 0
+            ? "observed"
+            : traceSourceEndpointCount == 0
+                ? "not_observed"
+                : "unknown";
+        string? noDataReason = hasCompletedInterval
+            ? coverage.StackedEventCount == 0
+                ? "stacks_unavailable"
+                : null
+            : scopedSourceEndpointCount > 0
+                ? "no_completed_intervals_in_scope"
+                : traceSourceEndpointCount == 0
+                    ? "event_class_not_observed"
+                    : scopedIdentityUnresolvedEndpointCount > 0
+                        ? "source_events_unattributed"
+                        : "no_events_in_scope";
+
+        return contract with
+        {
+            CapabilityStatus = capabilityStatus,
+            MatchedEventCount = scopedSourceEndpointCount,
+            NoDataReason = noDataReason,
+        };
+    }
+
     public void AddWarning(ICollection<string> warnings)
     {
         ArgumentNullException.ThrowIfNull(warnings);
@@ -428,13 +488,18 @@ internal readonly record struct StackResultContract(
             "thread_instance_not_found" =>
                 "thread_instance_not_found: the requested thread lifetime does not intersect the analysis window.",
             "ambiguous_process_instance" =>
-                "ambiguous_process_instance: multiple process lifetimes matched; supply processStartUs.",
+                ProcessAnalysisScope.ResolutionFailureWarning(
+                    ProcessAnalysisScope.AmbiguousStatus),
             "ambiguous_thread_instance" =>
                 "ambiguous_thread_instance: multiple thread lifetimes matched; supply processStartUs and threadStartUs from IncludedProcesses and IncludedThreads.",
             "event_class_not_observed" =>
                 "event_class_not_observed: no matching event was observed in this unfiltered trace; this does not prove a capture keyword was disabled.",
             "no_events_in_scope" =>
                 "no_events_in_scope: the selected process/window matched no events; capture capability remains unknown for this scope.",
+            "source_events_unattributed" =>
+                "source_events_unattributed: source events with matching raw PID/TID/time were observed, but required process, thread, or CLR instance identity could not be resolved; no scoped attribution was guessed.",
+            "no_completed_intervals_in_scope" =>
+                "no_completed_intervals_in_scope: one or more scoped interval endpoints were observed, but no valid completed interval was projected into the requested scope.",
             "stacks_unavailable" =>
                 "stacks_unavailable: matching events were observed, but none carried an attached stack.",
             "focus_not_found" =>
@@ -604,6 +669,7 @@ internal static class StackSourceTopN
         long focusExclusive = 0;
         long focusInclusive = 0;
         long totalMetric = 0;
+        var focusFound = false;
         var callers = new Dictionary<string, (long excl, long incl)>();
         var callees = new Dictionary<string, (long excl, long incl)>();
 
@@ -622,6 +688,7 @@ internal static class StackSourceTopN
 
                 if (name == focusFunction)
                 {
+                    focusFound = true;
                     focusInclusive += metric;
 
                     // Caller = frame one step toward root. "<root>" when focus has no caller
@@ -675,12 +742,9 @@ internal static class StackSourceTopN
                 processScope: null,
                 filterSpecified: false,
                 stackCoverage));
-        if (focusInclusive == 0 && contract.NoDataReason is null)
+        if (!focusFound && contract.NoDataReason is null)
             contract = contract with { NoDataReason = "focus_not_found" };
-        if (focusInclusive == 0 &&
-            contract.ScopeStatus == ProcessAnalysisScope.ResolvedStatus &&
-            contract.NoDataReason is not
-                ("scope_not_found" or "no_events_in_scope" or "event_class_not_observed"))
+        if (contract.NoDataReason == "focus_not_found")
         {
             warnings.Add(
                 $"Focus function '{focusFunction}' not found in the analyzed stack samples. " +

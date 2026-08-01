@@ -72,6 +72,39 @@ public class ClrContentionStackAnalysisTests
     }
 
     [Fact]
+    public void EndpointContract_SingleScopedEndpointIsObservedButIncomplete()
+    {
+        var contract = ClrContentionStackAnalysis.BuildEndpointContract(
+            processScope: null,
+            filterSpecified: false,
+            coverage: new DomainStackCoverageAccumulator(
+                "clr_contention", "us").Snapshot(),
+            traceSourceEndpointCount: 1,
+            scopedSourceEndpointCount: 1,
+            scopedIdentityUnresolvedEndpointCount: 0);
+
+        Assert.Equal("observed", contract.CapabilityStatus);
+        Assert.Equal(1, contract.MatchedEventCount);
+        Assert.Equal("no_completed_intervals_in_scope", contract.NoDataReason);
+    }
+
+    [Fact]
+    public void EndpointContract_UnresolvedScopedEndpointIsNotNoEventsInScope()
+    {
+        var contract = ClrContentionStackAnalysis.BuildEndpointContract(
+            processScope: null,
+            filterSpecified: false,
+            coverage: new DomainStackCoverageAccumulator(
+                "clr_contention", "us").Snapshot(),
+            traceSourceEndpointCount: 1,
+            scopedSourceEndpointCount: 0,
+            scopedIdentityUnresolvedEndpointCount: 1);
+
+        Assert.Equal("unknown", contract.CapabilityStatus);
+        Assert.Equal("source_events_unattributed", contract.NoDataReason);
+    }
+
+    [Fact]
     public void ClrContentionTopStacks_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));

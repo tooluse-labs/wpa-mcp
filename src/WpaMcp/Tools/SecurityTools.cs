@@ -12,7 +12,7 @@ public sealed class SecurityTools
     private readonly TraceCache _cache;
     public SecurityTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Aggregates security-scan ETW activity across Microsoft Defender/Antimalware and scan-like events " +
         "from third-party security providers such as Aliedr/Alibaba, 360/Qihoo, PCManager, Sense, CrowdStrike, " +
         "and other EDR/AV products. Defender StreamScanRequestTask Start/Stop events are paired to expose " +

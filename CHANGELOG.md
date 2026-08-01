@@ -5,7 +5,135 @@ All notable user-facing changes to `wpa-mcp` are tracked here.
 This changelog starts with `v0.2.15`. Older releases remain available from
 GitHub Releases and the git tag history.
 
-## Unreleased
+## 0.3.0 - Unreleased
+
+### Migration notes
+
+- Process identity is now `(Pid, ProcessStartUs)`, and exact replayable thread
+  identity adds `(Tid, ThreadStartUs, ThreadGeneration)`. Consumers must
+  preserve these selectors from process/thread rows instead of treating PID,
+  TID, or an inferred capture-boundary start timestamp as globally unique.
+- Empty-result consumers must inspect `ScopeStatus`, `CapabilityStatus`,
+  `MatchedEventCount`, `NoDataReason`, and `Warnings`. An empty `Rows` array no
+  longer has a standalone meaning; `not_observed` is reserved for established
+  whole-trace absence, while filtered uncertainty is `unknown`.
+- Whole-trace and scoped evidence are now explicitly separated through
+  `Trace*` and `Scoped*` fields. Legacy unmatched-interval fields remain as
+  deprecated trace-global aliases; do not attribute them to the selected PID,
+  TID, or window.
+- Interval-backed tools separate scoped raw `MatchedEventCount` endpoints from
+  completed `MatchedIntervalCount` projections. `source_events_unattributed`
+  and `no_completed_intervals_in_scope` prevent identity loss or lone endpoints
+  from being mislabeled as event-class absence.
+- All tools use `ReadOnly=false` MCP metadata because calls may change server
+  or filesystem state. Raw trace/cache paths are conservatively
+  `OpenWorld=true` because caller-supplied paths may be UNC, mapped, or
+  reparse-point targets; only `set_symbol_path` is `OpenWorld=false`.
+  `Destructive=true` conservatively covers ETLX replacement/refresh, cache
+  retirement, and process-wide symbol-path replacement; incremental
+  `add_symbol_server` is the sole `Destructive=false` tool. All tools are
+  idempotent except `set_symbol_path`. These flags do not claim mutation of the
+  ETL's logical event stream or active remote access by `diagnose_symbols`.
+- Symbol consumers must distinguish trace PDB identity, local candidate
+  discovery, verified local readiness, and actual observed frame-name
+  resolution. `LookupStatus` now distinguishes exact GUID/age match, identity
+  mismatch, invalid data, and `candidate_identity_unverified`; its failure
+  reason separates unreadable input from unavailable native-reader support.
+  Deprecated module-resolution fields may be null.
+- `load_trace.SymbolStatus.CacheDir`, `inspect_trace.SymbolQuality.CacheDir`,
+  and `diagnose_symbols.CacheDir` are documented as the fallback used by
+  `add_symbol_server` when no cache is supplied, not the cache currently
+  configured in `_NT_SYMBOL_PATH`; the diagnose field remains a deprecated
+  compatibility alias of `DefaultCacheDir`.
+- Stack row metrics marked `float32_per_sample_approximate` remain approximate
+  even when serialized as `long`; source totals/coverage marked `exact_long`
+  are exact and are not required to equal the sum of approximate top rows.
+
+### Added
+
+- Added `unload_trace` so MCP clients can retire a resident trace explicitly and
+  register an adjacent-ETLX refresh for the next raw-ETL load in the current
+  server process. The response explicitly states that the request does not
+  survive restart and is not proof that regeneration has already succeeded.
+- Added `inspect_trace.AnalysisContract` and verified its descriptions through
+  the real MCP output schema, giving LLM clients compact machine-visible scope,
+  count, empty-result, stack, symbol, replay, and causality rules without
+  unbounded `tools/list` schema duplication.
+- Added consistent process/thread scope metadata, capability status,
+  matched-event counts, stable no-data reasons, and replayable candidates across
+  process-oriented analysis tools.
+- Added per-domain event and metric-weighted stack coverage with explicit
+  `StackSemantics`, coverage state, and synthetic-unknown disclosure. Global
+  `HasStackWalks` remains compatibility-only.
+- Added explicit trace/scoped scheduler and interval-completeness counters,
+  including scoped CSwitch stack coverage and replayable `ThreadStartUs` plus
+  `ThreadGeneration` on CPU precise and wait rows.
+- Added pure-local PDB GUID/age validation through direct TraceEvent
+  `OpenSymbolFile` calls. `diagnose_symbols` does not actively access remote
+  SRV/UNC entries or download symbols and does not claim that identity
+  readiness is observed frame-name resolution; OS redirection of a
+  local-looking root remains possible.
+
+### Fixed
+
+- Prevented PID/TID reuse and out-of-order rundown stop events from creating or
+  merging overlapping process/thread instances.
+- Exact-only lifecycle/trend tools now return structured
+  `process_start_required` plus replayable candidates for clean PID reuse;
+  `ambiguous_process_instance` is reserved for conflicting lifetime evidence.
+  A reused PID whose requested window intersects only one lifetime resolves
+  that lifetime without requiring a redundant selector.
+- Treats same-PID lifetimes whose intervals overlap the requested PID scope as
+  `ambiguous_process_instance`, including exact-start requests, instead of
+  forcing raw PID/time events into one overlapping instance.
+- Corrected point and interval stack analyzers to use true whole-trace event
+  presence for capability/no-data decisions while keeping matched counts and
+  coverage scoped to the requested process/window.
+- Aligned zero-byte allocation events between trace capability detection and
+  direct stack analysis; stopped caller/callee queries from reporting
+  `focus_not_found` when stacks are unavailable or a zero-metric focus exists.
+- Omitted CPU stack tools from recommended flows when the CPU event domain has
+  no attached stacks, and made focus-function matching descriptions accurately
+  declare exact case-sensitive matching.
+- Preserved fallback process identity when pairing security-scan endpoints,
+  kept pool allocation/free pairing trace-wide before scoped projection, and
+  exposed unpaired network close endpoints instead of calling them "no events."
+- Added trace/scoped unresolved-identity counters to CPU Precise, GC heap
+  snapshots, and finalizer analysis. Raw evidence is reported as
+  `source_events_unattributed` only when it could belong to the selected
+  lifetime/window without guessing a sibling PID lifetime; exact-thread zero
+  placeholders no longer suppress a real `no_events_in_scope` result.
+- Clarified VirtualAlloc results as allocation-plus-free operation traffic,
+  split allocated/freed bytes and counts, and exposed observed net operation
+  bytes instead of implying that every weighted byte is retained allocation.
+- Resolved FileObject/FileKey names in trace order so pointer/key reuse or later
+  rundown mappings cannot rename historical File I/O or hard-fault evidence.
+- Restricted symbol-server recommendations to modules with complete PDB
+  name/GUID/age identity; incomplete identity now leads to recapture/merge
+  guidance rather than an unusable server recommendation.
+- Fixed local symbol-candidate aggregation so a corrupt symbol-store entry
+  cannot hide an exact matching flat PDB, and directory placement alone is no
+  longer treated as identity evidence.
+- Restricted bare-path diagnosis to direct `<root>\<pdbName>` candidates and
+  symbol-store-layout probing to roots declared through `SRV`/`SYMSRV`/`CACHE`.
+  All configured candidates are now verified before the 10-path display cap;
+  total/truncation fields expose omitted paths and exact matches display first.
+- Made PDB failure classification conservative: ambiguous Windows DIA/candidate
+  failures remain `candidate_identity_unverified`, while invalid status requires
+  a rejecting container probe or an explicit portable-PDB data error. The
+  no-remote-I/O contract now disclaims OS-redirection through mapped drives and
+  reparse points.
+- Hardened trace caching with canonical Windows case-insensitive keys, a single
+  winning concurrent open, lease-safe retirement, unload invalidation, and a
+  freshness stamp containing timestamps, length, and Windows volume/file ID;
+  failed last-lease native cleanup remains centrally retryable.
+
+### Known boundary
+
+- A same-file in-place rewrite that preserves file identity, length, and all
+  tracked timestamps is indistinguishable from the cached input. Explicitly
+  call `unload_trace` before querying the rewritten trace; restarting alone does
+  not invalidate a newer stale ETLX sidecar.
 
 ## v0.2.24 - 2026-07-31
 
@@ -279,7 +407,8 @@ GitHub Releases and the git tag history.
 - [v0.2.14](https://github.com/tooluse-labs/wpa-mcp/releases/tag/v0.2.14)
 - [All GitHub Releases](https://github.com/tooluse-labs/wpa-mcp/releases)
 
-[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.23...HEAD
+[Unreleased]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.24...HEAD
+[v0.2.24]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.23...v0.2.24
 [v0.2.23]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.22...v0.2.23
 [v0.2.22]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.21...v0.2.22
 [v0.2.21]: https://github.com/tooluse-labs/wpa-mcp/compare/v0.2.20...v0.2.21

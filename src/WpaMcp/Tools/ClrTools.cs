@@ -12,13 +12,21 @@ public sealed class ClrTools
     private readonly TraceCache _cache;
     public ClrTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(
+        ReadOnly = false,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = true), Description(
         ".NET CLR GC analysis — list of garbage collections in the trace, with wall " +
         "duration AND 'stop the world' pause time per GC.  PerfView equivalent: 'GCStats'.  " +
-        "Each row carries Generation (0/1/2), Reason (Induced / AllocSmall / AllocLarge / etc.), " +
-        "DurationUs (GCStart→GCStop wall interval), and PauseUs (covering GCSuspendEEStart→ " +
-        "GCRestartEEStop interval — the time mutator threads were halted).  Aggregate fields " +
-        "TotalGcUs and TotalPauseUs make it easy to see 'is this app GC-bound'.  Requires " +
+        "Pairs complete GC and pause intervals over the whole trace, then projects them into " +
+        "the requested half-open window.  DurationUs/PauseUs are compatibility aliases for " +
+        "AccountedDurationUs/AccountedPauseUs (clipped overlap); FullDurationUs/FullPauseUs " +
+        "retain the complete paired intervals.  TotalGcUs/TotalPauseUs likewise alias " +
+        "TotalAccountedGcUs/TotalAccountedPauseUs, while TotalFullGcUs/TotalFullPauseUs are " +
+        "unclipped. MatchedEventCount counts scoped raw GC/pause endpoints; " +
+        "MatchedIntervalCount counts projected GC or orphan-pause rows. Trace*/Scoped* " +
+        "unmatched and identity-unresolved fields must not be interchanged. Each row also carries Generation and Reason. Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the GC keyword in the capture profile.")]
     public GcAnalysisResponse ClrGcAnalysis(
         [Description("Absolute path to .etl file")] string path,
@@ -40,11 +48,20 @@ public sealed class ClrTools
             trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(
+        ReadOnly = false,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = true), Description(
         ".NET CLR JIT compilation analysis — top-N methods ranked by JIT duration.  PerfView " +
         "equivalent: 'JIT Stats'.  Matches MethodJittingStarted→MethodLoadVerbose by " +
-        "(ProcessID, MethodID) to compute per-method JIT μs.  Each row gives full method name " +
-        "(namespace.method + signature), JitDurationUs, and the resulting native code size.  " +
+        "(ProcessInstanceKey, ClrInstanceId, MethodId) over the whole trace, then projects the " +
+        "pair into the requested half-open window.  JitDurationUs is the clipped-overlap " +
+        "compatibility alias for AccountedDurationUs; FullDurationUs is the complete paired " +
+        "duration.  Each row gives the full method name and MethodIlSize (IL bytes, not " +
+        "generated native-code size). MatchedEventCount counts scoped raw start/load " +
+        "endpoints; MatchedIntervalCount counts completed projected methods. Trace*/Scoped* " +
+        "unmatched and identity-unresolved fields must not be interchanged. " +
         "R2R / NGen / pre-jitted methods don't fire MethodJittingStarted, so they're invisible " +
         "here — which is correct for 'what's the JIT cost in this trace'.  Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the JIT keyword.")]
@@ -69,7 +86,7 @@ public sealed class ClrTools
             trace, pid, top, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by managed-heap allocation bytes.  PerfView equivalent: " +
         "'GC Heap Alloc Stacks'.  Driven by GCAllocationTick events (CLR fires one every " +
         "~100 KB allocated per (heap, generation, type)) — sampled, not exhaustive, but " +
@@ -109,13 +126,13 @@ public sealed class ClrTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller-callee drill-down on a focus frame in the managed-allocation stack source.  " +
         "Metric is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO " +
         "focus, callees by bytes OUT.")]
     public CallerCalleeResponse ClrAllocCallerCallee(
         [Description("Absolute path to .etl file")] string path,
-        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -140,7 +157,7 @@ public sealed class ClrTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by .NET exception throw count.  PerfView equivalent: " +
         "'Exceptions Stacks'.  Fires once per *thrown* exception (rethrows are separate " +
         "events).  Useful for 'is this code path throwing 1000 exceptions per second' / " +
@@ -179,13 +196,13 @@ public sealed class ClrTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller-callee drill-down on a focus frame in the .NET exception stack source.  " +
         "Metric is exception count; top-N callers ranked by inclusive count flowing INTO " +
         "focus, callees by count OUT.")]
     public CallerCalleeResponse ClrExceptionCallerCallee(
         [Description("Absolute path to .etl file")] string path,
-        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -210,11 +227,14 @@ public sealed class ClrTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by .NET monitor-contention μs (managed `lock` / " +
         "Monitor.Enter waits).  PerfView equivalent: 'Monitor Contention Stacks'.  Matches " +
-        "ContentionStart→ContentionStop by ThreadID; metric is the wait duration in " +
-        "microseconds.  Filters to ContentionFlags.Managed only — native lock contention " +
+        "ContentionStart→ContentionStop by ThreadInstanceKey (process lifetime + TID " +
+        "generation).  Blocked-time rows and TotalBlockedUs use the clipped overlap with the " +
+        "requested half-open window; TotalFullBlockedUs retains complete paired time.  Only " +
+        "completed pairs contribute blocked-time metrics and stack coverage.  Filters to " +
+        "ContentionFlags.Managed only — native lock contention " +
         "from the same provider is excluded.  Requires Microsoft-Windows-DotNETRuntime with " +
         "the Contention keyword.")]
     public ClrContentionStacksResponse ClrContentionTopStacks(
@@ -249,13 +269,13 @@ public sealed class ClrTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller-callee drill-down on a focus frame in the .NET monitor-contention stack " +
         "source.  Metric is blocked μs; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
     public CallerCalleeResponse ClrContentionCallerCallee(
         [Description("Absolute path to .etl file")] string path,
-        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -280,7 +300,7 @@ public sealed class ClrTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         ".NET CLR managed-heap snapshot timeline — one row per GCHeapStats event (the CLR " +
         "fires this once at the end of each GC), with TotalHeapBytes, Gen0/1/2/LOH/POH " +
         "sizes, PinnedObjectCount, and GcHandleCount.  PerfView surfaces this in 'GCStats' " +
@@ -288,9 +308,11 @@ public sealed class ClrTools
         "whether observed heap or pinned-object snapshots trend upward. A trend is not by " +
         "itself proof of a leak or an object-retention path. This avoids " +
         "orchestrating multiple calls.  Pairs naturally with clr_gc_analysis (same trace, " +
-        "different aggregation). Because this is a lifecycle trend, a reused PID is rejected " +
-        "unless processStartUs selects exactly one process lifetime. Requires Microsoft-Windows-DotNETRuntime with the GC " +
-        "keyword. A missing exact instance returns ScopeStatus=scope_not_found rather than falling back.")]
+        "different aggregation). Because this is a lifecycle trend, clean PID reuse returns structured " +
+        "ScopeStatus/NoDataReason=process_start_required with replayable candidates unless processStartUs " +
+        "selects one lifetime; conflicting lifetime evidence returns ambiguous_process_instance. Requires " +
+        "Microsoft-Windows-DotNETRuntime with the GC keyword. A missing exact instance returns " +
+        "scope_not_found rather than falling back.")]
     public GcHeapStatsResponse ClrGcHeapStats(
         [Description("Absolute path to .etl file")] string path,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
@@ -310,7 +332,7 @@ public sealed class ClrTools
             trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         ".NET CLR finalizer analysis — top types finalized + observed finalizer-thread execution batches. " +
         "Two related streams matched here: GCFinalizeObject (per-object, carries TypeName) " +
         "is aggregated to the TopTypes table; GCFinalizersStart/Stop bracket each run of " +

@@ -30,8 +30,12 @@ public static class CpuPreciseAnalysis
     {
         var identities = TraceIdentityIndex.For(trace);
         var accumulator = new CpuPreciseAccumulator(
-            top, scope, identities.TraceEndUs, identities.Threads.EndUsFor,
-            processScope);
+            top,
+            scope,
+            identities.TraceEndUs,
+            threadEndUs: identities.Threads.EndUsFor,
+            threadStartUs: identities.Threads.StartUsFor,
+            processScope: processScope);
         long unresolvedIdentityCount = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
@@ -47,10 +51,21 @@ public static class CpuPreciseAnalysis
                     timestampUs);
                 var oldResolution = switchResolution.OldThread;
                 var newResolution = switchResolution.NewThread;
-                unresolvedIdentityCount += CountUnresolvedSide(
+                var oldUnresolved = CountUnresolvedSide(
                     data.OldProcessID, data.OldThreadID, oldResolution);
-                unresolvedIdentityCount += CountUnresolvedSide(
+                var newUnresolved = CountUnresolvedSide(
                     data.NewProcessID, data.NewThreadID, newResolution);
+                unresolvedIdentityCount += oldUnresolved + newUnresolved;
+                if (oldUnresolved > 0)
+                {
+                    accumulator.ReportUnresolvedCSwitchSide(
+                        data.OldProcessID, data.OldThreadID, timestampUs);
+                }
+                if (newUnresolved > 0)
+                {
+                    accumulator.ReportUnresolvedCSwitchSide(
+                        data.NewProcessID, data.NewThreadID, timestampUs);
+                }
 
                 accumulator.ProcessCSwitch(new CpuPreciseResolvedSwitchEvent(
                     OldThread: ResolvedValue(oldResolution),
@@ -215,6 +230,7 @@ internal sealed class CpuPreciseAccumulator
     private readonly long _traceEndUs;
     private readonly bool _seedFirstObservedRunningInterval;
     private readonly ProcessAnalysisScope? _processScope;
+    private readonly Func<ThreadInstanceKey, long?>? _threadStartUs;
     private readonly SchedulerIntervalAccumulator _scheduler;
     private readonly Dictionary<ThreadInstanceKey, ThreadStats> _threads = new();
     private readonly Dictionary<ThreadInstanceKey, long> _pendingReadyUs = new();
@@ -229,6 +245,8 @@ internal sealed class CpuPreciseAccumulator
     private long _skippedUnmatchedSwitchOuts;
     private long _droppedStaleCoreIntervals;
     private long _unresolvedIdentityCount;
+    private long _traceIdentityUnresolvedCSwitchSideCount;
+    private long _scopedIdentityUnresolvedCSwitchSideCount;
     private bool _built;
 
     public CpuPreciseAccumulator(
@@ -251,6 +269,7 @@ internal sealed class CpuPreciseAccumulator
         _traceEndUs = effectiveTraceEndUs;
         _seedFirstObservedRunningInterval = true;
         _processScope = null;
+        _threadStartUs = null;
         _scheduler = new SchedulerIntervalAccumulator();
     }
 
@@ -259,6 +278,7 @@ internal sealed class CpuPreciseAccumulator
         ThreadAnalysisScope scope,
         long traceEndUs,
         Func<ThreadInstanceKey, long?>? threadEndUs = null,
+        Func<ThreadInstanceKey, long?>? threadStartUs = null,
         ProcessAnalysisScope? processScope = null)
     {
         if (traceEndUs <= 0)
@@ -269,6 +289,7 @@ internal sealed class CpuPreciseAccumulator
         _traceEndUs = traceEndUs;
         _seedFirstObservedRunningInterval = false;
         _processScope = processScope;
+        _threadStartUs = threadStartUs;
         _scheduler = new SchedulerIntervalAccumulator(threadEndUs);
     }
 
@@ -437,6 +458,21 @@ internal sealed class CpuPreciseAccumulator
         _unresolvedIdentityCount = checked(_unresolvedIdentityCount + count);
     }
 
+    internal void ReportUnresolvedCSwitchSide(int pid, int tid, long timestampUs)
+    {
+        EnsureMutable();
+        if (pid <= 0 || tid <= 0)
+            return;
+
+        _traceIdentityUnresolvedCSwitchSideCount = checked(
+            _traceIdentityUnresolvedCSwitchSideCount + 1);
+        if (_scope.MatchesPoint(pid, tid, timestampUs))
+        {
+            _scopedIdentityUnresolvedCSwitchSideCount = checked(
+                _scopedIdentityUnresolvedCSwitchSideCount + 1);
+        }
+    }
+
     public CpuPreciseResponse BuildResponse()
     {
         EnsureMutable();
@@ -469,10 +505,10 @@ internal sealed class CpuPreciseAccumulator
             : allRows.Take(_top).ToList();
 
         var warnings = BuildWarnings(completion, allRows);
-        if (_scope.PidReuseObserved)
+        if (_scope.ScopeMode == "pid_aggregate")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope includes multiple process lifetimes; " +
+                "pid_aggregate: pid-only scope includes multiple process lifetimes; " +
                 "totals cover the aggregate scope, while rows remain separated by ProcessStartUs and ThreadGeneration.");
         }
         var hasScopeContract = _scope.IncludedProcesses is not null;
@@ -488,15 +524,19 @@ internal sealed class CpuPreciseAccumulator
             .OrderBy(process => process.Pid)
             .ThenBy(process => process.StartUs)
             .ToArray();
-        var capabilityStatus = _windowCSwitches > 0
+        var hasScopedEvidence = _windowCSwitches > 0 || allRows.Any(row =>
+            row.CpuUs > 0 || row.ContextSwitches > 0 || row.ReadyCount > 0);
+        var capabilityStatus = hasScopedEvidence
             ? "observed"
             : _traceCSwitches == 0
                 ? "not_observed"
                 : "unknown";
         var noDataReason = _traceCSwitches == 0
             ? "event_class_not_observed"
-            : _windowCSwitches == 0 && allRows.Count == 0
-                ? "no_events_in_scope"
+            : !hasScopedEvidence
+                ? _scopedIdentityUnresolvedCSwitchSideCount > 0
+                    ? "source_events_unattributed"
+                    : "no_events_in_scope"
                 : null;
         return new CpuPreciseResponse(
             Rows: rows,
@@ -533,7 +573,11 @@ internal sealed class CpuPreciseAccumulator
                     : [new ThreadScopeCandidate(
                         _scope.Thread.Key,
                         _scope.Thread.StartUs,
-                        _scope.Thread.EndUs)]);
+                        _scope.Thread.EndUs)],
+            TraceIdentityUnresolvedCSwitchSideCount:
+                _traceIdentityUnresolvedCSwitchSideCount,
+            ScopedIdentityUnresolvedCSwitchSideCount:
+                _scopedIdentityUnresolvedCSwitchSideCount);
     }
 
     private void AccountRunning(RunningInterval interval)
@@ -576,7 +620,7 @@ internal sealed class CpuPreciseAccumulator
         return stats;
     }
 
-    private static CpuPreciseThreadRow ToRow(
+    private CpuPreciseThreadRow ToRow(
         ThreadInstanceKey thread,
         ThreadStats stats)
     {
@@ -606,7 +650,9 @@ internal sealed class CpuPreciseAccumulator
             QuantumEndSwitches: stats.QuantumEndSwitches,
             PreemptedSwitches: stats.PreemptedSwitches,
             ProcessStartUs: thread.Process.StartUs,
-            ThreadGeneration: thread.Generation);
+            ThreadGeneration: thread.Generation,
+            ThreadStartUs: _threadStartUs?.Invoke(thread) ??
+                (_scope.Thread?.Key == thread ? _scope.Thread.StartUs : 0));
     }
 
     private List<string> BuildWarnings(
@@ -623,8 +669,9 @@ internal sealed class CpuPreciseAccumulator
         else if (_windowCSwitches == 0 &&
                  allRows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
         {
-            warnings.Add(
-                "CSwitch events were present in the trace, but none matched the requested pid/thread/window scope.");
+            warnings.Add(_scopedIdentityUnresolvedCSwitchSideCount > 0
+                ? "source_events_unattributed: CSwitch sides with matching raw PID/TID/time were observed, but thread-instance identity was unresolved or ambiguous; no scoped attribution was guessed."
+                : "no_events_in_scope: CSwitch events were present in the trace, but none matched the requested pid/thread/window scope.");
         }
 
         if (_traceReadyEvents == 0)

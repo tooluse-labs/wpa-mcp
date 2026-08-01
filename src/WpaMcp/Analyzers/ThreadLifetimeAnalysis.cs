@@ -54,17 +54,16 @@ public static class ThreadLifetimeAnalysis
                 lifetime => lifetime.Key.Process == selected.Key));
         var topRows = threads.Take(top).ToArray();
         var globalEventCount = identities.ThreadLifecycleEventCount;
-        var matchedEventCount = scope.IncludedProcesses.Sum(process =>
-            identities.ThreadLifecycleEventCountsByProcess.GetValueOrDefault(process));
+        var matchedEventCount = scope.IsResolved
+            ? scope.IncludedProcesses.Sum(process =>
+                identities.ThreadLifecycleEventCountsByProcess.GetValueOrDefault(process))
+            : 0;
 
         var warnings = new List<string>();
         if (threads.Count == 0)
         {
             warnings.Add(!scope.IsResolved
-                ? $"scope_not_found: no process lifetime matched PID {pid}" +
-                  (scope.ProcessStartUs.HasValue
-                      ? $" at processStartUs={scope.ProcessStartUs.Value}"
-                      : string.Empty) + "."
+                ? ProcessAnalysisScope.ResolutionFailureWarning(scope.ScopeStatus)
                 : globalEventCount == 0
                     ? "event_class_not_observed: no ThreadStart/Stop or thread-rundown records were observed in the materialized trace. This does not prove that Thread capture was disabled."
                     : "no_events_in_scope: thread lifecycles were materialized in the trace, but none matched the selected process lifetime.");
@@ -100,7 +99,7 @@ public static class ThreadLifetimeAnalysis
                 : "unknown",
             MatchedEventCount: matchedEventCount,
             NoDataReason: !scope.IsResolved
-                ? "scope_not_found"
+                ? scope.ScopeStatus
                 : globalEventCount == 0
                     ? "event_class_not_observed"
                     : threads.Count == 0
@@ -157,20 +156,11 @@ public static class ThreadLifetimeAnalysis
         int pid,
         long? processStartUs)
     {
-        var scope = ProcessAnalysisScope.Resolve(
+        return ProcessAnalysisScope.Resolve(
             new TimeWindow(0, identities.TraceEndUs),
             pid,
             processStartUs,
-            identities);
-        if (scope.ScopeMode != "pid_aggregate")
-            return scope;
-
-        var starts = string.Join(", ", scope.IncludedProcesses.Select(
-            process => process.StartUs));
-        throw new ArgumentException(
-            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
-            $"specify processStartUs. candidates=[{starts}]",
-            nameof(pid));
+            identities).RequireSingleProcess();
     }
 
     private static IReadOnlyList<ThreadLifetimeRow> ProjectLifetimes(

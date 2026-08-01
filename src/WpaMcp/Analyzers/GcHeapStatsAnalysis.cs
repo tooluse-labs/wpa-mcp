@@ -19,9 +19,8 @@ public static class GcHeapStatsAnalysis
             trace.SessionDuration.TotalMilliseconds);
         var window = new TimeWindow(startUs ?? 0, endUs ?? traceEndUs);
         var identities = TraceIdentityIndex.For(trace);
-        var scope = ProcessAnalysisScope.Resolve(
+        var scope = ResolveTrendScope(
             window, pid, processStartUs, identities);
-        EnsureTrendScope(pid, processStartUs, scope, identities.Processes.Lifetimes);
 
         var events = new List<GcHeapStatsEvent>();
         ClrEventWalker.Walk(trace, clr =>
@@ -56,9 +55,8 @@ public static class GcHeapStatsAnalysis
             traceEndUs,
             processLifetimes,
             Array.Empty<ThreadLifecycleEvent>());
-        var scope = ProcessAnalysisScope.Resolve(
+        var scope = ResolveTrendScope(
             window, pid, processStartUs, identities);
-        EnsureTrendScope(pid, processStartUs, scope, identities.Processes.Lifetimes);
         return AnalyzeResolved(identities, events, pid, scope);
     }
 
@@ -69,9 +67,20 @@ public static class GcHeapStatsAnalysis
         ProcessAnalysisScope scope)
     {
         var rows = new List<GcHeapStatsRow>();
-        long unresolvedIdentityCount = 0;
+        long traceIdentityUnresolvedEventCount = 0;
+        long scopedIdentityUnresolvedEventCount = 0;
         foreach (var observation in events)
         {
+            var traceResolution = identities.Processes.Resolve(
+                observation.Pid,
+                observation.TimeUs,
+                processStartUs: null);
+            if (traceResolution.Status != InstanceResolutionStatus.Resolved ||
+                !traceResolution.Value.HasValue)
+            {
+                traceIdentityUnresolvedEventCount++;
+            }
+
             if (!scope.IsResolved ||
                 !scope.Window.ContainsPoint(observation.TimeUs) ||
                 (pid.HasValue && observation.Pid != pid.Value))
@@ -79,17 +88,23 @@ public static class GcHeapStatsAnalysis
                 continue;
             }
 
-            var resolution = identities.Processes.Resolve(
+            var scopedResolution = identities.Processes.Resolve(
                 observation.Pid,
                 observation.TimeUs,
-                processStartUs: null);
-            if (resolution.Status != InstanceResolutionStatus.Resolved ||
-                !resolution.Value.HasValue)
+                scope.SelectedProcess?.StartUs);
+            if (scopedResolution.Status != InstanceResolutionStatus.Resolved ||
+                !scopedResolution.Value.HasValue)
             {
-                unresolvedIdentityCount++;
+                if (scope.MatchesRawUnresolvedCandidate(
+                        identities,
+                        observation.Pid,
+                        observation.TimeUs))
+                {
+                    scopedIdentityUnresolvedEventCount++;
+                }
                 continue;
             }
-            var process = resolution.Value.Value;
+            var process = scopedResolution.Value.Value;
             if (!scope.IncludedProcesses.Contains(process))
                 continue;
 
@@ -121,7 +136,12 @@ public static class GcHeapStatsAnalysis
         });
 
         var warnings = new List<string>();
-        if (events.Count == 0)
+        if (!scope.IsResolved)
+        {
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                scope.ScopeStatus));
+        }
+        else if (events.Count == 0)
         {
             warnings.Add(WarningBuilder.MissingClrKeyword(
                 "GCHeapStats",
@@ -133,15 +153,10 @@ public static class GcHeapStatsAnalysis
             warnings.Add(
                 "no_matching_gc_heap_stats: GCHeapStats events were present, but none matched the selected process instance and half-open window.");
         }
-        if (!scope.IsResolved)
+        if (scopedIdentityUnresolvedEventCount > 0)
         {
             warnings.Add(
-                $"scope_not_found: no process lifetime matched PID {pid} in the selected window.");
-        }
-        if (unresolvedIdentityCount > 0)
-        {
-            warnings.Add(
-                $"gc_heap_process_identity_unresolved: {unresolvedIdentityCount:N0} in-window event(s) could not be tied to an included process lifetime.");
+                $"source_events_unattributed: {scopedIdentityUnresolvedEventCount:N0} GCHeapStats event(s) matched the raw PID/window selector but could not be tied safely to an included process lifetime.");
         }
 
         return new GcHeapStatsResponse(
@@ -162,41 +177,27 @@ public static class GcHeapStatsAnalysis
                 : "unknown",
             MatchedEventCount: rows.Count,
             NoDataReason: !scope.IsResolved
-                ? "scope_not_found"
+                ? scope.ScopeStatus
                 : events.Count == 0
                     ? "event_class_not_observed"
                     : rows.Count == 0
-                        ? "no_events_in_scope"
-                        : null);
+                        ? scopedIdentityUnresolvedEventCount > 0
+                            ? "source_events_unattributed"
+                            : "no_events_in_scope"
+                        : null,
+            TraceIdentityUnresolvedEventCount: traceIdentityUnresolvedEventCount,
+            ScopedIdentityUnresolvedEventCount: scopedIdentityUnresolvedEventCount);
     }
 
-    private static void EnsureTrendScope(
+    private static ProcessAnalysisScope ResolveTrendScope(
+        TimeWindow window,
         int? pid,
         long? processStartUs,
-        ProcessAnalysisScope scope,
-        IEnumerable<ProcessLifetime> lifetimes)
+        TraceIdentityIndex identities)
     {
-        if (!pid.HasValue)
-            return;
-
-        if (processStartUs.HasValue)
-        {
-            return;
-        }
-
-        if (!scope.PidReuseObserved)
-            return;
-
-        var candidates = lifetimes
-            .Where(lifetime => lifetime.Key.Pid == pid.Value)
-            .Select(lifetime => lifetime.Key.StartUs)
-            .Distinct()
-            .OrderBy(start => start)
-            .ToArray();
-        throw new ArgumentException(
-            $"ambiguous_process_instance: PID {pid.Value} has multiple lifetimes; " +
-            $"specify processStartUs. candidates=[{string.Join(", ", candidates)}]",
-            nameof(pid));
+        var scope = ProcessAnalysisScope.Resolve(
+            window, pid, processStartUs, identities);
+        return pid.HasValue ? scope.RequireSingleProcess() : scope;
     }
 }
 

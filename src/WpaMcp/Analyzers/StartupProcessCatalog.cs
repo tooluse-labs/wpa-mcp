@@ -143,7 +143,8 @@ internal static class StartupProcessCatalog
         foreach (var traceProcess in traceProcesses)
         {
             var exactLifetimes = processes.FindExact(traceProcess.Key);
-            if (exactLifetimes.Count > 1)
+            if (processes.ConflictingObservedEndKeys.Contains(traceProcess.Key) ||
+                exactLifetimes.Count > 1)
             {
                 builder.AddAmbiguous(traceProcess.Key, traceProcess.Name);
                 continue;
@@ -180,7 +181,8 @@ internal static class StartupProcessCatalog
 
             var exactLifetimes = processes.FindExact(lifetime.Key);
             var name = $"Process({lifetime.Key.Pid})";
-            if (exactLifetimes.Count > 1)
+            if (processes.ConflictingObservedEndKeys.Contains(lifetime.Key) ||
+                exactLifetimes.Count > 1)
             {
                 builder.AddAmbiguous(lifetime.Key, name);
                 continue;

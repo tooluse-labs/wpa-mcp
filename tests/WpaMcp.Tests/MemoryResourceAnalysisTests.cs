@@ -326,6 +326,14 @@ public sealed class MemoryResourceAnalysisTests
             scope, eventClassObserved: true, matchedEventCount: 1);
         Assert.Equal("observed", matched.CapabilityStatus);
         Assert.Null(matched.NoDataReason);
+
+        var unattributed = MemoryResourceAnalysis.ClassifyDataContract(
+            scope,
+            eventClassObserved: true,
+            matchedEventCount: 0,
+            scopedIdentityUnresolvedEventCount: 1);
+        Assert.Equal("unknown", unattributed.CapabilityStatus);
+        Assert.Equal("source_events_unattributed", unattributed.NoDataReason);
     }
 
     [Fact]
@@ -398,6 +406,126 @@ public sealed class MemoryResourceAnalysisTests
             accumulator.PressureSummary(10).TopPeakWorkingSetProcesses
                 .OrderBy(row => row.ProcessStartUs)
                 .Select(row => row.ProcessStartUs));
+    }
+
+    [Fact]
+    public void PoolProjection_PairsGloballyAndAttributesWindowEndpointsToAllocationOwner()
+    {
+        var owner = new ProcessInstanceKey(42, 0);
+        var freeingProcess = new ProcessInstanceKey(99, 0);
+        var window = new TimeWindow(100, 200);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: 42,
+            processStartUs: 0,
+            lifetimes:
+            [
+                new ProcessLifetime(owner, 300, true, false),
+                new ProcessLifetime(freeingProcess, 300, true, false),
+            ]);
+        var accumulator = new MemoryResourceAnalysis.InstanceAccumulator(
+            process => process == owner ? "owner.exe" : "freer.exe");
+
+        // The allocation before the window makes the in-window free attributable and known.
+        accumulator.AddPoolObservation(
+            owner, timeUs: 50, isAllocation: true, entry: 7,
+            bytes: 64, tag: "OLD ", poolKind: "paged", rawPoolEvent: false);
+        accumulator.AddPoolObservation(
+            freeingProcess, timeUs: 150, isAllocation: false, entry: 7,
+            bytes: 1, tag: "FREE", poolKind: "nonpaged", rawPoolEvent: false);
+
+        // The free after the window must still be paired globally, while only the
+        // in-window allocation endpoint contributes to this window's delta.
+        accumulator.AddPoolObservation(
+            owner, timeUs: 160, isAllocation: true, entry: 8,
+            bytes: 32, tag: "NEW ", poolKind: "paged", rawPoolEvent: false);
+        accumulator.AddPoolObservation(
+            freeingProcess, timeUs: 250, isAllocation: false, entry: 8,
+            bytes: 2, tag: "FREE", poolKind: "nonpaged", rawPoolEvent: false);
+
+        var projection = accumulator.ProjectPoolObservations(window, scope);
+
+        Assert.Equal(2, projection.EventCount);
+        Assert.Equal(0, projection.RawEventCount);
+        var row = Assert.Single(accumulator.PoolProcessRows(10));
+        Assert.Equal(owner.Pid, row.Pid);
+        Assert.Equal(owner.StartUs, row.ProcessStartUs);
+        Assert.Equal(32, row.PagedAllocatedBytes);
+        Assert.Equal(64, row.PagedFreedBytes);
+        Assert.Equal(-32, row.PagedOutstandingBytes);
+        Assert.Equal(1, row.AllocationCount);
+        Assert.Equal(1, row.FreeCount);
+        Assert.Equal(0, row.UnknownFreeCount);
+        Assert.DoesNotContain(accumulator.PoolProcessRows(10), candidate =>
+            candidate.Pid == freeingProcess.Pid);
+        Assert.Contains(accumulator.PoolTagRows(10), tag =>
+            tag.Tag == "OLD " && tag.FreedBytes == 64 && tag.UnknownFreeCount == 0);
+    }
+
+    [Fact]
+    public void PoolProjection_AllProcessesRetainsInWindowFreeForHistoricalAllocationOwner()
+    {
+        var owner = new ProcessInstanceKey(42, 0);
+        var freeingProcess = new ProcessInstanceKey(99, 0);
+        var window = new TimeWindow(100, 200);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: null,
+            processStartUs: null,
+            lifetimes:
+            [
+                new ProcessLifetime(owner, 80, true, true),
+                new ProcessLifetime(freeingProcess, 200, true, false),
+            ]);
+        var accumulator = new MemoryResourceAnalysis.InstanceAccumulator(
+            process => process == owner ? "owner.exe" : "freer.exe");
+        accumulator.AddPoolObservation(
+            owner, timeUs: 50, isAllocation: true, entry: 7,
+            bytes: 64, tag: "OLD ", poolKind: "paged", rawPoolEvent: false);
+        accumulator.AddPoolObservation(
+            freeingProcess, timeUs: 150, isAllocation: false, entry: 7,
+            bytes: 1, tag: "FREE", poolKind: "nonpaged", rawPoolEvent: false);
+
+        var projection = accumulator.ProjectPoolObservations(window, scope);
+
+        Assert.Equal(1, projection.EventCount);
+        var row = Assert.Single(accumulator.PoolProcessRows(10));
+        Assert.Equal(owner.Pid, row.Pid);
+        Assert.Equal(owner.StartUs, row.ProcessStartUs);
+        Assert.Equal(64, row.PagedFreedBytes);
+        Assert.Equal(0, row.UnknownFreeCount);
+        Assert.DoesNotContain(accumulator.PoolProcessRows(10), candidate =>
+            candidate.Pid == freeingProcess.Pid);
+    }
+
+    [Fact]
+    public void PoolProjection_UnresolvedUnpairedFreeIsCountedAsUnattributed()
+    {
+        var window = new TimeWindow(100, 200);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: null,
+            processStartUs: null,
+            lifetimes: []);
+        var accumulator = new MemoryResourceAnalysis.InstanceAccumulator(
+            process => process.ToString());
+        accumulator.AddPoolObservation(
+            process: null,
+            timeUs: 150,
+            isAllocation: false,
+            entry: 7,
+            bytes: 64,
+            tag: "FREE",
+            poolKind: "paged",
+            rawPoolEvent: false,
+            rawPid: 42);
+
+        var projection = accumulator.ProjectPoolObservations(window, scope);
+
+        Assert.Equal(0, projection.EventCount);
+        Assert.Equal(1, projection.TraceIdentityUnresolvedFreeCount);
+        Assert.Equal(1, projection.ScopedIdentityUnresolvedFreeCount);
+        Assert.Empty(accumulator.PoolProcessRows(10));
     }
 
     private static string MemoryFixturePath()

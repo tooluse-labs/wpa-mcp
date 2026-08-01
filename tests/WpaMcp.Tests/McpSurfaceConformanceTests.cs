@@ -93,6 +93,7 @@ public sealed class McpSurfaceConformanceTests
             (Name: "tid", Type: typeof(int?)),
             (Name: "processStartUs", Type: typeof(long?)),
             (Name: "threadStartUs", Type: typeof(long?)),
+            (Name: "threadGeneration", Type: typeof(long?)),
         };
         var methods = new[]
         {
@@ -110,6 +111,11 @@ public sealed class McpSurfaceConformanceTests
             Assert.Equal(expected.Select(item => item.Name), suffix.Select(parameter => parameter.Name));
             Assert.Equal(expected.Select(item => item.Type), suffix.Select(parameter => parameter.ParameterType));
             Assert.All(suffix, parameter => Assert.True(parameter.HasDefaultValue));
+            var generation = suffix[^1];
+            var description = Assert.IsType<DescriptionAttribute>(
+                Attribute.GetCustomAttribute(generation, typeof(DescriptionAttribute)));
+            Assert.Contains("generation", description.Description, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("pid and tid", description.Description, StringComparison.OrdinalIgnoreCase);
         });
     }
 

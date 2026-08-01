@@ -12,7 +12,7 @@ public sealed class HardFaultTools
     private readonly TraceCache _cache;
     public HardFaultTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N file mappings associated with observed hard-fault paging-in bytes (for example, " +
         "a network-share PDF or DLL). PerfView equivalent: " +
         "'Memory Hard Fault → ByFile'.  Most hard faults are mmap'd files being touched for " +
@@ -47,7 +47,7 @@ public sealed class HardFaultTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N event-attached call stacks ranked by hard-fault paging-in bytes. PerfView " +
         "equivalent: 'Memory Hard Fault Stacks'. " +
         "Pairs with hard_fault_by_file (per-file bucket); this one is per-stack so you can " +
@@ -89,7 +89,7 @@ public sealed class HardFaultTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in the hard-fault-stack data.  Metric " +
         "is page-in bytes; top-N callers ranked by inclusive bytes paged in for focus, callees " +
         "by bytes flowing through.  Requires HardFaults keyword in the capture profile.")]

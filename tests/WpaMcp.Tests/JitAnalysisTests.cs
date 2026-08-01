@@ -164,6 +164,69 @@ public class JitAnalysisTests
     }
 
     [Fact]
+    public void JitProjection_IdentityDroppedEndpointReportsUnattributedSource()
+    {
+        var process = new ProcessInstanceKey(8, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: process.Pid,
+            processStartUs: process.StartUs,
+            [new ProcessLifetime(process, 100, true, true)]);
+
+        var response = JitAnalysis.ProjectPairs(
+            [],
+            window,
+            scope,
+            top: 10,
+            sourceEventCount: 1,
+            matchedSourceEventCount: 1,
+            traceIdentityUnresolvedEndpointCount: 1,
+            scopedIdentityUnresolvedEndpointCount: 1);
+
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEndpointCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedEndpointCount);
+    }
+
+    [Fact]
+    public void JitProjection_SeparatesTraceAndScopedIntervalAnomalies()
+    {
+        var process = new ProcessInstanceKey(8, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: process.Pid,
+            processStartUs: process.StartUs,
+            [new ProcessLifetime(process, 100, true, true)]);
+
+        var response = JitAnalysis.ProjectPairs(
+            [],
+            window,
+            scope,
+            top: 10,
+            sourceEventCount: 7,
+            unmatchedIntervalCount: 3,
+            invalidIntervalCount: 2,
+            scopedUnmatchedIntervalCount: 1,
+            scopedInvalidIntervalCount: 1,
+            traceUnmatchedStartCount: 2,
+            traceUnmatchedStopCount: 1,
+            scopedUnmatchedStartCount: 1,
+            scopedUnmatchedStopCount: 0);
+
+        Assert.Equal(3, response.TraceUnmatchedIntervalCount);
+        Assert.Equal(1, response.ScopedUnmatchedIntervalCount);
+        Assert.Equal(2, response.TraceInvalidIntervalCount);
+        Assert.Equal(1, response.ScopedInvalidIntervalCount);
+        Assert.Equal(2, response.TraceUnmatchedStartCount);
+        Assert.Equal(1, response.TraceUnmatchedStopCount);
+        Assert.Equal(1, response.ScopedUnmatchedStartCount);
+        Assert.Equal(0, response.ScopedUnmatchedStopCount);
+    }
+
+    [Fact]
     public void JitPairing_SameMethodAndClrInstanceCannotCrossProcessLifetime()
     {
         var accumulator = new IntervalPairAccumulator<

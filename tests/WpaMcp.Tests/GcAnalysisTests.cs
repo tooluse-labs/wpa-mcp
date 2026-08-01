@@ -99,6 +99,52 @@ public class GcAnalysisTests
     }
 
     [Fact]
+    public void Project_PauseOnlyOverlapDoesNotCountNonOverlappingGcWall()
+    {
+        var process = new ProcessInstanceKey(42, 10);
+        var set = new GcIntervalSet(
+            Gcs:
+            [
+                new GcWallWithPauses(
+                    new ClrGcKey(process, 1, 4),
+                    StartUs: 100,
+                    EndUs: 150,
+                    FullDurationUs: 50,
+                    Generation: 2,
+                    Reason: "Induced",
+                    Pauses:
+                    [
+                        new GcPauseInterval(
+                            new ClrPauseKey(process, 1),
+                            StartUs: 90,
+                            EndUs: 160,
+                            FullDurationUs: 70),
+                    ]),
+            ],
+            OrphanPauses: [],
+            IncompleteEvidence: [],
+            UnmatchedGcStartCount: 0,
+            UnmatchedGcStopCount: 0,
+            UnmatchedSuspendStartCount: 0,
+            UnmatchedRestartStopCount: 0,
+            InvalidIntervalCount: 0);
+
+        var response = GcAnalysis.Project(set, new TimeWindow(151, 155), pid: 42);
+        var row = Assert.Single(response.Events);
+
+        Assert.Equal("pause_only_associated_gc_wall_outside_window", row.IntervalKind);
+        Assert.False(row.IsOrphanPause);
+        Assert.Equal(-1, row.Generation);
+        Assert.Equal(70, row.FullDurationUs);
+        Assert.Equal(4, row.AccountedDurationUs);
+        Assert.Equal(0, response.TotalGcCount);
+        Assert.Equal(0, response.TotalFullGcUs);
+        Assert.Equal(0, response.TotalAccountedGcUs);
+        Assert.Equal(70, response.TotalFullPauseUs);
+        Assert.Equal(4, response.TotalAccountedPauseUs);
+    }
+
+    [Fact]
     public void Project_ProcessScopeAggregatesButKeepsReusedPidInstancesSeparate()
     {
         var oldProcess = new ProcessInstanceKey(42, 0);
@@ -221,6 +267,89 @@ public class GcAnalysisTests
 
         Assert.Equal(0, response.MatchedEventCount);
         Assert.Equal("no_events_in_scope", response.NoDataReason);
+    }
+
+    [Fact]
+    public void Project_IdentityDroppedEndpointReportsUnattributedSource()
+    {
+        var process = new ProcessInstanceKey(42, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: process.Pid,
+            processStartUs: process.StartUs,
+            [new ProcessLifetime(process, 100, true, true)]);
+        var intervals = new GcIntervalSet(
+            [],
+            [],
+            [new GcIncompleteEvidence(
+                "missing_clr_instance", process, 10, "gc_start")],
+            0, 0, 0, 0, 0);
+
+        var response = GcAnalysis.Project(
+            intervals,
+            window,
+            scope,
+            sourceEventCount: 1,
+            matchedSourceEventCount: 1);
+
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEndpointCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedEndpointCount);
+    }
+
+    [Fact]
+    public void Project_SeparatesTraceAndScopedIntervalAnomalies()
+    {
+        var target = new ProcessInstanceKey(42, 0);
+        var other = new ProcessInstanceKey(50, 0);
+        var window = new TimeWindow(0, 100);
+        var scope = ProcessAnalysisScope.Resolve(
+            window,
+            pid: target.Pid,
+            processStartUs: target.StartUs,
+            [new ProcessLifetime(target, 100, true, true)]);
+        var intervals = new GcIntervalSet(
+            [], [], [],
+            UnmatchedGcStartCount: 2,
+            UnmatchedGcStopCount: 0,
+            UnmatchedSuspendStartCount: 2,
+            UnmatchedRestartStopCount: 0,
+            InvalidIntervalCount: 2,
+            UnmatchedGcIntervals:
+            [
+                new GcIntervalAnomaly(target, 10, 10),
+                new GcIntervalAnomaly(other, 10, 10),
+            ],
+            UnmatchedPauseIntervals:
+            [
+                new GcIntervalAnomaly(target, 20, 20),
+                new GcIntervalAnomaly(other, 20, 20),
+            ],
+            InvalidIntervals:
+            [
+                new GcIntervalAnomaly(target, 30, 25),
+                new GcIntervalAnomaly(other, 30, 25),
+            ]);
+
+        var response = GcAnalysis.Project(
+            intervals,
+            window,
+            scope,
+            sourceEventCount: 8,
+            matchedSourceEventCount: 4);
+
+        Assert.Equal(2, response.TraceUnmatchedGcIntervalCount);
+        Assert.Equal(1, response.ScopedUnmatchedGcIntervalCount);
+        Assert.Equal(2, response.TraceUnmatchedPauseIntervalCount);
+        Assert.Equal(1, response.ScopedUnmatchedPauseIntervalCount);
+        Assert.Equal(2, response.TraceInvalidIntervalCount);
+        Assert.Equal(1, response.ScopedInvalidIntervalCount);
+        Assert.Equal(2, response.TraceUnmatchedGcStartCount);
+        Assert.Equal(0, response.TraceUnmatchedGcStopCount);
+        Assert.Equal(2, response.TraceUnmatchedPauseStartCount);
+        Assert.Equal(0, response.TraceUnmatchedPauseStopCount);
     }
 
     [Fact]

@@ -13,7 +13,7 @@ public sealed class ThreadScopedCpuWaitTests
     private const string WaitFixturePath = "fixtures/small_wait_bound.etl";
 
     [Fact]
-    public void SixThreadTools_RejectTidWithoutPidBeforeTraceAccess()
+    public void SixThreadTools_RejectIncompleteThreadSelectorsBeforeTraceAccess()
     {
         var cache = new TraceCache(capacity: 1);
         var wait = new WaitTools(cache);
@@ -25,6 +25,18 @@ public sealed class ThreadScopedCpuWaitTests
         Assert.Throws<ArgumentException>(() => cpu.CpuPreciseAnalysis("missing.etl", tid: 7));
         Assert.Throws<ArgumentException>(() => cpu.CpuTopFunctions("missing.etl", tid: 7));
         Assert.Throws<ArgumentException>(() => cpu.CpuCallerCallee("missing.etl", "x", tid: 7));
+        Assert.Throws<ArgumentException>(() =>
+            wait.WaitAnalysis("missing.etl", pid: 1, threadGeneration: 2));
+        Assert.Throws<ArgumentException>(() =>
+            wait.WaitTopStacks("missing.etl", pid: 1, threadGeneration: 2));
+        Assert.Throws<ArgumentException>(() =>
+            wait.WaitCallerCallee("missing.etl", "x", pid: 1, threadGeneration: 2));
+        Assert.Throws<ArgumentException>(() =>
+            cpu.CpuPreciseAnalysis("missing.etl", pid: 1, threadGeneration: 2));
+        Assert.Throws<ArgumentException>(() =>
+            cpu.CpuTopFunctions("missing.etl", pid: 1, threadGeneration: 2));
+        Assert.Throws<ArgumentException>(() =>
+            cpu.CpuCallerCallee("missing.etl", "x", pid: 1, threadGeneration: 2));
     }
 
     [Fact]
@@ -43,7 +55,8 @@ public sealed class ThreadScopedCpuWaitTests
                 pid: lifetime.Key.Process.Pid,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
             var stacks = wait.WaitTopStacks(
                 WaitFixturePath,
                 top: 10,
@@ -52,7 +65,8 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: false,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
 
             Assert.Equal(lifetime.Key, summary.SelectedThread);
             Assert.Equal("ok", summary.ScopeStatus);
@@ -61,6 +75,7 @@ public sealed class ThreadScopedCpuWaitTests
             Assert.Equal([Candidate(lifetime)], summary.IncludedThreads);
             Assert.Equal(summary.ScopedCSwitches, summary.MatchedEventCount);
             var summaryRow = Assert.Single(summary.Rows);
+            Assert.Equal(lifetime.StartUs, summaryRow.ThreadStartUs);
             Assert.True(summary.HasContextSwitches);
             Assert.True(summary.HasContextSwitchBlockingStacks);
             Assert.Equal(lifetime.Key, stacks.SelectedThread);
@@ -69,6 +84,13 @@ public sealed class ThreadScopedCpuWaitTests
             Assert.Equal(stacks.TotalBlockedUs, stacks.When!.Buckets.Sum());
             Assert.True(stacks.HasContextSwitches);
             Assert.True(stacks.HasContextSwitchBlockingStacks);
+            Assert.Equal(stacks.UnmatchedBlockedIntervalCount,
+                stacks.TraceUnmatchedBlockedIntervalCount);
+            Assert.True(stacks.ScopedUnmatchedBlockedIntervalCount <=
+                        stacks.TraceUnmatchedBlockedIntervalCount);
+            Assert.Equal(stacks.ScopedCSwitches > 0, stacks.HasContextSwitches);
+            Assert.Equal(stacks.ScopedStackedSwitches > 0,
+                stacks.HasContextSwitchBlockingStacks);
             Assert.Equal("skipped", stacks.SymbolResolutionState);
 
             var focus = Assert.Single(stacks.Rows.Take(1)).Function;
@@ -80,12 +102,18 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: false,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
 
             Assert.Equal(lifetime.Key, callerCallee.SelectedThread);
             Assert.Equal([Candidate(lifetime)], callerCallee.IncludedThreads);
             Assert.Equal(summary.TotalBlockedUs, callerCallee.SourceTotalMetric);
             Assert.Equal(stacks.UnmatchedBlockedIntervalCount, callerCallee.UnmatchedIntervalCount);
+            Assert.Equal(stacks.TraceUnmatchedBlockedIntervalCount,
+                callerCallee.TraceUnmatchedIntervalCount);
+            Assert.Equal(stacks.ScopedUnmatchedBlockedIntervalCount,
+                callerCallee.ScopedUnmatchedIntervalCount);
+            Assert.Equal(stacks.ScopedCSwitches, callerCallee.ScopedCSwitches);
             Assert.True(callerCallee.HasContextSwitchBlockingStacks);
 
             var precise = cpu.CpuPreciseAnalysis(
@@ -94,10 +122,13 @@ public sealed class ThreadScopedCpuWaitTests
                 pid: lifetime.Key.Process.Pid,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
             Assert.Equal(lifetime.Key, precise.SelectedThread);
             Assert.Equal([Candidate(lifetime)], precise.IncludedThreads);
-            Assert.Equal(lifetime.Key.Tid, Assert.Single(precise.Rows).Tid);
+            var preciseRow = Assert.Single(precise.Rows);
+            Assert.Equal(lifetime.Key.Tid, preciseRow.Tid);
+            Assert.Equal(lifetime.StartUs, preciseRow.ThreadStartUs);
             Assert.Equal(summaryRow.CpuUs, precise.TotalCpuUs);
 
             var symbolized = wait.WaitTopStacks(
@@ -107,7 +138,8 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: true,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
             Assert.Equal(stacks.SelectedThread, symbolized.SelectedThread);
             Assert.Equal(stacks.TotalBlockedUs, symbolized.TotalBlockedUs);
             Assert.Equal(stacks.SampleCount, symbolized.SampleCount);
@@ -237,7 +269,7 @@ public sealed class ThreadScopedCpuWaitTests
     }
 
     [Fact]
-    public void ExactNewWaitInstanceCountsOnlyItsSideAtReuseBoundary()
+    public void ExactNewWaitInstanceDoesNotCountSwitchInAtReuseBoundary()
     {
         var oldThread = new ThreadInstanceKey(
             new ProcessInstanceKey(Pid: 100, StartUs: 0),
@@ -277,7 +309,7 @@ public sealed class ThreadScopedCpuWaitTests
             warnings: null);
 
         var row = Assert.Single(response.Rows);
-        Assert.Equal(1, row.ContextSwitches);
+        Assert.Equal(0, row.ContextSwitches);
     }
 
     [Fact]
@@ -296,7 +328,8 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: false,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
 
             Assert.Equal(lifetime.Key, top.SelectedThread);
             Assert.Equal([Candidate(lifetime)], top.IncludedThreads);
@@ -314,7 +347,8 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: false,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
 
             Assert.Equal(lifetime.Key, callerCallee.SelectedThread);
             Assert.Equal([Candidate(lifetime)], callerCallee.IncludedThreads);
@@ -328,7 +362,8 @@ public sealed class ThreadScopedCpuWaitTests
                 resolveSymbols: true,
                 tid: lifetime.Key.Tid,
                 processStartUs: lifetime.Key.Process.StartUs,
-                threadStartUs: lifetime.StartUs);
+                threadStartUs: lifetime.StartUs,
+                threadGeneration: lifetime.Key.Generation);
             Assert.Equal(top.SelectedThread, symbolized.SelectedThread);
             Assert.Equal(top.TotalSamples, symbolized.TotalSamples);
         });
@@ -632,7 +667,8 @@ public sealed class ThreadScopedCpuWaitTests
             Assert.True(candidate.ThreadStartUs < candidate.ThreadEndUs));
         Assert.Contains(warnings, warning =>
             warning.StartsWith("ambiguous_thread_instance:") &&
-            warning.Contains("threadStartUs="));
+            warning.Contains("threadStartUs=") &&
+            warning.Contains("threadGeneration="));
     }
 
     private static void AssertPidAggregate(

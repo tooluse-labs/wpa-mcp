@@ -127,7 +127,7 @@ public static class AlpcStackAnalysis
         {
             traceTotalCount++;
             var nowUs = (long)(tsRelMs * 1000);
-            if (req.PassesFilter(nowUs)) traceEventCount++;
+            traceEventCount++;
             if (!req.PassesFilter(processId, nowUs)) return;
 
             totalCount++;

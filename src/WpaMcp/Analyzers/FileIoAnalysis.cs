@@ -126,7 +126,7 @@ public static class FileIoAnalysis
         long globalEventCount,
         long matchedEventCount)
     {
-        if (!scope.IsResolved) return "scope_not_found";
+        if (!scope.IsResolved) return scope.ScopeStatus;
         if (globalEventCount == 0) return "event_class_not_observed";
         return matchedEventCount == 0 ? "no_events_in_scope" : null;
     }
@@ -146,6 +146,10 @@ public static class FileIoAnalysis
 
         switch (noDataReason)
         {
+            case ProcessAnalysisScope.AmbiguousStatus:
+                warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                    ProcessAnalysisScope.AmbiguousStatus));
+                break;
             case "scope_not_found":
                 warnings.Add(
                     $"scope_not_found: no process lifetime for PID {pid}" +

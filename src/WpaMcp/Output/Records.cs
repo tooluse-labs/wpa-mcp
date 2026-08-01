@@ -20,6 +20,7 @@ public sealed record TraceMeta(
 
 public sealed record SymbolStatus(
     string? NtSymbolPath,
+    [property: Description("Default fallback directory used by add_symbol_server when cacheDir is omitted. It does not prove that the active NtSymbolPath uses this directory.")]
     string CacheDir,
     string? Warning,
     IReadOnlyList<SymbolRecommendation> Recommendations);
@@ -35,6 +36,62 @@ public sealed record LoadTraceResponse(
     SymbolStatus SymbolStatus,
     TraceCapabilities Capabilities);
 
+public sealed record UnloadTraceResponse(
+    [property: Description("Canonical full path whose in-memory trace entry was retired or marked for refresh.")]
+    string Path,
+    [property: Description("True when a resident cache entry was retired; false when no resident entry existed.")]
+    bool CacheEntryRetired,
+    [property: Description("Deprecated compatibility name. True means this running server registered a raw-ETL sidecar-refresh request; the request does not survive restart and does not guarantee regeneration succeeds.")]
+    bool NextLoadForcesEtlxRefresh,
+    [property: Description("Operational caveats; an active lease remains valid until its query completes.")]
+    IReadOnlyList<string> Warnings,
+    [property: Description("True only when a refresh request for a raw .etl path was registered in this running server process. It is an intent/status field, not proof that an ETLX was regenerated.")]
+    bool RefreshRequestedForCurrentServerProcess = false,
+    [property: Description("Lifetime of the refresh request. current_server_process_only means a restart clears it; call unload_trace again after restart and before loading the rewritten ETL.")]
+    string RefreshRequestLifetime = "current_server_process_only");
+
+public sealed record NoDataReasonGuidance(
+    [property: Description("scope_not_found: no process/thread lifetime matched the requested selector and half-open window; no scoped attribution was performed.")]
+    string ScopeNotFound = "scope_not_found",
+    [property: Description("ambiguous_process_instance: process-lifetime evidence was unsafe to resolve uniquely, for example conflicting observed stop endpoints; no scoped attribution was performed. This is distinct from a successful ScopeMode=pid_aggregate result.")]
+    string AmbiguousProcessInstance = "ambiguous_process_instance",
+    [property: Description("process_start_required: the PID matched multiple non-conflicting lifetimes, but the requested tool requires one exact process instance. Retry with a candidate processStartUs; this is distinct from ambiguous_process_instance.")]
+    string ProcessStartRequired = "process_start_required",
+    [property: Description("ambiguous_thread_instance: multiple thread-lifetime candidates matched and the supplied selectors did not identify one safe thread instance; no scoped attribution was performed.")]
+    string AmbiguousThreadInstance = "ambiguous_thread_instance",
+    [property: Description("event_class_not_observed: the documented target event class or predicate was absent trace-wide. This never proves that a capture keyword was disabled.")]
+    string EventClassNotObserved = "event_class_not_observed",
+    [property: Description("no_events_in_scope: the event class exists elsewhere, but no attributable source event matched the resolved selector and half-open window.")]
+    string NoEventsInScope = "no_events_in_scope",
+    [property: Description("source_events_unattributed: raw source events could match the requested PID/TID/time, but required process, thread, or CLR identity was unresolved or ambiguous; no attribution was guessed.")]
+    string SourceEventsUnattributed = "source_events_unattributed",
+    [property: Description("no_completed_intervals_in_scope: scoped interval endpoints were observed, but no valid completed interval could be projected into the requested scope.")]
+    string NoCompletedIntervalsInScope = "no_completed_intervals_in_scope",
+    [property: Description("stacks_unavailable: scoped events or completed intervals exist, but none carried the event-domain stack required by this tool.")]
+    string StacksUnavailable = "stacks_unavailable",
+    [property: Description("focus_not_found: stacked scoped evidence was actually scanned, but the exact case-sensitive focus frame was absent.")]
+    string FocusNotFound = "focus_not_found");
+
+public sealed record AnalysisContractGuidance(
+    [property: Description("Interpret scope first: only ScopeStatus=ok authorizes attribution. Use ScopeMode, SelectedProcess, IncludedProcesses, and PidReuseObserved to distinguish an exact instance from explicit PID aggregation.")]
+    string ScopeRule,
+    [property: Description("Trace* fields are whole-trace diagnostics; Scoped* fields use the selected identity and requested half-open window. Never use a Trace* value as the selected-process denominator.")]
+    string TraceScopedRule,
+    [property: Description("MatchedEventCount counts scoped raw source events/endpoints under the tool's documented predicate. MatchedIntervalCount counts completed projected intervals. Neither is necessarily the row count after aggregation or top-N truncation.")]
+    string CountRule,
+    [property: Description("not_observed requires whole-trace absence under the tool's documented event predicate; observed requires attributable scoped evidence; unknown means the requested scope cannot support either conclusion.")]
+    string CapabilityRule,
+    [property: Description("Use the per-domain StackCoverage. Global stacks do not imply this event domain has stacks; ?!? is a synthetic unknown bucket, not a captured call chain.")]
+    string StackRule,
+    [property: Description("PDB name/GUID/Age metadata and LocalPdbReady are not frame resolution. Only stack-tool SymbolStats after lookup measure observed code-frame name resolution.")]
+    string SymbolRule,
+    [property: Description("Replay an exact thread with pid + processStartUs + tid + threadStartUs + threadGeneration. Generation is required when inferred thread starts collide.")]
+    string ThreadReplayRule,
+    [property: Description("Associated stacks, readier stacks, and heuristic security-event matches are evidence, not standalone causal or root-cause proof.")]
+    string CausalityRule,
+    [property: Description("Stable reasons that disambiguate empty or degraded results; a bare empty Rows array has no stable meaning.")]
+    NoDataReasonGuidance NoDataReasons);
+
 public sealed record InspectTraceResponse(
     TraceMeta Trace,
     TraceCapabilities Capabilities,
@@ -44,7 +101,9 @@ public sealed record InspectTraceResponse(
     IReadOnlyList<ToolRecommendation> OrientationTools,
     IReadOnlyList<ToolRecommendation> CapabilitySupportedTools,
     IReadOnlyList<string> EnabledCapabilities,
-    IReadOnlyList<DiagnosticFlowRecommendation> RecommendedDiagnosticFlows);
+    IReadOnlyList<DiagnosticFlowRecommendation> RecommendedDiagnosticFlows,
+    [property: Description("Machine-readable interpretation rules for downstream analysis responses. Read this before treating empty rows, trace-wide diagnostics, stack availability, or symbol metadata as scoped conclusions.")]
+    AnalysisContractGuidance? AnalysisContract = null);
 
 public sealed record DiagnosticFlowRecommendation(
     string FlowName,
@@ -149,6 +208,7 @@ public sealed record TraceDriverModule(
 
 public sealed record InspectSymbolQuality(
     string? NtSymbolPath,
+    [property: Description("Default fallback directory used by add_symbol_server when cacheDir is omitted. It is not an inferred active cache; inspect NtSymbolPath for configured entries.")]
     string CacheDir,
     int ModuleCount,
     [property: Description("Deprecated. Module metadata cannot prove frame resolution; this field is always null. Use ModulesWithPdbName and ModulesWithCompletePdbIdentity.")]
@@ -312,14 +372,16 @@ public sealed record ProcessCreateTimingResponse(
     IReadOnlyList<string> Warnings,
     long? ParentProcessStartUs = null,
     ProcessInstanceKey? SelectedProcess = null,
-    [property: Description("single_process for a resolved parent lifetime, or unresolved when the requested parent lifetime does not exist. Reused-PID ambiguity is rejected unless processStartUs selects one lifetime.")]
+    [property: Description("single_process for a safely resolved parent lifetime, or unresolved for scope_not_found, process_start_required, or conflicting observed stop evidence. Candidate lifetimes remain in IncludedProcesses.")]
     string ScopeMode = "single_process",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("ok, scope_not_found, process_start_required for clean multi-lifetime reuse, or ambiguous_process_instance for conflicting lifetime evidence.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     [property: Description("Number of child ProcessStart records matched to the selected parent lifetime.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
     string? NoDataReason = null);
 
 public sealed record CpuFunctionRow(
@@ -386,7 +448,7 @@ public sealed record CpuTopFunctionsResponse(
     string ExactTotalAccounting = "exact_long",
     string CapabilityStatus = "unknown",
     long MatchedEventCount = 0,
-    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Empty for process-only scopes and missing selectors.")]
+    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Each candidate's Thread.Generation can be passed as threadGeneration to replay equal-start lifetimes. Empty for process-only scopes and missing selectors.")]
     IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null);
 
 public sealed record CpuCoreBucket(
@@ -410,8 +472,10 @@ public sealed record CpuPreciseThreadRow(
     long PreemptedSwitches,
     [property: Description("Trace-relative process start; combine with Pid to identify the process lifetime. Rows are never merged across this value.")]
     long ProcessStartUs = 0,
-    [property: Description("Generation of this TID within the selected process lifetime. Rows are never merged across generations.")]
-    long ThreadGeneration = 1);
+    [property: Description("Generation of this TID within the selected process lifetime. Rows are never merged across generations; pass this value as threadGeneration with pid and tid to replay the exact lifetime.")]
+    long ThreadGeneration = 1,
+    [property: Description("Trace-relative thread start. It can repeat across generations; combine Pid, Tid, and ThreadGeneration (plus ProcessStartUs when PID reuse is observed) to replay the exact thread instance.")]
+    long ThreadStartUs = 0);
 
 public sealed record CpuPreciseResponse(
     IReadOnlyList<CpuPreciseThreadRow> Rows,
@@ -435,11 +499,16 @@ public sealed record CpuPreciseResponse(
     string CapabilityStatus = "unknown",
     [property: Description("Number of CSwitch source events whose old or new thread matched the requested scope and half-open window.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, ambiguous_process_instance, ambiguous_thread_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, or null.")]
     string? NoDataReason = null,
     [property: Description("True when the analyzed trace contains at least one CSwitch event, regardless of the requested process/thread/window scope; null when trace-wide events were not scanned because scope resolution failed.")]
     bool? TraceHasContextSwitches = null,
-    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Empty for process-only scopes and missing selectors.")]
-    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null);
+    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Each candidate's Thread.Generation can be passed as threadGeneration to replay equal-start lifetimes. Empty for process-only scopes and missing selectors.")]
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    [property: Description("Whole-trace CSwitch event sides whose thread-instance identity was unresolved or ambiguous.")]
+    long TraceIdentityUnresolvedCSwitchSideCount = 0,
+    [property: Description("Identity-unresolved CSwitch sides whose raw PID/TID/time matched the requested scope/window; they are not included in MatchedEventCount.")]
+    long ScopedIdentityUnresolvedCSwitchSideCount = 0);
 
 // Caller/callee neighbor of a focus frame. Same shape across all stack sources (CPU samples,
 // blocked μs, hard-fault bytes, etc.); the parent response carries `MetricName` so consumers
@@ -471,9 +540,11 @@ public sealed record CallerCalleeResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     long SourceTotalMetric = 0,
+    [property: Description("Deprecated compatibility alias for TraceUnmatchedIntervalCount. It is trace-global, not scoped to the selected process/thread/window.")]
     int UnmatchedIntervalCount = 0,
     ProcessInstanceKey? SelectedProcess = null,
     ThreadInstanceKey? SelectedThread = null,
+    [property: Description("True only when a context switch matched the requested process/thread/window scope.")]
     bool HasContextSwitches = false,
     bool HasContextSwitchBlockingStacks = false,
     bool HasSampledProfileStacks = false,
@@ -492,16 +563,39 @@ public sealed record CallerCalleeResponse(
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, ambiguous_process_instance, ambiguous_thread_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, no_completed_intervals_in_scope, stacks_unavailable, focus_not_found, or null.")]
     string? NoDataReason = null,
-    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Empty for process-only scopes and missing selectors.")]
-    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null);
+    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Each candidate's Thread.Generation can be passed as threadGeneration to replay equal-start lifetimes. Empty for process-only scopes and missing selectors.")]
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    [property: Description("Whole-trace unmatched endpoint/interval count for interval-backed caller/callee sources; zero/default for point-event domains. Never attribute this field to the selected scope.")]
+    int TraceUnmatchedIntervalCount = 0,
+    [property: Description("Unmatched interval endpoints whose resolved evidence belongs to the selected process/thread and requested half-open window; zero/default for point-event domains.")]
+    int ScopedUnmatchedIntervalCount = 0,
+    [property: Description("Whether any context switch was observed anywhere in the trace for CSwitch-backed sources; null for non-scheduler domains.")]
+    bool? TraceHasContextSwitches = null,
+    [property: Description("Number of switch-out events matched to the selected process/thread/window for CSwitch-backed sources.")]
+    long ScopedCSwitches = 0,
+    [property: Description("Number of scoped switch-out events carrying the blocking stack used by the selected CSwitch-backed source.")]
+    long ScopedStackedSwitches = 0,
+    [property: Description("100 * ScopedStackedSwitches / ScopedCSwitches; null when the scoped denominator is zero or for non-scheduler domains.")]
+    double? ScopedStackCoveragePct = null,
+    [property: Description("Whole-trace raw start/stop or scheduler source-endpoint count for interval-backed caller/callee sources; zero/default for point-event domains.")]
+    long TraceSourceEndpointCount = 0,
+    [property: Description("Resolved raw source endpoints attributed to the selected process/thread/window for interval-backed caller/callee sources.")]
+    long ScopedSourceEndpointCount = 0,
+    [property: Description("Completed intervals projected into the selected scope. This is distinct from raw source endpoint counts.")]
+    long MatchedIntervalCount = 0,
+    [property: Description("Whole-trace source endpoints dropped because the process, thread, or CLR instance identity could not be resolved.")]
+    long TraceIdentityUnresolvedEndpointCount = 0,
+    [property: Description("Identity-unresolved source endpoints whose raw PID/TID/time could belong to the selected scope; they are not included in ScopedSourceEndpointCount.")]
+    long ScopedIdentityUnresolvedEndpointCount = 0);
 
 public sealed record CpuBatchScopeResult(
     int Pid,
     long? RequestedProcessStartUs,
-    [property: Description("One of completed, completed_no_samples, scope_not_found, budget_skipped, or analysis_failed.")]
+    [property: Description("One of completed, completed_no_samples, scope_not_found, ambiguous_process_instance, budget_skipped, or analysis_failed.")]
     string ResultStatus,
-    [property: Description("Process selector status: ok or scope_not_found.")]
+    [property: Description("Process selector status: ok, scope_not_found, or ambiguous_process_instance.")]
     string ScopeStatus,
     [property: Description("One of single_process, pid_aggregate, or unresolved.")]
     string ScopeMode,
@@ -546,13 +640,13 @@ public sealed record FileIoResponse(
     bool PidReuseObserved = false,
     [property: Description("Known process lifetime keys included by the selector and half-open window.")]
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
-    [property: Description("Process selector status: ok or scope_not_found.")]
+    [property: Description("Process selector status: ok, scope_not_found, or ambiguous_process_instance.")]
     string ScopeStatus = "ok",
     [property: Description("Scoped source-event status: observed only when this resolved selector matched FileIO events; not_observed only when the event class was absent trace-wide; otherwise unknown. This never proves a capture keyword was disabled.")]
     string CapabilityStatus = "unknown",
     [property: Description("Number of FileIO Read/Write events matched before top-N file aggregation.")]
     long MatchedEventCount = 0,
-    [property: Description("Stable reason for an empty result: scope_not_found, no_events_in_scope, event_class_not_observed, or null when data matched.")]
+    [property: Description("Stable reason for an empty result: scope_not_found, ambiguous_process_instance, no_events_in_scope, event_class_not_observed, or null when data matched.")]
     string? NoDataReason = null,
     IReadOnlyList<string>? Warnings = null);
 
@@ -586,6 +680,7 @@ public sealed record FileIoStacksResponse(
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("Scope status: ok, scope_not_found, ambiguous_process_instance, or ambiguous_thread_instance.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     long MatchedEventCount = 0,
@@ -621,6 +716,7 @@ public sealed record DiskIoStacksResponse(
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("Scope status: ok, scope_not_found, ambiguous_process_instance, or ambiguous_thread_instance.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     long MatchedEventCount = 0,
@@ -727,14 +823,22 @@ public sealed record ModuleSymbolStatus(
     string? PdbSignature = null,
     int? PdbAge = null,
     string? BinaryFormat = null,
+    [property: Description("Aggregate local-candidate state: exact_identity_match, candidate_identity_unverified, identity_mismatch, invalid_local_pdb_candidate, missing_pdb_identity, or not_found_in_local_symbol_path. This is not observed stack-frame resolution.")]
     string LookupStatus = "unknown",
+    [property: Description("Human-readable evidence boundary for LookupStatus. Ambiguous Windows PDB/DIA failures are reported as unverified and never asserted to be candidate corruption.")]
     string? FailureReason = null,
+    [property: Description("At most 10 verified-or-probed local candidate paths. All discovered candidates are validated before this display cap is applied; exact GUID/Age matches appear first and remaining paths retain configured discovery order. Remote SRV/UNC entries are not actively accessed, but the OS may redirect a local-looking root through a mapped drive or reparse point.")]
     IReadOnlyList<string>? LocalSymbolCandidates = null,
     bool HasPdbName = false,
     bool HasCompletePdbIdentity = false,
+    [property: Description("True only when at least one discovered local PDB was opened and its actual GUID/Age exactly matched the trace identity. This does not mean stack frames were resolved.")]
     bool LocalPdbReady = false,
     string FrameResolutionState = "not_measured",
-    string EvidenceScope = "module_metadata_and_local_candidate_probe");
+    string EvidenceScope = "module_metadata_and_local_candidate_probe",
+    [property: Description("Total local candidates discovered and evaluated before LocalSymbolCandidates is capped for display.")]
+    int LocalSymbolCandidateCount = 0,
+    [property: Description("True when LocalSymbolCandidateCount exceeds the number of paths shown in LocalSymbolCandidates. Aggregate LookupStatus and LocalPdbReady still include every discovered candidate.")]
+    bool LocalSymbolCandidatesTruncated = false);
 
 public sealed record NativeSymbolSupportStatus(
     string Architecture,
@@ -752,6 +856,7 @@ public sealed record NativeDependencyStatus(
 public sealed record DiagnoseSymbolsResponse(
     [property: Description("Compatibility alias of ConfiguredSymbolPath. Query-local trace-directory additions appear only in EffectiveSymbolPath.")]
     string CurrentSymbolPath,
+    [property: Description("Deprecated compatibility alias of DefaultCacheDir. This is the fallback used by add_symbol_server when cacheDir is omitted; it does not prove that the current ConfiguredSymbolPath uses this directory.")]
     string CacheDir,
     IReadOnlyList<ModuleSymbolStatus> Modules,
     IReadOnlyList<string> Suggestions,
@@ -763,7 +868,9 @@ public sealed record DiagnoseSymbolsResponse(
     string EffectiveSymbolPath = "",
     bool TraceDirectoryInConfiguredSymbolPath = false,
     bool TraceDirectoryInEffectiveSymbolPath = false,
-    string FrameResolutionMeasurementState = "not_measured");
+    string FrameResolutionMeasurementState = "not_measured",
+    [property: Description("Fallback cache directory used by add_symbol_server only when its cacheDir argument is omitted. It is not an inferred effective cache for arbitrary ConfiguredSymbolPath entries.")]
+    string DefaultCacheDir = "");
 
 public sealed record WaitReasonBucket(string Reason, long BlockedUs, long Count);
 
@@ -774,10 +881,15 @@ public sealed record WaitAnalysisRow(
     long CpuUs,
     long BlockedUs,
     double? WaitRatio,
+    [property: Description("Number of scoped CSwitch switch-out events for this thread instance. Switch-in appearances are not counted.")]
     long ContextSwitches,
     IReadOnlyList<WaitReasonBucket> TopWaitReasons,
+    [property: Description("Trace-relative process start; combine with Pid to identify the process lifetime.")]
     long ProcessStartUs = 0,
-    long ThreadGeneration = 0);
+    [property: Description("Generation of this TID within the selected process lifetime. Pass this value as threadGeneration with pid and tid to replay the exact lifetime.")]
+    long ThreadGeneration = 0,
+    [property: Description("Trace-relative thread start. It can repeat across generations; combine Pid, Tid, and ThreadGeneration (plus ProcessStartUs when PID reuse is observed) to replay the exact thread instance.")]
+    long ThreadStartUs = 0);
 
 public sealed record WaitAnalysisResponse(
     IReadOnlyList<WaitAnalysisRow> Rows,
@@ -785,26 +897,49 @@ public sealed record WaitAnalysisResponse(
     long TotalCSwitches,
     IReadOnlyList<string> Warnings,
     long TotalBlockedUs = 0,
+    [property: Description("Deprecated compatibility alias for TraceUnmatchedBlockedIntervalCount. It is trace-global, not scoped to the selected process/thread/window.")]
     int UnmatchedBlockedIntervalCount = 0,
     ProcessInstanceKey? SelectedProcess = null,
     ThreadInstanceKey? SelectedThread = null,
+    [property: Description("True only when at least one context switch matched the requested process/thread/window scope.")]
     bool HasContextSwitches = false,
     [property: Description("True only when at least one selected switch-out event in the requested window has a blocking stack.")]
     bool HasContextSwitchBlockingStacks = false,
     string SymbolResolutionState = "not_applicable",
+    [property: Description("All context switches from every thread in the requested half-open window; trace-window orientation only, not the selected-process denominator.")]
     long WindowCSwitchesAllThreads = 0,
+    [property: Description("CSwitch switch-out events matched to the selected process/thread and requested half-open window.")]
     long ScopedCSwitches = 0,
+    [property: Description("Scoped switch-out events carrying a blocking stack.")]
     long ScopedStackedSwitches = 0,
+    [property: Description("100 * ScopedStackedSwitches / ScopedCSwitches; null when ScopedCSwitches is zero.")]
     double? ScopedStackCoveragePct = null,
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("Scope status: ok, scope_not_found, ambiguous_process_instance, or ambiguous_thread_instance.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
+    [property: Description("Resolved scoped CSwitch switch-out event count; equivalent to ScopedCSwitches and distinct from MatchedIntervalCount.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, ambiguous_process_instance, ambiguous_thread_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, or null.")]
     string? NoDataReason = null,
-    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Empty for process-only scopes and missing selectors.")]
-    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null);
+    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Each candidate's Thread.Generation can be passed as threadGeneration to replay equal-start lifetimes. Empty for process-only scopes and missing selectors.")]
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    [property: Description("Whole-trace unmatched blocked-interval count. Never attribute this field to the selected process/thread/window.")]
+    int TraceUnmatchedBlockedIntervalCount = 0,
+    [property: Description("Unmatched blocked intervals whose endpoint evidence belongs to the selected process/thread and intersects the requested half-open window.")]
+    int ScopedUnmatchedBlockedIntervalCount = 0,
+    [property: Description("Whether any context switch was observed anywhere in the trace; distinct from scoped HasContextSwitches.")]
+    bool? TraceHasContextSwitches = null,
+    [property: Description("Whole-trace raw CSwitch event count. This is distinct from WindowCSwitchesAllThreads and scoped switch-outs.")]
+    long TraceCSwitches = 0,
+    [property: Description("Completed blocked intervals projected into the selected process/thread/window.")]
+    long MatchedIntervalCount = 0,
+    [property: Description("Whole-trace CSwitch event sides dropped because thread-instance identity was unresolved or ambiguous.")]
+    long TraceIdentityUnresolvedCSwitchSideCount = 0,
+    [property: Description("Identity-unresolved CSwitch event sides whose raw PID/TID/time could belong to the selected scope.")]
+    long ScopedIdentityUnresolvedCSwitchSideCount = 0);
 
 // Top-N call-tree frames ranked by blocked-time microseconds.
 //
@@ -831,9 +966,11 @@ public sealed record WaitTopStacksResponse(
     SymbolStats Stats,
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
+    [property: Description("Deprecated compatibility alias for TraceUnmatchedBlockedIntervalCount. It is trace-global, not scoped to the selected process/thread/window.")]
     int UnmatchedBlockedIntervalCount = 0,
     ProcessInstanceKey? SelectedProcess = null,
     ThreadInstanceKey? SelectedThread = null,
+    [property: Description("True only when at least one context switch matched the requested process/thread/window scope.")]
     bool HasContextSwitches = false,
     bool HasContextSwitchBlockingStacks = false,
     string SymbolResolutionState = "not_applicable",
@@ -847,10 +984,32 @@ public sealed record WaitTopStacksResponse(
     [property: Description("Scope status: ok, scope_not_found, ambiguous_process_instance, or ambiguous_thread_instance.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
+    [property: Description("Resolved scoped CSwitch switch-out event count; equivalent to ScopedCSwitches and distinct from MatchedIntervalCount.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, ambiguous_process_instance, ambiguous_thread_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, no_completed_intervals_in_scope, stacks_unavailable, focus_not_found, or null.")]
     string? NoDataReason = null,
-    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Empty for process-only scopes and missing selectors.")]
-    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null);
+    [property: Description("Resolved thread instance, or candidate thread instances when ScopeStatus is ambiguous_thread_instance. Each candidate's Thread.Generation can be passed as threadGeneration to replay equal-start lifetimes. Empty for process-only scopes and missing selectors.")]
+    IReadOnlyList<ThreadScopeCandidate>? IncludedThreads = null,
+    [property: Description("Whole-trace unmatched blocked-interval count. Never attribute this field to the selected process/thread/window.")]
+    int TraceUnmatchedBlockedIntervalCount = 0,
+    [property: Description("Unmatched blocked intervals whose endpoint evidence belongs to the selected process/thread and intersects the requested half-open window.")]
+    int ScopedUnmatchedBlockedIntervalCount = 0,
+    [property: Description("Whether any context switch was observed anywhere in the trace; distinct from scoped HasContextSwitches.")]
+    bool? TraceHasContextSwitches = null,
+    [property: Description("Switch-out events matched to the selected process/thread and requested half-open window.")]
+    long ScopedCSwitches = 0,
+    [property: Description("Scoped switch-out events carrying the blocking stack used by this response.")]
+    long ScopedStackedSwitches = 0,
+    [property: Description("100 * ScopedStackedSwitches / ScopedCSwitches; null when ScopedCSwitches is zero.")]
+    double? ScopedStackCoveragePct = null,
+    [property: Description("Whole-trace raw CSwitch event count. A nonzero value prevents event_class_not_observed even when no blocked interval completed.")]
+    long TraceCSwitches = 0,
+    [property: Description("Completed blocked intervals projected into the selected process/thread/window; equivalent to SampleCount for this response.")]
+    long MatchedIntervalCount = 0,
+    [property: Description("Whole-trace CSwitch event sides dropped because thread-instance identity was unresolved or ambiguous.")]
+    long TraceIdentityUnresolvedCSwitchSideCount = 0,
+    [property: Description("Identity-unresolved CSwitch event sides whose raw PID/TID/time could belong to the selected scope.")]
+    long ScopedIdentityUnresolvedCSwitchSideCount = 0);
 
 // Provenance for composite tools. Every evidence item should point at one of these calls
 // so callers can replay the public query shape, or see explicitly when the composite used
@@ -944,7 +1103,7 @@ public sealed record CompositeNotConcluded(
     string? ScopeStatus = null,
     [property: Description("Child event-family status when this item represents an analyzer result.")]
     string? CapabilityStatus = null,
-    [property: Description("Stable child no-data reason such as scope_not_found, event_class_not_observed, or no_events_in_scope.")]
+    [property: Description("Stable child no-data reason such as scope_not_found, ambiguous_process_instance, source_events_unattributed, event_class_not_observed, or no_events_in_scope.")]
     string? NoDataReason = null);
 
 public sealed record CompositeNextTool(
@@ -1030,14 +1189,16 @@ public sealed record ImageLoadTimingResponse(
     IReadOnlyList<ImageLoadRow> Loads,
     IReadOnlyList<string> Warnings,
     ProcessInstanceKey? SelectedProcess = null,
-    [property: Description("single_process for a resolved lifecycle, or unresolved when it was not found. Reused-PID ambiguity is rejected unless processStartUs selects one lifetime.")]
+    [property: Description("single_process for a safely resolved lifecycle, or unresolved for scope_not_found, process_start_required, or conflicting observed stop evidence. Candidate lifetimes remain in IncludedProcesses.")]
     string ScopeMode = "single_process",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("ok, scope_not_found, process_start_required for clean multi-lifetime reuse, or ambiguous_process_instance for conflicting lifetime evidence.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     [property: Description("Number of ImageLoad source events matched to the selected process lifetime.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
     string? NoDataReason = null);
 
 public sealed record ImageLoadTopGapsResponse(
@@ -1049,14 +1210,16 @@ public sealed record ImageLoadTopGapsResponse(
     IReadOnlyList<ImageLoadRow> TopGaps,
     IReadOnlyList<string> Warnings,
     ProcessInstanceKey? SelectedProcess = null,
-    [property: Description("single_process for a resolved lifecycle, or unresolved when it was not found. Reused-PID ambiguity is rejected unless processStartUs selects one lifetime.")]
+    [property: Description("single_process for a safely resolved lifecycle, or unresolved for scope_not_found, process_start_required, or conflicting observed stop evidence. Candidate lifetimes remain in IncludedProcesses.")]
     string ScopeMode = "single_process",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("ok, scope_not_found, process_start_required for clean multi-lifetime reuse, or ambiguous_process_instance for conflicting lifetime evidence.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     [property: Description("Number of ImageLoad source events matched to the selected process lifetime. TopGaps may be truncated and excludes the first load.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
     string? NoDataReason = null);
 
 public sealed record HighWaitCandidate(
@@ -1080,7 +1243,17 @@ public sealed record DiagnoseHighWaitResponse(
     IReadOnlyList<CompositeNotConcluded> NotConcluded,
     IReadOnlyList<CompositeNextTool> NextTools,
     IReadOnlyList<CompositeToolCall> ExecutedToolCalls,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    ProcessInstanceKey? SelectedProcess = null,
+    [property: Description("One of all_processes, single_process, pid_aggregate, or unresolved.")]
+    string ScopeMode = "all_processes",
+    bool PidReuseObserved = false,
+    IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("Common process-selector status: ok, scope_not_found, or ambiguous_process_instance.")]
+    string ScopeStatus = "ok",
+    string CapabilityStatus = "unknown",
+    long MatchedEventCount = 0,
+    string? NoDataReason = null);
 
 public sealed record WindowEvidenceRow(
     [property: Description("Evidence class such as hard_fault_max_latency, file_io_top_file, memory_pressure, security_scan, or wait_summary.")]
@@ -1137,9 +1310,9 @@ public sealed record DiagnoseWindowResponse(
     string ScopeMode = "all_processes",
     [property: Description("True when the selected PID has multiple lifetimes anywhere in the trace.")]
     bool PidReuseObserved = false,
-    [property: Description("Process lifetimes included by the common selector/window; empty for all_processes or unresolved scope.")]
+    [property: Description("Process lifetime candidates included by the common selector/window; empty for all_processes and missing scopes, but may be populated for ambiguous_process_instance diagnostics.")]
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
-    [property: Description("Common process-selector status: ok, scope_not_found, or not_evaluated for a pre-load width guard.")]
+    [property: Description("Common process-selector status: ok, scope_not_found, ambiguous_process_instance, or not_evaluated for a pre-load width guard.")]
     string ScopeStatus = "ok",
     [property: Description("observed when any scoped child event family matched; not_observed only when every child class was unobserved; otherwise unknown.")]
     string CapabilityStatus = "unknown",
@@ -1297,14 +1470,18 @@ public sealed record MemoryResourceResponse(
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
-    [property: Description("window_global means SystemMemory and system-pressure samples use only the requested time window, not pid filtering. When ScopeStatus is scope_not_found these fields are intentionally empty.")]
+    [property: Description("window_global means SystemMemory and system-pressure samples use only the requested time window, not pid filtering. When ScopeStatus is not ok these fields are intentionally empty.")]
     string SystemMemoryScope = "window_global",
     string ScopeStatus = "ok",
     [property: Description("observed when target-process evidence matched, not_observed when no supported target event class appears anywhere in the trace, unknown when the scope is invalid or relevant events exist only outside the selected scope/window.")]
     string CapabilityStatus = "unknown",
     [property: Description("Count of target-process evidence in scope: Memory/ProcessMemInfo process entries plus matched handle events plus matched pool events. System-memory samples are counted separately by Pressure.SystemSampleCount and are excluded.")]
     long MatchedEventCount = 0,
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    [property: Description("Process or event-side identities required by supported process/handle/pool evidence that were unresolved anywhere in the trace. This diagnostic is not MatchedEventCount.")]
+    long TraceIdentityUnresolvedEventCount = 0,
+    [property: Description("Identity-unresolved source evidence whose raw PID and timestamp could belong to the selected scope/window; it is not attributed or counted in MatchedEventCount.")]
+    long ScopedIdentityUnresolvedEventCount = 0);
 
 // Top-N call-tree frames ranked by TCP+UDP send/receive byte count.  Pairs IPv4 and IPv6
 // variants of each event family.  TcpBytes / UdpBytes break out the totals so consumers
@@ -1501,14 +1678,16 @@ public sealed record ThreadLifetimeResponse(
     IReadOnlyList<ThreadLifetimeRow> Threads,
     IReadOnlyList<string> Warnings,
     ProcessInstanceKey? SelectedProcess = null,
-    [property: Description("single_process for this lifecycle view. Reused-PID ambiguity is rejected before a response is produced.")]
+    [property: Description("single_process for a safely resolved lifecycle, or unresolved for scope_not_found, process_start_required, or conflicting observed stop evidence. Candidate lifetimes remain in IncludedProcesses.")]
     string ScopeMode = "single_process",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("ok, scope_not_found, process_start_required for clean multi-lifetime reuse, or ambiguous_process_instance for conflicting lifetime evidence.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     [property: Description("Number of ThreadStart/Stop or thread-rundown source records attributed to the selected process lifetime. TotalThreads instead counts projected logical thread lifecycles before top truncation.")]
     long MatchedEventCount = 0,
+    [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
     string? NoDataReason = null);
 
 // One row of a managed-allocation stack view: bytes the CLR observed flowing through this
@@ -1679,11 +1858,17 @@ public sealed record GcHeapStatsResponse(
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
     IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    [property: Description("ok, scope_not_found, process_start_required for a PID trend spanning clean reused lifetimes, or ambiguous_process_instance for conflicting lifetime evidence.")]
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     [property: Description("Number of GCHeapStats source events matched to the requested process scope and half-open window.")]
     long MatchedEventCount = 0,
-    string? NoDataReason = null);
+    [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, or null.")]
+    string? NoDataReason = null,
+    [property: Description("Whole-trace GCHeapStats events whose process lifetime was unresolved or ambiguous. This diagnostic is not MatchedEventCount.")]
+    long TraceIdentityUnresolvedEventCount = 0,
+    [property: Description("GCHeapStats events whose raw PID/time matched the requested scope/window but whose process lifetime could not be attributed safely.")]
+    long ScopedIdentityUnresolvedEventCount = 0);
 
 public sealed record FinalizedTypeRow(string TypeName, long Count);
 
@@ -1721,4 +1906,11 @@ public sealed record NetConnectionsResponse(
     string CapabilityStatus = "unknown",
     [property: Description("Number of network connect/accept/disconnect/reconnect source endpoints matched to the requested process scope and half-open window. This differs from TotalConnections, which counts projected lifecycles overlapping the window.")]
     long MatchedEventCount = 0,
-    string? NoDataReason = null);
+    [property: Description("Stable empty-result reason: scope_not_found, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, source_events_unattributed, or unpaired_endpoints_in_scope.")]
+    string? NoDataReason = null,
+    [property: Description("Number of in-scope Disconnect/Reconnect endpoints that could not be paired with a preceding Connect/Accept for the same process instance and connection ID.")]
+    long UnpairedCloseCount = 0,
+    [property: Description("Selected-PID (or all-process) source endpoints anywhere in the trace whose process lifetime could not be resolved. This is diagnostic and is not MatchedEventCount.")]
+    long TraceIdentityUnresolvedEndpointCount = 0,
+    [property: Description("Identity-unresolved source endpoints whose raw PID and timestamp fall in the requested scope/window; these are not attributed or counted in MatchedEventCount.")]
+    long ScopedIdentityUnresolvedEndpointCount = 0);

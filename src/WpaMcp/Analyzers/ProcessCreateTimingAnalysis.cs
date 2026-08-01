@@ -41,25 +41,13 @@ public static class ProcessCreateTimingAnalysis
             new TimeWindow(0, identities.TraceEndUs),
             parentPid,
             processStartUs,
-            identities);
-        if (scope.ScopeMode == "pid_aggregate")
-        {
-            var starts = string.Join(", ", scope.IncludedProcesses.Select(
-                process => process.StartUs));
-            throw new ArgumentException(
-                $"ambiguous_process_instance: PID {parentPid} has multiple lifetimes; " +
-                $"specify processStartUs. candidates=[{starts}]",
-                nameof(parentPid));
-        }
+            identities).RequireSingleProcess();
         if (!scope.IsResolved)
         {
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                scope.ScopeStatus));
             warnings.Add(
-                $"scope_not_found: no process lifetime matched PID {parentPid}" +
-                (processStartUs.HasValue
-                    ? $" at processStartUs={processStartUs.Value}"
-                    : string.Empty) + ".");
-            warnings.Add(
-                $"No children found with ParentID={parentPid} because the selected parent process instance was not found.");
+                $"No children were attributed to ParentID={parentPid} because the selected parent process scope did not resolve safely.");
             return Empty(
                 parentPid,
                 parentName: null,
@@ -67,7 +55,7 @@ public static class ProcessCreateTimingAnalysis
                 warnings,
                 scope,
                 capabilityStatus: "unknown",
-                noDataReason: "scope_not_found");
+                noDataReason: scope.ScopeStatus);
         }
 
         var parentLifetime = identities.Processes

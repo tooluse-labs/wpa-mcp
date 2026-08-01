@@ -12,7 +12,7 @@ public sealed class AlpcTools
     private readonly TraceCache _cache;
     public AlpcTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by ALPC (Async Local Procedure Call) message count — answers " +
         "'which call chain is doing all the cross-process IPC'.  ALPC is the kernel IPC " +
         "primitive used by RPC, COM, AppContainer broker calls, lsass, the SCM, and most of the " +
@@ -54,7 +54,7 @@ public sealed class AlpcTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in the ALPC-stack data.  Metric is " +
         "message count; top-N callers ranked by inclusive messages flowing INTO focus, callees " +
         "by messages OUT.")]

@@ -2,6 +2,10 @@ using WpaMcp.Core;
 
 namespace WpaMcp.Analyzers;
 
+internal sealed record ProcessLifetimeNormalization(
+    IReadOnlyList<ProcessLifetime> Lifetimes,
+    IReadOnlySet<ProcessInstanceKey> ConflictingObservedEndKeys);
+
 internal sealed class ProcessInstanceResolver
 {
     private readonly IReadOnlyDictionary<int, IReadOnlyList<ProcessLifetime>> _lifetimesByPid;
@@ -14,10 +18,9 @@ internal sealed class ProcessInstanceResolver
 
     public ProcessInstanceResolver(IEnumerable<ProcessLifetime> lifetimes)
     {
-        Lifetimes = lifetimes
-            .OrderBy(lifetime => lifetime.Key.Pid)
-            .ThenBy(lifetime => lifetime.Key.StartUs)
-            .ToArray();
+        var normalization = Normalize(lifetimes);
+        Lifetimes = normalization.Lifetimes;
+        ConflictingObservedEndKeys = normalization.ConflictingObservedEndKeys;
         _lifetimesByPid = Lifetimes
             .GroupBy(lifetime => lifetime.Key.Pid)
             .ToDictionary(
@@ -34,7 +37,10 @@ internal sealed class ProcessInstanceResolver
                 lifetime.EndUs))
             .ToDictionary(
                 group => group.Key,
-                group => new ProcessEndpointCandidates(group));
+                group => new ProcessEndpointCandidates(
+                    group,
+                    group.Any(lifetime =>
+                        ConflictingObservedEndKeys.Contains(lifetime.Key))));
         _singletonCandidates = Lifetimes
             .Select(lifetime => lifetime.Key)
             .Distinct()
@@ -44,6 +50,55 @@ internal sealed class ProcessInstanceResolver
     }
 
     public IReadOnlyList<ProcessLifetime> Lifetimes { get; }
+
+    public IReadOnlySet<ProcessInstanceKey> ConflictingObservedEndKeys { get; }
+
+    internal static ProcessLifetimeNormalization Normalize(
+        IEnumerable<ProcessLifetime> lifetimes)
+    {
+        ArgumentNullException.ThrowIfNull(lifetimes);
+        var normalized = new List<ProcessLifetime>();
+        var conflicts = new HashSet<ProcessInstanceKey>();
+
+        foreach (var group in lifetimes.GroupBy(lifetime => lifetime.Key))
+        {
+            var entries = group.ToArray();
+            var observedEnds = entries
+                .Where(lifetime => lifetime.EndObserved)
+                .Select(lifetime => lifetime.EndUs)
+                .Distinct()
+                .Order()
+                .ToArray();
+            ProcessLifetime selected;
+            if (observedEnds.Length > 0)
+            {
+                var safeObservedEnd = observedEnds[0];
+                if (observedEnds.Length > 1)
+                    conflicts.Add(group.Key);
+                selected = entries.First(lifetime =>
+                    lifetime.EndObserved && lifetime.EndUs == safeObservedEnd);
+            }
+            else
+            {
+                selected = entries
+                    .OrderByDescending(lifetime => lifetime.EndUs)
+                    .ThenByDescending(lifetime => lifetime.EndFromRundown)
+                    .First();
+            }
+
+            normalized.Add(selected with
+            {
+                StartObserved = entries.Any(lifetime => lifetime.StartObserved),
+            });
+        }
+
+        return new ProcessLifetimeNormalization(
+            normalized
+                .OrderBy(lifetime => lifetime.Key.Pid)
+                .ThenBy(lifetime => lifetime.Key.StartUs)
+                .ToArray(),
+            conflicts);
+    }
 
     public IReadOnlyList<ProcessLifetime> FindExact(ProcessInstanceKey key) =>
         _lifetimesByKey.TryGetValue(key, out var lifetimes)
@@ -62,6 +117,7 @@ internal sealed class ProcessInstanceResolver
 
         ProcessInstanceKey candidate = default;
         var count = 0;
+        var hasConflictingObservedEnd = false;
         foreach (var lifetime in lifetimes)
         {
             if ((!processStartUs.HasValue ||
@@ -70,12 +126,14 @@ internal sealed class ProcessInstanceResolver
             {
                 candidate = lifetime.Key;
                 count++;
+                hasConflictingObservedEnd |=
+                    ConflictingObservedEndKeys.Contains(lifetime.Key);
             }
         }
 
         if (count == 0)
             return Unresolved();
-        if (count == 1)
+        if (count == 1 && !hasConflictingObservedEnd)
         {
             return new InstanceResolution<ProcessInstanceKey>(
                 InstanceResolutionStatus.Resolved,
@@ -126,17 +184,21 @@ internal sealed class ProcessInstanceResolver
     private sealed class ProcessEndpointCandidates
     {
         private readonly ProcessInstanceKey[] _all;
+        private readonly bool _hasConflictingObservedEnd;
 
-        public ProcessEndpointCandidates(IEnumerable<ProcessLifetime> lifetimes)
+        public ProcessEndpointCandidates(
+            IEnumerable<ProcessLifetime> lifetimes,
+            bool hasConflictingObservedEnd)
         {
             _all = lifetimes.Select(lifetime => lifetime.Key).ToArray();
+            _hasConflictingObservedEnd = hasConflictingObservedEnd;
         }
 
         public InstanceResolution<ProcessInstanceKey> Resolve()
         {
-            return _all.Length switch
+            return (_all.Length, _hasConflictingObservedEnd) switch
             {
-                1 => new InstanceResolution<ProcessInstanceKey>(
+                (1, false) => new InstanceResolution<ProcessInstanceKey>(
                     InstanceResolutionStatus.Resolved,
                     _all[0],
                     _all),

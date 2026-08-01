@@ -102,16 +102,48 @@ internal sealed class ThreadInstanceCatalog
             endObserved);
     }
 
+    internal void ObserveRundownStop(
+        ProcessInstanceKey process,
+        int tid,
+        long processEndUs,
+        long inferredStartUs)
+    {
+        EnsureMutable();
+        var stream = new ThreadStreamKey(process, tid);
+        if (_active.ContainsKey(stream))
+        {
+            // ThreadDCStop is rundown evidence that the active thread reaches the
+            // process bound. Complete() already applies that bound.
+            return;
+        }
+
+        if (_closed.Any(lifetime =>
+                lifetime.Key.Process == process && lifetime.Key.Tid == tid))
+        {
+            // A real stop is stronger evidence. Rundown without a new observed start
+            // cannot justify another generation whose inferred lifetime would overlap.
+            return;
+        }
+
+        var generation = NextGeneration(stream);
+        var key = new ThreadInstanceKey(process, tid, generation);
+        _active.Add(stream, new ActiveThread(
+            key,
+            inferredStartUs,
+            StartObserved: false,
+            RundownEndUs: processEndUs));
+    }
+
     public void Complete(long traceEndUs)
     {
         EnsureMutable();
         foreach (var active in _active.Values)
         {
-            var inferredEndUs = _processEndUs.TryGetValue(
+            var inferredEndUs = active.RundownEndUs ?? (_processEndUs.TryGetValue(
                 active.Key.Process,
                 out var processEndUs)
                 ? TimeWindow.ClipEnd(traceEndUs, processEndUs)
-                : traceEndUs;
+                : traceEndUs);
             Close(active, inferredEndUs, endObserved: false);
         }
 
@@ -138,6 +170,11 @@ internal sealed class ThreadInstanceCatalog
             ? lifetime.EndUs
             : null;
 
+    internal long? StartUsFor(ThreadInstanceKey key) =>
+        _lifetimesByKey.TryGetValue(key, out var lifetime)
+            ? lifetime.StartUs
+            : null;
+
     public InstanceResolution<ThreadInstanceKey> Resolve(
         ThreadSelector selector,
         TimeWindow window)
@@ -150,6 +187,8 @@ internal sealed class ThreadInstanceCatalog
                  lifetime.Key.Process.StartUs == selector.ProcessStartUs.Value) &&
                 (!selector.ThreadStartUs.HasValue ||
                  lifetime.StartUs == selector.ThreadStartUs.Value) &&
+                (!selector.ThreadGeneration.HasValue ||
+                 lifetime.Key.Generation == selector.ThreadGeneration.Value) &&
                 lifetime.Intersects(window))
             .Select(lifetime => lifetime.Key)
             .ToArray();
@@ -264,7 +303,8 @@ internal sealed class ThreadInstanceCatalog
     private readonly record struct ActiveThread(
         ThreadInstanceKey Key,
         long StartUs,
-        bool StartObserved);
+        bool StartObserved,
+        long? RundownEndUs = null);
 
     private sealed class ThreadLifetimeIndex
     {

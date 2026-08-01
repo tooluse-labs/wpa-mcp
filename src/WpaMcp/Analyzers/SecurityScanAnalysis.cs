@@ -13,12 +13,14 @@ internal readonly record struct SecurityScanPairKey(
 internal sealed record SecurityScanStartData(
     IReadOnlyDictionary<string, string> Fields,
     ProcessInstanceKey? TargetProcess = null,
-    string TargetIdentitySource = "unresolved");
+    string TargetIdentitySource = "unresolved",
+    SecurityScanAnalysis.ScanTarget? Target = null);
 
 internal sealed record SecurityScanStopData(
     IReadOnlyDictionary<string, string> Fields,
     ProcessInstanceKey? TargetProcess = null,
-    string TargetIdentitySource = "unresolved");
+    string TargetIdentitySource = "unresolved",
+    SecurityScanAnalysis.ScanTarget? Target = null);
 
 public static class SecurityScanAnalysis
 {
@@ -158,6 +160,9 @@ public static class SecurityScanAnalysis
         var pointEvents = new List<SecurityScanPointEvent>();
         var unresolvedStartCount = 0;
         var unresolvedStopCount = 0;
+        var missingPairIdStartCount = 0;
+        var missingPairIdStopCount = 0;
+        long scopedUnattributedTargetEventCount = 0;
         var eventClassObserved = false;
 
         foreach (var ev in trace.Events)
@@ -170,12 +175,12 @@ public static class SecurityScanAnalysis
             {
                 eventClassObserved = true;
                 var fields = SelectedFields(ev, "Id", "Path", "Process", "PID", "Reason");
-                if (!fields.TryGetValue("Id", out var id))
-                    continue;
+                var hasPairId = fields.TryGetValue("Id", out var id);
 
                 fields["__Source"] = DefenderSource;
                 fields["__ProviderName"] = providerName;
-                fields["__Id"] = id;
+                if (hasPairId)
+                    fields["__Id"] = id!;
 
                 var streamIdentity = ResolveTargetIdentity(
                     ev.ProcessID,
@@ -188,14 +193,15 @@ public static class SecurityScanAnalysis
                     endpoint: IsStopEvent(eventName));
                 var streamTarget = streamIdentity.Target;
                 var endpointInWindow = window.ContainsPoint(nowUs);
-                var passesFilters = PassesFilters(
+                var passesValueFilters = PassesFilters(
                     streamTarget,
                     pid,
                     processSubstring,
                     pathSubstring,
-                    providerSubstring) &&
-                    MatchesTargetScope(scope, streamIdentity.TargetProcess);
-                if (endpointInWindow && passesFilters)
+                    providerSubstring);
+                var matchesTargetScope = MatchesTargetScope(
+                    scope, streamIdentity.TargetProcess);
+                if (endpointInWindow && passesValueFilters && matchesTargetScope)
                 {
                     pointEvents.Add(new SecurityScanPointEvent(
                         streamTarget,
@@ -211,6 +217,28 @@ public static class SecurityScanAnalysis
                         TargetProcess: streamIdentity.TargetProcess,
                         TargetIdentitySource: streamIdentity.IdentitySource));
                 }
+                else if (endpointInWindow &&
+                         passesValueFilters &&
+                         IsUnattributedRawTargetCandidate(
+                             scope, streamTarget, streamIdentity.TargetProcess))
+                {
+                    scopedUnattributedTargetEventCount++;
+                }
+
+                if (!hasPairId)
+                {
+                    if (endpointInWindow && passesValueFilters &&
+                        (matchesTargetScope ||
+                         IsUnattributedRawTargetCandidate(
+                             scope, streamTarget, streamIdentity.TargetProcess)))
+                    {
+                        if (IsStartEvent(eventName))
+                            missingPairIdStartCount++;
+                        else
+                            missingPairIdStopCount++;
+                    }
+                    continue;
+                }
 
                 var isStart = IsStartEvent(eventName);
                 var process = isStart
@@ -222,7 +250,7 @@ public static class SecurityScanAnalysis
                 if (process.Status != InstanceResolutionStatus.Resolved ||
                     !process.Value.HasValue)
                 {
-                    if (endpointInWindow && passesFilters)
+                    if (endpointInWindow && passesValueFilters && matchesTargetScope)
                     {
                         if (isStart)
                             unresolvedStartCount++;
@@ -235,17 +263,19 @@ public static class SecurityScanAnalysis
                 var key = new SecurityScanPairKey(
                     process.Value.Value,
                     providerName,
-                    id);
+                    id!);
                 if (isStart)
                     pairer.AddStart(key, nowUs, new SecurityScanStartData(
                         fields,
                         streamIdentity.TargetProcess,
-                        streamIdentity.IdentitySource));
+                        streamIdentity.IdentitySource,
+                        streamIdentity.Target));
                 else
                     pairer.AddStop(key, nowUs, new SecurityScanStopData(
                         fields,
                         streamIdentity.TargetProcess,
-                        streamIdentity.IdentitySource));
+                        streamIdentity.IdentitySource,
+                        streamIdentity.Target));
 
                 continue;
             }
@@ -269,9 +299,18 @@ public static class SecurityScanAnalysis
 
             var target = targetIdentity.Target;
 
-            if (!PassesFilters(target, pid, processSubstring, pathSubstring, providerSubstring) ||
-                !MatchesTargetScope(scope, targetIdentity.TargetProcess))
+            if (!PassesFilters(target, pid, processSubstring, pathSubstring, providerSubstring))
                 continue;
+
+            if (!MatchesTargetScope(scope, targetIdentity.TargetProcess))
+            {
+                if (IsUnattributedRawTargetCandidate(
+                        scope, target, targetIdentity.TargetProcess))
+                {
+                    scopedUnattributedTargetEventCount++;
+                }
+                continue;
+            }
 
             pointEvents.Add(new SecurityScanPointEvent(
                 target,
@@ -292,7 +331,7 @@ public static class SecurityScanAnalysis
         var unmatchedStarts = pairResult.UnmatchedStarts.Count(start =>
             window.ContainsPoint(start.TimeUs) &&
             PassesFilters(
-                TargetFromFields(start.Data.Fields),
+                TargetFromData(start.Data),
                 pid,
                 processSubstring,
                 pathSubstring,
@@ -301,7 +340,7 @@ public static class SecurityScanAnalysis
         var unmatchedStops = pairResult.UnmatchedStops.Count(stop =>
             window.ContainsPoint(stop.TimeUs) &&
             PassesFilters(
-                TargetFromFields(stop.Data.Fields),
+                TargetFromData(stop.Data),
                 pid,
                 processSubstring,
                 pathSubstring,
@@ -310,7 +349,7 @@ public static class SecurityScanAnalysis
         var invalidIntervals = pairResult.InvalidIntervals.Count(interval =>
             (window.ContainsPoint(interval.StartUs) || window.ContainsPoint(interval.EndUs)) &&
             PassesFilters(
-                TargetFromFields(interval.StartData.Fields),
+                TargetFromData(interval.StartData),
                 pid,
                 processSubstring,
                 pathSubstring,
@@ -326,23 +365,34 @@ public static class SecurityScanAnalysis
             pathSubstring,
             providerSubstring,
             pointEvents,
-            unmatchedStarts + unresolvedStartCount,
-            unmatchedStops + unresolvedStopCount,
+            unmatchedStarts + unresolvedStartCount + missingPairIdStartCount,
+            unmatchedStops + unresolvedStopCount + missingPairIdStopCount,
             invalidIntervals,
             scope,
-            eventClassObserved);
+            eventClassObserved,
+            scopedUnattributedTargetEventCount);
 
         var unresolvedIdentityCount = unresolvedStartCount + unresolvedStopCount;
-        if (unresolvedIdentityCount == 0)
+        var missingPairIdCount = missingPairIdStartCount + missingPairIdStopCount;
+        if (unresolvedIdentityCount == 0 && missingPairIdCount == 0)
             return response;
+
+        var extraWarnings = new List<string>();
+        if (unresolvedIdentityCount > 0)
+        {
+            extraWarnings.Add(
+                $"identity_incomplete: skipped {unresolvedIdentityCount} security scan endpoint event(s) from duration pairing because their emitting process instance was unresolved or ambiguous.");
+        }
+        if (missingPairIdCount > 0)
+        {
+            extraWarnings.Add(
+                $"pair_key_missing: retained point-event evidence for {missingPairIdCount} recognized Defender stream endpoint(s) whose Id field was absent, but no duration pairing was attempted.");
+        }
 
         return response with
         {
             Warnings = response.Warnings
-                .Concat(
-                [
-                    $"identity_incomplete: skipped {unresolvedIdentityCount} security scan endpoint events because their emitting process instance was unresolved or ambiguous.",
-                ])
+                .Concat(extraWarnings)
                 .ToArray(),
         };
     }
@@ -373,7 +423,8 @@ public static class SecurityScanAnalysis
             unmatchedStopCount: 0,
             invalidIntervalCount: 0,
             scope,
-            eventClassObserved);
+            eventClassObserved,
+            scopedUnattributedTargetEventCount: 0);
 
     internal static SecurityScanAnalysisResponse ProjectPointEvents(
         IReadOnlyList<SecurityScanPointEvent> pointEvents,
@@ -393,7 +444,8 @@ public static class SecurityScanAnalysis
             unmatchedStopCount: 0,
             invalidIntervalCount: 0,
             scope,
-            eventClassObserved);
+            eventClassObserved,
+            scopedUnattributedTargetEventCount: 0);
 
     private static SecurityScanAnalysisResponse Project(
         IReadOnlyList<PairedInterval<
@@ -411,7 +463,8 @@ public static class SecurityScanAnalysis
         long unmatchedStopCount,
         int invalidIntervalCount,
         ProcessAnalysisScope? scope,
-        bool eventClassObserved)
+        bool eventClassObserved,
+        long scopedUnattributedTargetEventCount)
     {
         ArgumentNullException.ThrowIfNull(pairs);
         ArgumentNullException.ThrowIfNull(pointEvents);
@@ -434,9 +487,18 @@ public static class SecurityScanAnalysis
                     pid,
                     processSubstring,
                     pathSubstring,
-                    providerSubstring) ||
-                !MatchesTargetScope(scope, pointEvent.TargetProcess))
+                    providerSubstring))
             {
+                continue;
+            }
+
+            if (!MatchesTargetScope(scope, pointEvent.TargetProcess))
+            {
+                if (IsUnattributedRawTargetCandidate(
+                        scope, pointEvent.Target, pointEvent.TargetProcess))
+                {
+                    scopedUnattributedTargetEventCount++;
+                }
                 continue;
             }
 
@@ -481,11 +543,24 @@ public static class SecurityScanAnalysis
             if (!projected.HasValue)
                 continue;
 
-            if (pair.StartData.TargetProcess.HasValue &&
-                pair.StopData.TargetProcess.HasValue &&
-                pair.StartData.TargetProcess.Value != pair.StopData.TargetProcess.Value)
+            var startTargetProcess = pair.StartData.TargetProcess;
+            var stopTargetProcess = pair.StopData.TargetProcess;
+            if (startTargetProcess.HasValue != stopTargetProcess.HasValue ||
+                (startTargetProcess.HasValue &&
+                 startTargetProcess.Value != stopTargetProcess.GetValueOrDefault()))
             {
                 targetIdentityMismatchCount++;
+                var mismatchedTarget = TargetFromPair(pair);
+                if (PassesFilters(
+                        mismatchedTarget,
+                        pid,
+                        processSubstring,
+                        pathSubstring,
+                        providerSubstring) &&
+                    RawTargetSelectorMatches(scope, mismatchedTarget))
+                {
+                    scopedUnattributedTargetEventCount++;
+                }
                 continue;
             }
 
@@ -495,11 +570,20 @@ public static class SecurityScanAnalysis
                     pid,
                     processSubstring,
                     pathSubstring,
-                    providerSubstring) ||
-                !MatchesTargetScope(scope, pair.StartData.TargetProcess) ||
+                    providerSubstring))
+            {
+                continue;
+            }
+
+            if (!MatchesTargetScope(scope, pair.StartData.TargetProcess) ||
                 (scope?.Pid.HasValue == true &&
                  !MatchesTargetScope(scope, pair.StopData.TargetProcess)))
             {
+                if (IsUnattributedRawTargetCandidate(
+                        scope, target, pair.StartData.TargetProcess))
+                {
+                    scopedUnattributedTargetEventCount++;
+                }
                 continue;
             }
 
@@ -596,15 +680,18 @@ public static class SecurityScanAnalysis
             unresolvedTargetIdentityCount,
             emitterFallbackIdentityCount,
             targetIdentityMismatchCount,
-            eventClassObserved);
+            eventClassObserved,
+            scopedUnattributedTargetEventCount);
 
         var noDataReason = ClassifyNoData(
             scope,
             eventClassObserved,
             selectedPointEventCount,
-            pairedScanCount);
+            pairedScanCount,
+            scopedUnattributedTargetEventCount);
         var targetIdentitySource = identitySources.Count switch
         {
+            0 when scopedUnattributedTargetEventCount > 0 => "unresolved",
             0 => "not_observed",
             1 => identitySources.Single(),
             _ => "mixed",
@@ -642,7 +729,8 @@ public static class SecurityScanAnalysis
             PayloadTargetIdentityCount: payloadTargetIdentityCount,
             EmitterFallbackIdentityCount: emitterFallbackIdentityCount,
             UnresolvedTargetIdentityCount: unresolvedTargetIdentityCount,
-            TargetIdentityMismatchCount: targetIdentityMismatchCount);
+            TargetIdentityMismatchCount: targetIdentityMismatchCount,
+            ScopedUnattributedEventCount: scopedUnattributedTargetEventCount);
     }
 
     private static IReadOnlyList<string> BuildWarnings(
@@ -656,7 +744,8 @@ public static class SecurityScanAnalysis
         long unresolvedTargetIdentityCount,
         long emitterFallbackIdentityCount,
         long targetIdentityMismatchCount,
-        bool eventClassObserved)
+        bool eventClassObserved,
+        long scopedUnattributedTargetEventCount)
     {
         var warnings = new List<string>();
         if (scope?.ScopeMode == "pid_aggregate")
@@ -667,17 +756,18 @@ public static class SecurityScanAnalysis
 
         if (scope is { IsResolved: false })
         {
-            warnings.Add(
-                $"scope_not_found: no target process lifetime for PID {pid}" +
-                (scope.ProcessStartUs.HasValue
-                    ? $" with targetProcessStartUs={scope.ProcessStartUs.Value}"
-                    : string.Empty) +
-                " intersects the requested half-open window.");
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                scope.ScopeStatus));
         }
         else if (!eventClassObserved)
         {
             warnings.Add(
                 "event_class_not_observed: No security scan ETW events were recognized in the materialized trace. This does not prove that security scanning was disabled; the provider may be absent, private, unsupported, or not captured.");
+        }
+        else if (rows.Count == 0 && scopedUnattributedTargetEventCount > 0)
+        {
+            warnings.Add(
+                $"source_events_unattributed: {scopedUnattributedTargetEventCount} recognized security event or paired-interval observation(s) matched the raw target selector/window, but target lifetime identity or interval consistency was insufficient; no target attribution was guessed.");
         }
         else if (rows.Count == 0)
         {
@@ -707,7 +797,7 @@ public static class SecurityScanAnalysis
         if (targetIdentityMismatchCount > 0)
         {
             warnings.Add(
-                $"target_identity_mismatch: skipped {targetIdentityMismatchCount} paired scan intervals whose start and stop resolved to different target process lifetimes; endpoint presence evidence remains available without attributing a cross-instance duration.");
+                $"target_identity_mismatch: skipped {targetIdentityMismatchCount} paired scan interval(s) whose start and stop did not resolve to the same target process lifetime; endpoint rows exist only when an endpoint itself matched the half-open window, and no uncertain cross-instance duration was attributed.");
         }
 
         warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
@@ -984,7 +1074,13 @@ public static class SecurityScanAnalysis
             SecurityScanPairKey,
             SecurityScanStartData,
             SecurityScanStopData> pair) =>
-        TargetFromFields(pair.StartData.Fields);
+        pair.StartData.Target ?? TargetFromFields(pair.StartData.Fields);
+
+    internal static ScanTarget TargetFromData(SecurityScanStartData data) =>
+        data.Target ?? TargetFromFields(data.Fields);
+
+    internal static ScanTarget TargetFromData(SecurityScanStopData data) =>
+        data.Target ?? TargetFromFields(data.Fields);
 
     private static ScanTarget TargetFromFields(IReadOnlyDictionary<string, string> fields)
     {
@@ -1091,16 +1187,36 @@ public static class SecurityScanAnalysis
                scope.IncludedProcesses.Contains(targetProcess.Value);
     }
 
+    private static bool RawTargetSelectorMatches(
+        ProcessAnalysisScope? scope,
+        ScanTarget target) =>
+        scope is null ||
+        (scope.IsResolved &&
+         (!scope.Pid.HasValue || target.Pid == scope.Pid.Value));
+
+    private static bool IsUnattributedRawTargetCandidate(
+        ProcessAnalysisScope? scope,
+        ScanTarget target,
+        ProcessInstanceKey? targetProcess) =>
+        !targetProcess.HasValue && RawTargetSelectorMatches(scope, target);
+
     private static string? ClassifyNoData(
         ProcessAnalysisScope? scope,
         bool eventClassObserved,
         long matchedEventCount,
-        long pairedScanCount)
+        long pairedScanCount,
+        long scopedUnattributedTargetEventCount)
     {
         if (scope is { IsResolved: false })
-            return "scope_not_found";
+            return scope.ScopeStatus;
         if (!eventClassObserved)
             return "event_class_not_observed";
+        if (matchedEventCount == 0 &&
+            pairedScanCount == 0 &&
+            scopedUnattributedTargetEventCount > 0)
+        {
+            return "source_events_unattributed";
+        }
         return matchedEventCount == 0 && pairedScanCount == 0
             ? "no_events_in_scope"
             : null;

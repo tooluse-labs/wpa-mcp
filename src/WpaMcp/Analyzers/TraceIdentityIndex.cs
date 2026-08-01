@@ -158,6 +158,13 @@ internal sealed class TraceIdentityIndex
                             EndFromRundown = true,
                         };
                     }
+                    else if (lifetimes.Any(lifetime => lifetime.Key.Pid == processEvent.Pid))
+                    {
+                        // A real stop is stronger endpoint evidence than ProcessDCStop.
+                        // Without a later observed start, rundown cannot prove that a new
+                        // PID generation exists and must not create an overlapping (pid, 0)
+                        // lifetime. TraceLog backfill can still add a distinct later instance.
+                    }
                     else
                     {
                         active[processEvent.Pid] = new ActiveProcess(
@@ -254,11 +261,11 @@ internal sealed class TraceIdentityIndex
                     break;
 
                 case ThreadLifecycleEventKind.RundownStop:
-                    threadCatalog.Stop(
+                    threadCatalog.ObserveRundownStop(
                         process,
                         threadEvent.Tid,
                         ProcessEndUs(processResolver, process, traceEndUs),
-                        endObserved: false);
+                        process.StartUs);
                     break;
             }
         }

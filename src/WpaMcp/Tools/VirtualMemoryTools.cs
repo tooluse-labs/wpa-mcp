@@ -12,7 +12,7 @@ public sealed class VirtualMemoryTools
     private readonly TraceCache _cache;
     public VirtualMemoryTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Process memory resource snapshots from Memory/ProcessMemInfo plus observed handle " +
         "create/close deltas. Reports working set, commit, derived private bytes, private " +
         "working set, virtual size, handle deltas, observed pool allocation/free deltas, and " +
@@ -25,8 +25,10 @@ public sealed class VirtualMemoryTools
         "MatchedEventCount counts in-scope ProcessMemInfo entries plus handle and pool events; " +
         "Pressure.SystemSampleCount is separate. Empty results distinguish scope_not_found, " +
         "event_class_not_observed, and no_events_in_scope; absence does not prove a keyword was disabled. " +
-        "Pool rows are not absolute current counters; they are captured-window deltas with " +
-        "UnknownFreeCount for frees whose allocation was outside the window. Requires MemoryInfoWS " +
+        "Pool rows are not absolute current counters: Entry endpoints are paired over the full " +
+        "trace before window projection, and a paired free is attributed to the allocation owner " +
+        "rather than the thread/process executing the free. UnknownFreeCount is reserved for a " +
+        "free with no resolvable allocation anywhere in the trace. Requires MemoryInfoWS " +
         "for process snapshots and Handle/Pool for handle or pool events; use MemoryCapture.wprp " +
         "when resident footprint, handle-leak, or pool-growth questions matter. " +
         "Process rows are ordered by current working set bytes; handle rows by absolute net " +
@@ -51,7 +53,7 @@ public sealed class VirtualMemoryTools
             trace, top, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by observed VirtualAlloc operation bytes. PerfView equivalent: " +
         "'VirtualAlloc Stacks' view. VirtualMemAlloc and VirtualMemFree Length values are both " +
         "positive call-tree weights; exact allocation and free totals are reported separately. " +
@@ -93,7 +95,7 @@ public sealed class VirtualMemoryTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in VirtualAlloc-stack data. Metric is " +
         "virtualMemoryOperationBytes: alloc and free Length values are both positive weights. " +
         "This is operation traffic, not retained virtual memory or leak evidence. Top-N callers " +

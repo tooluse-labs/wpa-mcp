@@ -89,10 +89,7 @@ public static class ImageLoadAnalysis
                 Loads: [],
                 Warnings:
                 [
-                    $"scope_not_found: no process lifetime matched PID {pid}" +
-                    (processStartUs.HasValue
-                        ? $" at processStartUs={processStartUs.Value}"
-                        : string.Empty) + ".",
+                    ProcessAnalysisScope.ResolutionFailureWarning(scope.ScopeStatus),
                 ],
                 SelectedProcess: null,
                 ScopeMode: scope.ScopeMode,
@@ -101,7 +98,7 @@ public static class ImageLoadAnalysis
                 ScopeStatus: scope.ScopeStatus,
                 CapabilityStatus: "unknown",
                 MatchedEventCount: 0,
-                NoDataReason: "scope_not_found");
+                NoDataReason: scope.ScopeStatus);
         }
 
         var process = ExactLifetime(identities, scope.SelectedProcess!.Value);
@@ -176,10 +173,7 @@ public static class ImageLoadAnalysis
                 TopGaps: [],
                 Warnings:
                 [
-                    $"scope_not_found: no process lifetime matched PID {pid}" +
-                    (processStartUs.HasValue
-                        ? $" at processStartUs={processStartUs.Value}"
-                        : string.Empty) + ".",
+                    ProcessAnalysisScope.ResolutionFailureWarning(scope.ScopeStatus),
                 ],
                 SelectedProcess: null,
                 ScopeMode: scope.ScopeMode,
@@ -188,7 +182,7 @@ public static class ImageLoadAnalysis
                 ScopeStatus: scope.ScopeStatus,
                 CapabilityStatus: "unknown",
                 MatchedEventCount: 0,
-                NoDataReason: "scope_not_found");
+                NoDataReason: scope.ScopeStatus);
         }
 
         var process = ExactLifetime(identities, scope.SelectedProcess!.Value);
@@ -274,11 +268,9 @@ public static class ImageLoadAnalysis
                 nameof(pid));
         }
 
-        var starts = string.Join(", ", candidates.Select(
-            lifetime => lifetime.Key.StartUs));
-        throw new ArgumentException(
-            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
-            $"specify processStartUs. candidates=[{starts}]",
+        throw ProcessAnalysisScope.ProcessStartRequiredException(
+            pid,
+            candidates.Select(candidate => candidate.Key),
             nameof(pid));
     }
 
@@ -330,20 +322,11 @@ public static class ImageLoadAnalysis
         int pid,
         long? processStartUs)
     {
-        var scope = ProcessAnalysisScope.Resolve(
+        return ProcessAnalysisScope.Resolve(
             new TimeWindow(0, identities.TraceEndUs),
             pid,
             processStartUs,
-            identities);
-        if (scope.ScopeMode != "pid_aggregate")
-            return scope;
-
-        var starts = string.Join(", ", scope.IncludedProcesses.Select(
-            process => process.StartUs));
-        throw new ArgumentException(
-            $"ambiguous_process_instance: PID {pid} has multiple lifetimes; " +
-            $"specify processStartUs. candidates=[{starts}]",
-            nameof(pid));
+            identities).RequireSingleProcess();
     }
 
     private static ProcessLifetime ExactLifetime(

@@ -124,7 +124,7 @@ public static class HardFaultByFileAnalysis
                     ? "not_observed"
                     : "unknown";
         var noDataReason = scopeMissing
-            ? "scope_not_found"
+            ? scope.ScopeStatus
             : matchedEventCount > 0
                 ? null
                 : globalEventCount == 0
@@ -152,6 +152,10 @@ public static class HardFaultByFileAnalysis
     {
         switch (noDataReason)
         {
+            case ProcessAnalysisScope.AmbiguousStatus:
+                warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                    ProcessAnalysisScope.AmbiguousStatus));
+                break;
             case "scope_not_found":
                 warnings.Add(
                     "scope_not_found: the requested process lifetime does not intersect the analysis window.");

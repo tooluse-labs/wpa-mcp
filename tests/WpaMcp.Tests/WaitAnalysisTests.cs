@@ -168,7 +168,10 @@ public class WaitAnalysisTests
         Assert.Equal(50, row.CpuUs);
         Assert.Equal(100, row.BlockedUs);
         Assert.Equal(100, response.TotalBlockedUs);
+        Assert.Equal(1, response.MatchedIntervalCount);
         Assert.Equal(2, response.UnmatchedBlockedIntervalCount);
+        Assert.Equal(2, response.TraceUnmatchedBlockedIntervalCount);
+        Assert.Equal(2, response.ScopedUnmatchedBlockedIntervalCount);
         Assert.Equal(target.Process, response.SelectedProcess);
         Assert.Equal(target, response.SelectedThread);
         var reason = Assert.Single(row.TopWaitReasons);
@@ -283,6 +286,74 @@ public class WaitAnalysisTests
         Assert.Equal(0, response.ScopedStackedSwitches);
         Assert.Equal(0, response.ScopedStackCoveragePct);
         Assert.False(response.HasContextSwitchBlockingStacks);
+    }
+
+    [Fact]
+    public void WaitAccumulator_RowContextSwitchesCountOnlySwitchOuts()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var other = Thread(20, 0, 8, 1);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(
+            ScopeFor(target, startUs: 100, endUs: 200));
+
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            other, "other", target, "target", 110, CallStackIndex.Invalid));
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            target, "target", other, "other", 120, CallStackIndex.Invalid));
+
+        var row = Assert.Single(projection.Build(
+            top: 10,
+            unmatchedBlockedIntervalCount: 0,
+            warnings: null).Rows);
+
+        Assert.Equal(1, row.ContextSwitches);
+    }
+
+    [Fact]
+    public void WaitAccumulator_UnresolvedScopedSwitchReportsUnattributedSource()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(
+            ScopeFor(target, startUs: 100, endUs: 200));
+
+        projection.OnContextSwitch(new SchedulerSwitchObservation(
+            OldThread: null,
+            OldProcessName: "target",
+            NewThread: null,
+            NewProcessName: string.Empty,
+            TimestampUs: 120,
+            BlockingStack: CallStackIndex.Invalid,
+            OldPid: target.Process.Pid,
+            OldTid: target.Tid,
+            OldIdentityUnresolved: true));
+
+        var response = projection.Build(
+            top: 10,
+            unmatchedBlockedIntervalCount: 0,
+            warnings: null);
+
+        Assert.Equal("unknown", response.CapabilityStatus);
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedCSwitchSideCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedCSwitchSideCount);
+    }
+
+    [Fact]
+    public void WaitAccumulator_SeparatesTraceAndScopedUnmatchedCounts()
+    {
+        var target = Thread(10, 0, 7, 1);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(
+            ScopeFor(target, startUs: 100, endUs: 200));
+
+        var response = projection.Build(
+            top: 10,
+            unmatchedBlockedIntervalCount: 3,
+            warnings: null,
+            scopedUnmatchedBlockedIntervalCount: 1);
+
+        Assert.Equal(3, response.UnmatchedBlockedIntervalCount);
+        Assert.Equal(3, response.TraceUnmatchedBlockedIntervalCount);
+        Assert.Equal(1, response.ScopedUnmatchedBlockedIntervalCount);
     }
 
     [Fact]
@@ -423,11 +494,15 @@ public class WaitAnalysisTests
             totalCSwitches: 2,
             traceCSwitchCount: 2,
             scopedCSwitches: 2,
-            processScope: processScope);
+            processScope: processScope,
+            threadStartUs: thread => thread.Process.StartUs + 7);
 
         Assert.Equal("pid_aggregate", response.ScopeMode);
         Assert.True(response.PidReuseObserved);
         Assert.Equal([first, second], response.IncludedProcesses);
+        Assert.Equal([7, 107], response.Rows
+            .OrderBy(row => row.ProcessStartUs)
+            .Select(row => row.ThreadStartUs));
         Assert.Contains(response.Warnings, warning =>
             warning.StartsWith("pid_aggregate:", StringComparison.Ordinal));
     }

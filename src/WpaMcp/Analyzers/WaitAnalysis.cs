@@ -101,14 +101,18 @@ public static class WaitAnalysis
     {
         RequirePositiveTop(top);
         var identities = TraceIdentityIndex.For(trace);
-        var projection = new WaitProjectionAccumulator(scope, processScope);
+        var projection = new WaitProjectionAccumulator(
+            scope,
+            processScope,
+            identities.Threads.StartUsFor);
         var stream = SchedulerIntervalTraceReader.Read(trace, identities, [projection]);
         var warnings = BuildSchedulerWarnings(
             stream.Completion, stream.IdentityDiagnosticCount);
         return projection.Build(
             top,
             stream.Completion.UnmatchedBlockedIntervalCount,
-            warnings);
+            warnings,
+            stream.Completion.CountScopedUnmatchedBlockedIntervals(scope));
     }
 
     internal static WaitAnalysisResponse Project(
@@ -125,7 +129,11 @@ public static class WaitAnalysis
         bool hasContextSwitchBlockingStacks = false,
         long? scopedCSwitches = null,
         long? scopedStackedSwitches = null,
-        ProcessAnalysisScope? processScope = null)
+        ProcessAnalysisScope? processScope = null,
+        Func<ThreadInstanceKey, long?>? threadStartUs = null,
+        int? scopedUnmatchedBlockedIntervalCount = null,
+        long traceIdentityUnresolvedCSwitchSideCount = 0,
+        long scopedIdentityUnresolvedCSwitchSideCount = 0)
     {
         ArgumentNullException.ThrowIfNull(intervals);
         RequirePositiveTop(top);
@@ -139,8 +147,19 @@ public static class WaitAnalysis
             throw new ArgumentOutOfRangeException(nameof(scopedCSwitches));
         if (scopedStackedSwitches is < 0)
             throw new ArgumentOutOfRangeException(nameof(scopedStackedSwitches));
+        if (traceIdentityUnresolvedCSwitchSideCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(traceIdentityUnresolvedCSwitchSideCount));
+        }
+        if (scopedIdentityUnresolvedCSwitchSideCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(scopedIdentityUnresolvedCSwitchSideCount));
+        }
 
-        var projection = new WaitProjectionAccumulator(scope, processScope);
+        var projection = new WaitProjectionAccumulator(
+            scope, processScope, threadStartUs);
         projection.AddProcessNames(processNames);
         foreach (var interval in intervals)
             projection.OnBlocked(interval);
@@ -152,19 +171,32 @@ public static class WaitAnalysis
             traceCSwitchCount,
             hasContextSwitchBlockingStacks,
             scopedCSwitches,
-            scopedStackedSwitches);
-        return projection.Build(top, unmatchedBlockedIntervalCount, warnings);
+            scopedStackedSwitches,
+            traceIdentityUnresolvedCSwitchSideCount,
+            scopedIdentityUnresolvedCSwitchSideCount);
+        return projection.Build(
+            top,
+            unmatchedBlockedIntervalCount,
+            warnings,
+            scopedUnmatchedBlockedIntervalCount ?? unmatchedBlockedIntervalCount);
     }
 
     internal static WaitAnalysisResponse EmptyResolutionFailure(
         string warningCode,
-        ProcessAnalysisScope processScope) =>
-        new(
+        ProcessAnalysisScope processScope)
+    {
+        var failureStatus = processScope.IsResolved
+            ? ProcessAnalysisScope.NotFoundStatus
+            : processScope.ScopeStatus;
+        var failureWarning = processScope.IsResolved
+            ? $"scope_not_found: {warningCode}; the requested process/thread selector did not resolve to one analyzable scope in the requested half-open window."
+            : ProcessAnalysisScope.ResolutionFailureWarning(failureStatus);
+        return new(
             Rows: Array.Empty<WaitAnalysisRow>(),
             TotalCSwitches: 0,
             Warnings:
             [
-                $"scope_not_found: {warningCode}; the requested process/thread selector did not resolve to one analyzable scope in the requested half-open window.",
+                failureWarning,
             ],
             TotalBlockedUs: 0,
             UnmatchedBlockedIntervalCount: 0,
@@ -173,10 +205,11 @@ public static class WaitAnalysis
             ScopeMode: processScope.ScopeMode,
             PidReuseObserved: processScope.PidReuseObserved,
             IncludedProcesses: processScope.IncludedProcesses,
-            ScopeStatus: ProcessAnalysisScope.NotFoundStatus,
+            ScopeStatus: failureStatus,
             CapabilityStatus: "unknown",
             MatchedEventCount: 0,
-            NoDataReason: "scope_not_found");
+            NoDataReason: failureStatus);
+    }
 
     internal static WaitAnalysisResponse EmptyResolutionFailure(
         ThreadAnalysisScope scope)
@@ -229,7 +262,7 @@ public static class WaitAnalysis
         if (unresolvedIdentityCount > 0)
         {
             warnings.Add(
-                $"scheduler_identity_unresolved: {unresolvedIdentityCount:N0} event-side identity resolution(s) were unavailable or ambiguous.");
+                $"identity_unresolved: scheduler_identity_unresolved; {unresolvedIdentityCount:N0} event-side identity resolution(s) were unavailable or ambiguous.");
         }
         if (completion.IdentityMismatchCount > 0)
         {
@@ -251,7 +284,7 @@ public static class WaitAnalysis
     {
         if (!projections.TryGetValue(thread, out var projection))
         {
-            projection = new ThreadProjection(thread);
+            projection = new ThreadProjection(thread, threadStartUs: 0);
             projections.Add(thread, projection);
         }
 
@@ -286,7 +319,8 @@ public static class WaitAnalysis
             projection.ContextSwitches,
             reasons,
             ProcessStartUs: projection.Key.Process.StartUs,
-            ThreadGeneration: projection.Key.Generation);
+            ThreadGeneration: projection.Key.Generation,
+            ThreadStartUs: projection.ThreadStartUs);
     }
 
     internal sealed class WaitProjectionAccumulator :
@@ -295,6 +329,7 @@ public static class WaitAnalysis
     {
         private readonly ThreadAnalysisScope _scope;
         private readonly ProcessAnalysisScope? _processScope;
+        private readonly Func<ThreadInstanceKey, long?>? _threadStartUs;
         private readonly Dictionary<ThreadInstanceKey, ThreadProjection> _projections = new();
         private readonly Dictionary<ThreadInstanceKey, string> _processNames = new();
         private long _totalBlockedUs;
@@ -302,14 +337,19 @@ public static class WaitAnalysis
         private long _windowCSwitchesAllThreads;
         private long _scopedCSwitches;
         private long _scopedStackedSwitches;
+        private long _matchedBlockedIntervalCount;
+        private long _traceIdentityUnresolvedCSwitchSideCount;
+        private long _scopedIdentityUnresolvedCSwitchSideCount;
         private long? _traceCSwitchCount = 0;
 
         public WaitProjectionAccumulator(
             ThreadAnalysisScope scope,
-            ProcessAnalysisScope? processScope = null)
+            ProcessAnalysisScope? processScope = null,
+            Func<ThreadInstanceKey, long?>? threadStartUs = null)
         {
             _scope = scope;
             _processScope = processScope;
+            _threadStartUs = threadStartUs;
         }
 
         public void OnRunning(in RunningInterval interval)
@@ -320,8 +360,7 @@ public static class WaitAnalysis
                 return;
 
             _totalCpuUs = checked(_totalCpuUs + accountedUs);
-            var projection = GetProjection(
-                _projections, interval.Thread, _processNames);
+            var projection = GetScopedProjection(interval.Thread);
             projection.CpuUs = checked(projection.CpuUs + accountedUs);
         }
 
@@ -333,8 +372,9 @@ public static class WaitAnalysis
                 return;
 
             _totalBlockedUs = checked(_totalBlockedUs + accountedUs);
-            var projection = GetProjection(
-                _projections, interval.Thread, _processNames);
+            _matchedBlockedIntervalCount = checked(
+                _matchedBlockedIntervalCount + 1);
+            var projection = GetScopedProjection(interval.Thread);
             projection.BlockedUs = checked(projection.BlockedUs + accountedUs);
             var previous = projection.WaitReasons.GetValueOrDefault(interval.WaitReason);
             projection.WaitReasons[interval.WaitReason] = (
@@ -345,6 +385,16 @@ public static class WaitAnalysis
         public void OnContextSwitch(in SchedulerSwitchObservation observation)
         {
             _traceCSwitchCount = checked(_traceCSwitchCount.GetValueOrDefault() + 1);
+            ObserveUnresolvedSide(
+                observation.OldIdentityUnresolved,
+                observation.OldPid,
+                observation.OldTid,
+                observation.TimestampUs);
+            ObserveUnresolvedSide(
+                observation.NewIdentityUnresolved,
+                observation.NewPid,
+                observation.NewTid,
+                observation.TimestampUs);
             if (_scope.Window.ContainsPoint(observation.TimestampUs))
             {
                 _windowCSwitchesAllThreads = checked(_windowCSwitchesAllThreads + 1);
@@ -364,17 +414,16 @@ public static class WaitAnalysis
 
             if (observation.OldThread.HasValue)
             {
-                ObserveThread(
+                ObserveSwitchOut(
                     observation.OldThread.Value,
                     observation.OldProcessName,
                     observation.TimestampUs);
             }
             if (observation.NewThread.HasValue)
             {
-                ObserveThread(
+                RememberProcessName(
                     observation.NewThread.Value,
-                    observation.NewProcessName,
-                    observation.TimestampUs);
+                    observation.NewProcessName);
             }
         }
 
@@ -398,8 +447,7 @@ public static class WaitAnalysis
             {
                 if (!_scope.MatchesThread(item.Key) || item.Value <= 0)
                     continue;
-                var projection = GetProjection(
-                    _projections, item.Key, _processNames);
+                var projection = GetScopedProjection(item.Key);
                 projection.ContextSwitches = checked(
                     projection.ContextSwitches + item.Value);
             }
@@ -410,7 +458,9 @@ public static class WaitAnalysis
             long? traceCSwitchCount,
             bool hasContextSwitchBlockingStacks,
             long? scopedCSwitches = null,
-            long? scopedStackedSwitches = null)
+            long? scopedStackedSwitches = null,
+            long traceIdentityUnresolvedCSwitchSideCount = 0,
+            long scopedIdentityUnresolvedCSwitchSideCount = 0)
         {
             _windowCSwitchesAllThreads = totalCSwitches;
             _traceCSwitchCount = traceCSwitchCount;
@@ -418,12 +468,17 @@ public static class WaitAnalysis
                 (_scope.Pid is null ? totalCSwitches : 0);
             _scopedStackedSwitches = scopedStackedSwitches ??
                 (hasContextSwitchBlockingStacks && _scopedCSwitches > 0 ? 1 : 0);
+            _traceIdentityUnresolvedCSwitchSideCount =
+                traceIdentityUnresolvedCSwitchSideCount;
+            _scopedIdentityUnresolvedCSwitchSideCount =
+                scopedIdentityUnresolvedCSwitchSideCount;
         }
 
         public WaitAnalysisResponse Build(
             int top,
             int unmatchedBlockedIntervalCount,
-            IEnumerable<string>? warnings)
+            IEnumerable<string>? warnings,
+            int? scopedUnmatchedBlockedIntervalCount = null)
         {
             RequirePositiveTop(top);
             if (unmatchedBlockedIntervalCount < 0)
@@ -431,11 +486,14 @@ public static class WaitAnalysis
                 throw new ArgumentOutOfRangeException(
                     nameof(unmatchedBlockedIntervalCount));
             }
+            var scopedUnmatched = scopedUnmatchedBlockedIntervalCount ??
+                unmatchedBlockedIntervalCount;
+            if (scopedUnmatched < 0)
+                throw new ArgumentOutOfRangeException(nameof(scopedUnmatchedBlockedIntervalCount));
 
             if (_scope.Thread is not null)
             {
-                GetProjection(
-                    _projections, _scope.Thread.Key, _processNames);
+                GetScopedProjection(_scope.Thread.Key);
             }
 
             var reasonTop = _scope.Thread is null ? 5 : top;
@@ -482,7 +540,7 @@ public static class WaitAnalysis
                                     _totalCpuUs > 0 ||
                                     _projections.Values.Any(
                                         projection => projection.ContextSwitches > 0);
-            var capabilityStatus = _scopedCSwitches > 0
+            var capabilityStatus = hasScopedEvidence
                 ? "observed"
                 : _traceCSwitchCount == 0
                     ? "not_observed"
@@ -491,7 +549,9 @@ public static class WaitAnalysis
                 ? null
                 : _traceCSwitchCount == 0
                     ? "event_class_not_observed"
-                    : "no_events_in_scope";
+                    : _scopedIdentityUnresolvedCSwitchSideCount > 0
+                        ? "source_events_unattributed"
+                        : "no_events_in_scope";
 
             var outputWarnings = warnings?.ToList() ?? new List<string>();
             if (scopeMode == "pid_aggregate")
@@ -511,6 +571,11 @@ public static class WaitAnalysis
             {
                 outputWarnings.Add(
                     "no_events_in_scope: CSwitch events were observed elsewhere in the trace, but no switch-out, running, or blocked-time evidence matched the selected process/thread lifetimes and requested half-open window.");
+            }
+            else if (noDataReason == "source_events_unattributed")
+            {
+                outputWarnings.Add(
+                    "source_events_unattributed: CSwitch event sides with matching raw PID/TID/time were observed, but thread-instance identity was unresolved or ambiguous; no scoped attribution was guessed.");
             }
 
             return new WaitAnalysisResponse(
@@ -544,10 +609,21 @@ public static class WaitAnalysis
                         : [new ThreadScopeCandidate(
                             _scope.Thread.Key,
                             _scope.Thread.StartUs,
-                            _scope.Thread.EndUs)]);
+                            _scope.Thread.EndUs)],
+                TraceUnmatchedBlockedIntervalCount: unmatchedBlockedIntervalCount,
+                ScopedUnmatchedBlockedIntervalCount: scopedUnmatched,
+                TraceHasContextSwitches: _traceCSwitchCount.HasValue
+                    ? _traceCSwitchCount.Value > 0
+                    : null,
+                TraceCSwitches: _traceCSwitchCount.GetValueOrDefault(),
+                MatchedIntervalCount: _matchedBlockedIntervalCount,
+                TraceIdentityUnresolvedCSwitchSideCount:
+                    _traceIdentityUnresolvedCSwitchSideCount,
+                ScopedIdentityUnresolvedCSwitchSideCount:
+                    _scopedIdentityUnresolvedCSwitchSideCount);
         }
 
-        private void ObserveThread(
+        private void ObserveSwitchOut(
             ThreadInstanceKey thread,
             string processName,
             long timestampUs)
@@ -558,9 +634,26 @@ public static class WaitAnalysis
                 return;
             }
 
-            var projection = GetProjection(
-                _projections, thread, _processNames);
+            var projection = GetScopedProjection(thread);
             projection.ContextSwitches = checked(projection.ContextSwitches + 1);
+        }
+
+        private void ObserveUnresolvedSide(
+            bool identityUnresolved,
+            int pid,
+            int tid,
+            long timestampUs)
+        {
+            if (!identityUnresolved)
+                return;
+
+            _traceIdentityUnresolvedCSwitchSideCount = checked(
+                _traceIdentityUnresolvedCSwitchSideCount + 1);
+            if (_scope.MatchesPoint(pid, tid, timestampUs))
+            {
+                _scopedIdentityUnresolvedCSwitchSideCount = checked(
+                    _scopedIdentityUnresolvedCSwitchSideCount + 1);
+            }
         }
 
         private void RememberProcessName(
@@ -577,11 +670,24 @@ public static class WaitAnalysis
                 projection.ProcessName = processName;
             }
         }
+
+        private ThreadProjection GetScopedProjection(ThreadInstanceKey thread)
+        {
+            var projection = GetProjection(
+                _projections, thread, _processNames);
+            if (projection.ThreadStartUs == 0)
+            {
+                projection.ThreadStartUs = _threadStartUs?.Invoke(thread) ??
+                    (_scope.Thread?.Key == thread ? _scope.Thread.StartUs : 0);
+            }
+            return projection;
+        }
     }
 
-    private sealed class ThreadProjection(ThreadInstanceKey key)
+    private sealed class ThreadProjection(ThreadInstanceKey key, long threadStartUs)
     {
         public ThreadInstanceKey Key { get; } = key;
+        public long ThreadStartUs { get; set; } = threadStartUs;
         public string ProcessName { get; set; } = string.Empty;
         public long CpuUs { get; set; }
         public long BlockedUs { get; set; }

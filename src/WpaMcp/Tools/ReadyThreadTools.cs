@@ -12,7 +12,7 @@ public sealed class ReadyThreadTools
     private readonly TraceCache _cache;
     public ReadyThreadTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N associated readier/wakeup stack evidence ranked by ReadyThread event count. " +
         "Events are aggregated by optional `awakenedPid` and requested window; the stack belongs " +
         "to the readier, not the awakened thread. Results are not paired one-to-one with a " +
@@ -55,7 +55,7 @@ public sealed class ReadyThreadTools
             awakenedProcessStartUs: awakenedProcessStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for associated readier/wakeup stack evidence around a focus " +
         "function. Metric is ReadyThread event count, aggregated by optional `awakenedPid` and " +
         "requested window. Results are not paired one-to-one with a specific wait interval or " +

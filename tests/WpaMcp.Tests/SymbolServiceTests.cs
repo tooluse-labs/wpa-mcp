@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Reflection;
+using System.Reflection.PortableExecutable;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
@@ -189,6 +192,8 @@ public class SymbolServiceTests
             resp.TraceDirectoryInSymbolPath,
             resp.TraceDirectoryInEffectiveSymbolPath);
         Assert.Equal("not_measured", resp.FrameResolutionMeasurementState);
+        Assert.Equal(resp.DefaultCacheDir, resp.CacheDir);
+        Assert.Equal(svc.DefaultCacheDir, resp.DefaultCacheDir);
         Assert.All(resp.Modules, module => Assert.False(string.IsNullOrWhiteSpace(module.LookupStatus)));
         Assert.All(resp.Modules, module =>
         {
@@ -196,6 +201,29 @@ public class SymbolServiceTests
             Assert.Null(module.Resolved);
             Assert.Equal("not_measured", module.FrameResolutionState);
         });
+    }
+
+    [Fact]
+    public void DiagnoseSymbols_DescriptionsDiscloseCandidateCapAndDefaultCacheSemantics()
+    {
+        var cacheDescription = typeof(DiagnoseSymbolsResponse)
+            .GetProperty(nameof(DiagnoseSymbolsResponse.CacheDir))!
+            .GetCustomAttribute<DescriptionAttribute>()!
+            .Description;
+        var defaultCacheDescription = typeof(DiagnoseSymbolsResponse)
+            .GetProperty(nameof(DiagnoseSymbolsResponse.DefaultCacheDir))!
+            .GetCustomAttribute<DescriptionAttribute>()!
+            .Description;
+        var candidatesDescription = typeof(ModuleSymbolStatus)
+            .GetProperty(nameof(ModuleSymbolStatus.LocalSymbolCandidates))!
+            .GetCustomAttribute<DescriptionAttribute>()!
+            .Description;
+
+        Assert.Contains("compatibility alias", cacheDescription, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not prove", cacheDescription, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fallback", defaultCacheDescription, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("At most 10", candidatesDescription, StringComparison.Ordinal);
+        Assert.Contains("mapped drive", candidatesDescription, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -214,15 +242,62 @@ public class SymbolServiceTests
                 "quark.dll.pdb");
             Directory.CreateDirectory(Path.GetDirectoryName(flatPdb)!);
             Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
-            File.WriteAllText(flatPdb, "");
+            File.WriteAllBytes(
+                flatPdb,
+                System.Text.Encoding.ASCII.GetBytes("Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0"));
             File.WriteAllText(storePdb, "");
 
-            var symbolPath = $"{Path.Combine(root, "flat")};SRV*C:\\Symbols*{Path.Combine(root, "store")};SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols";
+            var cacheRoot = Path.Combine(root, "cache");
+            Directory.CreateDirectory(cacheRoot);
+            var symbolPath = $"{Path.Combine(root, "flat")};SRV*{cacheRoot}*{Path.Combine(root, "store")};SRV*{cacheRoot}*https://msdl.microsoft.com/download/symbols";
             var candidates = SymbolTools.FindLocalSymbolCandidates(symbolPath, "quark.dll.pdb", signature, 1);
 
             Assert.Contains(flatPdb, candidates);
             Assert.Contains(storePdb, candidates);
+            Assert.Equal(new[] { flatPdb, storePdb }, candidates);
             Assert.DoesNotContain(candidates, candidate => candidate.Contains("https://", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindLocalSymbolCandidates_BarePathDoesNotProbeSymbolStoreLayout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-bare-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var storePdb = Path.Combine(
+                root,
+                artifact.PdbName,
+                SymbolStoreKey(artifact.Signature, artifact.Age),
+                artifact.PdbName);
+            Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
+            File.Copy(artifact.PdbPath, storePdb);
+
+            var bareCandidates = SymbolTools.FindLocalSymbolCandidates(
+                root,
+                artifact.PdbName,
+                artifact.Signature,
+                artifact.Age);
+            var cacheCandidates = SymbolTools.FindLocalSymbolCandidates(
+                $"CACHE*{root}",
+                artifact.PdbName,
+                artifact.Signature,
+                artifact.Age);
+            var bareStatus = DiagnosePortableModule(artifact, root);
+            var cacheStatus = DiagnosePortableModule(artifact, $"CACHE*{root}");
+
+            Assert.Empty(bareCandidates);
+            Assert.Equal(new[] { storePdb }, cacheCandidates);
+            Assert.False(bareStatus.LocalPdbReady);
+            Assert.Equal("not_found_in_local_symbol_path", bareStatus.LookupStatus);
+            Assert.True(cacheStatus.LocalPdbReady);
+            Assert.Equal("exact_identity_match", cacheStatus.LookupStatus);
         }
         finally
         {
@@ -262,27 +337,37 @@ public class SymbolServiceTests
     }
 
     [Fact]
-    public void DiagnoseModule_DoesNotResolveFlatNameOnlyCandidate()
+    public void DiagnoseModule_VerifiesAllCandidatesBeforeCappingDisplayedPaths()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-flat-{Guid.NewGuid():N}");
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-many-{Guid.NewGuid():N}");
         try
         {
-            var module = FirstModuleWithPdbIdentity();
-            var pdbName = Path.GetFileName(module.PdbName);
-            var flatPdb = Path.Combine(root, pdbName);
-            Directory.CreateDirectory(root);
-            File.WriteAllText(flatPdb, "");
+            var artifact = PortablePdbBuildArtifact();
+            var configuredRoots = new List<string>();
+            for (var i = 0; i < 11; i++)
+            {
+                var candidateRoot = Path.Combine(root, $"invalid-{i:D2}");
+                Directory.CreateDirectory(candidateRoot);
+                File.WriteAllText(Path.Combine(candidateRoot, artifact.PdbName), "not a PDB");
+                configuredRoots.Add(candidateRoot);
+            }
 
-            var status = SymbolTools.DiagnoseModule(module, root, NativeSupportReady());
+            var exactRoot = Path.Combine(root, "exact-last");
+            Directory.CreateDirectory(exactRoot);
+            var exactPdb = Path.Combine(exactRoot, artifact.PdbName);
+            File.Copy(artifact.PdbPath, exactPdb);
+            configuredRoots.Add(exactRoot);
 
-            Assert.Null(status.Resolved);
-            Assert.Null(status.FrameCount);
-            Assert.True(status.HasPdbName);
-            Assert.True(status.HasCompletePdbIdentity);
-            Assert.False(status.LocalPdbReady);
-            Assert.Equal("not_measured", status.FrameResolutionState);
-            Assert.Equal("found_flat_candidate_identity_unverified", status.LookupStatus);
-            Assert.Contains(flatPdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+            var status = DiagnosePortableModule(
+                artifact,
+                string.Join(';', configuredRoots));
+
+            Assert.True(status.LocalPdbReady);
+            Assert.Equal("exact_identity_match", status.LookupStatus);
+            Assert.Equal(12, status.LocalSymbolCandidateCount);
+            Assert.True(status.LocalSymbolCandidatesTruncated);
+            Assert.Equal(10, status.LocalSymbolCandidates?.Count);
+            Assert.Equal(exactPdb, status.LocalSymbolCandidates?[0]);
         }
         finally
         {
@@ -292,7 +377,283 @@ public class SymbolServiceTests
     }
 
     [Fact]
-    public void DiagnoseModule_ResolvesCacheSymbolStoreMatch()
+    public void DiagnoseModule_VerifiesMatchingPortablePdbIdentity()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-flat-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var flatPdb = Path.Combine(root, artifact.PdbName);
+            Directory.CreateDirectory(root);
+            File.Copy(artifact.PdbPath, flatPdb);
+
+            var status = DiagnosePortableModule(
+                artifact,
+                root,
+                nativeSupport: NativeSupportMissing());
+
+            Assert.Null(status.Resolved);
+            Assert.Null(status.FrameCount);
+            Assert.True(status.HasPdbName);
+            Assert.True(status.HasCompletePdbIdentity);
+            Assert.True(status.LocalPdbReady);
+            Assert.Equal("not_measured", status.FrameResolutionState);
+            Assert.Equal("exact_identity_match", status.LookupStatus);
+            Assert.Equal(
+                "module_metadata_and_local_pdb_identity_verification",
+                status.EvidenceScope);
+            Assert.Null(status.FailureReason);
+            Assert.Contains(flatPdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+            Assert.Equal(1, status.LocalSymbolCandidateCount);
+            Assert.False(status.LocalSymbolCandidatesTruncated);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_RejectsPortablePdbWithWrongGuidOrAge()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-mismatch-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var mismatches = new[]
+            {
+                (Signature: Guid.NewGuid(), Age: artifact.Age),
+                (Signature: artifact.Signature, Age: checked(artifact.Age + 1))
+            };
+
+            foreach (var (signature, age) in mismatches)
+            {
+                var candidateRoot = Path.Combine(root, $"candidate-{age}-{signature:N}");
+                Directory.CreateDirectory(candidateRoot);
+                File.Copy(artifact.PdbPath, Path.Combine(candidateRoot, artifact.PdbName));
+
+                var status = DiagnosePortableModule(
+                    artifact,
+                    candidateRoot,
+                    expectedSignature: signature,
+                    expectedAge: age);
+
+                Assert.False(status.LocalPdbReady);
+                Assert.Equal("identity_mismatch", status.LookupStatus);
+                Assert.Equal(
+                    "module_metadata_and_local_pdb_identity_verification",
+                    status.EvidenceScope);
+                Assert.Contains("GUID/Age", status.FailureReason ?? "");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_DoesNotClassifyAmbiguousWindowsPdbOpenFailureAsInvalid()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-windows-ambiguous-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(
+                Path.Combine(root, artifact.PdbName),
+                System.Text.Encoding.ASCII.GetBytes("Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0"));
+
+            var status = DiagnosePortableModule(
+                artifact,
+                root,
+                nativeSupport: NativeSupportReady());
+
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("candidate_identity_unverified", status.LookupStatus);
+            Assert.Contains("cannot distinguish", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("invalid", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_RejectsCorruptPortablePdbCandidate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-corrupt-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(Path.Combine(root, artifact.PdbName), "BSJB"u8.ToArray());
+
+            var status = DiagnosePortableModule(artifact, root);
+
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("invalid_local_pdb_candidate", status.LookupStatus);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_ReportsCandidateIdentityUnverifiedForUnreadablePortablePdb()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-unavailable-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var candidate = Path.Combine(root, artifact.PdbName);
+            Directory.CreateDirectory(root);
+            File.Copy(artifact.PdbPath, candidate);
+
+            using var exclusiveLease = new FileStream(
+                candidate,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            var status = DiagnosePortableModule(artifact, root);
+
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("candidate_identity_unverified", status.LookupStatus);
+            Assert.Equal(
+                "module_metadata_and_local_pdb_identity_verification",
+                status.EvidenceScope);
+            Assert.Contains("unreadable", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("native DIA", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_DoesNotTreatDirectoryAsPdbCandidate()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(), $"wpa-mcp-symbol-unopenable-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var candidate = Path.Combine(root, artifact.PdbName);
+            Directory.CreateDirectory(candidate);
+
+            var status = DiagnosePortableModule(artifact, root);
+
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("not_found_in_local_symbol_path", status.LookupStatus);
+            Assert.DoesNotContain(
+                candidate,
+                status.LocalSymbolCandidates ?? Array.Empty<string>());
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NativeDiaSuggestion_UsesReportedServerArchitecture()
+    {
+        var support = new NativeSymbolSupportStatus(
+            Architecture: "arm64",
+            Msdia140Present: false,
+            KernelTraceControlPresent: false,
+            Status: "missing_native_dependency",
+            Dependencies: [],
+            Suggestion: @"Install native dependencies under C:\app\native\arm64.");
+
+        var suggestion = SymbolTools.NativeDiaSuggestion(support);
+
+        Assert.Contains("arm64", suggestion, StringComparison.Ordinal);
+        Assert.DoesNotContain("amd64", suggestion, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DiagnoseModule_DistinguishesMissingNativeReaderFromUnreadableCandidate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-native-reader-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(
+                Path.Combine(root, artifact.PdbName),
+                System.Text.Encoding.ASCII.GetBytes("Microsoft C/C++ MSF 7.00\r\n\u001aDS\0\0\0"));
+
+            var status = DiagnosePortableModule(
+                artifact,
+                root,
+                nativeSupport: NativeSupportMissing());
+
+            Assert.False(status.LocalPdbReady);
+            Assert.Equal("candidate_identity_unverified", status.LookupStatus);
+            Assert.Equal(
+                "module_metadata_and_local_pdb_identity_verification",
+                status.EvidenceScope);
+            Assert.Contains("native DIA reader", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("unreadable", status.FailureReason ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_ExactFlatCandidateWinsOverInvalidStoreCandidate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-mixed-{Guid.NewGuid():N}");
+        try
+        {
+            var artifact = PortablePdbBuildArtifact();
+            var storeRoot = Path.Combine(root, "store");
+            var flatRoot = Path.Combine(root, "flat");
+            var storePdb = Path.Combine(
+                storeRoot,
+                artifact.PdbName,
+                SymbolStoreKey(artifact.Signature, artifact.Age),
+                artifact.PdbName);
+            var flatPdb = Path.Combine(flatRoot, artifact.PdbName);
+            Directory.CreateDirectory(Path.GetDirectoryName(storePdb)!);
+            Directory.CreateDirectory(flatRoot);
+            File.WriteAllBytes(storePdb, Array.Empty<byte>());
+            File.Copy(artifact.PdbPath, flatPdb);
+
+            var status = DiagnosePortableModule(
+                artifact,
+                $"cache*{storeRoot};{flatRoot}");
+
+            Assert.True(status.LocalPdbReady);
+            Assert.Equal("exact_identity_match", status.LookupStatus);
+            Assert.Equal(
+                "module_metadata_and_local_pdb_identity_verification",
+                status.EvidenceScope);
+            Assert.Contains(storePdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+            Assert.Contains(flatPdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
+            Assert.Equal(flatPdb, status.LocalSymbolCandidates?[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DiagnoseModule_RejectsEmptyCacheSymbolStoreCandidate()
     {
         var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-symbol-store-{Guid.NewGuid():N}");
         try
@@ -313,9 +674,9 @@ public class SymbolServiceTests
             Assert.Null(status.FrameCount);
             Assert.True(status.HasPdbName);
             Assert.True(status.HasCompletePdbIdentity);
-            Assert.True(status.LocalPdbReady);
+            Assert.False(status.LocalPdbReady);
             Assert.Equal("not_measured", status.FrameResolutionState);
-            Assert.Equal("found_in_local_symbol_path", status.LookupStatus);
+            Assert.Equal("invalid_local_pdb_candidate", status.LookupStatus);
             Assert.Contains(storePdb, status.LocalSymbolCandidates ?? Array.Empty<string>());
         }
         finally
@@ -408,6 +769,71 @@ public class SymbolServiceTests
             Status: "ready",
             Dependencies: Array.Empty<NativeDependencyStatus>(),
             Suggestion: null);
+
+    private static NativeSymbolSupportStatus NativeSupportMissing()
+        => new(
+            Architecture: "amd64",
+            Msdia140Present: false,
+            KernelTraceControlPresent: true,
+            Status: "missing_native_dependency",
+            Dependencies: Array.Empty<NativeDependencyStatus>(),
+            Suggestion: "Install native DIA support.");
+
+    private static ModuleSymbolStatus DiagnosePortableModule(
+        PortablePdbArtifact artifact,
+        string symbolPath,
+        Guid? expectedSignature = null,
+        int? expectedAge = null,
+        NativeSymbolSupportStatus? nativeSupport = null)
+        => SymbolTools.DiagnoseModule(
+            moduleName: Path.GetFileNameWithoutExtension(artifact.AssemblyPath) ?? "<unknown>",
+            filePath: artifact.AssemblyPath,
+            pdbName: artifact.PdbName,
+            pdbSignature: expectedSignature ?? artifact.Signature,
+            pdbAge: expectedAge ?? artifact.Age,
+            binaryFormat: "PE",
+            symbolPath: symbolPath,
+            nativeSupport: nativeSupport ?? NativeSupportReady());
+
+    private static PortablePdbArtifact PortablePdbBuildArtifact()
+    {
+        var assemblyPath = typeof(SymbolServiceTests).Assembly.Location;
+        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb")
+            ?? throw new InvalidDataException("Could not derive the test PDB path.");
+        Assert.True(File.Exists(pdbPath), $"Expected portable PDB beside test assembly: {pdbPath}");
+
+        using (var pdbStream = File.OpenRead(pdbPath))
+        {
+            Span<byte> header = stackalloc byte[4];
+            Assert.Equal(header.Length, pdbStream.Read(header));
+            Assert.True(header.SequenceEqual("BSJB"u8), $"Expected a portable PDB: {pdbPath}");
+        }
+
+        using var assemblyStream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(assemblyStream);
+        var codeViewEntry = Assert.Single(
+            peReader.ReadDebugDirectory(),
+            entry => entry.Type == DebugDirectoryEntryType.CodeView);
+        var codeView = peReader.ReadCodeViewDebugDirectoryData(codeViewEntry);
+        Assert.NotEqual(Guid.Empty, codeView.Guid);
+        Assert.True(codeView.Age > 0);
+
+        var pdbName = Path.GetFileName(codeView.Path)
+            ?? throw new InvalidDataException("CodeView record did not contain a PDB file name.");
+        return new PortablePdbArtifact(
+            assemblyPath,
+            pdbPath,
+            pdbName,
+            codeView.Guid,
+            codeView.Age);
+    }
+
+    private sealed record PortablePdbArtifact(
+        string AssemblyPath,
+        string PdbPath,
+        string PdbName,
+        Guid Signature,
+        int Age);
 
     private static string SymbolStoreKey(Guid signature, int age)
         => signature.ToString("N").ToUpperInvariant() + age.ToString("X");

@@ -12,7 +12,7 @@ public sealed class GenericProviderTools
     private readonly TraceCache _cache;
     public GenericProviderTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by event count for ANY user-mode ETW provider — PerfView's " +
         "'Any Stacks' view applied to a single provider.  Use this when you need stack-rankable " +
         "data from a provider that doesn't have a dedicated tool: AspNetCore, Kestrel, EFCore, " +
@@ -60,14 +60,14 @@ public sealed class GenericProviderTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller-callee drill-down on a focus frame in a generic provider's stack source.  " +
         "Same provider + event-name filtering as generic_event_top_stacks.  Metric is event " +
         "count; top-N callers ranked by inclusive count flowing INTO focus, callees by count OUT.")]
     public CallerCalleeResponse GenericEventCallerCallee(
         [Description("Absolute path to .etl file")] string path,
         [Description("Exact provider name")] string providerName,
-        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Exact case-sensitive function name; copy it verbatim from generic_event_top_stacks.")] string focusFunction,
         [Description("Optional event-name substring. Empty / null = all events from the provider.")] string? eventNameSubstring = null,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,

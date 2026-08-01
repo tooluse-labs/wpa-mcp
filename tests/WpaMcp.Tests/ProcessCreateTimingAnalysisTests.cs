@@ -63,7 +63,8 @@ public class ProcessCreateTimingAnalysisTests
         var resp = meta.ProcessCreateTiming(MmapFixture, parentPid: 999_999, top: 100);
         Assert.Equal(0, resp.SpawnCount);
         Assert.Empty(resp.Children);
-        Assert.Contains(resp.Warnings, w => w.Contains("No children found", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(resp.Warnings, w =>
+            w.StartsWith("scope_not_found:", StringComparison.Ordinal));
         Assert.Equal("scope_not_found", resp.ScopeStatus);
         Assert.Equal("scope_not_found", resp.NoDataReason);
         Assert.Equal("unknown", resp.CapabilityStatus);

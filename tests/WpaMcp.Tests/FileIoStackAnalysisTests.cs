@@ -49,6 +49,32 @@ public class FileIoStackAnalysisTests
     }
 
     [Fact]
+    public void FileIoTopStacks_EmptyWindowDoesNotClaimEventClassAbsentFromTrace()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var tools = new IoTools(cache);
+        var wholeTrace = tools.FileIoTopStacks(FileIoFixture, top: 5, whenBuckets: 1000);
+        var histogram = Assert.IsType<WpaMcp.Output.TimeHistogram>(wholeTrace.When);
+        var emptyBucket = Array.FindIndex(histogram.Buckets, value => value == 0);
+        Assert.True(emptyBucket >= 0, "fixture must contain an empty FileIO histogram bucket");
+        var startUs = checked(histogram.StartUs + emptyBucket * histogram.BucketWidthUs);
+        var endUs = Math.Min(histogram.EndUs, checked(startUs + histogram.BucketWidthUs));
+
+        var scoped = tools.FileIoTopStacks(
+            FileIoFixture,
+            top: 5,
+            startUs: startUs,
+            endUs: endUs);
+
+        Assert.True(wholeTrace.MatchedEventCount > 0);
+        Assert.Equal(0, scoped.MatchedEventCount);
+        Assert.Equal("unknown", scoped.CapabilityStatus);
+        Assert.Equal("no_events_in_scope", scoped.NoDataReason);
+        Assert.DoesNotContain(scoped.Warnings, warning => warning.StartsWith(
+            "event_class_not_observed:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void FileIoTopStacks_RowsOrderedByExclusiveBytesDesc()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));

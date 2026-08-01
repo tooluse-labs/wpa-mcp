@@ -12,7 +12,7 @@ public sealed class HeapTools
     private readonly TraceCache _cache;
     public HeapTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by NT-heap allocation bytes (RtlAllocateHeap / HeapAlloc " +
         "/ malloc / new — anything that lands in the user-mode heap).  PerfView equivalent: " +
         "'HeapAllocStacks'. This is an observed allocation-flow view, not proof of retained " +
@@ -55,13 +55,13 @@ public sealed class HeapTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller-callee drill-down on a focus frame in the NT-heap allocation stack source.  " +
         "Metric is heap-allocation bytes; top-N callers ranked by inclusive bytes flowing " +
         "INTO focus, callees by bytes OUT.")]
     public CallerCalleeResponse HeapAllocCallerCallee(
         [Description("Absolute path to .etl file")] string path,
-        [Description("Focus function name (substring or exact)")] string focusFunction,
+        [Description("Exact case-sensitive function name; copy it verbatim from heap_alloc_top_stacks.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,

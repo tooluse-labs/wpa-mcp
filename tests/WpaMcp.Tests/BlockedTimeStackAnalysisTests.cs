@@ -29,6 +29,45 @@ public class BlockedTimeStackAnalysisTests
     }
 
     [Fact]
+    public void ScopedBlockingStackAvailability_DoesNotRequireClosedWaitInterval()
+    {
+        Assert.False(BlockedTimeStackAnalysis.HasScopedBlockingStacks(0));
+        Assert.True(BlockedTimeStackAnalysis.HasScopedBlockingStacks(1));
+    }
+
+    [Fact]
+    public void EndpointContract_ScopedSwitchWithoutCompletedIntervalIsObserved()
+    {
+        var contract = BlockedTimeStackAnalysis.BuildEndpointContract(
+            scope: null,
+            filterSpecified: false,
+            coverage: new DomainStackCoverageAccumulator("wait", "us").Snapshot(),
+            traceSourceEndpointCount: 1,
+            scopedSourceEndpointCount: 1,
+            scopedIdentityUnresolvedEndpointCount: 0);
+
+        Assert.Equal("observed", contract.CapabilityStatus);
+        Assert.Equal(1, contract.MatchedEventCount);
+        Assert.Equal("no_completed_intervals_in_scope", contract.NoDataReason);
+    }
+
+    [Fact]
+    public void EndpointContract_UnresolvedScopedSwitchReportsUnattributedSource()
+    {
+        var contract = BlockedTimeStackAnalysis.BuildEndpointContract(
+            scope: null,
+            filterSpecified: false,
+            coverage: new DomainStackCoverageAccumulator("wait", "us").Snapshot(),
+            traceSourceEndpointCount: 1,
+            scopedSourceEndpointCount: 0,
+            scopedIdentityUnresolvedEndpointCount: 1);
+
+        Assert.Equal("unknown", contract.CapabilityStatus);
+        Assert.Equal(0, contract.MatchedEventCount);
+        Assert.Equal("source_events_unattributed", contract.NoDataReason);
+    }
+
+    [Fact]
     public void WaitTopStacks_ReturnsRowsOrEmitsKeywordWarning()
     {
         var tools = new WaitTools(new TraceCache(capacity: 2));
@@ -46,6 +85,7 @@ public class BlockedTimeStackAnalysisTests
         Assert.Equal("us", coverage.MetricName);
         Assert.Equal("switch_out_blocking_stack", coverage.StackSemantics);
         Assert.Equal(resp.SampleCount, coverage.TotalEventCount);
+        Assert.Equal(resp.SampleCount, resp.MatchedIntervalCount);
         Assert.Equal(resp.TotalBlockedUs, coverage.TotalMetric);
     }
 

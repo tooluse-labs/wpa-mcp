@@ -92,6 +92,43 @@ public sealed class StackCoverageContractTests
         Assert.Contains("disk_io_top_stacks", flow.ToolSequence);
     }
 
+    [Fact]
+    public void CpuHotspotFlow_OmitsCpuStackToolWhenCpuEventsHaveNoStacks()
+    {
+        var capabilities = Capabilities() with
+        {
+            HasCpuSamples = true,
+            HasCSwitch = true,
+            StackCoverageByDomain = new Dictionary<string, DomainStackCoverage>
+            {
+                ["cpu"] = Coverage("cpu", total: 20, stacked: 0),
+            },
+        };
+
+        var flow = Assert.Single(
+            MetaTools.BuildRecommendedDiagnosticFlows(capabilities),
+            row => row.FlowName == "cpu_hotspot");
+
+        Assert.DoesNotContain("cpu_top_functions", flow.ToolSequence);
+        Assert.Contains("cpu_precise_analysis", flow.ToolSequence);
+        Assert.Contains(flow.Caveats, caveat => caveat.Contains(
+            "cpu_top_functions omitted", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CallerCallee_NoStacksDoesNotClaimFocusFrameAbsent()
+    {
+        const string fixture = "fixtures/small_wait_bound.etl";
+        var response = new ImageLoadTools(new TraceCache(capacity: 2))
+            .ImageLoadCallerCallee(fixture, function: "definitely-not-a-frame", top: 5);
+
+        Assert.Equal("stacks_unavailable", response.NoDataReason);
+        Assert.DoesNotContain(response.Warnings, warning => warning.StartsWith(
+            "Focus function", StringComparison.Ordinal));
+        Assert.DoesNotContain(response.Warnings, warning => warning.StartsWith(
+            "focus_not_found:", StringComparison.Ordinal));
+    }
+
     private static DomainStackCoverage Coverage(string domain, long total, long stacked) =>
         new(
             Domain: domain,

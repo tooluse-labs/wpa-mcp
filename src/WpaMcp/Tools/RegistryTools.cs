@@ -12,7 +12,7 @@ public sealed class RegistryTools
     private readonly TraceCache _cache;
     public RegistryTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by registry-operation count — answers 'who's pounding the " +
         "registry' / 'where do these lookups come from'.  PerfView equivalent: 'Registry Stacks' " +
         "view.  Counts Query, Open, Create, SetValue, Delete, Enumerate, Virtualize events; " +
@@ -53,7 +53,7 @@ public sealed class RegistryTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in the registry-stack data.  Metric is " +
         "operation count; top-N callers ranked by inclusive ops flowing INTO focus, callees " +
         "by ops OUT.")]

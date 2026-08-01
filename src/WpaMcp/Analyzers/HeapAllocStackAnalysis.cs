@@ -135,7 +135,7 @@ public static class HeapAllocStackAnalysis
             bytes = Math.Max(0, bytes);
             traceTotalBytes += bytes;
             var nowUs = (long)(tsRelMs * 1000);
-            if (req.PassesFilter(nowUs)) traceEventCount++;
+            traceEventCount++;
             if (!req.PassesFilter(processId, nowUs)) return;
 
             totalBytes += bytes;

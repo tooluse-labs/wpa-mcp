@@ -16,7 +16,8 @@ internal readonly record struct ThreadSelector(
     int Pid,
     int Tid,
     long? ProcessStartUs,
-    long? ThreadStartUs);
+    long? ThreadStartUs,
+    long? ThreadGeneration = null);
 
 internal sealed record ProcessLifetime(
     ProcessInstanceKey Key,

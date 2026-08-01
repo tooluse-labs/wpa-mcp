@@ -12,7 +12,7 @@ public sealed class CpuTools
     private readonly TraceCache _cache;
     public CpuTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N hot functions by exclusive CPU sample count — the canonical 'where is CPU " +
         "time going' answer.  PerfView equivalent: 'CPU Stacks → ByName'.  Built from " +
         "per-CPU PerfInfoSample events (kernel sampler, default ~1 ms cadence per CPU); " +
@@ -47,10 +47,13 @@ public sealed class CpuTools
         [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
         long? processStartUs = null,
         [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
-        long? threadStartUs = null)
+        long? threadStartUs = null,
+        [Description("Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations.")]
+        long? threadGeneration = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
+        Validation.RequireThreadSelector(
+            pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;
@@ -60,17 +63,19 @@ public sealed class CpuTools
         var processScope = ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, identities);
         var scope = ResolveStackScope(
-            window, pid, tid, processStartUs, threadStartUs, identities, processScope);
+            window, pid, tid, processStartUs, threadStartUs, identities, processScope,
+            threadGeneration);
         return CpuAnalysis.TopFunctions(
             trace, top, scope, Console.Error,
             excludeEtwSelfOverhead, includeTracePct, resolveSymbols,
             hasFilter: pid.HasValue || startUs.HasValue || endUs.HasValue ||
-                       tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue,
+                       tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue ||
+                       threadGeneration.HasValue,
             processScope: processScope,
             traceHasCpuSamples: traceLease.Capabilities.HasCpuSamples);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "CPU Usage (Precise)-style scheduler summary from CSwitch + ReadyThread events. " +
         "Use this when sampled CPU is insufficient: it reports actual on-CPU microseconds, " +
         "ready-to-run latency after a thread is readied, per-core runtime attribution, and " +
@@ -88,10 +93,13 @@ public sealed class CpuTools
         [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
         long? processStartUs = null,
         [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
-        long? threadStartUs = null)
+        long? threadStartUs = null,
+        [Description("Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations.")]
+        long? threadGeneration = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
+        Validation.RequireThreadSelector(
+            pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;
@@ -101,7 +109,8 @@ public sealed class CpuTools
         var processScope = ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, identities);
         var scope = ResolveStackScope(
-            window, pid, tid, processStartUs, threadStartUs, identities, processScope);
+            window, pid, tid, processStartUs, threadStartUs, identities, processScope,
+            threadGeneration);
         if (!scope.IsResolved)
             return Analyzers.CpuPreciseAnalysis.EmptyScope(scope);
 
@@ -109,7 +118,7 @@ public sealed class CpuTools
             trace, top, scope, processScope);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Batch variant: top N hot functions per PID, in a single trace load. " +
         "Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID's samples). " +
         "Use when investigating multiple processes from the same trace — saves N round-trips. " +
@@ -166,7 +175,7 @@ public sealed class CpuTools
             ScopeResults: execution.ScopeResults);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function — given a frame name (copy verbatim from " +
         "cpu_top_functions output), returns the immediate callers (frames calling INTO focus) and " +
         "callees (frames focus calls OUT to), each ranked by inclusive samples. PerfView equivalent: " +
@@ -190,10 +199,13 @@ public sealed class CpuTools
         [Description("Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries retain aggregate behavior across process lifetimes.")]
         long? processStartUs = null,
         [Description("Optional exact thread start in trace-relative microseconds; requires pid and tid.")]
-        long? threadStartUs = null)
+        long? threadStartUs = null,
+        [Description("Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations.")]
+        long? threadGeneration = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
-        Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs);
+        Validation.RequireThreadSelector(
+            pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
         using var traceLease = _cache.Acquire(path);
@@ -204,7 +216,8 @@ public sealed class CpuTools
         var processScope = ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, identities);
         var scope = ResolveStackScope(
-            window, pid, tid, processStartUs, threadStartUs, identities, processScope);
+            window, pid, tid, processStartUs, threadStartUs, identities, processScope,
+            threadGeneration);
         return CpuAnalysis.CallerCallee(
             trace, function, top, scope,
             Console.Error, excludeEtwSelfOverhead, resolveSymbols, processScope,
@@ -218,12 +231,14 @@ public sealed class CpuTools
         long? processStartUs,
         long? threadStartUs,
         TraceIdentityIndex identities,
-        ProcessAnalysisScope? processScope = null)
+        ProcessAnalysisScope? processScope = null,
+        long? threadGeneration = null)
     {
         processScope ??= ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, identities);
         var resolution = ThreadAnalysisScope.Resolve(
-            window, pid, tid, processStartUs, threadStartUs, identities);
+            window, pid, tid, processStartUs, threadStartUs, identities,
+            threadGeneration);
         return ThreadAnalysisScope.Materialize(
             window,
             pid,
@@ -232,6 +247,7 @@ public sealed class CpuTools
             threadStartUs,
             identities,
             processScope,
-            resolution);
+            resolution,
+            threadGeneration);
     }
 }

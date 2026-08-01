@@ -200,6 +200,75 @@ public class FinalizerAnalysisTests
     }
 
     [Fact]
+    public void AnalyzeEvents_EventOutsideSelectedLifetimeIsNotScopedUnattributed()
+    {
+        var process = new ProcessInstanceKey(12, 0);
+        var response = FinalizerAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes:
+            [
+                new ProcessLifetime(process, 50, true, true),
+            ],
+            events:
+            [
+                FinalizerEvent.BatchStart(
+                    process.Pid,
+                    timeUs: 75,
+                    clrInstanceId: 1),
+            ],
+            pid: process.Pid,
+            window: new TimeWindow(0, 100),
+            processStartUs: process.StartUs);
+
+        Assert.Empty(response.Batches);
+        Assert.Equal(0, response.MatchedEventCount);
+        Assert.Equal("no_events_in_scope", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEventCount);
+        Assert.Equal(0, response.ScopedIdentityUnresolvedEventCount);
+        Assert.DoesNotContain(response.Warnings, warning =>
+            warning.StartsWith("source_events_unattributed:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_AllProcessUnresolvedObjectIsUnattributedButNotInterval()
+    {
+        var response = FinalizerAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes: [],
+            events: [FinalizerEvent.Object(12, 25, "Missing.Identity")],
+            pid: null,
+            window: new TimeWindow(0, 100),
+            processStartUs: null);
+
+        Assert.Equal("source_events_unattributed", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEventCount);
+        Assert.Equal(1, response.ScopedIdentityUnresolvedEventCount);
+        Assert.Equal(0, response.UnmatchedIntervalCount);
+    }
+
+    [Fact]
+    public void AnalyzeEvents_MissingClrIdentityInSiblingLifetimeIsNotScoped()
+    {
+        var selected = new ProcessInstanceKey(12, 50);
+        var response = FinalizerAnalysis.AnalyzeEvents(
+            traceEndUs: 100,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(12, 0), 50, true, true),
+                new ProcessLifetime(selected, 100, true, false),
+            ],
+            events: [FinalizerEvent.BatchStart(12, 25, clrInstanceId: null)],
+            pid: 12,
+            window: new TimeWindow(0, 100),
+            processStartUs: selected.StartUs);
+
+        Assert.Equal("no_events_in_scope", response.NoDataReason);
+        Assert.Equal(1, response.TraceIdentityUnresolvedEventCount);
+        Assert.Equal(0, response.ScopedIdentityUnresolvedEventCount);
+        Assert.Equal(0, response.UnmatchedIntervalCount);
+    }
+
+    [Fact]
     public void ClrFinalizerAnalysis_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));

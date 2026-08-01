@@ -40,7 +40,8 @@ Once installed ([one-liner below](#install)), ask the agent in plain language an
 
 > Inspect the trace and tell me what it can answer.
 (inspect_trace — observed capabilities, per-domain stack coverage, PDB
- identity/readiness, quality warnings, and applicable next tools)
+ identity metadata/configuration, quality warnings, and applicable next tools;
+ use diagnose_symbols to probe verified local readiness)
 
 > Diagnose high wait in PID <X> between <t0> and <t1>.
 (diagnose_high_wait — one window-consistent call returning candidates,
@@ -82,12 +83,12 @@ Forward extra flags through the one-liner:
 
 ```powershell
 # PowerShell — pin tag, force a single client, set custom symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.16 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.24 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
 ```
 
 ```bash
 # Bash — flags after `bash -s --` go to install.ps1
-curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.16
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash -s -- -Tag v0.2.24
 ```
 
 ### Uninstall (one-liner, symmetric)
@@ -164,7 +165,7 @@ dotnet build -c Release
 Smoke-check:
 
 ```powershell
-dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.2.16"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.3.0"
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
@@ -213,7 +214,7 @@ The MCP surface covers multiple ETW analysis domains and is built on the same `M
 * **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into CI / regression scripts.
 * **Composite tools.** `diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
 * **Capabilities-aware.** `load_trace` reports event classes actually observed after ETLX materialization, while individual responses distinguish `scope_not_found`, `event_class_not_observed`, `no_events_in_scope`, and `stacks_unavailable`. Observing no events does not prove which capture keyword was disabled.
-* **Per-trace symbol recommendations.** `load_trace` inspects modules in the trace and recommends which symbol servers to add. PerfView leaves symbol setup to the user.
+* **Per-trace symbol recommendations.** `load_trace` recommends servers only for matching modules with a complete PDB name/GUID/age lookup identity; incomplete identity gets recapture/merge guidance instead. PerfView leaves symbol setup to the user.
 
 ### Design philosophy
 
@@ -222,6 +223,24 @@ wpa-mcp is built to **avoid misleading the model without constraining what the m
 * **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, enabled-signal lists, quality gaps, recommended diagnostic flows, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
 * **Diagnostic composites** (`diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
 * **Per-domain row and stack tools** stay close to the PerfView shape. Process-targeted tools expose the selected `(Pid, ProcessStartUs)` lifetime (or explicitly label PID aggregation), and stack tools report event-domain coverage instead of inferring stack support from unrelated events.
+
+### 0.3.0 result-contract migration
+
+Clients must interpret the structured contract before interpreting `Rows`:
+
+| Field | Contract |
+|---|---|
+| `ScopeStatus` / `ScopeMode` | Whether the requested process/thread instance resolved, and whether the result is exact, all-process, or an explicit PID aggregate. A non-`ok` scope is not an empty successful analysis. |
+| `CapabilityStatus` | `observed` means the resolved requested scope matched the tool's source evidence; `not_observed` is reserved for established whole-trace absence; filtered uncertainty remains `unknown`. |
+| `MatchedEventCount` / `MatchedIntervalCount` | Scoped raw source events/endpoints versus completed projected intervals. Neither is a trace-wide denominator or necessarily the row count after aggregation/top-N. |
+| `NoDataReason` / `Warnings` | Distinguish missing or ambiguous scope, `event_class_not_observed`, `no_events_in_scope`, `source_events_unattributed`, `no_completed_intervals_in_scope`, `stacks_unavailable`, and `focus_not_found`. An empty array alone has no stable meaning. |
+| `MetricPrecision` / `RowMetricAccounting` / `ExactTotalAccounting` | Stack-row metrics accumulated through TraceEvent call trees can be `float32_per_sample_approximate` even when serialized as `long`; source totals and coverage counters marked `exact_long` remain exact. Do not require approximate rows to sum exactly to exact totals. |
+
+Fields prefixed `Trace*` describe the materialized whole trace; fields prefixed `Scoped*` describe the selected instance/window. Do not combine them as numerator and denominator unless the field description explicitly defines that ratio. Always replay a process row with `pid + processStartUs`. For a thread row preserve `pid + processStartUs + tid + threadStartUs + threadGeneration`; generation remains exact even when capture-boundary inference gives two lifetimes the same start timestamp.
+
+`inspect_trace` returns the same rules in its non-null `AnalysisContract`, and that compact contract is exported through the tool's real MCP `outputSchema`. This gives an MCP client machine-visible guidance without duplicating every large response schema across the complete tool catalog and overrunning the guarded `tools/list` budget.
+
+All tools are advertised as `ReadOnly=false` in the 0.3.0 MCP metadata because calls can change server state or filesystem state: the first `TraceLog.OpenOrConvert` may create/replace an adjacent `.etlx`, cache unload can retire resident state, symbol configuration is process-wide, and `resolveSymbols=true` may download/write PDBs. Caller-supplied trace/cache paths can also be UNC, mapped, or reparse-point targets, so raw-path tools are conservatively `OpenWorld=true` even without symbol lookup; only `set_symbol_path` is `OpenWorld=false`. `Destructive=true` conservatively covers sidecar replacement/refresh, cache retirement, and global symbol-path replacement; incremental `add_symbol_server` is the sole `Destructive=false` tool. All tools are idempotent except `set_symbol_path`. These flags describe operational risk, not mutation of the ETL's logical event stream.
 
 ### Usage pattern
 
@@ -234,7 +253,7 @@ wpa-mcp is built to **avoid misleading the model without constraining what the m
 * **Kernel infrastructure** — `HasRegistry`, `HasInterrupt`, `HasAlpc`, `HasThreadEvents`
 * **CLR runtime** — `HasClrGc`, `HasClrJit`, `HasClrAlloc`, `HasClrException`, `HasClrContention`
 
-`HasStackWalks` is a compatibility-wide union only. Before using a stack result, inspect that domain's `StackCoverage`: `TotalEventCount`, `StackedEventCount`, `StackCoveragePct`, and `CoverageState` (`no_events`, `no_stacks`, `partial`, or `full`). `StackSemantics` identifies the exact stack source. In particular, the `cswitch` domain uses the switch-out `BlockingStack`; the debug stack probe's ordinary CSwitch `CallStackIndex` is a different stack and can have a different coverage. A synthetic `?!?` row accounts for unstacked events; it is not a real call chain.
+`HasStackWalks` is a compatibility-wide union only. Before using a stack result, inspect that domain's `StackCoverage`: event coverage (`TotalEventCount`, `StackedEventCount`, `StackCoveragePct`), metric-weighted coverage (`TotalMetric`, `StackedMetric`, `MetricStackCoveragePct`), and `CoverageState` (`no_events`, `no_stacks`, `partial`, or `full`). `StackSemantics` identifies the exact stack source. In particular, the `cswitch` domain uses the switch-out `BlockingStack`; the debug stack probe's ordinary CSwitch `CallStackIndex` is a different stack and can have a different coverage. A synthetic `?!?` row accounts for unstacked events; `ContainsSyntheticUnknown` reports whether the current result contains one, and it is never a real call chain.
 
 The full call flow:
 
@@ -274,9 +293,9 @@ In the tables below, "PerfView equivalent" is the matching view in PerfView's GU
 
 Tools that accept `startUs` and `endUs` use a half-open interval: an event is included only when `startUs <= timestamp < endUs`. A null boundary means the trace start or trace end respectively.
 
-For PID-targeted tools, pass `processStartUs` from `list_processes` whenever the PID was reused. A PID-only call either reports `ScopeMode=pid_aggregate` and keeps lifetimes separate, or rejects an operation that requires exactly one lifetime. Check `ScopeStatus`, `CapabilityStatus`, `MatchedEventCount`, `NoDataReason`, `PidReuseObserved`, and `IncludedProcesses` before interpreting an empty `Rows` array. `CapabilityStatus=observed` means source events matched the resolved requested scope; `not_observed` is reserved for an established unfiltered/global absence; otherwise the value is `unknown`.
+For PID-targeted tools, pass `processStartUs` from `list_processes` whenever the PID was reused. A PID-only aggregate explicitly reports `ScopeMode=pid_aggregate` and retains the included lifetime keys in `IncludedProcesses`; rows/totals may combine those lifetimes according to the tool-specific accounting contract. Exact-only tools return structured `ScopeStatus/NoDataReason=process_start_required` for clean reuse, with replayable candidates. `ambiguous_process_instance` is reserved for unsafe/conflicting lifetime evidence. Check `ScopeStatus`, `CapabilityStatus`, `MatchedEventCount`, `NoDataReason`, `PidReuseObserved`, and `IncludedProcesses` before interpreting an empty `Rows` array. `CapabilityStatus=observed` means source events matched the resolved requested scope; `not_observed` is reserved for an established unfiltered/global absence; otherwise the value is `unknown`.
 
-For CPU/Wait tools that also accept `tid`, reuse is resolved with `threadStartUs`. Missing or ambiguous thread selectors return structured `scope_not_found` / `ambiguous_thread_instance` results rather than falling back to PID-only data. `IncludedThreads` contains `ThreadStartUs` and `ThreadEndUs`, so a candidate can be replayed with `pid + processStartUs + tid + threadStartUs`.
+For CPU/Wait tools that also accept `tid`, reuse is resolved with `threadStartUs` and the optional `threadGeneration`. Missing or ambiguous thread selectors return structured `scope_not_found` / `ambiguous_thread_instance` results rather than falling back to PID-only data. `IncludedThreads` contains `ThreadStartUs`, `ThreadEndUs`, and `Thread.Generation`; replay a candidate with `pid + processStartUs + tid + threadStartUs + threadGeneration`. Generation disambiguates rare capture-boundary lifetimes whose inferred start timestamps are equal.
 
 Tools without `startUs` / `endUs` operate on intentionally different scopes; each tool's MCP description states which:
 
@@ -289,7 +308,8 @@ Tools without `startUs` / `endUs` operate on intentionally different scopes; eac
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, observed-event capabilities, and per-trace symbol-server recommendations. `EventCount` is the ETLX-materialized logical-event count; raw ETW record count and a parser-coverage ratio are reported as not measured rather than inferred. First call may take 30 s–3 min while `.etlx` builds; subsequent calls reuse it. | Open a trace file (no `Capabilities` equivalent) |
-| **`inspect_trace`** | One-shot orientation: observed capabilities, system metadata, provider counts, per-domain stack coverage, PDB identity/local-readiness information, quality warnings, and supported next-tool hints. PDB identity is not reported as successful frame resolution; real frame-resolution statistics appear only after a stack lookup actually runs. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
+| **`unload_trace`** | Retires the in-memory entry without interrupting active leases. For a raw `.etl`, it registers a sidecar-refresh request in the current server process; the next successful load attempts the refresh. The request does not survive restart, so call it after an in-place rewrite and call it again after any restart before loading that path. | Close and reopen after invalidating the derived index |
+| **`inspect_trace`** | One-shot orientation: observed capabilities, system metadata, provider counts, per-domain stack coverage, PDB identity metadata/configuration, quality warnings, and supported next-tool hints. It does not probe local PDB candidates or readiness; run `diagnose_symbols` for that, then a stack tool for observed frame resolution. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
 | `list_processes` | Lists process lifetimes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` ranks "high wall, low CPU" candidates; the ratio does not identify what they waited on. PID 0 (Idle) and PID 4 (System) are hidden by default. | Processes view |
 | `process_create_timing` | Per-child timing for a parent process lifetime. `FirstImageLoadOffsetUs` is the observed interval between `ProcessStart` and the first DLL load. It can include callbacks, scanning, suspension, scheduling, and other work; the interval alone does not identify a mechanism or root cause. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |
@@ -390,13 +410,13 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `clr_gc_analysis` | Per-GC list with wall duration AND stop-the-world pause time. `GCStart`→`GCStop` brackets the wall interval; `GCSuspendEEStart`→`GCRestartEEStop` is the actual mutator pause (matters for background / concurrent GC, where the wall covers far more than the pause). Reports per-row `Generation` / `Reason` / `PauseUs` plus aggregate `TotalGcCount` / `Gen0Count` / `Gen1Count` / `Gen2Count` / `TotalPauseUs`. | GCStats |
-| `clr_jit_analysis` | Top-N methods by JIT compilation duration. Matches `MethodJittingStarted`→`MethodLoadVerbose` on `(PID, MethodID)`. R2R / NGen / pre-jitted methods don't fire `JittingStarted`, so they're invisible — which is correct for "what's the JIT cost in this trace". | JIT Stats |
+| `clr_gc_analysis` | Per-GC wall and stop-the-world pause intervals, paired over the whole trace before projection into the requested window. `DurationUs` / `PauseUs` and `TotalGcUs` / `TotalPauseUs` are compatibility aliases for accounted clipped overlap; `FullDurationUs` / `FullPauseUs` and `TotalFullGcUs` / `TotalFullPauseUs` preserve complete paired interval values. `GCStart`→`GCStop` brackets the wall interval; `GCSuspendEEStart`→`GCRestartEEStop` brackets the mutator pause. | GCStats |
+| `clr_jit_analysis` | Top-N methods by JIT compilation duration. Matches `MethodJittingStarted`→`MethodLoadVerbose` on `(ProcessInstanceKey, ClrInstanceId, MethodId)` over the whole trace, then projects into the requested window. `JitDurationUs` is the accounted clipped-overlap alias and `FullDurationUs` is the complete paired duration; `MethodIlSize` is IL byte size, not generated native-code size. R2R / NGen / pre-jitted methods don't fire `JittingStarted`, so they're invisible. | JIT Stats |
 | `clr_alloc_top_stacks` | Top-N stacks by managed-heap allocation bytes, driven by `GCAllocationTick` events (one per ~100 KB allocated per `(heap, generation, type)` — sampled, low-overhead, on every CLR ≥ 4.0). Response includes `TopTypes` (top type names by total bytes). The canonical "who's allocating all the strings on the request hot path" tool. Requires the `GC` keyword. | GC Heap Alloc Stacks |
 | `clr_alloc_caller_callee` | Drill on a focus frame; metric is allocation bytes. | GC Heap Alloc Stacks → Callers / Callees tabs |
 | `clr_exception_top_stacks` | Top-N stacks by .NET exception throw count (`ExceptionStart` events). Useful for "is this code path throwing 1000 exceptions per second" / "where is `FormatException` being swallowed in a retry loop". Response includes `TopTypes` (top exception type names by count). Requires the `Exception` keyword. | Exceptions Stacks |
 | `clr_exception_caller_callee` | Drill on a focus frame; metric is exception count. | Exceptions Stacks → Callers / Callees tabs |
-| `clr_contention_top_stacks` | Top-N stacks by managed-monitor blocked μs — `lock` / `Monitor.Enter` waits. Matches `ContentionStart`→`ContentionStop` by `ThreadID`. Filters to `ContentionFlags.Managed` (native lock contention from the same provider is excluded). The canonical lock-hotspot tool for managed code. Requires the `Contention` keyword. | Monitor Contention Stacks |
+| `clr_contention_top_stacks` | Top-N stacks by managed-monitor blocked μs — `lock` / `Monitor.Enter` waits. Matches `ContentionStart`→`ContentionStop` by `ThreadInstanceKey` (process lifetime + TID generation), then charges only overlap with the requested window; `TotalFullBlockedUs` preserves complete paired time. Only completed pairs contribute blocked-time metrics and stack coverage. Filters to `ContentionFlags.Managed` (native contention is excluded). Requires the `Contention` keyword. | Monitor Contention Stacks |
 | `clr_contention_caller_callee` | Drill on a focus frame; metric is blocked μs. | Monitor Contention Stacks → Callers / Callees tabs |
 | `clr_gc_heap_stats` | Managed-heap snapshot timeline with heap-generation sizes, pinned-object count, and GC-handle count. Use it to identify trends; an upward trend alone is not proof of a leak or an object-retention path. Pairs with `clr_gc_analysis`. | GCStats per-GC snapshot table |
 | `clr_finalizer_analysis` | Top types observed being finalized + finalizer-thread execution batches. Aggregates `GCFinalizeObject` by `TypeName` and pairs `GCFinalizersStart`→`GCFinalizersStop`. Batch duration is not automatically an application pause. This supports investigating whether finalizer work overlaps GC delays; it does not by itself attribute a slow GC or identify allocation sites. | **[Composite]** — GCStats fields + Events view filtering combined into one call |
@@ -406,6 +426,7 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | `find_marker` | Search all materialized ETW events whose name or task contains a substring. Default mode `count_by_event` returns a histogram; `count_by_process` and `rows` expose more detail. It can surface Defender / EDR provider events such as `AMFilter_FileScan`, but event presence is not a duration or performance-causality claim. Empty results return `no_name_match`. | Events view |
+| `security_scan_analysis` | Aggregates known Defender scan schemas plus scan-like vendor/provider events. PID means payload target PID; missing target identity uses an explicitly marked emitter fallback. `EvidenceKind`, `Provenance`, and `Confidence` separate paired high-confidence schemas from low-confidence name heuristics. Presence, vendor classification, and timing overlap do not by themselves prove an AV scan or performance root cause. Used by `diagnose_window`. | **[Composite]** — paired Defender events + heuristic Events-view evidence |
 | `generic_event_top_stacks` | Top-N stacks by event count for **any** user-mode ETW provider — AspNetCore, Kestrel, EFCore, Antimalware-AMFilter, Sense (Defender for Endpoint), `Microsoft-Windows-DxgKrnl` (GPU), `Microsoft-Windows-Kernel-Power` (CPU frequency / C-state), or any custom EventSource. Use `find_marker` first to identify which providers are in the trace, then plug the exact `ProviderName` here. Optional `eventNameSubstring` narrows to a specific event class. Stack quality depends on whether stack-walks were enabled for the provider in the `.wprp`. | Any Stacks (single-provider) |
 | `generic_event_caller_callee` | Drill on a focus frame; metric is event count. | Any Stacks → Callers / Callees tabs |
 
@@ -423,7 +444,7 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 |---|---|---|
 | `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
 | `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WpaMcp\Symbols`). | File → Set Symbol Path… (single entry) |
-| `diagnose_symbols` | Reports module PDB identity/local-readiness state and suggests symbol-path fixes. It does not label a module resolved merely because the trace contains a PDB name. Frame counts and resolution rates are null/not measured until a stack lookup observes real code frames. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
+| `diagnose_symbols` | Reports module PDB identity/local-candidate state and suggests symbol-path fixes. It does not label a module ready/resolved merely because a PDB file or name exists. Frame counts and resolution rates are null/not measured until a stack lookup observes real code frames. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
 
 ---
 
@@ -431,7 +452,9 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 
 ### Trace cache
 
-LRU, default capacity 2 traces. Override with `WPAMCP_CACHE_SIZE=N`. A query holds a cache lease for its entire use of the trace; eviction, unload, or shutdown retires an entry and disposes it only after the final active lease ends. Concurrent first access uses one winning Lazy open rather than converting the same large ETL multiple times.
+LRU, default capacity 2 traces. Override with `WPAMCP_CACHE_SIZE=N`. A query holds a cache lease for its entire use of the trace; eviction, unload, or shutdown retires an entry and disposes it only after the final active lease ends. Failed native/mmap cleanup remains centrally owned and is retried by a later cache shutdown call instead of becoming unreachable after a `using` scope exits. Concurrent first access uses one winning Lazy open rather than converting the same large ETL multiple times.
+
+Cache keys use the canonical full path and, on Windows, case-insensitive comparison, so path-casing aliases share one entry and `unload_trace` invalidates the same entry through either spelling. Freshness uses last-write time, creation time, length, and—when Windows exposes it—volume/file identity. Replacement and most rewrites therefore retire the old entry. Residual boundary: an in-place rewrite that preserves the same file identity, length, and timestamps cannot be detected automatically; call `unload_trace` before querying that path again. For a raw `.etl`, this registers a current-server refresh request; the next successful load attempts to regenerate the adjacent `.etlx`. A restart clears the request, so call `unload_trace` again after restart and before loading the rewritten ETL. Active queries finish on their existing lease.
 
 ### Capturing your own traces
 
@@ -445,7 +468,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 
 ### Symbols
 
-> **Judge symbol quality from the stack tool that actually ran lookup.** `inspect_trace` can report PDB identity and local readiness, but not successful frame resolution. A stack response with `SymbolResolutionState=executed` and a low observed code-frame resolution rate needs symbol-path work; a null rate means no eligible code frames were measured, not 0% resolution.
+> **Judge symbol quality from the stack tool that actually ran lookup.** Keep four layers separate: trace PDB identity (name + GUID + age), a locally discovered PDB candidate, verified local readiness, and actual observed frame-name resolution. `diagnose_symbols` directly opens discovered candidate paths and sets readiness only for an exact GUID/age match; it does not actively access remote SRV/UNC entries or download symbols. A configured local-looking root can still be redirected by Windows through a mapped drive or reparse point. A lookup-executing stack query is still required to measure frame resolution. A null rate means no eligible code frames were measured, not 0% resolution.
 
 #### Where to set the path
 
@@ -459,7 +482,7 @@ wpr.exe -stop C:\path\to\my_capture.etl
 2. **Per-MCP-server `--symbol-path` arg** in the config JSON/TOML (see manual install above).  Easiest to share between teammates.
 3. **Runtime via tool calls** — ask the agent: *"set the symbol path to SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols, then run `diagnose_symbols` on this trace."*
 
-Symbol cache defaults to `%LocalAppData%\WpaMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention).  Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
+When `add_symbol_server` is called without `cacheDir`, its fallback cache is `%LocalAppData%\WpaMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). In `diagnose_symbols`, `DefaultCacheDir` reports only that fallback; legacy `CacheDir` is its compatibility alias, not proof that the current `ConfiguredSymbolPath` uses it. Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
 
 #### Beyond Microsoft modules
 
@@ -489,6 +512,6 @@ A symbol server doesn't help if the build never produced a PDB, or if PDB and de
 > cpu_top_functions C:\my\trace.etl
 ```
 
-`diagnose_symbols` lists PDB identity and local-readiness state with configuration hints. Run the relevant stack tool to measure actual observed code-frame resolution; interpret its rate together with `SymbolResolutionState`, domain stack coverage, and synthetic-frame count rather than applying a universal threshold. Normal read-only queries use a query-local effective symbol path and do not mutate `_NT_SYMBOL_PATH`; only `set_symbol_path` and `add_symbol_server` intentionally change process state.
+`diagnose_symbols` lists PDB identity and local candidate state with configuration hints. A bare path entry is checked only as `<root>\<pdbName>`; only non-UNC filesystem roots declared by `SRV`/`SYMSRV`/`CACHE` are checked as `<root>\<pdbName>\<GUIDAge>\<pdbName>`. Every discovered candidate is validated before the displayed list is capped at 10; `LocalSymbolCandidateCount` and `LocalSymbolCandidatesTruncated` disclose the total, and any exact match is shown first. A recognizable container or symbol-store placement alone is not proof of identity: the tool reports `exact_identity_match`, `identity_mismatch`, `invalid_local_pdb_candidate`, or `candidate_identity_unverified`. Windows DIA failures that cannot distinguish candidate incompatibility from reader failure remain `candidate_identity_unverified`; they are not labeled corrupt. `LocalPdbReady=true` requires an exact GUID/age match from the format-appropriate reader. Run the relevant stack tool with `resolveSymbols=true` to measure actual observed code-frame resolution. Queries use a query-local effective symbol path and do not mutate `_NT_SYMBOL_PATH`; only `set_symbol_path` and `add_symbol_server` intentionally change that process setting. `diagnose_symbols` does not actively access remote SRV/UNC entries or download PDBs, but Windows may redirect a local-looking root through a mapped drive or reparse point; loading the trace may also write an `.etlx` sidecar as described above.
 
 For full recipes (UNC paths, private vendors, Chromium-family browsers, cache management, troubleshooting), see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md) ([中文](docs/SYMBOL_RECIPES.zh-CN.md)). Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).

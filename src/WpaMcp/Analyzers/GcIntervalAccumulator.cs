@@ -40,6 +40,11 @@ internal sealed record GcIncompleteEvidence(
     long TimestampUs,
     string EventKind);
 
+internal readonly record struct GcIntervalAnomaly(
+    ProcessInstanceKey Process,
+    long StartUs,
+    long EndUs);
+
 internal sealed record GcIntervalSet(
     IReadOnlyList<GcWallWithPauses> Gcs,
     IReadOnlyList<GcPauseInterval> OrphanPauses,
@@ -48,7 +53,10 @@ internal sealed record GcIntervalSet(
     int UnmatchedGcStopCount,
     int UnmatchedSuspendStartCount,
     int UnmatchedRestartStopCount,
-    int InvalidIntervalCount);
+    int InvalidIntervalCount,
+    IReadOnlyList<GcIntervalAnomaly>? UnmatchedGcIntervals = null,
+    IReadOnlyList<GcIntervalAnomaly>? UnmatchedPauseIntervals = null,
+    IReadOnlyList<GcIntervalAnomaly>? InvalidIntervals = null);
 
 internal sealed class GcIntervalAccumulator
 {
@@ -201,7 +209,28 @@ internal sealed class GcIntervalAccumulator
             gcPairs.UnmatchedStops.Count,
             pausePairs.UnmatchedStarts.Count,
             pausePairs.UnmatchedStops.Count,
-            gcPairs.InvalidIntervals.Count + pausePairs.InvalidIntervals.Count);
+            gcPairs.InvalidIntervals.Count + pausePairs.InvalidIntervals.Count,
+            gcPairs.UnmatchedStarts
+                .Select(item => new GcIntervalAnomaly(
+                    item.Key.Process, item.TimeUs, item.TimeUs))
+                .Concat(gcPairs.UnmatchedStops.Select(item =>
+                    new GcIntervalAnomaly(
+                        item.Key.Process, item.TimeUs, item.TimeUs)))
+                .ToArray(),
+            pausePairs.UnmatchedStarts
+                .Select(item => new GcIntervalAnomaly(
+                    item.Key.Process, item.TimeUs, item.TimeUs))
+                .Concat(pausePairs.UnmatchedStops.Select(item =>
+                    new GcIntervalAnomaly(
+                        item.Key.Process, item.TimeUs, item.TimeUs)))
+                .ToArray(),
+            gcPairs.InvalidIntervals
+                .Select(item => new GcIntervalAnomaly(
+                    item.Key.Process, item.StartUs, item.EndUs))
+                .Concat(pausePairs.InvalidIntervals.Select(item =>
+                    new GcIntervalAnomaly(
+                        item.Key.Process, item.StartUs, item.EndUs)))
+                .ToArray());
         return _completedResult;
     }
 

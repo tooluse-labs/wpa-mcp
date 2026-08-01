@@ -134,7 +134,7 @@ public static class ReadyThreadStackAnalysis
         {
             traceTotalCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.PassesFilter(nowUs)) traceEventCount++;
+            traceEventCount++;
             // ReadyThread compares against AwakenedProcessID (the readied process), not the
             // readier — req.Pid is `awakenedPid` here per the analyzer's public API.
             if (!req.PassesFilter(data.AwakenedProcessID, nowUs)) return;

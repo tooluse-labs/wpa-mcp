@@ -128,6 +128,33 @@ public sealed class SchedulerIntervalAccumulatorTests
     }
 
     [Fact]
+    public void Complete_SeparatesTraceAndScopedUnmatchedBlockedIntervals()
+    {
+        var target = Thread(10, 0, 5, 1);
+        var other = Thread(20, 0, 6, 1);
+        var accumulator = new SchedulerIntervalAccumulator();
+        accumulator.ProcessSwitch(target, null, 10, "Executive", core: 0);
+        accumulator.ProcessSwitch(other, null, 20, "Executive", core: 1);
+
+        var result = accumulator.Complete(100);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 50),
+            Pid: 10,
+            Process: null,
+            Thread: new ThreadLifetime(
+                target,
+                StartUs: 0,
+                EndUs: 100,
+                StartObserved: true,
+                EndObserved: false),
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+
+        Assert.Equal(2, result.UnmatchedBlockedIntervalCount);
+        Assert.Equal(1, result.CountScopedUnmatchedBlockedIntervals(scope));
+    }
+
+    [Fact]
     public void Complete_ClipsRunningIntervalToResolvedThreadEnd()
     {
         var process = new ProcessLifetime(
@@ -167,6 +194,37 @@ public sealed class SchedulerIntervalAccumulatorTests
 
         Assert.Null(closed.Running);
         Assert.Equal(1, result.UnmatchedRunningIntervalCount);
+    }
+
+    [Fact]
+    public void BackwardBlockedInterval_IsScopedWhenEitherEndpointIsInWindow()
+    {
+        var thread = Thread(10, 0, 5, 1);
+        var accumulator = new SchedulerIntervalAccumulator();
+        accumulator.ProcessSwitch(
+            oldThread: thread,
+            newThread: null,
+            timestampUs: 110,
+            waitReason: "Executive",
+            core: 0);
+        accumulator.ProcessSwitch(
+            oldThread: null,
+            newThread: thread,
+            timestampUs: 90,
+            waitReason: "Unknown",
+            core: 0);
+        var result = accumulator.Complete(200);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(100, 200),
+            Pid: 10,
+            Process: null,
+            Thread: new ThreadLifetime(
+                thread, 0, 200, StartObserved: true, EndObserved: false),
+            AggregatesPidLifetimes: false,
+            PidReuseObserved: false);
+
+        Assert.Equal(1, result.UnmatchedBlockedIntervalCount);
+        Assert.Equal(1, result.CountScopedUnmatchedBlockedIntervals(scope));
     }
 
     [Fact]

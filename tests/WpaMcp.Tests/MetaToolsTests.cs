@@ -24,6 +24,28 @@ public class MetaToolsTests
     }
 
     [Fact]
+    public void UnloadTrace_RetiresResidentEntry_AndRegistersProcessLocalRefreshRequest()
+    {
+        using var cache = new TraceCache(capacity: 2);
+        var tools = new MetaTools(cache);
+        tools.LoadTrace(FixturePath);
+
+        var first = tools.UnloadTrace(FixturePath);
+        var second = tools.UnloadTrace(FixturePath);
+
+        Assert.Equal(Path.GetFullPath(FixturePath), first.Path);
+        Assert.True(first.CacheEntryRetired);
+        Assert.True(first.NextLoadForcesEtlxRefresh);
+        Assert.True(first.RefreshRequestedForCurrentServerProcess);
+        Assert.Equal("current_server_process_only", first.RefreshRequestLifetime);
+        Assert.False(second.CacheEntryRetired);
+        Assert.True(second.NextLoadForcesEtlxRefresh);
+        Assert.True(second.RefreshRequestedForCurrentServerProcess);
+        Assert.Contains(first.Warnings, warning =>
+            warning.Contains("only in this running server process", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void EventCountsDeclareTraceLogMaterializedRepresentation_NotParserCoverage()
     {
         var cache = new TraceCache(capacity: 2);
@@ -111,11 +133,41 @@ public class MetaToolsTests
         Assert.Equal(
             unresolvedModules.OrderBy(module => module, StringComparer.OrdinalIgnoreCase),
             unresolvedModules);
+        Assert.All(resp.SymbolQuality.TopModulesMissingPdbName, module =>
+            Assert.Contains("Recapture or merge", module.Hint, StringComparison.Ordinal));
         Assert.Contains(resp.OrientationTools, r => r.ToolName == "list_processes");
         Assert.DoesNotContain(resp.CapabilitySupportedTools, r => r.ToolName == "list_processes");
         Assert.NotEmpty(resp.EnabledCapabilities);
         Assert.DoesNotContain(resp.EnabledCapabilities, capability => capability.StartsWith("missing_", StringComparison.OrdinalIgnoreCase));
         Assert.NotEmpty(resp.RecommendedDiagnosticFlows);
+        var contract = Assert.IsType<AnalysisContractGuidance>(resp.AnalysisContract);
+        Assert.Contains("ScopeStatus=ok", contract.ScopeRule, StringComparison.Ordinal);
+        Assert.Contains("MatchedIntervalCount", contract.CountRule, StringComparison.Ordinal);
+        Assert.Equal(
+            "source_events_unattributed",
+            contract.NoDataReasons.SourceEventsUnattributed);
+    }
+
+    [Fact]
+    public void InspectTrace_SymbolServerRecommendationsRequireCompletePdbIdentity()
+    {
+        var cache = new TraceCache(capacity: 2);
+        var response = new MetaTools(cache).InspectTrace(FixturePath);
+        var completeIdentityModules = cache.Get(FixturePath).ModuleFiles
+            .Where(module => SymbolTools.HasCompletePdbIdentity(
+                module.PdbName,
+                module.PdbSignature,
+                module.PdbAge))
+            .Select(module => module.Name ?? string.Empty)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.All(response.SymbolQuality.Recommendations, recommendation =>
+        {
+            Assert.True(recommendation.MatchedModuleCount > 0);
+            Assert.NotEmpty(recommendation.SampleModules);
+            Assert.All(recommendation.SampleModules, module =>
+                Assert.Contains(module, completeIdentityModules));
+        });
     }
 
     [Fact]
@@ -195,6 +247,10 @@ public class MetaToolsTests
                 CompletePdbIdentityRate: 0));
 
         Assert.Contains(warnings, warning => warning.Code == "low_module_pdb_identity_coverage");
+        var identityWarning = Assert.Single(
+            warnings,
+            warning => warning.Code == "low_module_pdb_identity_coverage");
+        Assert.Contains("Recapture or merge", identityWarning.NextStep, StringComparison.Ordinal);
         Assert.DoesNotContain(warnings, warning =>
             warning.Message.Contains("resolved PDB", StringComparison.OrdinalIgnoreCase));
 
@@ -329,10 +385,10 @@ public class MetaToolsTests
         var attribute = method?.GetCustomAttribute<McpServerToolAttribute>();
 
         Assert.NotNull(attribute);
-        Assert.True(attribute.ReadOnly);
+        Assert.False(attribute.ReadOnly);
         Assert.True(attribute.Idempotent);
-        Assert.False(attribute.OpenWorld);
-        Assert.False(attribute.Destructive);
+        Assert.True(attribute.OpenWorld);
+        Assert.True(attribute.Destructive);
         Assert.True(attribute.UseStructuredContent);
     }
 

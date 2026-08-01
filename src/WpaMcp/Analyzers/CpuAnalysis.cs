@@ -240,9 +240,8 @@ public static class CpuAnalysis
         var resolvedScopes = scopes.Where(item => item.Scope.IsResolved).ToArray();
         foreach (var missing in scopes.Where(item => !item.Scope.IsResolved))
         {
-            warnings.Add(
-                $"scope_not_found: PID {missing.Selector.Pid} processStartUs=" +
-                $"{missing.Selector.ProcessStartUs?.ToString() ?? "<aggregate>"} has no process lifetime in the requested window.");
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                missing.Scope.ScopeStatus));
         }
         if (resolvedScopes.Length == 0)
         {
@@ -384,7 +383,7 @@ public static class CpuAnalysis
             .Select(item => item.Selector.Pid)
             .ToArray();
         var pidsNotFound = scopes
-            .Where(item => !item.Scope.IsResolved)
+            .Where(item => item.Scope.ScopeStatus == ProcessAnalysisScope.NotFoundStatus)
             .Select(item => item.Selector.Pid)
             .ToArray();
         var pidsWithNoSamples = completedPids
@@ -399,13 +398,13 @@ public static class CpuAnalysis
                 samples,
                 hasFilter: true,
                 traceHasCpuSamples: traceHasCpuSamples,
-                scopeNoDataReason: "scope_not_found");
+                scopeNoDataReason: item.Scope.ScopeStatus);
             string resultStatus;
             string? noDataReason;
             if (!item.Scope.IsResolved)
             {
-                resultStatus = "scope_not_found";
-                noDataReason = "scope_not_found";
+                resultStatus = item.Scope.ScopeStatus;
+                noDataReason = item.Scope.ScopeStatus;
             }
             else if (skippedSet.Contains(pid))
             {
@@ -574,7 +573,7 @@ public static class CpuAnalysis
             !scopeResolved
                 ? scope!.Value.NoDataReason
                 : processScope is { IsResolved: false }
-                    ? "scope_not_found"
+                    ? processScope.ScopeStatus
                     : null);
 
         var rows = callTree.ByID
@@ -605,13 +604,13 @@ public static class CpuAnalysis
             scope.Value.PidReuseObserved)
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+                "pid_aggregate: pid-only scope aggregates multiple process lifetimes.");
         }
         if (processScope is { ScopeMode: "pid_aggregate", PidReuseObserved: true } &&
             scope?.ScopeMode != "single_process")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes; inspect IncludedProcesses or supply processStartUs.");
+                "pid_aggregate: pid-only scope aggregates multiple process lifetimes; inspect IncludedProcesses or supply processStartUs.");
         }
         if (stackCoverage is not null)
             StackSourceTopN.AddCoverageWarning(warnings, stackCoverage);
@@ -627,8 +626,8 @@ public static class CpuAnalysis
         }
         else if (processScope is { IsResolved: false })
         {
-            warnings.Add(
-                "scope_not_found: the selected PID/processStartUs did not match a process lifetime in the requested half-open window.");
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                processScope.ScopeStatus));
         }
         else if (sourceTotalSamples == 0)
         {
@@ -764,7 +763,7 @@ public static class CpuAnalysis
         if (scope.ScopeMode == "pid_aggregate" && scope.PidReuseObserved)
         {
             baseWarnings.Add(
-                "ambiguous_process_instance: pid-only scope aggregates multiple process lifetimes.");
+                "pid_aggregate: pid-only scope aggregates multiple process lifetimes.");
         }
 
         var hasFilter = scope.Pid.HasValue || scope.Thread is not null ||

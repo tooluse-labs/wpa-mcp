@@ -36,6 +36,33 @@ internal static class ToolListPayload
             .ToList();
     }
 
+    internal static IReadOnlyList<Tool> MeasureCurrentTools(
+        IServiceProvider? services = null,
+        Assembly? assembly = null)
+    {
+        using var toolScope = CreateToolScope(services);
+        return CurrentTools(toolScope.Services, assembly);
+    }
+
+    internal static IReadOnlyList<ToolPayloadStats> MeasureCurrentToolPayloads(
+        IServiceProvider? services = null,
+        Assembly? assembly = null)
+    {
+        using var toolScope = CreateToolScope(services);
+        return CurrentTools(toolScope.Services, assembly)
+            .Select(tool => new ToolPayloadStats(
+                tool.Name,
+                JsonSerializer.SerializeToUtf8Bytes(
+                    tool, McpJsonUtilities.DefaultOptions).Length,
+                tool.OutputSchema is null
+                    ? 0
+                    : JsonSerializer.SerializeToUtf8Bytes(
+                        tool.OutputSchema, McpJsonUtilities.DefaultOptions).Length))
+            .OrderByDescending(stats => stats.PayloadBytes)
+            .ThenBy(stats => stats.ToolName, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static IReadOnlyList<Tool> CurrentTools(IServiceProvider services, Assembly? assembly)
     {
         assembly ??= typeof(Program).Assembly;
@@ -88,6 +115,14 @@ internal static class ToolListPayload
 internal sealed record ToolListPayloadStats(int ToolCount, int PayloadBytes, int MaxPayloadBytes)
 {
     public bool ExceedsLimit => PayloadBytes > MaxPayloadBytes;
+}
+
+internal sealed record ToolPayloadStats(
+    string ToolName,
+    int PayloadBytes,
+    int OutputSchemaBytes)
+{
+    public bool HasOutputSchema => OutputSchemaBytes > 0;
 }
 
 internal sealed class ToolListPayloadHostedService(

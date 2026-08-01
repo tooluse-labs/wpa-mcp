@@ -20,11 +20,27 @@ internal readonly record struct ClosedSchedulerIntervals(
     RunningInterval? Running,
     BlockedInterval? Blocked);
 
+internal readonly record struct IncompleteBlockedInterval(
+    ThreadInstanceKey Thread,
+    long StartUs,
+    long EndUs,
+    string Code);
+
 internal sealed record SchedulerIntervalResult(
     IReadOnlyList<RunningInterval> ClosedAtTraceEnd,
     int UnmatchedRunningIntervalCount,
     int UnmatchedBlockedIntervalCount,
-    int IdentityMismatchCount);
+    int IdentityMismatchCount,
+    IReadOnlyList<IncompleteBlockedInterval> UnmatchedBlockedIntervals)
+{
+    public int CountScopedUnmatchedBlockedIntervals(ThreadAnalysisScope scope) =>
+        UnmatchedBlockedIntervals.Count(interval =>
+            scope.MatchesThread(interval.Thread) &&
+            (scope.Window.IntersectDurationUs(interval.StartUs, interval.EndUs) > 0 ||
+             (interval.EndUs <= interval.StartUs &&
+              (scope.Window.ContainsPoint(interval.StartUs) ||
+               scope.Window.ContainsPoint(interval.EndUs)))));
+}
 
 internal sealed class SchedulerIntervalAccumulator
 {
@@ -34,6 +50,7 @@ internal sealed class SchedulerIntervalAccumulator
     private int _unmatchedRunningIntervalCount;
     private int _unmatchedBlockedIntervalCount;
     private int _identityMismatchCount;
+    private readonly List<IncompleteBlockedInterval> _unmatchedBlockedIntervals = [];
     private bool _completed;
 
     public SchedulerIntervalAccumulator(
@@ -75,10 +92,15 @@ internal sealed class SchedulerIntervalAccumulator
 
         if (oldThread.HasValue)
         {
-            if (_blocked.ContainsKey(oldThread.Value))
+            if (_blocked.TryGetValue(oldThread.Value, out var overwritten))
             {
                 _unmatchedBlockedIntervalCount++;
                 _identityMismatchCount++;
+                _unmatchedBlockedIntervals.Add(new IncompleteBlockedInterval(
+                    oldThread.Value,
+                    overwritten.StartUs,
+                    timestampUs,
+                    "overwritten_switch_out"));
             }
             _blocked[oldThread.Value] = new BlockedStart(
                 timestampUs,
@@ -103,6 +125,11 @@ internal sealed class SchedulerIntervalAccumulator
                 else
                 {
                     _unmatchedBlockedIntervalCount++;
+                    _unmatchedBlockedIntervals.Add(new IncompleteBlockedInterval(
+                        newThread.Value,
+                        blocked.StartUs,
+                        timestampUs,
+                        "non_positive_interval"));
                 }
             }
             else if (HasBlockedRawIdentity(newThread.Value))
@@ -141,8 +168,15 @@ internal sealed class SchedulerIntervalAccumulator
             }
         }
 
-        if (_blocked.Remove(thread))
+        if (_blocked.Remove(thread, out var blocked))
+        {
             _unmatchedBlockedIntervalCount++;
+            _unmatchedBlockedIntervals.Add(new IncompleteBlockedInterval(
+                thread,
+                blocked.StartUs,
+                timestampUs,
+                "thread_stopped_while_blocked"));
+        }
 
         return new ClosedSchedulerIntervals(closedRunning, Blocked: null);
     }
@@ -160,6 +194,14 @@ internal sealed class SchedulerIntervalAccumulator
                 closedAtTraceEnd.Add(interval.Value);
         }
 
+        foreach (var item in _blocked)
+        {
+            _unmatchedBlockedIntervals.Add(new IncompleteBlockedInterval(
+                item.Key,
+                item.Value.StartUs,
+                traceEndUs,
+                "open_at_trace_end"));
+        }
         _unmatchedBlockedIntervalCount += _blocked.Count;
         _runningByCore.Clear();
         _blocked.Clear();
@@ -169,7 +211,8 @@ internal sealed class SchedulerIntervalAccumulator
             closedAtTraceEnd,
             _unmatchedRunningIntervalCount,
             _unmatchedBlockedIntervalCount,
-            _identityMismatchCount);
+            _identityMismatchCount,
+            _unmatchedBlockedIntervals.ToArray());
     }
 
     private RunningInterval? CloseRunning(RunningStart running, long endUs, int core)

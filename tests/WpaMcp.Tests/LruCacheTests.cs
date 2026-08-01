@@ -158,4 +158,60 @@ public class LruCacheTests
         Assert.Throws<ObjectDisposedException>(() => cache.GetOrAdd("a", _ => 1));
         Assert.Throws<ObjectDisposedException>(() => cache.TryGet("a", out _));
     }
+
+    [Fact]
+    public void Dispose_AttemptsEveryRemovalCallbackBeforeReportingFailures()
+    {
+        var attempted = new List<int>();
+        var attemptsByValue = new Dictionary<int, int>();
+        var cache = new LruCache<string, int>(capacity: 3, value =>
+        {
+            attempted.Add(value);
+            attemptsByValue[value] = attemptsByValue.GetValueOrDefault(value) + 1;
+            if (value is 1 or 3 && attemptsByValue[value] == 1)
+                throw new IOException($"failure {value}");
+        });
+        cache.GetOrAdd("a", _ => 1);
+        cache.GetOrAdd("b", _ => 2);
+        cache.GetOrAdd("c", _ => 3);
+
+        var error = Assert.Throws<AggregateException>(() => cache.Dispose());
+
+        Assert.Equal([3, 2, 1], attempted);
+        Assert.Equal(2, error.InnerExceptions.Count);
+
+        cache.Dispose();
+
+        Assert.Equal([3, 2, 1, 3, 1], attempted);
+    }
+
+    [Fact]
+    public void FailedEvictionCallback_IsRetriedByDispose()
+    {
+        var attempts = 0;
+        var cache = new LruCache<string, int>(capacity: 1, _ =>
+        {
+            if (Interlocked.Increment(ref attempts) == 1)
+                throw new IOException("transient eviction cleanup failure");
+        });
+        cache.GetOrAdd("a", _ => 1);
+
+        Assert.Throws<IOException>(() => cache.GetOrAdd("b", _ => 2));
+        cache.Dispose();
+
+        Assert.Equal(3, attempts); // retry evicted a, then retire resident b
+    }
+
+    [Fact]
+    public void ConstructorComparerControlsKeyIdentity()
+    {
+        using var cache = new LruCache<string, int>(
+            capacity: 2,
+            comparer: StringComparer.OrdinalIgnoreCase);
+
+        var first = cache.GetOrAdd("Trace.etl", _ => 1);
+        var second = cache.GetOrAdd("trace.etl", _ => 2);
+
+        Assert.Equal(first, second);
+    }
 }

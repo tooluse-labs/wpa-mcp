@@ -208,7 +208,8 @@ public class ImageLoadAnalysisTests
         var error = Assert.Throws<ArgumentException>(() =>
             ImageLoadAnalysis.SelectProcessInstance(lifetimes, pid: 42, processStartUs: null));
 
-        Assert.Contains("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
+        Assert.Contains("process_start_required", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
         Assert.Contains("100", error.Message, StringComparison.Ordinal);
         Assert.Contains("300", error.Message, StringComparison.Ordinal);
         Assert.Equal(

@@ -27,8 +27,7 @@ internal static class TraceCapabilitiesDetector
         bool hasDiskIo = false, hasImageLoad = false, hasHardFaults = false;
         bool hasVirtualAlloc = false, hasNetIo = false, hasNetConnections = false, hasRegistry = false;
         bool hasReadyThread = false, hasInterrupt = false, hasAlpc = false, hasThreadEvents = false;
-        bool hasClrGc = false, hasClrJit = false;
-        bool hasClrAlloc = false, hasClrException = false, hasClrContention = false;
+        bool hasClrAlloc = false, hasClrException = false;
         bool hasNtHeap = false, hasMemoryProcessInfo = false, hasHandleEvents = false, hasPoolEvents = false;
         bool hasReadyThreadStacks = false, hasInterruptStacks = false;
         bool hasAttachedEventStacks = false;
@@ -58,6 +57,7 @@ internal static class TraceCapabilitiesDetector
             ThreadInstanceKey,
             ContentionStartData,
             ContentionStopData>();
+        var clrEndpointCapabilities = new ClrEndpointCapabilityAccumulator();
 
         // Single source pass with both kernel and CLR parsers attached — they share the
         // same TraceEventDispatcher so we don't pay for two full trace walks just to set
@@ -138,8 +138,7 @@ internal static class TraceCapabilitiesDetector
         {
             hasVirtualAlloc = true;
             var bytes = (long)data.Length;
-            if (bytes != 0)
-                Observe(virtualAllocCoverage, data, bytes);
+            Observe(virtualAllocCoverage, data, bytes);
         }
         kernel.VirtualMemAlloc += ObserveVirtualAlloc;
         kernel.VirtualMemFree += ObserveVirtualAlloc;
@@ -206,14 +205,21 @@ internal static class TraceCapabilitiesDetector
         kernel.ObjectCloseHandle += _ => hasHandleEvents = true;
         kernel.ObjectDuplicateHandle += _ => hasHandleEvents = true;
 
-        clr.GCStart += _ => hasClrGc = true;
-        clr.MethodJittingStarted += _ => hasClrJit = true;
+        clr.GCStart += _ => clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.GcStart);
+        clr.GCStop += _ => clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.GcStop);
+        clr.GCSuspendEEStart += _ =>
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.GcSuspendEeStart);
+        clr.GCRestartEEStop += _ =>
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.GcRestartEeStop);
+        clr.MethodJittingStarted += _ =>
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.MethodJittingStarted);
+        clr.MethodLoadVerbose += _ =>
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.MethodLoadVerbose);
         clr.GCAllocationTick += data =>
         {
             hasClrAlloc = true;
             var bytes = data.AllocationAmount64 > 0 ? data.AllocationAmount64 : data.AllocationAmount;
-            if (bytes > 0)
-                Observe(clrAllocCoverage, data, bytes);
+            Observe(clrAllocCoverage, data, bytes);
         };
         clr.ExceptionStart += data =>
         {
@@ -224,7 +230,7 @@ internal static class TraceCapabilitiesDetector
         {
             if (data.ContentionFlags != ContentionFlags.Managed)
                 return;
-            hasClrContention = true;
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.ContentionStart);
             var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
             var resolution = identities.Value.Threads.ResolveAt(
                 data.ProcessID,
@@ -242,6 +248,7 @@ internal static class TraceCapabilitiesDetector
         {
             if (data.ContentionFlags != ContentionFlags.Managed)
                 return;
+            clrEndpointCapabilities.Observe(ClrCapabilityEndpoint.ContentionStop);
             var timestampUs = TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
             var resolution = identities.Value.Threads.ResolveAtEndpoint(
                 data.ProcessID,
@@ -259,8 +266,7 @@ internal static class TraceCapabilitiesDetector
         void ObserveHeap(TraceEvent data, long bytes)
         {
             hasNtHeap = true;
-            if (bytes > 0)
-                Observe(heapAllocCoverage, data, bytes);
+            Observe(heapAllocCoverage, data, bytes);
         }
         heap.HeapTraceAlloc += data => ObserveHeap(data, data.AllocSize);
         heap.HeapTraceReAlloc += data => ObserveHeap(data, data.NewAllocSize);
@@ -324,11 +330,11 @@ internal static class TraceCapabilitiesDetector
             HasInterrupt: hasInterrupt,
             HasAlpc: hasAlpc,
             HasThreadEvents: hasThreadEvents,
-            HasClrGc: hasClrGc,
-            HasClrJit: hasClrJit,
+            HasClrGc: clrEndpointCapabilities.HasClrGc,
+            HasClrJit: clrEndpointCapabilities.HasClrJit,
             HasClrAlloc: hasClrAlloc,
             HasClrException: hasClrException,
-            HasClrContention: hasClrContention,
+            HasClrContention: clrEndpointCapabilities.HasClrContention,
             HasNtHeap: hasNtHeap,
             HasMemoryProcessInfo: hasMemoryProcessInfo,
             HasHandleEvents: hasHandleEvents,
@@ -357,5 +363,51 @@ internal static class TraceCapabilitiesDetector
             }
         }
         return coverage.Snapshot();
+    }
+}
+
+internal enum ClrCapabilityEndpoint
+{
+    GcStart,
+    GcStop,
+    GcSuspendEeStart,
+    GcRestartEeStop,
+    MethodJittingStarted,
+    MethodLoadVerbose,
+    ContentionStart,
+    ContentionStop,
+}
+
+// Endpoint presence means an analyzer has source evidence; it does not imply that a
+// complete interval can be formed or that the endpoint carried a usable stack.
+internal sealed class ClrEndpointCapabilityAccumulator
+{
+    public bool HasClrGc { get; private set; }
+
+    public bool HasClrJit { get; private set; }
+
+    public bool HasClrContention { get; private set; }
+
+    public void Observe(ClrCapabilityEndpoint endpoint)
+    {
+        switch (endpoint)
+        {
+            case ClrCapabilityEndpoint.GcStart:
+            case ClrCapabilityEndpoint.GcStop:
+            case ClrCapabilityEndpoint.GcSuspendEeStart:
+            case ClrCapabilityEndpoint.GcRestartEeStop:
+                HasClrGc = true;
+                break;
+            case ClrCapabilityEndpoint.MethodJittingStarted:
+            case ClrCapabilityEndpoint.MethodLoadVerbose:
+                HasClrJit = true;
+                break;
+            case ClrCapabilityEndpoint.ContentionStart:
+            case ClrCapabilityEndpoint.ContentionStop:
+                HasClrContention = true;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(endpoint), endpoint, null);
+        }
     }
 }

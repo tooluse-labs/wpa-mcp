@@ -50,6 +50,35 @@ public sealed class ThreadAnalysisScopeTests
     }
 
     [Fact]
+    public void Resolve_ThreadGenerationDisambiguatesEqualStartTimes()
+    {
+        var identities = EqualStartThreadIdentityIndex();
+        var ambiguous = ThreadAnalysisScope.Resolve(
+            new TimeWindow(0, 50),
+            pid: 50,
+            tid: 7,
+            processStartUs: 0,
+            threadStartUs: 0,
+            identities);
+        var exact = ThreadAnalysisScope.Resolve(
+            new TimeWindow(0, 50),
+            pid: 50,
+            tid: 7,
+            processStartUs: 0,
+            threadStartUs: 0,
+            identities,
+            threadGeneration: 2);
+
+        Assert.Equal(InstanceResolutionStatus.Ambiguous, ambiguous.Status);
+        Assert.Equal([1L, 2L], ambiguous.Candidates
+            .Select(candidate => candidate.Thread!.Key.Generation)
+            .Order());
+        Assert.Equal(InstanceResolutionStatus.Resolved, exact.Status);
+        Assert.Equal(2, exact.Value!.Value.Thread!.Key.Generation);
+        Assert.Equal(0, exact.Value.Value.Thread.StartUs);
+    }
+
+    [Fact]
     public void Resolve_LegacyPidOnly_AggregatesReusedProcessInstancesAndWarns()
     {
         var result = ThreadAnalysisScope.Resolve(
@@ -219,5 +248,22 @@ public sealed class ThreadAnalysisScopeTests
                 new ThreadLifecycleEvent(50, 7, 90, ThreadLifecycleEventKind.Stop, Observed: true),
                 new ThreadLifecycleEvent(50, 9, 210, ThreadLifecycleEventKind.Start, Observed: true),
                 new ThreadLifecycleEvent(50, 9, 290, ThreadLifecycleEventKind.Stop, Observed: true),
+            ]);
+
+    private static TraceIdentityIndex EqualStartThreadIdentityIndex() =>
+        TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 100,
+            processes:
+            [
+                new ProcessLifetime(
+                    new ProcessInstanceKey(50, 0), 100,
+                    StartObserved: true, EndObserved: true),
+            ],
+            threads:
+            [
+                new ThreadLifecycleEvent(
+                    50, 7, 20, ThreadLifecycleEventKind.Stop, Observed: true),
+                new ThreadLifecycleEvent(
+                    50, 7, 40, ThreadLifecycleEventKind.Stop, Observed: true),
             ]);
 }

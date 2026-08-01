@@ -107,23 +107,29 @@ public class ThreadLifetimeAnalysisTests
     }
 
     [Fact]
-    public void AnalyzeEventsResponse_ReusedPidWithoutSelectorRejectsWithCandidates()
+    public void AnalyzeEventsResponse_ReusedPidWithoutSelectorReturnsStructuredFailure()
     {
-        var error = Assert.Throws<ArgumentException>(() =>
-            ThreadLifetimeAnalysis.AnalyzeEventsResponse(
-                traceEndUs: 400,
-                processLifetimes:
-                [
-                    new ProcessLifetime(new ProcessInstanceKey(20, 100), 200, true, true),
-                    new ProcessLifetime(new ProcessInstanceKey(20, 300), 400, true, false),
-                ],
-                events: [],
-                pid: 20,
-                top: 20,
-                processStartUs: null));
+        var response = ThreadLifetimeAnalysis.AnalyzeEventsResponse(
+            traceEndUs: 400,
+            processLifetimes:
+            [
+                new ProcessLifetime(new ProcessInstanceKey(20, 100), 200, true, true),
+                new ProcessLifetime(new ProcessInstanceKey(20, 300), 400, true, false),
+            ],
+            events: [],
+            pid: 20,
+            top: 20,
+            processStartUs: null);
 
-        Assert.Contains("ambiguous_process_instance", error.Message, StringComparison.Ordinal);
-        Assert.Contains("candidates=[100, 300]", error.Message, StringComparison.Ordinal);
+        Assert.Empty(response.Threads);
+        Assert.Equal("unresolved", response.ScopeMode);
+        Assert.Equal("process_start_required", response.ScopeStatus);
+        Assert.Equal("process_start_required", response.NoDataReason);
+        Assert.Equal(
+            [new ProcessInstanceKey(20, 100), new ProcessInstanceKey(20, 300)],
+            response.IncludedProcesses);
+        Assert.Contains(response.Warnings, warning =>
+            warning.StartsWith("process_start_required:", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -623,14 +623,19 @@ public class CpuAnalysisTests
     }
 
     [Fact]
-    public void CpuCallerCallee_UnknownFunctionEmitsWarning()
+    public void CpuCallerCallee_UnknownFunctionWithoutStacksReportsStacksUnavailable()
     {
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuCallerCallee(FixturePath, function: "this::is::not::a::real::frame", top: 10);
         Assert.Equal(0, resp.FocusInclusiveMetric);
         Assert.Empty(resp.Callers);
         Assert.Empty(resp.Callees);
-        Assert.Contains(resp.Warnings, w => w.Contains("not found", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("stacks_unavailable", resp.NoDataReason);
+        Assert.Equal(0, resp.StackCoverage?.StackedEventCount);
+        Assert.Contains(resp.Warnings, w =>
+            w.StartsWith("stacks_unavailable:", StringComparison.Ordinal));
+        Assert.DoesNotContain(resp.Warnings, w =>
+            w.StartsWith("focus_not_found:", StringComparison.Ordinal));
     }
 
     [Fact]

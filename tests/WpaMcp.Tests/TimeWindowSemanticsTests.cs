@@ -61,6 +61,7 @@ public class TimeWindowSemanticsTests
             $"{nameof(MetaTools)}.{nameof(MetaTools.ListProcesses)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.ProcessCreateTiming)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.ThreadLifetime)}",
+            $"{nameof(MetaTools)}.{nameof(MetaTools.UnloadTrace)}",
             $"{nameof(SymbolTools)}.{nameof(SymbolTools.SetSymbolPath)}",
             $"{nameof(SymbolTools)}.{nameof(SymbolTools.AddSymbolServer)}",
             $"{nameof(SymbolTools)}.{nameof(SymbolTools.DiagnoseSymbols)}",

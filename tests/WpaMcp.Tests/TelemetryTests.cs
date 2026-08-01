@@ -133,12 +133,21 @@ public class TelemetryTests
     public void ToolListPayload_StaysWithinBaselineGuard()
     {
         var stats = ToolListPayload.MeasureCurrentAssembly();
+        var largest = string.Join(
+            ", ",
+            ToolListPayload.MeasureCurrentToolPayloads()
+                .Take(8)
+                .Select(tool =>
+                    $"{tool.ToolName}={tool.PayloadBytes}" +
+                    (tool.HasOutputSchema
+                        ? $"(schema={tool.OutputSchemaBytes})"
+                        : string.Empty)));
 
         Assert.True(stats.ToolCount >= 50);
         Assert.True(stats.PayloadBytes > 0);
         Assert.True(
             stats.PayloadBytes <= ToolListPayload.BaselineGuardPayloadBytes,
-            $"tools/list payload grew to {stats.PayloadBytes} bytes; update the baseline only with measured before/after data.");
+            $"tools/list payload grew to {stats.PayloadBytes} bytes; largest tools: {largest}. Update the baseline only with measured before/after data.");
         Assert.False(stats.ExceedsLimit);
     }
 

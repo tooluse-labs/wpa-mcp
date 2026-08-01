@@ -12,7 +12,7 @@ public sealed class NetIoTools
     private readonly TraceCache _cache;
     public NetIoTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by network bytes (TCP + UDP, send + receive, IPv4 + IPv6) — " +
         "answers 'which call chain is doing all the network IO'.  PerfView equivalent: " +
         "'TCP/IP Stacks' + 'UDP/IP Stacks' merged.  Distinguishes 'one socket streaming a big " +
@@ -55,7 +55,7 @@ public sealed class NetIoTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in the network-stack data.  Metric is " +
         "network bytes (send + receive, TCP + UDP, IPv4 + IPv6); top-N callers ranked by " +
         "inclusive bytes flowing INTO focus, callees by bytes OUT.")]
@@ -87,7 +87,11 @@ public sealed class NetIoTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(
+        ReadOnly = false,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = true), Description(
         "Per-connection TCP lifecycle list — Connect/Accept paired with Disconnect/Reconnect " +
         "by `connid` to give 'connection X opened at T1, closed at T2, lasted T2−T1'.  " +
         "Useful for finding unusually long observed connection lifecycles. This duration is " +
@@ -96,7 +100,9 @@ public sealed class NetIoTools
         "into one list with an IsIPv6 flag.  Connections still open when capture stopped have " +
         "TraceResidentEnd=true with null CloseTimeUs and DurationUs. Pairing uses the emitter's " +
         "process lifetime plus connid, so PID/connid reuse cannot cross-pair sessions. Reconnect on a connid is " +
-        "treated as the prior session ending.  Requires the NetworkTrace keyword in the " +
+        "treated as the prior session ending. An in-scope Disconnect/Reconnect without a preceding " +
+        "open increments UnpairedCloseCount and returns NoDataReason=unpaired_endpoints_in_scope " +
+        "when no lifecycle can be projected; it is not mislabeled as no events. Requires the NetworkTrace keyword in the " +
         "capture profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public NetConnectionsResponse NetConnections(
         [Description("Absolute path to .etl file")] string path,

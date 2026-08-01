@@ -12,7 +12,7 @@ public sealed class ImageLoadTools
     private readonly TraceCache _cache;
     public ImageLoadTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Per-process DLL/image-load timeline in chronological order — every ImageLoad event " +
         "with absolute timestamp, offset from ProcessStart, and gap from the previous load.  " +
         "PerfView equivalent: filter the 'Events' view to ImageLoad for one PID (no native " +
@@ -23,8 +23,10 @@ public sealed class ImageLoadTools
         "(not gaps between loads), combine with wait_analysis on the PID's main thread.  " +
         "Requires the Loader keyword (default WPR profiles include it). No startUs/endUs: this is " +
         "a single process-instance image-load lifecycle timeline; when a PID was reused, pass " +
-        "processStartUs from list_processes. Ambiguous PID-only selection is rejected; a missing " +
-        "exact instance returns ScopeStatus=scope_not_found. Use image_load_top_stacks for windowed stacks.")]
+        "processStartUs from list_processes. Clean reuse returns structured " +
+        "ScopeStatus/NoDataReason=process_start_required with candidate keys; conflicting lifetime evidence " +
+        "returns ambiguous_process_instance, and a missing exact instance returns scope_not_found. " +
+        "Use image_load_top_stacks for windowed stacks.")]
     public ImageLoadTimingResponse ImageLoadTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
@@ -39,14 +41,15 @@ public sealed class ImageLoadTools
         return ImageLoadAnalysis.PerProcess(trace, pid, top, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N image loads with the LARGEST gap from the previous load (chronological). Use to " +
         "spot long intervals between adjacent ImageLoad events. Response also carries " +
         "FirstLoadOffsetUs, the ProcessStart-to-first-ImageLoad interval. Neither interval " +
         "identifies callbacks, scanning, suspension, scheduling, or another mechanism. Pairs with image_load_timing " +
         "(chronological list) — same data, different ordering. No startUs/endUs: gaps are computed " +
-        "over one process-instance lifecycle; reused PIDs require processStartUs. Ambiguity is " +
-        "rejected and a missing exact instance returns ScopeStatus=scope_not_found.")]
+        "over one process-instance lifecycle; reused PIDs require processStartUs. Clean reuse returns " +
+        "structured process_start_required with candidate keys; conflicting lifetime evidence returns " +
+        "ambiguous_process_instance, and a missing exact instance returns scope_not_found.")]
     public ImageLoadTopGapsResponse ImageLoadTopGaps(
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
@@ -61,7 +64,7 @@ public sealed class ImageLoadTools
         return ImageLoadAnalysis.TopGaps(trace, pid, top, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Top-N call stacks ranked by ImageLoad event count — answers 'which call site is loading " +
         "the most DLLs'. PerfView equivalent: 'Image Load Stacks' view. Use to distinguish eager " +
         "loads (LoadLibraryEx in main initializer) from lazy / cascading loads (CoCreateInstance, " +
@@ -102,7 +105,7 @@ public sealed class ImageLoadTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Caller/callee drill-down for a focus function in the image-load-stack data. Metric " +
         "is load count; top-N callers ranked by inclusive loads flowing INTO focus, callees " +
         "by loads flowing OUT to them. This is associated stack evidence for calls into loader " +

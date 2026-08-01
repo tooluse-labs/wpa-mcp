@@ -12,14 +12,33 @@ public sealed class ValidationTests
     }
 
     [Theory]
-    [InlineData(null, null, 10L, null)]
-    [InlineData(7, null, null, 10L)]
-    [InlineData(7, 8, -1L, null)]
-    [InlineData(7, 8, null, -1L)]
+    [InlineData(null, null, 10L, null, null)]
+    [InlineData(7, null, null, 10L, null)]
+    [InlineData(7, 8, -1L, null, null)]
+    [InlineData(7, 8, null, -1L, null)]
+    [InlineData(null, null, null, null, 1L)]
+    [InlineData(7, null, null, null, 1L)]
+    [InlineData(7, 8, null, null, 0L)]
     public void RequireThreadSelector_RejectsInvalidShapeBeforeTraceAccess(
-        int? pid, int? tid, long? processStartUs, long? threadStartUs) =>
+        int? pid,
+        int? tid,
+        long? processStartUs,
+        long? threadStartUs,
+        long? threadGeneration) =>
         Assert.ThrowsAny<ArgumentException>(() =>
-            Validation.RequireThreadSelector(pid, tid, processStartUs, threadStartUs));
+            Validation.RequireThreadSelector(
+                pid, tid, processStartUs, threadStartUs, threadGeneration));
+
+    [Fact]
+    public void RequireThreadSelector_AcceptsPositiveGenerationWithPidAndTid()
+    {
+        Validation.RequireThreadSelector(
+            pid: 7,
+            tid: 8,
+            processStartUs: null,
+            threadStartUs: null,
+            threadGeneration: 2);
+    }
 
     [Theory]
     [InlineData(4096, true)]

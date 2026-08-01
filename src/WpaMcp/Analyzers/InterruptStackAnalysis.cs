@@ -148,10 +148,10 @@ public static class InterruptStackAnalysis
         {
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
+            traceEventCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (!req.PassesFilter(nowUs)) return;
 
-            traceEventCount++;
             totalUs += us;
             dpcUs += us;
             totalCount++;
@@ -168,10 +168,10 @@ public static class InterruptStackAnalysis
         {
             var us = (long)(data.ElapsedTimeMSec * 1000);
             traceTotalUs += us;
+            traceEventCount++;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
             if (!req.PassesFilter(nowUs)) return;
 
-            traceEventCount++;
             totalUs += us;
             isrUs += us;
             totalCount++;

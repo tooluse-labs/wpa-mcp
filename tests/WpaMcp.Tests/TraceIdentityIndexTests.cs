@@ -350,6 +350,95 @@ public sealed class TraceIdentityIndexTests
         Assert.False(lifetime.EndFromRundown);
     }
 
+    [Theory]
+    [InlineData(75, 80)]
+    [InlineData(80, 80)]
+    public void BuildProcessLifetimes_RealStopBeforeOrAtRundownStopDoesNotCreateDuplicate(
+        long stopUs,
+        long rundownStopUs)
+    {
+        var lifetimes = TraceIdentityIndex.BuildProcessLifetimes(
+            traceEndUs: 100,
+            events:
+            [
+                new ProcessLifecycleEvent(20, stopUs, ProcessLifecycleEventKind.Stop),
+                new ProcessLifecycleEvent(
+                    20,
+                    rundownStopUs,
+                    ProcessLifecycleEventKind.RundownStop),
+            ],
+            backfill: Array.Empty<ProcessLifetimeBackfill>());
+
+        var lifetime = Assert.Single(lifetimes);
+        Assert.Equal(new ProcessInstanceKey(20, 0), lifetime.Key);
+        Assert.Equal(stopUs, lifetime.EndUs);
+        Assert.True(lifetime.EndObserved);
+
+        var resolver = new ProcessInstanceResolver(lifetimes);
+        var resolution = resolver.Resolve(20, stopUs - 1, processStartUs: 0);
+        Assert.Equal(InstanceResolutionStatus.Resolved, resolution.Status);
+        Assert.Equal(lifetime.Key, resolution.Value);
+    }
+
+    [Theory]
+    [InlineData(75, 80)]
+    [InlineData(80, 80)]
+    public void BuildFromEvents_RealThreadStopBeforeOrAtRundownStopDoesNotCreateGhostGeneration(
+        long stopUs,
+        long rundownStopUs)
+    {
+        var process = new ProcessInstanceKey(20, 0);
+        var index = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 100,
+            processes: [new ProcessLifetime(process, 100, true, false)],
+            threads:
+            [
+                new ThreadLifecycleEvent(
+                    20,
+                    7,
+                    stopUs,
+                    ThreadLifecycleEventKind.Stop,
+                    Observed: true),
+                new ThreadLifecycleEvent(
+                    20,
+                    7,
+                    rundownStopUs,
+                    ThreadLifecycleEventKind.RundownStop,
+                    Observed: false),
+            ]);
+
+        var lifetime = Assert.Single(index.Threads.Lifetimes);
+        Assert.Equal(process.StartUs, lifetime.StartUs);
+        Assert.Equal(stopUs, lifetime.EndUs);
+        Assert.True(lifetime.EndObserved);
+
+        var resolution = index.Threads.ResolveAt(20, 7, stopUs - 1);
+        Assert.Equal(InstanceResolutionStatus.Resolved, resolution.Status);
+        Assert.Equal(lifetime.Key, resolution.Value);
+    }
+
+    [Fact]
+    public void BuildFromEvents_RundownThreadStopBeforeRealStopClosesOneInferredGeneration()
+    {
+        var process = new ProcessInstanceKey(20, 0);
+        var index = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 100,
+            processes: [new ProcessLifetime(process, 100, true, false)],
+            threads:
+            [
+                new ThreadLifecycleEvent(
+                    20, 7, 75, ThreadLifecycleEventKind.RundownStop, Observed: false),
+                new ThreadLifecycleEvent(
+                    20, 7, 80, ThreadLifecycleEventKind.Stop, Observed: true),
+            ]);
+
+        var lifetime = Assert.Single(index.Threads.Lifetimes);
+        Assert.Equal(process.StartUs, lifetime.StartUs);
+        Assert.Equal(80, lifetime.EndUs);
+        Assert.False(lifetime.StartObserved);
+        Assert.True(lifetime.EndObserved);
+    }
+
     [Fact]
     public void BuildProcessLifetimes_MissingStopAcceptsEarlierBackfillEnd()
     {

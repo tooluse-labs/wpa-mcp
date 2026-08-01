@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Microsoft.Diagnostics.Symbols;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using ModelContextProtocol.Server;
 using WpaMcp.Core;
@@ -10,7 +11,7 @@ namespace WpaMcp.Tools;
 [McpServerToolType]
 public sealed class SymbolTools
 {
-    private const int MaxLocalCandidatesPerModule = 10;
+    private const int MaxDisplayedLocalCandidatesPerModule = 10;
 
     private readonly SymbolService _symbols;
     private readonly TraceCache _cache;
@@ -20,7 +21,7 @@ public sealed class SymbolTools
         _cache = cache;
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = false, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = false, OpenWorld = false, Destructive = true), Description(
         "Sets the entire _NT_SYMBOL_PATH for symbol resolution in the running server (replaces " +
         "or appends).  Use this when you want to drop in a curated path string (multiple " +
         "servers + caches separated by `;`); for incremental setup of one server at a time, " +
@@ -41,7 +42,7 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = false), Description(
         "Appends a symbol server URL (with optional local cache directory) to the existing " +
         "_NT_SYMBOL_PATH.  Cache defaults to `%LocalAppData%\\WpaMcp\\Symbols`.  Use this for " +
         "incremental setup ('add msdl.microsoft.com, then Chromium's symbol server'); for a " +
@@ -49,12 +50,14 @@ public sealed class SymbolTools
         "the File → Set Symbol Path dialog.  Idempotent — re-adding the same URL is a no-op.  " +
         "The URL is trusted as-is; add only vetted symbol servers because subsequent " +
         "stack-resolving tools may fetch PDBs from it and populate the local cache.  " +
+        "Creating a caller-supplied UNC, mapped-drive, or reparse-backed cacheDir can interact " +
+        "with external storage, so this tool is advertised OpenWorld=true even though it does not contact the server URL now. " +
         "Returns the path actually in effect after the change. No startUs/endUs: symbol-path " +
         "configuration is process-wide state, not trace-event analysis.")]
     public string AddSymbolServer(
         [Description("Symbol server URL (e.g. https://msdl.microsoft.com/download/symbols)")]
         string url,
-        [Description("Local cache directory (optional)")] string? cacheDir = null)
+        [Description("Local cache directory (optional). UNC, mapped-drive, or reparse-backed paths can cause immediate external filesystem access when the directory is created.")] string? cacheDir = null)
     {
         Validation.RequireText(url);
         if (cacheDir is not null)
@@ -63,18 +66,28 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
-        "Per-module symbol-resolution status for an already-loaded trace, with auto-suggested " +
-        "fixes for unresolved modules (which symbol server to add for which module — e.g., " +
-        "msdl.microsoft.com for ntdll/kernelbase, Chromium symbol server for chrome.exe / cef.dll).  " +
+    [McpServerTool(
+        ReadOnly = false,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = true), Description(
+        "Per-module symbol metadata and verified local-PDB readiness for an already-loaded trace, with suggested " +
+        "path/server actions for modules that have complete lookup identity but no exact local PDB candidate " +
+        "(for example, msdl.microsoft.com for ntdll/kernelbase, or the " +
+        "Chromium symbol server for chrome.exe / cef.dll).  " +
         "The first metadata/local-readiness check to run when cpu_top_functions shows lots of `module!?` frames " +
-        "or a low observed frame-name resolution rate. This tool does not execute frame lookup; " +
-        "actual resolution is measured by stack tools. PerfView equivalent: Modules tab + Set Symbol Path " +
+        "or a low observed frame-name resolution rate. This tool directly opens discovered local PDBs to verify " +
+        "their GUID/Age, but does not execute frame lookup; actual resolution is measured by stack tools. " +
+        "PerfView equivalent: Modules tab + Set Symbol Path " +
         "dialog (this tool composes both, plus auto-recommends which server to add per module).  " +
-        "Returns top 50 modules sorted unresolved-first, expected PDB name/GUID/Age, local disk " +
+        "Returns top 50 modules sorted local-not-ready-first, expected PDB name/GUID/Age, configured filesystem " +
         "symbol-path candidates, native DIA DLL health, and trace-directory symbol-path status. " +
-        "Local disk paths plus local disk SRV/CACHE caches and stores are probed read-only; remote " +
-        "SRV URLs are not contacted to avoid surprise downloads. If modules are not locally ready, " +
+        "Bare path entries are probed only for a flat PDB; non-UNC filesystem roots in SRV/SYMSRV/CACHE entries " +
+        "are probed only in symbol-store layout, using direct OpenSymbolFile calls. The tool does not actively " +
+        "access remote SRV or UNC entries, but a configured local-looking root can still be redirected by the OS " +
+        "through a mapped drive or reparse point; no network-topology detection is attempted, so the tool is conservatively " +
+        "advertised OpenWorld=true. Trace loading can still create or " +
+        "refresh an ETLX sidecar, so the overall tool is not filesystem-read-only. If modules are not locally ready, " +
         "the response recommends running the target stack tool after fixing the path to measure actual frame-name resolution. No startUs/endUs: module symbol status " +
         "is a whole-trace image/module property.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
@@ -108,8 +121,7 @@ public sealed class SymbolTools
 
         if (!nativeSupport.Msdia140Present)
         {
-            suggestions.Add(
-                "Native DIA support is missing; install the release zip layout or place msdia140.dll under native\\amd64 beside the installed bin directory.");
+            suggestions.Add(NativeDiaSuggestion(nativeSupport));
         }
 
         if (rows.Any(r => !r.LocalPdbReady))
@@ -134,7 +146,8 @@ public sealed class SymbolTools
             EffectiveSymbolPath: effectivePath,
             TraceDirectoryInConfiguredSymbolPath: traceDirectoryInConfiguredPath,
             TraceDirectoryInEffectiveSymbolPath: traceDirectoryInEffectivePath,
-            FrameResolutionMeasurementState: "not_measured");
+            FrameResolutionMeasurementState: "not_measured",
+            DefaultCacheDir: _symbols.DefaultCacheDir);
     }
 
     // Per-module hint lookup is centralised in SymbolHintCatalog (see Core/).
@@ -200,42 +213,88 @@ public sealed class SymbolTools
             Suggestion: suggestion);
     }
 
+    internal static string NativeDiaSuggestion(
+        NativeSymbolSupportStatus nativeSupport) =>
+        $"Native DIA support is missing for {nativeSupport.Architecture}; " +
+        (nativeSupport.Suggestion ??
+         "install the release zip layout for this server architecture.");
+
     internal static ModuleSymbolStatus DiagnoseModule(
         TraceModuleFile module,
         string? symbolPath,
         NativeSymbolSupportStatus nativeSupport)
         => DiagnoseModule(module, ParseLocalSymbolPath(symbolPath), nativeSupport);
 
+    internal static ModuleSymbolStatus DiagnoseModule(
+        string moduleName,
+        string? filePath,
+        string pdbName,
+        Guid pdbSignature,
+        int pdbAge,
+        string binaryFormat,
+        string? symbolPath,
+        NativeSymbolSupportStatus nativeSupport)
+        => DiagnoseModule(
+            moduleName,
+            filePath,
+            pdbName,
+            pdbSignature,
+            pdbAge,
+            binaryFormat,
+            ParseLocalSymbolPath(symbolPath),
+            nativeSupport);
+
     private static ModuleSymbolStatus DiagnoseModule(
         TraceModuleFile module,
         ParsedSymbolPath localSymbolPath,
         NativeSymbolSupportStatus nativeSupport)
+        => DiagnoseModule(
+            module.Name,
+            module.FilePath,
+            module.PdbName,
+            module.PdbSignature,
+            module.PdbAge,
+            module.BinaryFormat.ToString(),
+            localSymbolPath,
+            nativeSupport);
+
+    private static ModuleSymbolStatus DiagnoseModule(
+        string? moduleName,
+        string? filePath,
+        string? pdbPath,
+        Guid pdbSignature,
+        int pdbAge,
+        string binaryFormat,
+        ParsedSymbolPath localSymbolPath,
+        NativeSymbolSupportStatus nativeSupport)
     {
-        var moduleName = string.IsNullOrWhiteSpace(module.Name)
-            ? Path.GetFileNameWithoutExtension(module.FilePath)
-            : module.Name;
+        moduleName = string.IsNullOrWhiteSpace(moduleName)
+            ? Path.GetFileNameWithoutExtension(filePath)
+            : moduleName;
         if (string.IsNullOrWhiteSpace(moduleName))
             moduleName = "<unknown>";
 
-        var pdbName = Path.GetFileName(module.PdbName);
+        var pdbName = Path.GetFileName(pdbPath) ?? "";
         var hasPdbName = !string.IsNullOrWhiteSpace(pdbName);
         var hasPdbIdentity = HasCompletePdbIdentity(
-            pdbName, module.PdbSignature, module.PdbAge);
+            pdbName, pdbSignature, pdbAge);
         if (!hasPdbIdentity)
         {
             return new ModuleSymbolStatus(
                 Module: moduleName,
                 FrameCount: null,
                 Resolved: null,
-                Suggestion: SuggestServerForModule(moduleName),
-                FilePath: EmptyToNull(module.FilePath),
+                Suggestion: "Recapture or merge the ETL on the collection machine so the module's PDB name, GUID, and Age are recorded before choosing a symbol server.",
+                FilePath: EmptyToNull(filePath),
                 ExpectedPdbName: EmptyToNull(pdbName),
-                PdbSignature: module.PdbSignature == Guid.Empty ? null : module.PdbSignature.ToString("D"),
-                PdbAge: module.PdbAge > 0 ? module.PdbAge : null,
-                BinaryFormat: module.BinaryFormat.ToString(),
+                PdbSignature: pdbSignature == Guid.Empty ? null : pdbSignature.ToString("D"),
+                PdbAge: pdbAge > 0 ? pdbAge : null,
+                BinaryFormat: binaryFormat,
                 LookupStatus: "missing_pdb_identity",
                 FailureReason: "Trace/module metadata does not include a complete PDB name + GUID + Age identity. Recapture or merge the ETL on the collection machine so PDB signatures are present.",
                 LocalSymbolCandidates: Array.Empty<string>(),
+                LocalSymbolCandidateCount: 0,
+                LocalSymbolCandidatesTruncated: false,
                 HasPdbName: hasPdbName,
                 HasCompletePdbIdentity: false,
                 LocalPdbReady: false,
@@ -246,28 +305,54 @@ public sealed class SymbolTools
         var localCandidates = FindLocalSymbolCandidateDetails(
             localSymbolPath.Roots,
             pdbName,
-            module.PdbSignature,
-            module.PdbAge);
-        var foundExactPdb = localCandidates.Any(candidate => candidate.ExactIdentityMatch);
-        var foundFlatPdb = localCandidates.Any(candidate => !candidate.ExactIdentityMatch);
-        var candidatePaths = localCandidates
+            pdbSignature,
+            pdbAge);
+        var verifiedCandidates = VerifyLocalSymbolCandidates(
+            localCandidates,
+            pdbSignature,
+            pdbAge,
+            nativeSupport);
+        var candidatePaths = verifiedCandidates
+            .OrderByDescending(candidate =>
+                candidate.VerificationState == LocalPdbVerificationState.ExactIdentityMatch)
+            .Take(MaxDisplayedLocalCandidatesPerModule)
             .Select(candidate => candidate.Path)
             .ToList();
-        var lookupStatus = foundExactPdb
-            ? nativeSupport.Msdia140Present ? "found_in_local_symbol_path" : "found_but_native_dia_missing"
-            : foundFlatPdb ? "found_flat_candidate_identity_unverified"
-            : "not_found_in_local_symbol_path";
+        var hasExactMatch = verifiedCandidates.Any(candidate =>
+            candidate.VerificationState == LocalPdbVerificationState.ExactIdentityMatch);
+        var hasUnavailableCandidate = verifiedCandidates.Any(candidate =>
+            candidate.VerificationState == LocalPdbVerificationState.VerificationUnavailable);
+        var hasIdentityMismatch = verifiedCandidates.Any(candidate =>
+            candidate.VerificationState == LocalPdbVerificationState.IdentityMismatch);
+        var hasInvalidCandidate = verifiedCandidates.Any(candidate =>
+            candidate.VerificationState == LocalPdbVerificationState.Invalid);
+        var lookupStatus = hasExactMatch
+            ? "exact_identity_match"
+            : hasUnavailableCandidate
+                ? "candidate_identity_unverified"
+                : hasIdentityMismatch
+                    ? "identity_mismatch"
+                    : hasInvalidCandidate
+                        ? "invalid_local_pdb_candidate"
+                        : "not_found_in_local_symbol_path";
         var failureReason = lookupStatus switch
         {
-            "found_in_local_symbol_path" => null,
-            "found_but_native_dia_missing" => "A matching local PDB candidate exists, but msdia140.dll is missing so TraceEvent cannot open Windows PDBs.",
-            "found_flat_candidate_identity_unverified" => "A flat PDB with the expected file name exists, but diagnose_symbols did not verify its GUID/Age. Run a stack tool with resolveSymbols=true or provide a symbol-store layout PDB to confirm it matches this trace.",
-            _ => "No matching local PDB candidate was found in local disk entries of the effective query path (configured path plus trace directory). UNC paths are skipped to avoid SMB latency; if your symbol store is on a network share, copy it to a local disk first. Remote SRV entries are not probed by diagnose_symbols to avoid downloads."
+            "exact_identity_match" => null,
+            "candidate_identity_unverified" => BuildIdentityUnverifiedReason(verifiedCandidates),
+            "identity_mismatch" => "At least one local PDB candidate was readable, but no verified candidate matched the trace module's expected GUID/Age identity.",
+            "invalid_local_pdb_candidate" => "A local file candidate was rejected by the PDB container probe, or a portable-PDB reader explicitly reported malformed/truncated data.",
+            _ => "No matching local PDB candidate was found in eligible non-UNC filesystem entries of the effective query path (configured path plus trace directory). Bare paths are checked only for root\\PdbName; filesystem roots declared through SRV/SYMSRV/CACHE are checked only in symbol-store layout. Remote SRV and UNC entries are not actively accessed. A local-looking root may still be redirected by the OS through a mapped drive or reparse point."
         };
         var suggestion = lookupStatus switch
         {
-            "found_in_local_symbol_path" => "Local symbol-store PDB candidate found; rerun the target stack tool with resolveSymbols=true to verify function-name resolution.",
-            "found_flat_candidate_identity_unverified" => "Flat PDB candidate found by file name only; rerun the target stack tool with resolveSymbols=true to let DIA verify GUID/Age.",
+            "exact_identity_match" =>
+                "Exact local PDB GUID/Age match verified; run the target stack tool with resolveSymbols=true to measure actual frame-name resolution.",
+            "candidate_identity_unverified" =>
+                "Make the local PDB readable and ensure its format-appropriate symbol reader is available, then rerun diagnose_symbols.",
+            "identity_mismatch" =>
+                "Replace the stale or wrong-build local PDB with the exact GUID/Age requested by the trace, then rerun diagnose_symbols.",
+            "invalid_local_pdb_candidate" =>
+                "Replace the invalid local PDB candidate, then rerun diagnose_symbols and the target stack tool with resolveSymbols=true.",
             _ => SuggestServerForModule(moduleName)
         };
 
@@ -276,19 +361,23 @@ public sealed class SymbolTools
             FrameCount: null,
             Resolved: null,
             Suggestion: suggestion,
-            FilePath: EmptyToNull(module.FilePath),
+            FilePath: EmptyToNull(filePath),
             ExpectedPdbName: pdbName,
-            PdbSignature: module.PdbSignature.ToString("D"),
-            PdbAge: module.PdbAge,
-            BinaryFormat: module.BinaryFormat.ToString(),
+            PdbSignature: pdbSignature.ToString("D"),
+            PdbAge: pdbAge,
+            BinaryFormat: binaryFormat,
             LookupStatus: lookupStatus,
             FailureReason: failureReason,
             LocalSymbolCandidates: candidatePaths,
+            LocalSymbolCandidateCount: verifiedCandidates.Count,
+            LocalSymbolCandidatesTruncated: verifiedCandidates.Count > candidatePaths.Count,
             HasPdbName: true,
             HasCompletePdbIdentity: true,
-            LocalPdbReady: foundExactPdb && nativeSupport.Msdia140Present,
+            LocalPdbReady: hasExactMatch,
             FrameResolutionState: "not_measured",
-            EvidenceScope: "module_metadata_and_local_candidate_probe");
+            EvidenceScope: hasExactMatch || hasUnavailableCandidate || hasIdentityMismatch
+                ? "module_metadata_and_local_pdb_identity_verification"
+                : "module_metadata_and_local_candidate_probe");
     }
 
     internal static IReadOnlyList<string> FindLocalSymbolCandidates(
@@ -312,23 +401,22 @@ public sealed class SymbolTools
 
         foreach (var root in roots)
         {
-            AddIfExists(
-                candidates,
-                Path.Combine(root.Path, pdbName, SymbolStoreKey(pdbSignature, pdbAge), pdbName),
-                exactIdentityMatch: true);
-            AddIfExists(
-                candidates,
-                Path.Combine(root.Path, pdbName, SymbolStoreKey(pdbSignature, unchecked((int)0xffffffff)), pdbName),
-                exactIdentityMatch: true);
-
             if (root.ProbeFlatCandidates)
-                AddIfExists(candidates, Path.Combine(root.Path, pdbName), exactIdentityMatch: false);
+                AddIfExists(candidates, Path.Combine(root.Path, pdbName));
+
+            if (root.ProbeSymbolStoreCandidates)
+            {
+                AddIfExists(
+                    candidates,
+                    Path.Combine(root.Path, pdbName, SymbolStoreKey(pdbSignature, pdbAge), pdbName));
+                AddIfExists(
+                    candidates,
+                    Path.Combine(root.Path, pdbName, SymbolStoreKey(pdbSignature, unchecked((int)0xffffffff)), pdbName));
+            }
         }
 
         return candidates
             .DistinctBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(candidate => candidate.ExactIdentityMatch ? 0 : 1)
-            .Take(MaxLocalCandidatesPerModule)
             .ToList();
     }
 
@@ -348,7 +436,10 @@ public sealed class SymbolTools
             {
                 if (TryNormalizeLocalDiskPath(entry.Path, out var normalized, out var skipReason))
                 {
-                    roots.Add(new LocalSymbolRoot(normalized, entry.ProbeFlatCandidates));
+                    roots.Add(new LocalSymbolRoot(
+                        normalized,
+                        entry.ProbeFlatCandidates,
+                        entry.ProbeSymbolStoreCandidates));
                     continue;
                 }
 
@@ -357,23 +448,10 @@ public sealed class SymbolTools
             }
         }
 
-        var dedupedRoots = new List<LocalSymbolRoot>();
-        foreach (var root in roots)
-        {
-            var existingIndex = dedupedRoots.FindIndex(existing =>
-                string.Equals(existing.Path, root.Path, StringComparison.OrdinalIgnoreCase));
-            if (existingIndex < 0)
-            {
-                dedupedRoots.Add(root);
-                continue;
-            }
-
-            if (root.ProbeFlatCandidates && !dedupedRoots[existingIndex].ProbeFlatCandidates)
-                dedupedRoots[existingIndex] = dedupedRoots[existingIndex] with { ProbeFlatCandidates = true };
-        }
-
         return new ParsedSymbolPath(
-            dedupedRoots,
+            roots.DistinctBy(
+                    root => (root.Path.ToUpperInvariant(), root.ProbeFlatCandidates, root.ProbeSymbolStoreCandidates))
+                .ToList(),
             warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
 
@@ -387,7 +465,10 @@ public sealed class SymbolTools
                 if (part.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                yield return new SymbolPathProbeEntry(part, ProbeFlatCandidates: false);
+                yield return new SymbolPathProbeEntry(
+                    part,
+                    ProbeFlatCandidates: false,
+                    ProbeSymbolStoreCandidates: true);
             }
 
             yield break;
@@ -396,12 +477,18 @@ public sealed class SymbolTools
         if (rawEntry.StartsWith("CACHE*", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var part in rawEntry.Split('*', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1))
-                yield return new SymbolPathProbeEntry(part, ProbeFlatCandidates: false);
+                yield return new SymbolPathProbeEntry(
+                    part,
+                    ProbeFlatCandidates: false,
+                    ProbeSymbolStoreCandidates: true);
 
             yield break;
         }
 
-        yield return new SymbolPathProbeEntry(rawEntry, ProbeFlatCandidates: true);
+        yield return new SymbolPathProbeEntry(
+            rawEntry,
+            ProbeFlatCandidates: true,
+            ProbeSymbolStoreCandidates: false);
     }
 
     private static bool SymbolPathContainsLocalPath(IReadOnlyList<LocalSymbolRoot> roots, string localPath)
@@ -462,15 +549,46 @@ public sealed class SymbolTools
 
     private sealed record LocalSymbolRoot(
         string Path,
-        bool ProbeFlatCandidates);
+        bool ProbeFlatCandidates,
+        bool ProbeSymbolStoreCandidates);
 
     private sealed record LocalSymbolCandidate(
         string Path,
-        bool ExactIdentityMatch);
+        LocalPdbContainerKind ContainerKind,
+        LocalPdbVerificationState VerificationState = LocalPdbVerificationState.NotAttempted,
+        LocalPdbVerificationFailure VerificationFailure = LocalPdbVerificationFailure.None);
+
+    private enum LocalPdbContainerKind
+    {
+        Missing,
+        Portable,
+        Windows,
+        Invalid,
+        Unreadable
+    }
+
+    private enum LocalPdbVerificationState
+    {
+        NotAttempted,
+        ExactIdentityMatch,
+        IdentityMismatch,
+        Invalid,
+        VerificationUnavailable
+    }
+
+    private enum LocalPdbVerificationFailure
+    {
+        None,
+        CandidateUnreadable,
+        NativeReaderUnavailable,
+        CandidateOrReaderAmbiguous,
+        ReaderUnavailable
+    }
 
     private sealed record SymbolPathProbeEntry(
         string Path,
-        bool ProbeFlatCandidates);
+        bool ProbeFlatCandidates,
+        bool ProbeSymbolStoreCandidates);
 
     private static NativeDependencyStatus DependencyStatus(string directory, string fileName)
     {
@@ -478,10 +596,183 @@ public sealed class SymbolTools
         return new NativeDependencyStatus(fileName, path, File.Exists(path));
     }
 
-    private static void AddIfExists(List<LocalSymbolCandidate> candidates, string path, bool exactIdentityMatch)
+    private static void AddIfExists(List<LocalSymbolCandidate> candidates, string path)
     {
-        if (File.Exists(path))
-            candidates.Add(new LocalSymbolCandidate(path, exactIdentityMatch));
+        var containerKind = ProbePdbContainer(path);
+        if (containerKind != LocalPdbContainerKind.Missing)
+            candidates.Add(new LocalSymbolCandidate(path, containerKind));
+    }
+
+    private static IReadOnlyList<LocalSymbolCandidate> VerifyLocalSymbolCandidates(
+        IReadOnlyList<LocalSymbolCandidate> candidates,
+        Guid expectedSignature,
+        int expectedAge,
+        NativeSymbolSupportStatus nativeSupport)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var verified = new List<LocalSymbolCandidate>(candidates.Count);
+        SymbolReader? reader = null;
+        try
+        {
+            foreach (var candidate in candidates)
+            {
+                if (candidate.ContainerKind == LocalPdbContainerKind.Missing)
+                    continue;
+
+                if (candidate.ContainerKind == LocalPdbContainerKind.Invalid)
+                {
+                    verified.Add(candidate with { VerificationState = LocalPdbVerificationState.Invalid });
+                    continue;
+                }
+
+                if (candidate.ContainerKind == LocalPdbContainerKind.Unreadable)
+                {
+                    verified.Add(candidate with
+                    {
+                        VerificationState = LocalPdbVerificationState.VerificationUnavailable,
+                        VerificationFailure = LocalPdbVerificationFailure.CandidateUnreadable
+                    });
+                    continue;
+                }
+
+                if (candidate.ContainerKind == LocalPdbContainerKind.Windows && !nativeSupport.Msdia140Present)
+                {
+                    verified.Add(candidate with
+                    {
+                        VerificationState = LocalPdbVerificationState.VerificationUnavailable,
+                        VerificationFailure = LocalPdbVerificationFailure.NativeReaderUnavailable
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    // Empty SymbolPath plus direct OpenSymbolFile(path) confines the reader to
+                    // this exact candidate: no FindSymbolFilePath/server lookup or download is
+                    // initiated here. The OS can still redirect a mapped/reparse-backed path.
+                    reader ??= new SymbolReader(TextWriter.Null, string.Empty);
+                    var symbolModule = reader.OpenSymbolFile(candidate.Path);
+                    if (symbolModule is null)
+                    {
+                        verified.Add(candidate with
+                        {
+                            VerificationState = LocalPdbVerificationState.VerificationUnavailable,
+                            VerificationFailure = candidate.ContainerKind == LocalPdbContainerKind.Windows
+                                ? LocalPdbVerificationFailure.CandidateOrReaderAmbiguous
+                                : LocalPdbVerificationFailure.ReaderUnavailable
+                        });
+                        continue;
+                    }
+
+                    // Portable PDB CodeView identities have a fixed Age of 1. TraceEvent 3.2.2
+                    // exposes PdbAge only on NativeSymbolModule, so keep that convention explicit.
+                    var actualAge = symbolModule is NativeSymbolModule nativeModule
+                        ? nativeModule.PdbAge
+                        : 1;
+                    var state = symbolModule.PdbGuid == expectedSignature && actualAge == expectedAge
+                        ? LocalPdbVerificationState.ExactIdentityMatch
+                        : LocalPdbVerificationState.IdentityMismatch;
+                    verified.Add(candidate with { VerificationState = state });
+                }
+                catch (Exception ex) when (
+                    candidate.ContainerKind == LocalPdbContainerKind.Portable &&
+                    IsExplicitPortablePdbDataFailure(ex))
+                {
+                    verified.Add(candidate with { VerificationState = LocalPdbVerificationState.Invalid });
+                }
+                catch (Exception ex) when (IsPdbVerificationFailure(ex))
+                {
+                    verified.Add(candidate with
+                    {
+                        VerificationState = LocalPdbVerificationState.VerificationUnavailable,
+                        VerificationFailure = ex is IOException or UnauthorizedAccessException
+                            ? LocalPdbVerificationFailure.CandidateUnreadable
+                            : candidate.ContainerKind == LocalPdbContainerKind.Windows
+                                ? LocalPdbVerificationFailure.CandidateOrReaderAmbiguous
+                                : LocalPdbVerificationFailure.ReaderUnavailable
+                    });
+                }
+            }
+        }
+        finally
+        {
+            reader?.Dispose();
+        }
+
+        return verified;
+    }
+
+    private static string BuildIdentityUnverifiedReason(
+        IReadOnlyList<LocalSymbolCandidate> candidates)
+    {
+        var hasUnreadable = candidates.Any(candidate =>
+            candidate.VerificationFailure == LocalPdbVerificationFailure.CandidateUnreadable);
+        var hasNativeReaderUnavailable = candidates.Any(candidate =>
+            candidate.VerificationFailure == LocalPdbVerificationFailure.NativeReaderUnavailable);
+        var hasCandidateOrReaderAmbiguity = candidates.Any(candidate =>
+            candidate.VerificationFailure == LocalPdbVerificationFailure.CandidateOrReaderAmbiguous);
+        var hasOtherReaderUnavailable = candidates.Any(candidate =>
+            candidate.VerificationFailure == LocalPdbVerificationFailure.ReaderUnavailable);
+
+        var reasons = new List<string>(4);
+        if (hasUnreadable)
+            reasons.Add("At least one local PDB candidate is unreadable.");
+        if (hasNativeReaderUnavailable)
+            reasons.Add("A Windows PDB candidate was found, but the native DIA reader dependency was not observed in the expected release layout; identity was not verified.");
+        if (hasCandidateOrReaderAmbiguity)
+            reasons.Add("A Windows PDB candidate's identity could not be verified; this probe cannot distinguish candidate/DIA incompatibility from a reader failure.");
+        if (hasOtherReaderUnavailable)
+            reasons.Add("The format-appropriate local PDB reader could not verify a candidate's GUID/Age.");
+        reasons.Add("No remote SRV/UNC lookup was actively attempted; the OS may still redirect a configured local-looking root through a mapped drive or reparse point.");
+        return string.Join(" ", reasons);
+    }
+
+    private static bool IsExplicitPortablePdbDataFailure(Exception exception)
+        => exception is BadImageFormatException or InvalidDataException or EndOfStreamException;
+
+    private static bool IsPdbVerificationFailure(Exception exception)
+        => exception is IOException or UnauthorizedAccessException or DllNotFoundException or
+            TypeInitializationException or NotSupportedException or COMException or
+            BadImageFormatException or InvalidDataException or InvalidOperationException or
+            ArgumentException or EndOfStreamException;
+
+    private static LocalPdbContainerKind ProbePdbContainer(string path)
+    {
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
+                return LocalPdbContainerKind.Missing;
+
+            Span<byte> header = stackalloc byte[32];
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var count = stream.Read(header);
+            if (count >= 16 &&
+                header[0] == (byte)'B' && header[1] == (byte)'S' &&
+                header[2] == (byte)'J' && header[3] == (byte)'B')
+            {
+                return LocalPdbContainerKind.Portable;
+            }
+
+            ReadOnlySpan<byte> msfPrefix = "Microsoft C/C++ MSF "u8;
+            if (count >= msfPrefix.Length && header[..msfPrefix.Length].SequenceEqual(msfPrefix))
+                return LocalPdbContainerKind.Windows;
+
+            return LocalPdbContainerKind.Invalid;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return LocalPdbContainerKind.Missing;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return LocalPdbContainerKind.Unreadable;
+        }
     }
 
     private static string? EmptyToNull(string? value)

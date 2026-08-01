@@ -127,7 +127,7 @@ public static class FileIoStackAnalysis
         {
             traceTotalBytes += data.IoSize;
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.PassesFilter(nowUs)) traceEventCount++;
+            traceEventCount++;
             if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
             totalBytes += data.IoSize;

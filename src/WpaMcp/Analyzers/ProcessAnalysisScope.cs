@@ -13,6 +13,8 @@ internal sealed class ProcessAnalysisScope
 {
     public const string ResolvedStatus = "ok";
     public const string NotFoundStatus = "scope_not_found";
+    public const string AmbiguousStatus = "ambiguous_process_instance";
+    public const string ProcessStartRequiredStatus = "process_start_required";
 
     private readonly IReadOnlySet<ProcessInstanceKey> _includedProcessSet;
 
@@ -51,6 +53,55 @@ internal sealed class ProcessAnalysisScope
 
     public bool IsResolved => ScopeStatus == ResolvedStatus;
 
+    internal static string ResolutionFailureWarning(string scopeStatus) =>
+        scopeStatus == AmbiguousStatus
+            ? "ambiguous_process_instance: overlapping process lifetimes or conflicting observed stop endpoints prevent safe process-lifetime attribution; no scoped events were attributed."
+            : scopeStatus == ProcessStartRequiredStatus
+                ? "process_start_required: multiple non-conflicting process lifetimes matched, but this tool requires one exact process instance; retry with a candidate processStartUs."
+            : scopeStatus == NotFoundStatus
+                ? "scope_not_found: no process lifetime matched the requested selector and half-open window."
+                : $"{scopeStatus}: the requested process scope could not be resolved safely; no scoped events were attributed.";
+
+    /// <summary>
+    /// Converts a successfully resolved PID aggregate into a structured selector
+    /// failure for analyzers whose output would be misleading across lifetimes.
+    /// Candidate keys are retained so callers can replay an exact instance.
+    /// </summary>
+    internal ProcessAnalysisScope RequireSingleProcess()
+    {
+        if (!IsResolved || ScopeMode != "pid_aggregate" || !Pid.HasValue)
+            return this;
+
+        return new ProcessAnalysisScope(
+            Window,
+            Pid,
+            ProcessStartUs,
+            selectedProcess: null,
+            scopeMode: "unresolved",
+            scopeStatus: ProcessStartRequiredStatus,
+            PidReuseObserved,
+            IncludedProcesses);
+    }
+
+    internal static ArgumentException ProcessStartRequiredException(
+        int pid,
+        IEnumerable<ProcessInstanceKey> candidates,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        var starts = candidates
+            .Where(candidate => candidate.Pid == pid)
+            .Select(candidate => candidate.StartUs)
+            .Distinct()
+            .Order()
+            .ToArray();
+        return new ArgumentException(
+            $"{ProcessStartRequiredStatus}: PID {pid} has multiple non-conflicting lifetimes; " +
+            $"this tool requires one exact process instance, so specify processStartUs. " +
+            $"candidates=[{string.Join(", ", starts)}]",
+            parameterName);
+    }
+
     /// <summary>
     /// True when the selected PID (or any PID for an all-process scope) has more
     /// than one lifetime anywhere in the trace, even if the window includes one.
@@ -77,6 +128,41 @@ internal sealed class ProcessAnalysisScope
         return TryResolveEventProcess(identities, eventPid, timestampUs, out _);
     }
 
+    /// <summary>
+    /// Tests whether an unresolved raw process event could belong to this scope
+    /// without guessing an instance. PID scopes require the timestamp to fall
+    /// within an included lifetime; all-process scopes accept any in-window PID.
+    /// Stop-style endpoints may occur exactly at a lifetime's exclusive end.
+    /// </summary>
+    internal bool MatchesRawUnresolvedCandidate(
+        TraceIdentityIndex identities,
+        int eventPid,
+        long timestampUs,
+        bool atEndpoint = false)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+        if (!IsResolved || !Window.ContainsPoint(timestampUs))
+            return false;
+        if (!Pid.HasValue)
+            return true;
+        if (Pid.Value != eventPid)
+            return false;
+
+        foreach (var key in IncludedProcesses)
+        {
+            foreach (var lifetime in identities.Processes.FindExact(key))
+            {
+                if (lifetime.Contains(timestampUs) ||
+                    (atEndpoint && timestampUs == lifetime.EndUs &&
+                     timestampUs >= lifetime.Key.StartUs))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static ProcessAnalysisScope Resolve(
         TimeWindow window,
         int? pid,
@@ -84,7 +170,12 @@ internal sealed class ProcessAnalysisScope
         TraceIdentityIndex identities)
     {
         ArgumentNullException.ThrowIfNull(identities);
-        return Resolve(window, pid, processStartUs, identities.Processes.Lifetimes);
+        return ResolveNormalized(
+            window,
+            pid,
+            processStartUs,
+            identities.Processes.Lifetimes,
+            identities.Processes.ConflictingObservedEndKeys);
     }
 
     internal static ProcessAnalysisScope Resolve(
@@ -94,17 +185,28 @@ internal sealed class ProcessAnalysisScope
         IEnumerable<ProcessLifetime> lifetimes)
     {
         ArgumentNullException.ThrowIfNull(lifetimes);
+        var normalization = ProcessInstanceResolver.Normalize(lifetimes);
+        return ResolveNormalized(
+            window,
+            pid,
+            processStartUs,
+            normalization.Lifetimes,
+            normalization.ConflictingObservedEndKeys);
+    }
+
+    private static ProcessAnalysisScope ResolveNormalized(
+        TimeWindow window,
+        int? pid,
+        long? processStartUs,
+        IReadOnlyList<ProcessLifetime> lifetimes,
+        IReadOnlySet<ProcessInstanceKey> conflictingObservedEndKeys)
+    {
         if (processStartUs.HasValue && !pid.HasValue)
         {
             throw new ArgumentException("processStartUs requires pid.", nameof(processStartUs));
         }
 
-        var all = lifetimes
-            .GroupBy(lifetime => lifetime.Key)
-            .Select(group => group.OrderByDescending(lifetime => lifetime.EndUs).First())
-            .OrderBy(lifetime => lifetime.Key.Pid)
-            .ThenBy(lifetime => lifetime.Key.StartUs)
-            .ToArray();
+        var all = lifetimes;
         var pidReuseObserved = pid.HasValue
             ? all.Count(lifetime => lifetime.Key.Pid == pid.Value) > 1
             : all.GroupBy(lifetime => lifetime.Key.Pid).Any(group => group.Count() > 1);
@@ -130,6 +232,44 @@ internal sealed class ProcessAnalysisScope
                 included);
         }
 
+        if (pid.HasValue)
+        {
+            var pidLifetimesInWindow = all
+                .Where(lifetime =>
+                    lifetime.Key.Pid == pid.Value &&
+                    lifetime.Key.StartUs < window.EndUs &&
+                    lifetime.EndUs > window.StartUs)
+                .OrderBy(lifetime => lifetime.Key.StartUs)
+                .ThenBy(lifetime => lifetime.EndUs)
+                .ToArray();
+            var overlappingKeys = OverlappingKeys(pidLifetimesInWindow, window);
+            if (overlappingKeys.Count > 0)
+            {
+                return new ProcessAnalysisScope(
+                    window,
+                    pid,
+                    processStartUs,
+                    selectedProcess: null,
+                    scopeMode: "unresolved",
+                    scopeStatus: AmbiguousStatus,
+                    pidReuseObserved,
+                    overlappingKeys);
+            }
+        }
+
+        if (pid.HasValue && included.Any(conflictingObservedEndKeys.Contains))
+        {
+            return new ProcessAnalysisScope(
+                window,
+                pid,
+                processStartUs,
+                selectedProcess: null,
+                scopeMode: "unresolved",
+                scopeStatus: AmbiguousStatus,
+                pidReuseObserved,
+                included);
+        }
+
         var selected = pid.HasValue && included.Length == 1
             ? included[0]
             : (ProcessInstanceKey?)null;
@@ -147,6 +287,37 @@ internal sealed class ProcessAnalysisScope
             ResolvedStatus,
             pidReuseObserved,
             included);
+    }
+
+    private static IReadOnlyList<ProcessInstanceKey> OverlappingKeys(
+        IReadOnlyList<ProcessLifetime> lifetimes,
+        TimeWindow window)
+    {
+        var overlapping = new HashSet<ProcessInstanceKey>();
+        for (var leftIndex = 0; leftIndex < lifetimes.Count; leftIndex++)
+        {
+            var left = lifetimes[leftIndex];
+            for (var rightIndex = leftIndex + 1; rightIndex < lifetimes.Count; rightIndex++)
+            {
+                var right = lifetimes[rightIndex];
+                if (right.Key.StartUs >= left.EndUs)
+                    break;
+                var overlapStart = TimeWindow.ClipStart(
+                    TimeWindow.ClipStart(left.Key.StartUs, right.Key.StartUs),
+                    window.StartUs);
+                var overlapEnd = TimeWindow.ClipEnd(
+                    TimeWindow.ClipEnd(left.EndUs, right.EndUs),
+                    window.EndUs);
+                if (overlapStart < overlapEnd)
+                {
+                    overlapping.Add(left.Key);
+                    overlapping.Add(right.Key);
+                }
+            }
+        }
+        return overlapping
+            .OrderBy(key => key.StartUs)
+            .ToArray();
     }
 
     /// <summary>

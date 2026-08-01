@@ -103,14 +103,17 @@ public static class FinalizerAnalysis
             {
                 incompleteEvents.Add(new IncompleteFinalizerEvent(
                     observation.Pid,
-                    observation.TimeUs));
+                    observation.TimeUs,
+                    observation.Kind,
+                    ResolvedProcess: null));
                 continue;
             }
 
             var process = processResolution.Value.Value;
             if (observation.Kind == FinalizerEventKind.Object)
             {
-                if (!scope.Window.ContainsPoint(observation.TimeUs) ||
+                if (!scope.IsResolved ||
+                    !scope.Window.ContainsPoint(observation.TimeUs) ||
                     !scope.IncludedProcesses.Contains(process))
                 {
                     continue;
@@ -125,7 +128,8 @@ public static class FinalizerAnalysis
                 continue;
             }
 
-            if (scope.IncludedProcesses.Contains(process) &&
+            if (scope.IsResolved &&
+                scope.IncludedProcesses.Contains(process) &&
                 scope.Window.ContainsPoint(observation.TimeUs))
             {
                 matchedBatchEndpointEventCount++;
@@ -135,7 +139,9 @@ public static class FinalizerAnalysis
             {
                 incompleteEvents.Add(new IncompleteFinalizerEvent(
                     observation.Pid,
-                    observation.TimeUs));
+                    observation.TimeUs,
+                    observation.Kind,
+                    process));
                 continue;
             }
 
@@ -160,7 +166,7 @@ public static class FinalizerAnalysis
 
         var result = pairer.Complete();
         bool MatchesProcess(ProcessInstanceKey process) =>
-            scope.IncludedProcesses.Contains(process);
+            scope.IsResolved && scope.IncludedProcesses.Contains(process);
         var unmatchedIntervalCount =
             result.UnmatchedStarts.Count(endpoint =>
                 MatchesProcess(endpoint.Key.Process) &&
@@ -172,9 +178,27 @@ public static class FinalizerAnalysis
             MatchesProcess(interval.Key.Process) &&
             (scope.Window.ContainsPoint(interval.StartUs) ||
              scope.Window.ContainsPoint(interval.EndUs)));
-        var incompleteIdentityCount = incompleteEvents.Count(endpoint =>
-            (!pid.HasValue || endpoint.Pid == pid.Value) &&
-            scope.Window.ContainsPoint(endpoint.TimeUs));
+        bool IncompleteMatchesScope(IncompleteFinalizerEvent observation)
+        {
+            if (!scope.IsResolved || !scope.Window.ContainsPoint(observation.TimeUs))
+                return false;
+            if (observation.ResolvedProcess.HasValue)
+            {
+                return scope.IncludedProcesses.Contains(
+                    observation.ResolvedProcess.Value);
+            }
+            return scope.MatchesRawUnresolvedCandidate(
+                identities,
+                observation.Pid,
+                observation.TimeUs,
+                atEndpoint: observation.Kind == FinalizerEventKind.BatchStop);
+        }
+        var scopedIncompleteEvents = incompleteEvents
+            .Where(IncompleteMatchesScope)
+            .ToArray();
+        var incompleteIdentityCount = scopedIncompleteEvents.Length;
+        var incompleteBatchEndpointCount = scopedIncompleteEvents.Count(
+            observation => observation.Kind != FinalizerEventKind.Object);
 
         var response = ProjectBatches(
             result.Pairs,
@@ -182,7 +206,7 @@ public static class FinalizerAnalysis
             scope,
             events.Count,
             matchedBatchEndpointEventCount,
-            unmatchedIntervalCount + incompleteIdentityCount,
+            unmatchedIntervalCount + incompleteBatchEndpointCount,
             invalidIntervalCount);
         var topTypes = StackSourceTopN.TopByValue(
             countByType,
@@ -218,7 +242,10 @@ public static class FinalizerAnalysis
                 scope.ScopeStatus,
                 events.Count,
                 matchedEventCount,
+                incompleteIdentityCount,
                 hasOutput: totalObjects > 0 || response.Batches.Count > 0),
+            TraceIdentityUnresolvedEventCount = incompleteEvents.Count,
+            ScopedIdentityUnresolvedEventCount = incompleteIdentityCount,
         };
     }
 
@@ -266,7 +293,7 @@ public static class FinalizerAnalysis
             pairs,
             window,
             scope.Pid,
-            process => scope.IncludedProcesses.Contains(process),
+            process => scope.IsResolved && scope.IncludedProcesses.Contains(process),
             sourceEventCount,
             matchedBatchEndpointEventCount,
             unmatchedIntervalCount,
@@ -362,6 +389,7 @@ public static class FinalizerAnalysis
                 scopeStatus,
                 sourceEventCount,
                 matchedBatchEndpointEventCount,
+                scopedIdentityUnresolvedEventCount: 0,
                 hasOutput: rows.Count > 0),
             MatchedObjectEventCount: 0,
             MatchedBatchEndpointEventCount: matchedBatchEndpointEventCount,
@@ -378,7 +406,11 @@ public static class FinalizerAnalysis
         long matchedEventCount)
     {
         var warnings = new List<string>();
-        if (totalObjects == 0 && batchCount == 0 && sourceEventCount == 0)
+        if (scopeStatus != ProcessAnalysisScope.ResolvedStatus)
+        {
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(scopeStatus));
+        }
+        else if (totalObjects == 0 && batchCount == 0 && sourceEventCount == 0)
         {
             warnings.Add(WarningBuilder.MissingClrKeyword(
                 "finalizer",
@@ -389,14 +421,14 @@ public static class FinalizerAnalysis
         {
             warnings.Add(matchedEventCount > 0
                 ? "no_completed_intervals_in_scope: finalizer batch endpoint events matched the selected scope and window, but did not form a completed batch interval."
-                : "no_events_in_scope: finalizer events were observed, but none matched the selected scope and window.");
+                : incompleteIdentityCount > 0
+                    ? "source_events_unattributed: finalizer events matched the raw PID/window selector, but required process or CLR identity was unresolved or ambiguous."
+                    : "no_events_in_scope: finalizer events were observed, but none matched the selected scope and window.");
         }
-        if (scopeStatus != ProcessAnalysisScope.ResolvedStatus)
-            warnings.Add("scope_not_found: no process lifetime matched the requested selector and window.");
         if (scopeMode == "pid_aggregate")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope explicitly aggregates multiple process lifetimes; batches remain separated by ProcessStartUs and TopTypes covers the aggregate scope.");
+                "pid_aggregate: pid-only scope explicitly aggregates multiple process lifetimes; batches remain separated by ProcessStartUs and TopTypes covers the aggregate scope.");
         }
         warnings.Add(WarningBuilder.LegacyAccountedDurationWarning);
         if (incompleteIdentityCount > 0)
@@ -411,15 +443,18 @@ public static class FinalizerAnalysis
         string scopeStatus,
         long sourceEventCount,
         long matchedEventCount,
+        long scopedIdentityUnresolvedEventCount,
         bool hasOutput) =>
         scopeStatus != ProcessAnalysisScope.ResolvedStatus
-            ? "scope_not_found"
+            ? scopeStatus
             : sourceEventCount == 0
                 ? "event_class_not_observed"
                 : !hasOutput
                     ? matchedEventCount > 0
                         ? "no_completed_intervals_in_scope"
-                        : "no_events_in_scope"
+                        : scopedIdentityUnresolvedEventCount > 0
+                            ? "source_events_unattributed"
+                            : "no_events_in_scope"
                     : null;
 
     private static long CountMatchedBatchEndpoints(
@@ -441,7 +476,11 @@ public static class FinalizerAnalysis
         return count;
     }
 
-    private readonly record struct IncompleteFinalizerEvent(int Pid, long TimeUs);
+    private readonly record struct IncompleteFinalizerEvent(
+        int Pid,
+        long TimeUs,
+        FinalizerEventKind Kind,
+        ProcessInstanceKey? ResolvedProcess);
 }
 
 internal enum FinalizerEventKind

@@ -16,8 +16,9 @@ public sealed class MetaTools
     private readonly TraceCache _cache;
     public MetaTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Loads (or returns cached) a Windows ETW .etl trace. First load can take 30s-3min; subsequent calls are instant. " +
+        "Materializing an ETL may create or refresh its ETLX sidecar, so this tool is not filesystem-read-only. " +
         "Response includes symbol-server recommendations based on the modules referenced by the trace. " +
         "No startUs/endUs: this is whole-trace cache/orientation, not event-window analysis.")]
     public LoadTraceResponse LoadTrace(
@@ -30,18 +31,65 @@ public sealed class MetaTools
     }
 
     [McpServerTool(
-        ReadOnly = true,
+        ReadOnly = false,
         Idempotent = true,
-        OpenWorld = false,
-        Destructive = false,
+        OpenWorld = true,
+        Destructive = true,
+        UseStructuredContent = true), Description(
+        "Retires the cached trace for a path without interrupting queries that already hold a lease. " +
+        "For a raw .etl path, registers an adjacent-.etlx refresh request for the next successful load in this running server process; " +
+        "the request does not survive restart and the sidecar is not changed until that load. " +
+        "Use after replacing or rewriting an ETL in place, especially when size and timestamps were preserved. " +
+        "No startUs/endUs: cache retirement applies to the entire canonical trace path. Repeated calls are safe.")]
+    public UnloadTraceResponse UnloadTrace(
+        [Description("Absolute or relative path to the cached .etl or .etlx trace")] string path)
+    {
+        Validation.RequireText(path);
+        var canonical = Path.GetFullPath(path);
+        var retired = _cache.Unload(canonical);
+        var refreshRequested = string.Equals(
+            Path.GetExtension(canonical), ".etl", StringComparison.OrdinalIgnoreCase);
+        var warnings = new List<string>
+        {
+            "Active queries keep their existing trace lease until they complete.",
+        };
+        if (refreshRequested)
+        {
+            warnings.Add(
+                "The ETLX refresh request exists only in this running server process. " +
+                "A restart clears it, and regeneration is not proven until a later load succeeds.");
+        }
+        else
+        {
+            warnings.Add(
+                "No raw-ETL sidecar refresh was requested because the supplied path is not a .etl path.");
+        }
+        return new UnloadTraceResponse(
+            canonical,
+            retired,
+            refreshRequested,
+            warnings,
+            RefreshRequestedForCurrentServerProcess: refreshRequested);
+    }
+
+    [McpServerTool(
+        ReadOnly = false,
+        Idempotent = true,
+        OpenWorld = true,
+        Destructive = true,
         UseStructuredContent = true), Description(
         "Inspects a trace once and returns machine-readable orientation: capture capabilities, " +
-        "system metadata, provider counts, stackwalk completeness, symbol quality, quality " +
+        "system metadata, provider counts, stackwalk completeness, PDB identity/configuration quality, quality " +
         "warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, " +
         "the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. " +
         "Stack recommendations require attached stacks in that exact event domain; unrelated global " +
-        "stacks never enable them. Recommendations are capability-driven hints, not goal-specific rankings. " +
-        "No startUs/endUs: capabilities, metadata, provider counts, and symbol quality describe the whole trace.")]
+        "stacks never enable them. The AnalysisContract object supplies machine-readable rules for scope, " +
+        "counts, empty results, symbols, thread replay, and causal restraint. " +
+        "inspect_trace does not probe local PDB candidates or run frame lookup; use diagnose_symbols " +
+        "for verified local readiness and a stack tool for observed frame-name resolution. " +
+        "Recommendations are capability-driven hints, not goal-specific rankings. " +
+        "The first call may materialize or refresh an ETLX sidecar, so this tool is not filesystem-read-only. " +
+        "No startUs/endUs: capabilities, metadata, provider counts, and PDB identity/configuration describe the whole trace.")]
     public InspectTraceResponse InspectTrace(
         [Description("Absolute path to .etl file")] string path)
     {
@@ -65,8 +113,40 @@ public sealed class MetaTools
             orientationTools,
             capabilitySupportedTools,
             enabledCapabilities,
-            recommendedFlows);
+            recommendedFlows,
+            BuildAnalysisContractGuidance());
     }
+
+    private static AnalysisContractGuidance BuildAnalysisContractGuidance() =>
+        new(
+            ScopeRule:
+                "Only ScopeStatus=ok authorizes attribution. single_process is exact; " +
+                "pid_aggregate intentionally combines IncludedProcesses while retaining their instance keys; " +
+                "rows and totals may aggregate across them according to each tool's accounting contract. " +
+                "Exact-only tools return structured process_start_required for a clean multi-lifetime PID; " +
+                "ambiguous_process_instance is reserved for unsafe lifetime evidence.",
+            TraceScopedRule:
+                "Trace* is whole-trace diagnostic evidence; Scoped* uses the selected identity and " +
+                "requested [startUs,endUs) window. Never use Trace* as a scoped denominator.",
+            CountRule:
+                "MatchedEventCount is scoped raw source events/endpoints; MatchedIntervalCount is " +
+                "completed projected intervals; Rows can be aggregated or top-N truncated.",
+            CapabilityRule:
+                "not_observed requires absence trace-wide under the tool's documented predicate; " +
+                "observed requires attributable scoped evidence; otherwise unknown.",
+            StackRule:
+                "Use event-domain StackCoverage. Unrelated global stacks do not enable a stack tool, " +
+                "and ?!? is synthetic unknown evidence rather than a captured call chain.",
+            SymbolRule:
+                "PDB identity and verified local readiness are not function-name resolution. " +
+                "Only stack-tool SymbolStats after lookup measure observed frame resolution.",
+            ThreadReplayRule:
+                "Replay exact CPU/Wait thread rows with pid + processStartUs + tid + threadStartUs + " +
+                "threadGeneration; generation disambiguates equal inferred start times.",
+            CausalityRule:
+                "Associated/readier stacks and heuristic security matches support hypotheses but do " +
+                "not independently prove an unblocker, scanner identity, root cause, or causality.",
+            NoDataReasons: new NoDataReasonGuidance());
 
     private static TraceMeta BuildTraceMeta(string path, TraceLog trace)
     {
@@ -100,7 +180,9 @@ public sealed class MetaTools
             .Select(module =>
             {
                 var name = module.Name ?? "<unknown>";
-                return new InspectModuleMissingPdbName(name, SymbolTools.SuggestServerForModule(name));
+                return new InspectModuleMissingPdbName(
+                    name,
+                    "Recapture or merge the ETL on the collection machine so the PDB name, GUID, and Age identity is recorded before choosing a symbol server.");
             })
             .Take(20)
             .ToList();
@@ -172,7 +254,7 @@ public sealed class MetaTools
                 Code: "low_module_pdb_identity_coverage",
                 Severity: "warn",
                 Message: $"{symbolQuality.CompletePdbIdentityRate.Value * 100:F1}% of loaded modules carry a complete PDB name + GUID + Age identity; this is metadata coverage, not measured frame resolution.",
-                NextStep: "Run diagnose_symbols to inspect local PDB readiness, then run the target stack tool with resolveSymbols=true to measure observed frame-name resolution.",
+                NextStep: "Recapture or merge the ETL on the collection machine to preserve complete PDB identities, then run diagnose_symbols and the target stack tool with resolveSymbols=true.",
                 AffectedTools: StackDependentToolNames,
                 DegradedTools: Array.Empty<string>()));
         }
@@ -617,17 +699,27 @@ public sealed class MetaTools
 
         if (capabilities.HasCpuSamples || capabilities.HasCSwitch)
         {
+            var cpuStackCoverage = GetDomainStackCoverage(capabilities, "cpu");
+            var hasCpuStacks = capabilities.HasCpuSamples &&
+                               cpuStackCoverage?.StackedEventCount > 0;
+            var cpuTools = new List<string>();
+            if (hasCpuStacks)
+                cpuTools.Add("cpu_top_functions");
+            if (capabilities.HasCSwitch)
+                cpuTools.Add("cpu_precise_analysis");
             flows.Add(Flow(
                 "cpu_hotspot",
                 "Use sampled CPU for hot functions and precise CPU when context switches are present; compare sampled hotspots with exact on-CPU time before blaming a process.",
-                ["cpu_top_functions", "cpu_precise_analysis"],
+                cpuTools,
                 ["cpu", "scheduler"],
                 [
                     (capabilities.HasCpuSamples, "cpu_samples"),
+                    (hasCpuStacks, "cpu_sample_stacks"),
                     (capabilities.HasCSwitch, "context_switches"),
                 ],
                 BuildFlowCaveats(
                     (!capabilities.HasCpuSamples, "cpu_top_functions will be unavailable without CPU samples."),
+                    (capabilities.HasCpuSamples && !hasCpuStacks, $"cpu_top_functions omitted because cpu stack coverage is {cpuStackCoverage?.CoverageState ?? "unknown"}."),
                     (!capabilities.HasCSwitch, "cpu_precise_analysis will be unavailable without context switches."))));
         }
 
@@ -1020,9 +1112,14 @@ public sealed class MetaTools
 
         foreach (var module in trace.ModuleFiles)
         {
-            // A recorded PDB name is identity metadata, not proof that functions resolved.
-            // Server recommendations here target modules lacking even that metadata.
-            if (!string.IsNullOrEmpty(module.PdbName)) continue;
+            // A symbol server lookup requires the PDB name + GUID + Age key. Modules that
+            // lack it need recapture/merge guidance, not a server recommendation that cannot
+            // be executed. Identity metadata is still not proof that functions resolved.
+            if (!SymbolTools.HasCompletePdbIdentity(
+                    module.PdbName,
+                    module.PdbSignature,
+                    module.PdbAge))
+                continue;
 
             var name = module.Name ?? string.Empty;
             for (var i = 0; i < hits.Count; i++)
@@ -1045,7 +1142,7 @@ public sealed class MetaTools
             .ToList();
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Lists processes in the loaded trace. Default order is CPU time descending. " +
         "WaitRatio = WallUs/CpuUs ranks 'high wall, low CPU' process-lifetime candidates; " +
         "the ratio alone does not identify what they waited on. " +
@@ -1086,7 +1183,7 @@ public sealed class MetaTools
         return new ProcessListResponse(rows, hidden, totalCount);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Per-fork timing for a parent process — given a PID, returns every child the kernel " +
         "reported as having that parent, with FirstImageLoadOffsetUs (the kernel-side window " +
         "between ProcessStart and the first DLL load; this interval can include process-create " +
@@ -1094,8 +1191,9 @@ public sealed class MetaTools
         "which mechanism caused the gap) and GapFromPreviousSpawnUs (lets you spot fork " +
         "bursts vs steady-state). Median/p95/max aggregates across kernel gaps surface " +
         "worst-case in a single number. No startUs/endUs: scope is the parent's child-process lifecycle, " +
-        "with rows ordered by child spawn time. Reused-parent ambiguity is rejected; a missing exact " +
-        "parent lifetime returns ScopeStatus=scope_not_found.")]
+        "with rows ordered by child spawn time. Clean parent-PID reuse returns structured " +
+        "ScopeStatus/NoDataReason=process_start_required with replayable candidates; conflicting lifetime " +
+        "evidence returns ambiguous_process_instance. A missing exact parent lifetime returns scope_not_found.")]
     public ProcessCreateTimingResponse ProcessCreateTiming(
         [Description("Absolute path to .etl file")] string path,
         [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
@@ -1116,7 +1214,7 @@ public sealed class MetaTools
             trace, parentPid, top, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
         "Per-process thread-lifecycle list — every ThreadStart / ThreadStop in chronological " +
         "order for one PID, with start time, end time, and lifetime in microseconds.  Useful " +
         "for 'did the thread pool spawn 200 threads in the startup window' / 'is something " +
@@ -1124,7 +1222,9 @@ public sealed class MetaTools
         "TraceResidentEnd; threads alive when capture started are flagged TraceResidentStart " +
         "(their StartTimeUs is 0 = trace start, not the real spawn).  PeakConcurrentThreads " +
         "gives the maximum number of simultaneously-live threads for the selected process instance. " +
-        "A reused PID is rejected as ambiguous unless processStartUs selects one lifetime. Requires the Thread " +
+        "Clean PID reuse returns structured ScopeStatus/NoDataReason=process_start_required with replayable " +
+        "candidates unless processStartUs selects one lifetime; conflicting lifetime evidence returns " +
+        "ambiguous_process_instance. Requires the Thread " +
         "keyword in the capture profile (in default kernel profiles). No startUs/endUs: this reports a " +
         "per-PID thread lifecycle timeline; timestamps identify the interval boundaries. A missing exact " +
         "lifetime returns ScopeStatus=scope_not_found rather than falling back to another instance.")]
@@ -1132,7 +1232,7 @@ public sealed class MetaTools
         [Description("Absolute path to .etl file")] string path,
         [Description("Process ID")] int pid,
         [Description("Top N threads, ordered by start time (default 200, max 1000)")] int top = 200,
-        [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes; ambiguity is rejected with candidate start times.")]
+        [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple clean lifetimes; otherwise process_start_required returns candidate keys.")]
         long? processStartUs = null)
     {
         Validation.RequireTop(top);

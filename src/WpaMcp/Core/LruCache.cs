@@ -5,15 +5,20 @@ public sealed class LruCache<TKey, TValue> : IDisposable where TKey : notnull
     private readonly int _capacity;
     private readonly Action<TValue>? _onRemoved;
     private readonly LinkedList<KeyValuePair<TKey, TValue>> _order = new();
-    private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> _index = new();
+    private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> _index;
+    private readonly List<TValue> _pendingRemovalCallbacks = [];
     private readonly object _lock = new();
     private bool _disposed;
 
-    public LruCache(int capacity, Action<TValue>? onRemoved = null)
+    public LruCache(
+        int capacity,
+        Action<TValue>? onRemoved = null,
+        IEqualityComparer<TKey>? comparer = null)
     {
         if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
         _capacity = capacity;
         _onRemoved = onRemoved;
+        _index = new Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>>(comparer);
     }
 
     public TValue GetOrAdd(TKey key, Func<TKey, TValue> factory) =>
@@ -80,7 +85,7 @@ public sealed class LruCache<TKey, TValue> : IDisposable where TKey : notnull
         }
 
         if (hasRemovedValue)
-            _onRemoved?.Invoke(removedValue);
+            InvokeRemovalCallback(removedValue);
         if (rejectedBecauseDisposed)
             throw new ObjectDisposedException(GetType().Name);
         return result;
@@ -133,7 +138,7 @@ public sealed class LruCache<TKey, TValue> : IDisposable where TKey : notnull
         }
 
         if (removed)
-            _onRemoved?.Invoke(removedValue);
+            InvokeRemovalCallback(removedValue);
         return removed;
     }
 
@@ -142,20 +147,68 @@ public sealed class LruCache<TKey, TValue> : IDisposable where TKey : notnull
         List<TValue>? removed = null;
         lock (_lock)
         {
-            if (_disposed)
-                return;
+            if (!_disposed)
+            {
+                _disposed = true;
+                if (_order.Count > 0)
+                    removed = _order.Select(pair => pair.Value).ToList();
+                _order.Clear();
+                _index.Clear();
+            }
 
-            _disposed = true;
-            if (_order.Count > 0)
-                removed = _order.Select(pair => pair.Value).ToList();
-            _order.Clear();
-            _index.Clear();
+            // A failed callback is retained so a later Dispose call can retry it.
+            // This matters for TraceLog disposal: clearing the cache must not turn a
+            // transient native/mmap close failure into a permanently unreachable entry.
+            if (_pendingRemovalCallbacks.Count > 0)
+            {
+                removed ??= [];
+                removed.AddRange(_pendingRemovalCallbacks);
+                _pendingRemovalCallbacks.Clear();
+            }
         }
 
         if (removed is null || _onRemoved is null)
             return;
+        List<Exception>? failures = null;
+        List<TValue>? failedValues = null;
         foreach (var value in removed)
+        {
+            try
+            {
+                _onRemoved(value);
+            }
+            catch (Exception ex)
+            {
+                failures ??= [];
+                failures.Add(ex);
+                failedValues ??= [];
+                failedValues.Add(value);
+            }
+        }
+
+        if (failures is not null)
+        {
+            lock (_lock)
+                _pendingRemovalCallbacks.AddRange(failedValues!);
+            throw new AggregateException("One or more LRU removal callbacks failed.", failures);
+        }
+    }
+
+    private void InvokeRemovalCallback(TValue value)
+    {
+        if (_onRemoved is null)
+            return;
+
+        try
+        {
             _onRemoved(value);
+        }
+        catch
+        {
+            lock (_lock)
+                _pendingRemovalCallbacks.Add(value);
+            throw;
+        }
     }
 
     private void Promote(LinkedListNode<KeyValuePair<TKey, TValue>> node)

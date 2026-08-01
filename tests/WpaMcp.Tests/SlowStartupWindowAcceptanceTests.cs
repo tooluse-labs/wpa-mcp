@@ -181,13 +181,13 @@ public sealed class SlowStartupWindowAcceptanceTests
     }
 
     [Fact]
-    public void TraceDiscoveryExcludesDuplicateExactProcessKeysWithoutThrowing()
+    public void TraceDiscoveryExcludesConflictingExactProcessKeysWithoutEvaluatingMetrics()
     {
         var key = new ProcessInstanceKey(90, 10);
         var resolver = new ProcessInstanceResolver(
         [
             new ProcessLifetime(key, 100, true, true),
-            new ProcessLifetime(key, 120, true, false),
+            new ProcessLifetime(key, 120, true, true),
         ]);
         var traceProcesses = new[]
         {
@@ -209,6 +209,74 @@ public sealed class SlowStartupWindowAcceptanceTests
             nameSubstring: null,
             maxCollectionItems: 8,
             hasTraceMetadata: candidate => candidate == key);
+
+        Assert.Empty(catalog.Eligible);
+        Assert.Equal(1, catalog.TotalOtherExcludedCount);
+        var exclusion = Assert.Single(catalog.Excluded);
+        Assert.Equal(key, exclusion.Process);
+        Assert.Equal("startup_process_instance_ambiguous", exclusion.Code);
+    }
+
+    [Fact]
+    public void TraceDiscoveryCanonicalizesCompatibleExactProcessKeysAndEvaluatesMetricsOnce()
+    {
+        var key = new ProcessInstanceKey(90, 10);
+        var evaluationCount = 0;
+        var resolver = new ProcessInstanceResolver(
+        [
+            new ProcessLifetime(key, 100, true, true),
+            new ProcessLifetime(key, 120, true, false),
+        ]);
+        var traceProcesses = new[]
+        {
+            new StartupTraceProcessMetadata(
+                key,
+                EndUs: 120,
+                ParentPid: 1,
+                Name: "compatible.exe",
+                LifetimeCpuUs: 1,
+                GetLifetimeImageLoadCount: () =>
+                {
+                    evaluationCount++;
+                    return 7;
+                }),
+        };
+
+        var catalog = StartupProcessCatalog.BuildFromTraceMetadata(
+            traceProcesses,
+            resolver,
+            startupWindowUs: 50,
+            traceDurationUs: 200,
+            nameSubstring: null,
+            maxCollectionItems: 8,
+            hasTraceMetadata: candidate => candidate == key);
+
+        var observation = Assert.Single(catalog.Eligible);
+        Assert.Equal(1, evaluationCount);
+        Assert.Equal(100, observation.Metadata.Lifetime.EndUs);
+        Assert.Equal(7, observation.Metadata.LifetimeImageLoadCount);
+        Assert.Equal(1, catalog.TotalEligibleCount);
+        Assert.Empty(catalog.Excluded);
+    }
+
+    [Fact]
+    public void ResolverFallbackExcludesConflictingExactProcessKeys()
+    {
+        var key = new ProcessInstanceKey(90, 10);
+        var resolver = new ProcessInstanceResolver(
+        [
+            new ProcessLifetime(key, 100, true, true),
+            new ProcessLifetime(key, 120, true, true),
+        ]);
+
+        var catalog = StartupProcessCatalog.BuildFromTraceMetadata(
+            Array.Empty<StartupTraceProcessMetadata>(),
+            resolver,
+            startupWindowUs: 50,
+            traceDurationUs: 200,
+            nameSubstring: null,
+            maxCollectionItems: 8,
+            hasTraceMetadata: _ => false);
 
         Assert.Empty(catalog.Eligible);
         Assert.Equal(1, catalog.TotalOtherExcludedCount);

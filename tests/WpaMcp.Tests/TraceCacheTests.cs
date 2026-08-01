@@ -147,7 +147,7 @@ public class TraceCacheTests
         var opened = false;
         var disposed = false;
         var entry = new TraceCache.CacheEntry(
-            DateTime.UtcNow,
+            new TraceCache.FileStamp("never-opened.etl", DateTime.UtcNow, DateTime.UtcNow, 0, null, null),
             "never-opened.etl",
             _ =>
             {
@@ -214,6 +214,263 @@ public class TraceCacheTests
 
         Assert.Equal(1, Volatile.Read(ref openCount));
         Assert.All(traces, trace => Assert.Same(traces[0], trace));
+    }
+
+    [Fact]
+    public void Acquire_ReloadsWhenPathIsReplacedButMtimeIsRestored()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-replace-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "trace.etl");
+        var replacement = Path.Combine(root, "replacement.etl");
+        File.Copy(FixturePath, path);
+        File.Copy("fixtures/small_fileio.etl", replacement);
+        try
+        {
+            var originalMtime = File.GetLastWriteTimeUtc(path);
+            using var cache = new TraceCache(capacity: 2);
+            using var first = cache.Acquire(path);
+            var firstTrace = first.Trace;
+            Assert.False(first.Capabilities.HasFileIo);
+
+            File.Move(replacement, path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, originalMtime);
+
+            using var second = cache.Acquire(path);
+            Assert.NotSame(firstTrace, second.Trace);
+            Assert.True(second.Capabilities.HasFileIo);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void Unload_ForcesRefreshOfAnOtherwiseNewerDerivedEtlx()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"wpa-mcp-unload-refresh-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "trace.etl");
+        File.Copy(FixturePath, path);
+        try
+        {
+            using var cache = new TraceCache(capacity: 2);
+            using (var first = cache.Acquire(path))
+                Assert.False(first.Capabilities.HasFileIo);
+
+            File.Copy("fixtures/small_fileio.etl", path, overwrite: true);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-5));
+
+            Assert.True(cache.Unload(path));
+            using var second = cache.Acquire(path);
+            Assert.True(second.Capabilities.HasFileIo);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void WindowsPathAliasesShareOneCacheEntry()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var openCount = 0;
+        using var cache = new TraceCache(
+            capacity: 2,
+            openTrace: path =>
+            {
+                Interlocked.Increment(ref openCount);
+                return TraceLog.OpenOrConvert(path);
+            },
+            disposeTrace: trace => trace.Dispose());
+        var canonical = Path.GetFullPath(FixturePath);
+
+        using var first = cache.Acquire(canonical.ToUpperInvariant());
+        using var second = cache.Acquire(canonical.ToLowerInvariant());
+
+        Assert.Same(first.Trace, second.Trace);
+        Assert.Equal(1, Volatile.Read(ref openCount));
+        Assert.True(cache.Unload(canonical.ToUpperInvariant()));
+    }
+
+    [Fact]
+    public void CacheEntry_DisposeFailureCanBeRetried()
+    {
+        var attempts = 0;
+        var entry = new TraceCache.CacheEntry(
+            TraceCache.FileStamp.Capture(Path.GetFullPath(FixturePath)),
+            Path.GetFullPath(FixturePath),
+            path => TraceLog.OpenOrConvert(path),
+            trace =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                    throw new IOException("transient dispose failure");
+                trace.Dispose();
+            });
+        _ = entry.Trace.Value;
+
+        Assert.Throws<IOException>(() => entry.Retire());
+        entry.Retire();
+
+        Assert.Equal(2, Volatile.Read(ref attempts));
+    }
+
+    [Fact]
+    public void TraceCacheDispose_RetriesFailedLruCallbackOncePerCall()
+    {
+        var attempts = 0;
+        var cache = new TraceCache(
+            capacity: 2,
+            openTrace: path => TraceLog.OpenOrConvert(path),
+            disposeTrace: trace =>
+            {
+                if (Interlocked.Increment(ref attempts) <= 2)
+                    throw new IOException("transient dispose failure");
+                trace.Dispose();
+            });
+        using (var lease = cache.Acquire(FixturePath))
+            _ = lease.Trace;
+
+        Assert.Throws<AggregateException>(() => cache.Dispose());
+        Assert.Equal(1, Volatile.Read(ref attempts));
+
+        Assert.Throws<AggregateException>(() => cache.Dispose());
+        Assert.Equal(2, Volatile.Read(ref attempts));
+
+        cache.Dispose();
+        Assert.Equal(3, Volatile.Read(ref attempts));
+    }
+
+    [Fact]
+    public void LastLeaseFailure_IsRetriedByCacheAndLeaseDisposeStaysIdempotent()
+    {
+        var attempts = 0;
+        var cache = new TraceCache(
+            capacity: 2,
+            openTrace: path => TraceLog.OpenOrConvert(path),
+            disposeTrace: trace =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                    throw new IOException("transient lease cleanup failure");
+                trace.Dispose();
+            });
+        var lease = cache.Acquire(FixturePath);
+        _ = lease.Trace;
+        cache.Dispose();
+
+        Assert.Throws<IOException>(() => lease.Dispose());
+        Assert.Throws<ObjectDisposedException>(() => _ = lease.Trace);
+        lease.Dispose();
+        Assert.Equal(1, Volatile.Read(ref attempts));
+
+        cache.Dispose();
+        Assert.Equal(2, Volatile.Read(ref attempts));
+    }
+
+    [Fact]
+    public void PostOpenStampMismatch_RetainsFailedCleanupForRepeatedCacheDispose()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"wpa-mcp-post-open-stamp-{Guid.NewGuid():N}.etl");
+        File.Copy(FixturePath, tmp);
+        var attempts = 0;
+        var cache = new TraceCache(
+            capacity: 2,
+            openTrace: path =>
+            {
+                TraceLog? trace = null;
+                try
+                {
+                    trace = TraceLog.OpenOrConvert(path);
+                    File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+                    return trace;
+                }
+                catch
+                {
+                    trace?.Dispose();
+                    throw;
+                }
+            },
+            disposeTrace: trace =>
+            {
+                if (Interlocked.Increment(ref attempts) <= 2)
+                    throw new IOException("repeated transient cleanup failure");
+                trace.Dispose();
+            });
+
+        try
+        {
+            Assert.Throws<IOException>(() => cache.Acquire(tmp));
+            Assert.Equal(1, Volatile.Read(ref attempts));
+
+            Assert.Throws<AggregateException>(() => cache.Dispose());
+            Assert.Equal(2, Volatile.Read(ref attempts));
+
+            cache.Dispose();
+            Assert.Equal(3, Volatile.Read(ref attempts));
+        }
+        finally
+        {
+            try { cache.Dispose(); } catch { /* best-effort cleanup after assertion failure */ }
+            try { File.Delete(tmp); File.Delete(tmp + "x"); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentUnload_LastUsingDisposeFailureRemainsCacheOwned()
+    {
+        var attempts = 0;
+        var cache = new TraceCache(
+            capacity: 2,
+            openTrace: path => TraceLog.OpenOrConvert(path),
+            disposeTrace: trace =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                    throw new IOException("transient using-finally cleanup failure");
+                trace.Dispose();
+            });
+        using var leaseAcquired = new ManualResetEventSlim();
+        using var allowUsingToExit = new ManualResetEventSlim();
+        var query = Task.Run(() =>
+        {
+            try
+            {
+                using var lease = cache.Acquire(FixturePath);
+                _ = lease.Trace;
+                leaseAcquired.Set();
+                allowUsingToExit.Wait();
+                return (Exception?)null;
+            }
+            catch (Exception ex)
+            {
+                leaseAcquired.Set();
+                return ex;
+            }
+        });
+
+        try
+        {
+            Assert.True(leaseAcquired.Wait(TimeSpan.FromSeconds(30)));
+            Assert.False(query.IsCompleted);
+            Assert.True(cache.Unload(FixturePath));
+            allowUsingToExit.Set();
+
+            var failure = await query.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.IsType<IOException>(failure);
+            Assert.Equal(1, Volatile.Read(ref attempts));
+
+            cache.Dispose();
+            Assert.Equal(2, Volatile.Read(ref attempts));
+        }
+        finally
+        {
+            allowUsingToExit.Set();
+            try { await query.WaitAsync(TimeSpan.FromSeconds(30)); } catch { /* assertion reports the failure */ }
+            try { cache.Dispose(); } catch { /* best-effort cleanup after assertion failure */ }
+        }
     }
 
     private static TraceCache TrackingCache(int capacity, Action onDispose)

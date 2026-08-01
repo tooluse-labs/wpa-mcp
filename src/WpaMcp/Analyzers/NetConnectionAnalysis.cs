@@ -95,8 +95,10 @@ public static class NetConnectionAnalysis
     {
         var open = new Dictionary<ConnectionInstanceKey, OpenSlot>();
         var projected = new List<ProjectedConnection>();
-        long unresolvedIdentityCount = 0;
+        long traceIdentityUnresolvedEndpointCount = 0;
+        long scopedIdentityUnresolvedEndpointCount = 0;
         long matchedSourceEventCount = 0;
+        long unpairedCloseCount = 0;
 
         foreach (var item in events
                      .Select((value, index) => (value, index))
@@ -104,6 +106,8 @@ public static class NetConnectionAnalysis
                      .ThenBy(item => item.index))
         {
             var observation = item.value;
+            if (!scope.IsResolved)
+                continue;
             if (scope.Pid.HasValue && observation.Pid != scope.Pid.Value)
                 continue;
             var processResolution = observation.Kind is
@@ -117,7 +121,9 @@ public static class NetConnectionAnalysis
             if (processResolution.Status != InstanceResolutionStatus.Resolved ||
                 !processResolution.Value.HasValue)
             {
-                unresolvedIdentityCount++;
+                traceIdentityUnresolvedEndpointCount++;
+                if (scope.Window.ContainsPoint(observation.TimeUs))
+                    scopedIdentityUnresolvedEndpointCount++;
                 continue;
             }
 
@@ -146,6 +152,10 @@ public static class NetConnectionAnalysis
                     observation.Kind == NetConnectionEventKind.Reconnect
                         ? "reconnect"
                         : "disconnect"));
+            }
+            else if (scope.Window.ContainsPoint(observation.TimeUs))
+            {
+                unpairedCloseCount++;
             }
         }
 
@@ -186,6 +196,18 @@ public static class NetConnectionAnalysis
             warnings.Add(WarningBuilder.MissingKeyword(
                 "TcpIp Connect/Accept/Disconnect", "NetworkTrace"));
         }
+        else if (filtered.Length == 0 &&
+                 scope.IsResolved &&
+                 scopedIdentityUnresolvedEndpointCount > 0)
+        {
+            warnings.Add(
+                $"source_events_unattributed: {scopedIdentityUnresolvedEndpointCount:N0} network endpoint(s) had the selected raw PID and an in-window timestamp, but process-lifetime identity was unresolved; no connection lifecycle attribution was guessed.");
+        }
+        else if (filtered.Length == 0 && scope.IsResolved && unpairedCloseCount > 0)
+        {
+            warnings.Add(
+                $"unpaired_network_close: {unpairedCloseCount:N0} in-scope Disconnect/Reconnect endpoint(s) had no preceding Connect/Accept for the same process instance and connid; no completed connection lifecycle could be reconstructed.");
+        }
         else if (filtered.Length == 0 && scope.IsResolved)
         {
             warnings.Add(
@@ -193,22 +215,19 @@ public static class NetConnectionAnalysis
         }
         if (!scope.IsResolved)
         {
-            warnings.Add(
-                $"scope_not_found: no process lifetime matched PID {pid}" +
-                (scope.ProcessStartUs.HasValue
-                    ? $" at processStartUs={scope.ProcessStartUs.Value}"
-                    : string.Empty) + ".");
+            warnings.Add(ProcessAnalysisScope.ResolutionFailureWarning(
+                scope.ScopeStatus));
         }
         if (scope.ScopeMode == "pid_aggregate")
         {
             warnings.Add(
-                "ambiguous_process_instance: pid-only scope explicitly includes multiple process lifetimes; " +
+                "pid_aggregate: pid-only scope explicitly includes multiple process lifetimes; " +
                 "connections remain separated by ProcessStartUs.");
         }
-        if (unresolvedIdentityCount > 0)
+        if (traceIdentityUnresolvedEndpointCount > 0)
         {
             warnings.Add(
-                $"network_process_identity_unresolved: {unresolvedIdentityCount:N0} event(s) could not be tied to an included process lifetime.");
+                $"network_process_identity_unresolved: {traceIdentityUnresolvedEndpointCount:N0} selected-PID/all-process endpoint(s) could not be tied to a process lifetime; {scopedIdentityUnresolvedEndpointCount:N0} were inside the requested half-open window.");
         }
         if (processEndUnobservedCount > 0)
         {
@@ -235,12 +254,21 @@ public static class NetConnectionAnalysis
                 : "unknown",
             MatchedEventCount: matchedSourceEventCount,
             NoDataReason: !scope.IsResolved
-                ? "scope_not_found"
+                ? scope.ScopeStatus
                 : events.Count == 0
                     ? "event_class_not_observed"
                     : filtered.Length == 0
-                        ? "no_events_in_scope"
-                        : null);
+                        ? scopedIdentityUnresolvedEndpointCount > 0
+                            ? "source_events_unattributed"
+                            : unpairedCloseCount > 0
+                            ? "unpaired_endpoints_in_scope"
+                            : "no_events_in_scope"
+                        : null,
+            UnpairedCloseCount: unpairedCloseCount,
+            TraceIdentityUnresolvedEndpointCount:
+                traceIdentityUnresolvedEndpointCount,
+            ScopedIdentityUnresolvedEndpointCount:
+                scopedIdentityUnresolvedEndpointCount);
     }
 
     private static NetConnectionEvent OpenEvent(

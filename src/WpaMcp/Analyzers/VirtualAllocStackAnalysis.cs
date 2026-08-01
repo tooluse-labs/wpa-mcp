@@ -162,7 +162,7 @@ public static class VirtualAllocStackAnalysis
             if (allocation) traceTotals.ObserveAllocation(bytes);
             else traceTotals.ObserveFree(bytes);
             var nowUs = (long)(data.TimeStampRelativeMSec * 1000);
-            if (req.PassesFilter(nowUs)) traceEventCount++;
+            traceEventCount++;
             if (!req.PassesFilter(data.ProcessID, nowUs)) return;
 
             if (allocation) totals.ObserveAllocation(bytes);
