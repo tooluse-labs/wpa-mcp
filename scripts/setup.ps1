@@ -10,9 +10,13 @@
     'claude-desktop' — edits %APPDATA%\Claude\claude_desktop_config.json
     'auto' (default) — installs for every client detected on this machine
 
-.PARAMETER SymbolPath
-  Value for _NT_SYMBOL_PATH passed to the server. Defaults to the Microsoft public
-  symbol server. Override to add Chromium / private vendor servers.
+.PARAMETER SymbolLocalRoot
+  Approved local PDB candidate directory used by prepare_symbols. Defaults to
+  %LOCALAPPDATA%\WpaMcp\symbol-candidates. Remote symbol servers are not imported.
+
+.PARAMETER SymbolStoreRoot
+  Private verified PDB store used by prepare_symbols. Defaults to
+  %LOCALAPPDATA%\WpaMcp\symbol-store and must be disjoint from SymbolLocalRoot.
 
 .PARAMETER ServerName
   Name registered with the MCP client(s). Default 'wpa-mcp'.
@@ -34,8 +38,8 @@
   Codex, Claude Desktop).
 
 .EXAMPLE
-  .\scripts\install.ps1 -Client codex -SymbolPath "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols;SRV*C:\Symbols*https://chromium-browser-symsrv.commondatastorage.googleapis.com"
-  Only install for OpenAI Codex, with Chromium symbols added.
+  .\scripts\setup.ps1 -Client codex -SymbolLocalRoot "C:\Symbols" -SymbolStoreRoot "$env:LOCALAPPDATA\WpaMcp\symbol-store"
+  Only install for OpenAI Codex, using an approved local PDB candidate directory.
 #>
 
 [CmdletBinding()]
@@ -43,7 +47,9 @@ param(
     [ValidateSet('claude-code', 'codex', 'claude-desktop', 'auto')]
     [string]$Client = 'auto',
 
-    [string]$SymbolPath = 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols',
+    [string]$SymbolLocalRoot = (Join-Path $env:LOCALAPPDATA 'WpaMcp\symbol-candidates'),
+
+    [string]$SymbolStoreRoot = (Join-Path $env:LOCALAPPDATA 'WpaMcp\symbol-store'),
 
     [string]$ServerName = 'wpa-mcp',
 
@@ -307,7 +313,12 @@ if (-not $dotnetCommand) {
     throw "dotnet was just ensured on PATH but Get-Command can't resolve it. Re-run after restarting the shell."
 }
 Write-Ok "dotnet: $dotnetCommand"
-$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', "$CacheSize")
+$serverArgs = @(
+    $dllPath,
+    '--symbol-local-root', $SymbolLocalRoot,
+    '--symbol-store-root', $SymbolStoreRoot,
+    '--cache-size', "$CacheSize"
+)
 
 # Step 4 — pick clients.
 $installClaudeCode = $false
@@ -446,6 +457,8 @@ Write-Host 'Next steps:'
 if ($installClaudeCode)    { Write-Host "  - Claude Code: open a project; tools appear as mcp__$ServerName__*." }
 if ($installCodex)         { Write-Host "  - Codex: restart any active codex session to load the new server." }
 if ($installClaudeDesktop) { Write-Host '  - Claude Desktop: fully quit and re-launch to pick up the new config.' }
+Write-Host "  - Put approved local PDB candidates under: $SymbolLocalRoot"
+Write-Host '  - After load_trace, call prepare_symbols to create an immutable symbol context.'
 Write-Host ''
 Write-Host "First call to load_trace on a fresh .etl takes 30 s - 3 min while the .etlx index is built."
 Write-Host "If symbols look wrong (ResolutionRate < 0.8), see CONTRIBUTING.md / docs/SYMBOL_RECIPES.md."

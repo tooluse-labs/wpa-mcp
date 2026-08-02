@@ -11,9 +11,9 @@ namespace WpaMcp.Analyzers;
 // reported separately; neither the operation traffic nor alloc-minus-free is a live-set,
 // commit, retained-memory, or leak measurement.
 //
-// Sample weight = event Length (bytes). CallTree.ExclusiveMetric reads as approximate
-// "exclusive bytes of virtual-memory operations through this frame"; ExclusiveCount tracks
-// the operation count on the same stack source. Exact directional totals bypass CallTree.
+// Sample weight = event Length (bytes). Public per-frame byte and operation metrics are
+// accumulated from a parallel checked Int64 series; TraceEvent's float sample weight is
+// retained only for stack-tree compatibility. Directional totals bypass the stack tree.
 //
 // Requires the VirtualAlloc kernel keyword in the capture profile.  Default WPR 'CPU' / 'CPU.light'
 // profiles do NOT enable it; 'GeneralProfile' or a custom .wprp does.
@@ -69,19 +69,18 @@ public static class VirtualAllocStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalBytesMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new VirtualAllocStackRow(
-                Function: n.Name,
-                ExclusiveBytes: (long)n.ExclusiveMetric,
-                InclusiveBytes: (long)n.InclusiveMetric,
-                ExclusiveOpCount: (long)n.ExclusiveCount,
-                InclusiveOpCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveBytes: n.ExclusiveMetric,
+                InclusiveBytes: n.InclusiveMetric,
+                ExclusiveOpCount: n.ExclusiveCount,
+                InclusiveOpCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -94,7 +93,7 @@ public static class VirtualAllocStackAnalysis
             TotalOpCount: ctx.Totals.TotalOperationCount,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("virtual_memory_operation_bytes"),
             StackCoverage: ctx.StackCoverage,
             AllocatedBytes: ctx.Totals.AllocatedBytes,
             AllocatedCount: ctx.Totals.AllocatedCount,

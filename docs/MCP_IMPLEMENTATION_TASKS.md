@@ -1,8 +1,10 @@
 # wpa-mcp Implementation Task List
 
+> **Historical task snapshot (reconciled 2026-08-01):** This earlier P0–P3 list is not the current backlog. The later accepted Phase 0–7 capability/evidence refactor is broadly implemented: 60 active tools, 51 declared capabilities, 15 goals, 15 workflows, full Contract 2.0 envelopes, paged discovery/resources, explicit TraceId/SymbolContextId lifecycles, and exact frame fitting. Remaining release gates and phase-specific limits are recorded in §16 of [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md) and ADRs 0002–0005. Checked items and old tool names below describe their dated snapshot only; `list_applicable_tools` is not the current capability-map entry point, and the former symbol configuration/diagnostic tools are not active.
+
 > This document turns design conclusions into executable work items.
 >
-> **Place in the document set:**
+> **Place in the historical document set as of May 2026:**
 >
 > - `docs/archive/OPTIMIZATION.md` — archived brainstorm + candidate directions
 > - `CAPABILITY_GAPS.md` — decides **what to add** (four-tier punchlist, A/B/C/D buckets)

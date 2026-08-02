@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Approved specification: `docs/superpowers/specs/2026-07-29-wpa-mcp-production-remediation-design.md` at commit `7ef8ff5` (base design `a6014ee` plus the approved thread-scoped CPU/wait amendment).
+- Approved specification: `docs/superpowers/specs/2026-07-29-wpa-mcp-production-remediation-design.md` at commit `7ef8ff5` (base design `a6014ee` plus the approved thread-scoped CPU/wait amendment), extended by `docs/decisions/0002-capability-map-evidence-contract.md` and `docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`. No decision commit is recorded until these accepted-amendment documents are committed.
 - Execute implementation in an isolated worktree created with `superpowers:using-git-worktrees`.
 - Every production change starts with a failing focused test, then the minimum implementation, the focused test, the affected suite, and one independently reviewable commit.
 - Time windows are half-open `[StartUs,EndUs)`; timestamps are floored to integer microseconds before arithmetic.
@@ -39,6 +39,23 @@
 | 9 | `2026-07-29-mcp-e2e-hostile-inputs.md` | Real stdio protocol, concurrency, cancellation, hostile-input, and packaged-exe tests |
 | 10 | `2026-07-29-parity-agent-benchmarks.md` | Golden manifest, cross-tool invariants, S01-S10 runner, and controlled agent metrics |
 | 11 | `2026-07-29-platform-release-governance.md` | TFM/MCP ADR, locked dependencies, reusable quality workflow, immutable release artifact, docs |
+
+### Accepted amendment ownership map
+
+The new phases map onto the existing child owners; they do not create a second execution graph.
+
+| Amendment phase | Existing owner(s) |
+|---:|---|
+| Phase 0 inventory/snapshots | Child 5 + Child 9 + Child 10 |
+| Phase 1 analyzer truth repair | Children 1–5 + Child 10 |
+| Phase 2 active catalog/error skeleton | Child 5 + Child 9 |
+| Phase 3 trace/symbol lifecycle | Child 6 + Child 7 + Child 8 + Child 9 |
+| Phase 4 vNext structured contract/exact fitting | Child 5 + Child 9 |
+| Phase 5 capability maps/routing | Child 5 + Child 10 |
+| Phase 6 Query Planner/shared scans | Child 8 + Child 10 |
+| Phase 7 default/release cleanup | Child 11B |
+
+Open choices in the amendment design §19 stay gated by their follow-up ADR. Existing child plans retain ownership of shared files, security boundaries, budgets, and release gates.
 
 ## Execution graph
 

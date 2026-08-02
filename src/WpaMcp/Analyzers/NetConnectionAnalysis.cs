@@ -1,4 +1,5 @@
 using Microsoft.Diagnostics.Tracing.Etlx;
+using System.Globalization;
 using WpaMcp.Core;
 using WpaMcp.Output;
 
@@ -8,6 +9,8 @@ namespace WpaMcp.Analyzers;
 // lifetime plus connid; connid alone is not unique across processes or PID reuse.
 public static class NetConnectionAnalysis
 {
+    internal const ulong JavaScriptMaxSafeInteger = 9_007_199_254_740_991UL;
+
     public static NetConnectionsResponse Analyze(
         TraceLog trace,
         int? pid,
@@ -99,12 +102,14 @@ public static class NetConnectionAnalysis
         long scopedIdentityUnresolvedEndpointCount = 0;
         long matchedSourceEventCount = 0;
         long unpairedCloseCount = 0;
+        long replacedOpenUnobservedCount = 0;
 
         foreach (var item in events
                      .Select((value, index) => (value, index))
                      .OrderBy(item => item.value.TimeUs)
                      .ThenBy(item => item.index))
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var observation = item.value;
             if (!scope.IsResolved)
                 continue;
@@ -122,7 +127,13 @@ public static class NetConnectionAnalysis
                 !processResolution.Value.HasValue)
             {
                 traceIdentityUnresolvedEndpointCount++;
-                if (scope.Window.ContainsPoint(observation.TimeUs))
+                if (scope.MatchesRawUnresolvedCandidate(
+                        identities,
+                        observation.Pid,
+                        observation.TimeUs,
+                        atEndpoint: observation.Kind is
+                            NetConnectionEventKind.Disconnect or
+                            NetConnectionEventKind.Reconnect))
                     scopedIdentityUnresolvedEndpointCount++;
                 continue;
             }
@@ -137,9 +148,17 @@ public static class NetConnectionAnalysis
             {
                 if (open.Remove(key, out var prior))
                 {
-                    projected.Add(prior.Close(
+                    // A second open proves that the connid slot was reused, but it
+                    // does not supply the prior connection's Disconnect/Reconnect
+                    // endpoint.  Keep the replacement timestamp only as the
+                    // projection boundary; never publish it as an exact close or
+                    // duration.
+                    projected.Add(prior.CloseUnobserved(
                         observation.TimeUs,
-                        endState: "replaced_open"));
+                        traceResidentEnd: false,
+                        endState: "replaced_open_unobserved"));
+                    replacedOpenUnobservedCount = checked(
+                        replacedOpenUnobservedCount + 1);
                 }
                 open[key] = new OpenSlot(process, observation);
                 continue;
@@ -162,6 +181,7 @@ public static class NetConnectionAnalysis
         long processEndUnobservedCount = 0;
         foreach (var slot in open.Values)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var lifetime = identities.Processes.FindExact(slot.Process)
                 .OrderByDescending(candidate => candidate.EndUs)
                 .FirstOrDefault();
@@ -181,11 +201,14 @@ public static class NetConnectionAnalysis
                 connection.IntervalEndUs > scope.Window.StartUs)
             .ToArray();
         var ordered = filtered
-            .OrderByDescending(connection =>
-                connection.Row.DurationUs ?? long.MaxValue)
+            // Rank only observed, closed lifecycles by exact duration. Unknown
+            // durations belong after every measured duration, not ahead of them.
+            .OrderByDescending(connection => connection.Row.DurationUs.HasValue)
+            .ThenByDescending(connection => connection.Row.DurationUs ?? long.MinValue)
+            .ThenBy(connection => connection.Row.OpenTimeUs)
             .ThenBy(connection => connection.Row.Pid)
             .ThenBy(connection => connection.Row.ProcessStartUs)
-            .ThenBy(connection => connection.Row.ConnId)
+            .ThenBy(connection => connection.ConnId)
             .Take(top)
             .Select(connection => connection.Row)
             .ToArray();
@@ -194,14 +217,14 @@ public static class NetConnectionAnalysis
         if (events.Count == 0)
         {
             warnings.Add(WarningBuilder.MissingKeyword(
-                "TcpIp Connect/Accept/Disconnect", "NetworkTrace"));
+                "TcpIp Connect/Accept/Disconnect/Reconnect (IPv4/IPv6)", "NetworkTrace"));
         }
         else if (filtered.Length == 0 &&
                  scope.IsResolved &&
                  scopedIdentityUnresolvedEndpointCount > 0)
         {
             warnings.Add(
-                $"source_events_unattributed: {scopedIdentityUnresolvedEndpointCount:N0} network endpoint(s) had the selected raw PID and an in-window timestamp, but process-lifetime identity was unresolved; no connection lifecycle attribution was guessed.");
+                $"source_events_unattributed: {scopedIdentityUnresolvedEndpointCount:N0} network endpoint(s) matched the lifetime-aware raw process selector and half-open query window, but process-lifetime identity was unresolved; no connection lifecycle attribution was guessed.");
         }
         else if (filtered.Length == 0 && scope.IsResolved && unpairedCloseCount > 0)
         {
@@ -227,12 +250,17 @@ public static class NetConnectionAnalysis
         if (traceIdentityUnresolvedEndpointCount > 0)
         {
             warnings.Add(
-                $"network_process_identity_unresolved: {traceIdentityUnresolvedEndpointCount:N0} selected-PID/all-process endpoint(s) could not be tied to a process lifetime; {scopedIdentityUnresolvedEndpointCount:N0} were inside the requested half-open window.");
+                $"network_process_identity_unresolved: {traceIdentityUnresolvedEndpointCount:N0} selected-PID/all-process endpoint(s) could not be tied to a process lifetime; {scopedIdentityUnresolvedEndpointCount:N0} matched the lifetime-aware raw process selector and requested half-open window.");
         }
         if (processEndUnobservedCount > 0)
         {
             warnings.Add(
                 $"connection_end_unobserved: {processEndUnobservedCount:N0} connection(s) lacked a Disconnect/Reconnect before the owning process ended; CloseTimeUs and DurationUs are null.");
+        }
+        if (replacedOpenUnobservedCount > 0)
+        {
+            warnings.Add(
+                $"connection_replaced_open_unobserved: {replacedOpenUnobservedCount:N0} connid slot(s) received a second open without an observed Disconnect/Reconnect; the replacement timestamp is only a projection boundary, and CloseTimeUs/DurationUs remain null.");
         }
 
         return new NetConnectionsResponse(
@@ -265,6 +293,7 @@ public static class NetConnectionAnalysis
                             : "no_events_in_scope"
                         : null,
             UnpairedCloseCount: unpairedCloseCount,
+            ReplacedOpenUnobservedCount: replacedOpenUnobservedCount,
             TraceIdentityUnresolvedEndpointCount:
                 traceIdentityUnresolvedEndpointCount,
             ScopedIdentityUnresolvedEndpointCount:
@@ -314,29 +343,41 @@ public static class NetConnectionAnalysis
                     durationUs: checked(closeTimeUs - Open.TimeUs),
                     traceResidentEnd: false,
                     endState),
-                closeTimeUs);
+                closeTimeUs,
+                Open.ConnId);
 
         public ProjectedConnection CloseUnobserved(
             long intervalEndUs,
-            bool traceResidentEnd) =>
+            bool traceResidentEnd,
+            string? endState = null) =>
             new(
                 ToRow(
                     closeTimeUs: null,
                     durationUs: null,
                     traceResidentEnd,
-                    traceResidentEnd
+                    endState ?? (traceResidentEnd
                         ? "trace_end_unobserved"
-                        : "process_end_unobserved"),
-                intervalEndUs);
+                        : "process_end_unobserved")),
+                intervalEndUs,
+                Open.ConnId);
 
         private NetConnectionRow ToRow(
             long? closeTimeUs,
             long? durationUs,
             bool traceResidentEnd,
-            string endState) =>
-            new(
+            string endState)
+        {
+            var connId = Open.ConnId;
+            var legacyConnId = connId <= JavaScriptMaxSafeInteger
+                ? connId
+                : (ulong?)null;
+            return new(
                 Pid: Process.Pid,
-                ConnId: Open.ConnId,
+                ConnIdText: connId.ToString(CultureInfo.InvariantCulture),
+                ConnId: legacyConnId,
+                ConnIdLegacyStatus: legacyConnId.HasValue
+                    ? "exact_safe_integer_deprecated"
+                    : "null_unsafe_integer_deprecated",
                 Role: Open.Kind == NetConnectionEventKind.Accept
                     ? "accept"
                     : "connect",
@@ -351,11 +392,13 @@ public static class NetConnectionAnalysis
                 TraceResidentEnd: traceResidentEnd,
                 ProcessStartUs: Process.StartUs,
                 EndState: endState);
+        }
     }
 
     private sealed record ProjectedConnection(
         NetConnectionRow Row,
-        long IntervalEndUs);
+        long IntervalEndUs,
+        ulong ConnId);
 }
 
 internal enum NetConnectionEventKind

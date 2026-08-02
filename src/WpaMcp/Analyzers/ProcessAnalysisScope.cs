@@ -150,8 +150,10 @@ internal sealed class ProcessAnalysisScope
 
         foreach (var key in IncludedProcesses)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             foreach (var lifetime in identities.Processes.FindExact(key))
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 if (lifetime.Contains(timestampUs) ||
                     (atEndpoint && timestampUs == lifetime.EndUs &&
                      timestampUs >= lifetime.Key.StartUs))
@@ -296,9 +298,11 @@ internal sealed class ProcessAnalysisScope
         var overlapping = new HashSet<ProcessInstanceKey>();
         for (var leftIndex = 0; leftIndex < lifetimes.Count; leftIndex++)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var left = lifetimes[leftIndex];
             for (var rightIndex = leftIndex + 1; rightIndex < lifetimes.Count; rightIndex++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 var right = lifetimes[rightIndex];
                 if (right.Key.StartUs >= left.EndUs)
                     break;

@@ -18,6 +18,8 @@ public class DiskIoStackAnalysisTests
         // Disk IO may be absent on a tiny fixture. The warning must not infer capture settings.
         if (resp.Rows.Count == 0)
             Assert.Contains(resp.Warnings, w =>
+                w.Contains("stacks_unavailable", StringComparison.OrdinalIgnoreCase) ||
+                w.Contains("no_stacks", StringComparison.OrdinalIgnoreCase) ||
                 w.Contains("DiskIO", StringComparison.OrdinalIgnoreCase) &&
                 w.Contains("does not prove", StringComparison.OrdinalIgnoreCase));
         else

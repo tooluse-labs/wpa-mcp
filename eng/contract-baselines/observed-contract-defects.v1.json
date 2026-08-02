@@ -1,0 +1,39 @@
+{
+  "formatVersion": "observed-contract-defects.v1",
+  "scope": "Defects discovered from production MCP wire observations outside the 17-item analyzer correctness ledger.",
+  "defects": [
+    {
+      "id": "WIRE-SCHEMA-001",
+      "severity": "P0",
+      "title": "Advertised structured outputSchema required fields were omitted from structuredContent",
+      "disposition": "known_incorrect_must_change",
+      "rootCause": "The SDK-generated output schema marks nullable record constructor properties without defaults as required, while the SDK runtime serializer omits null POCO properties by default.",
+      "misleadingRisk": "A client or LLM can trust outputSchema and receive a response that is invalid against it; omitted evidence-boundary fields can also be mistaken for unsupported semantics instead of an explicit null measurement.",
+      "legacyEvidence": {
+        "golden": "tests/WpaMcp.Tests/ContractBaselines/legacy-structured-stdio.v1.json",
+        "sha256": "055be9ddde2c21effad7a9d3c27c6630977b600c7c4fc1be3f891392a662e2b7",
+        "legacyDefectId": "LEGACY-STDIO-SCHEMA-001",
+        "legacyTopLevelObservationOnly": true
+      },
+      "recursiveProductionStdioAudit": {
+        "fixture": "tests/WpaMcp.Tests/fixtures/small_wait_bound.etl",
+        "cases": 10,
+        "validation": "recursive required/nullability/type traversal through object properties, arrays, additionalProperties, and local JSON Pointer $ref",
+        "legacyMissingRequiredPathOccurrences": 286,
+        "byTool": [
+          { "tool": "inspect_trace", "success": 89, "boundary": 89 },
+          { "tool": "diagnose_high_wait", "success": 48, "boundary": 2 },
+          { "tool": "diagnose_window", "success": 53, "boundary": 5 },
+          { "tool": "wait_analysis", "success": 0, "boundary": 0 },
+          { "tool": "unload_trace", "success": 0, "boundary": 0 }
+        ]
+      },
+      "repair": {
+        "strategy": "For successful tools with an advertised outputSchema only, recursively materialize a missing required property as explicit null when and only when that property's schema allows null; synchronize the text JSON with structuredContent. Never fabricate missing non-null values.",
+        "nonStructuredCompatibilityBoundary": "The other 56 tools have no outputSchema and never enter the repair path, so their legacy text serialization remains unchanged.",
+        "activeGolden": "tests/WpaMcp.Tests/ContractBaselines/active-structured-stdio.v1.json"
+      },
+      "implementationStatus": "fixed_runtime_and_recursive_tests_verified_pending_active_golden_refresh"
+    }
+  ]
+}

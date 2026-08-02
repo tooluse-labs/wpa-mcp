@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class HardFaultTools
 {
     private readonly TraceCache _cache;
-    public HardFaultTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public HardFaultTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N file mappings associated with observed hard-fault paging-in bytes (for example, " +
         "a network-share PDF or DLL). PerfView equivalent: " +
         "'Memory Hard Fault → ByFile'.  Most hard faults are mmap'd files being touched for " +
@@ -23,7 +28,7 @@ public sealed class HardFaultTools
         "analysis can zoom into the exact stall window. Supports startUs/endUs filters to " +
         "isolate a startup or interaction window before ranking files.")]
     public HardFaultByFileResponse HardFaultByFile(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -47,7 +52,7 @@ public sealed class HardFaultTools
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N event-attached call stacks ranked by hard-fault paging-in bytes. PerfView " +
         "equivalent: 'Memory Hard Fault Stacks'. " +
         "Pairs with hard_fault_by_file (per-file bucket); this one is per-stack so you can " +
@@ -56,7 +61,7 @@ public sealed class HardFaultTools
         "Requires the HardFaults kernel keyword in the capture profile. StackCoverage is " +
         "HardFault-only and identifies any bytes represented by the synthetic ?!? frame.")]
     public HardFaultStacksResponse HardFaultTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -84,17 +89,17 @@ public sealed class HardFaultTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return PageFaultStackAnalysis.TopFaultStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the hard-fault-stack data.  Metric " +
         "is page-in bytes; top-N callers ranked by inclusive bytes paged in for focus, callees " +
         "by bytes flowing through.  Requires HardFaults keyword in the capture profile.")]
     public CallerCalleeResponse HardFaultCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in hard_fault_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -116,7 +121,7 @@ public sealed class HardFaultTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return PageFaultStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

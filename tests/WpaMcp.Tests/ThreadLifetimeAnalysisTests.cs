@@ -193,4 +193,44 @@ public class ThreadLifetimeAnalysisTests
         Assert.Equal("unknown", response.CapabilityStatus);
         Assert.Equal(0, response.MatchedEventCount);
     }
+
+    [Fact]
+    public void AnalyzeEvents_ExposesObservedReplacementProcessAndTraceEndBoundaries()
+    {
+        var process = new ProcessInstanceKey(20, 0);
+        var processEnded = ThreadLifetimeAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes: [new ProcessLifetime(process, 100, true, true)],
+            events:
+            [
+                new ThreadLifecycleEvent(20, 7, 10, ThreadLifecycleEventKind.Start, true),
+                new ThreadLifecycleEvent(20, 7, 20, ThreadLifecycleEventKind.Start, true),
+                new ThreadLifecycleEvent(20, 7, 30, ThreadLifecycleEventKind.Stop, true),
+                new ThreadLifecycleEvent(20, 8, 0, ThreadLifecycleEventKind.RundownStart, false),
+            ],
+            selector: process);
+
+        var replaced = Assert.Single(processEnded, row =>
+            row.Tid == 7 && row.ThreadGeneration == 1);
+        Assert.Equal("observed", replaced.StartBoundaryKind);
+        Assert.Equal("replacement", replaced.EndBoundaryKind);
+        Assert.Equal("bounded_by_inferred_endpoint", replaced.MeasurementState);
+        var observed = Assert.Single(processEnded, row =>
+            row.Tid == 7 && row.ThreadGeneration == 2);
+        Assert.Equal("observed", observed.EndBoundaryKind);
+        Assert.Equal("exact_observed_interval", observed.MeasurementState);
+        var processBound = Assert.Single(processEnded, row => row.Tid == 8);
+        Assert.Equal("process_start", processBound.StartBoundaryKind);
+        Assert.Equal("process_end", processBound.EndBoundaryKind);
+
+        var traceBound = ThreadLifetimeAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes: [new ProcessLifetime(process, 200, true, false)],
+            events:
+            [
+                new ThreadLifecycleEvent(20, 9, 40, ThreadLifecycleEventKind.Start, true),
+            ],
+            selector: process);
+        Assert.Equal("trace_end", Assert.Single(traceBound).EndBoundaryKind);
+    }
 }

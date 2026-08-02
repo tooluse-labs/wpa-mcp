@@ -10,14 +10,19 @@ namespace WpaMcp.Tools;
 public sealed class IoTools
 {
     private readonly TraceCache _cache;
-    public IoTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public IoTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top N files by total IO bytes (read + write). Supports pid/processStartUs/startUs/endUs filters " +
         "so a noisy trace can be narrowed to an exact process lifetime or startup window. A PID-only " +
         "query may explicitly aggregate reused-PID lifetimes; inspect ScopeMode and IncludedProcesses.")]
     public FileIoResponse FileIoTopFiles(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -41,7 +46,7 @@ public sealed class IoTools
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by file-IO bytes — answers 'which call chain is doing all " +
         "the file IO'. PerfView equivalent: 'File I/O Stacks' view. Pairs with file_io_top_files " +
         "(per-file bucket); this one is per-stack so you can tell streaming-of-one-big-file apart " +
@@ -49,7 +54,7 @@ public sealed class IoTools
         "and OpCount. Requires the FileIO keyword in the capture profile. StackCoverage is FileIO-only " +
         "and identifies any bytes represented by the synthetic ?!? frame.")]
     public FileIoStacksResponse FileIoTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -77,17 +82,17 @@ public sealed class IoTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return FileIoStackAnalysis.TopIoStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the file-IO-stack data. Metric is " +
         "IO bytes (read+write); top-N callers ranked by inclusive bytes flowing INTO focus, " +
         "callees by bytes OUT. PerfView equivalent: 'Callers' / 'Callees' tabs of File I/O Stacks.")]
     public CallerCalleeResponse FileIoCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in file_io_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -109,12 +114,12 @@ public sealed class IoTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return FileIoStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by PHYSICAL disk-IO bytes — answers 'which call chain " +
         "actually hit the disk'. Different layer from file_io_top_stacks: file IO captures " +
         "all syscalls (cache-served included), disk IO only events that hit physical media. " +
@@ -122,7 +127,7 @@ public sealed class IoTools
         "view. Requires the DiskIO keyword in the capture profile. StackCoverage is DiskIO-only " +
         "and identifies any bytes represented by the synthetic ?!? frame.")]
     public DiskIoStacksResponse DiskIoTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -150,17 +155,17 @@ public sealed class IoTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return DiskIoStackAnalysis.TopIoStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the disk-IO-stack data. Metric is " +
         "physical disk bytes (TransferSize); top-N callers ranked by inclusive disk bytes " +
         "flowing INTO focus, callees by bytes OUT.")]
     public CallerCalleeResponse DiskIoCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in disk_io_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -182,7 +187,7 @@ public sealed class IoTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return DiskIoStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

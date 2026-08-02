@@ -21,9 +21,8 @@ namespace WpaMcp.Analyzers;
 //       Int32 ByteCount        -- Bytes paged in for this fault.
 //       Int32 ProcessID
 //
-// Because hard faults reference FileKey (not FileObject), FileObjectResolver — which
-// keys on FileObject — does not apply here. Per task instructions we keep the change
-// contained: this file builds its own FileKey -> FileName map by subscribing to the
+// Because hard faults reference FileKey and carry no FileObject, this analyzer needs
+// only a temporal FileKey -> FileName map. It builds that map by subscribing to the
 // kernel events whose data type is FileIONameTraceData (FileIOName, FileIOFileCreate,
 // FileIOFileDelete, FileIOFileRundown — confirmed in Task 11). We also fold in any
 // FileName the hard-fault event itself supplies, since it can be present.
@@ -51,7 +50,7 @@ public static class HardFaultByFileAnalysis
         var fileNames = new TemporalFileNameMap<ulong>();
         long globalEventCount = 0;
         long matchedEventCount = 0;
-        var agg = new Dictionary<string, (long bytes, long count, long maxLatencyUs, long maxLatencyTimeUs)>();
+        var agg = new Dictionary<string, HardFaultFileAggregate>();
         KernelEventWalker.Walk(trace, kernel =>
         {
             void Capture(Microsoft.Diagnostics.Tracing.Parsers.Kernel.FileIONameTraceData data)
@@ -77,42 +76,26 @@ public static class HardFaultByFileAnalysis
                 matchedEventCount++;
 
                 // Prefer the FileName the event carries; otherwise fall back to the FileKey map.
-                var name = ResolveFileName(
+                var resolution = ResolveFileMapping(
                     data.FileName,
                     data.FileKey,
                     nowUs,
                     data.EventIndex,
                     fileNames);
 
-                var cur = agg.GetValueOrDefault(name);
                 var latencyUs = (long)(data.ElapsedTimeMSec * 1000);
-                var maxLatencyUs = cur.maxLatencyUs;
-                var maxLatencyTimeUs = cur.maxLatencyTimeUs;
-                if (cur.count == 0 || latencyUs > cur.maxLatencyUs)
-                {
-                    maxLatencyUs = latencyUs;
-                    maxLatencyTimeUs = nowUs;
-                }
-
-                agg[name] = (cur.bytes + data.ByteCount,
-                             cur.count + 1,
-                             maxLatencyUs,
-                             maxLatencyTimeUs);
+                GetAggregate(agg, resolution.File).Add(
+                    data.ByteCount,
+                    latencyUs,
+                    nowUs,
+                    resolution.MappingState);
             };
         });
 
-        var rows = agg
-            .Select(kv => new HardFaultFileRow(
-                kv.Key,
-                kv.Value.bytes,
-                kv.Value.count,
-                kv.Value.maxLatencyUs,
-                kv.Value.maxLatencyTimeUs))
-            .OrderByDescending(r => SortMetric(r, normalizedOrderBy))
-            .ThenByDescending(r => r.PageInBytes)
-            .ThenByDescending(r => r.PageInCount)
-            .Take(top)
-            .ToList();
+        var rows = RankRows(
+            agg.Select(kv => kv.Value.ToRow(kv.Key)),
+            normalizedOrderBy,
+            top);
 
         var warnings = new List<string> { WarningBuilder.HardFaultKeywordHint };
         var scopeMissing = !scope.IsResolved;
@@ -144,6 +127,21 @@ public static class HardFaultByFileAnalysis
             CapabilityStatus: capabilityStatus,
             MatchedEventCount: matchedEventCount,
             NoDataReason: noDataReason);
+    }
+
+    internal static IReadOnlyList<HardFaultFileRow> RankRows(
+        IEnumerable<HardFaultFileRow> rows,
+        string normalizedOrderBy,
+        int top)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rows
+            .OrderByDescending(r => SortMetric(r, normalizedOrderBy))
+            .ThenByDescending(r => r.PageInBytes)
+            .ThenByDescending(r => r.PageInCount)
+            .ThenBy(r => r.File, StringComparer.Ordinal)
+            .Take(top)
+            .ToList();
     }
 
     private static void AddNoDataWarning(
@@ -208,23 +206,84 @@ public static class HardFaultByFileAnalysis
         long timestampUs,
         TemporalFileNameMap<ulong> fileNames)
     {
-        if (!string.IsNullOrEmpty(eventFileName)) return eventFileName;
-        return fileNames.TryResolveAt(fileKey, timestampUs, out var mapped)
-            ? mapped
-            : $"<unmapped:0x{fileKey:X}>";
+        return ResolveFileMapping(eventFileName, fileKey, timestampUs, fileNames).File;
     }
 
-    private static string ResolveFileName(
+    internal static FileMappingResolution ResolveFileMapping(
+        string? eventFileName,
+        ulong fileKey,
+        long timestampUs,
+        TemporalFileNameMap<ulong> fileNames)
+    {
+        if (!string.IsNullOrEmpty(eventFileName))
+            return FileMappingResolution.FromEventName(eventFileName);
+        var mapped = fileKey != 0 && fileNames.TryResolveAt(fileKey, timestampUs, out var fileName)
+            ? fileName
+            : null;
+        return FileMappingResolution.FromFileKey(fileKey, mapped);
+    }
+
+    private static FileMappingResolution ResolveFileMapping(
         string? eventFileName,
         ulong fileKey,
         long timestampUs,
         Microsoft.Diagnostics.Tracing.EventIndex eventIndex,
         TemporalFileNameMap<ulong> fileNames)
     {
-        if (!string.IsNullOrEmpty(eventFileName)) return eventFileName;
-        return fileNames.TryResolveAt(fileKey, timestampUs, eventIndex, out var mapped)
-            ? mapped
-            : $"<unmapped:0x{fileKey:X}>";
+        if (!string.IsNullOrEmpty(eventFileName))
+            return FileMappingResolution.FromEventName(eventFileName);
+        var mapped = fileKey != 0 &&
+            fileNames.TryResolveAt(fileKey, timestampUs, eventIndex, out var fileName)
+                ? fileName
+                : null;
+        return FileMappingResolution.FromFileKey(fileKey, mapped);
+    }
+
+    private static HardFaultFileAggregate GetAggregate(
+        IDictionary<string, HardFaultFileAggregate> aggregates,
+        string file)
+    {
+        if (!aggregates.TryGetValue(file, out var aggregate))
+        {
+            aggregate = new HardFaultFileAggregate();
+            aggregates.Add(file, aggregate);
+        }
+
+        return aggregate;
+    }
+
+    internal sealed class HardFaultFileAggregate
+    {
+        private readonly FileMappingStateAccumulator _mappingStates = new();
+        private long _bytes;
+        private long _count;
+        private long _maxLatencyUs;
+        private long _maxLatencyTimeUs;
+
+        public void Add(long bytes, long latencyUs, long timestampUs, string mappingState)
+        {
+            checked
+            {
+                _bytes += bytes;
+                _count++;
+            }
+
+            if (_count == 1 || latencyUs > _maxLatencyUs)
+            {
+                _maxLatencyUs = latencyUs;
+                _maxLatencyTimeUs = timestampUs;
+            }
+            _mappingStates.Add(mappingState);
+        }
+
+        public HardFaultFileRow ToRow(string file) => new(
+            file,
+            _bytes,
+            _count,
+            _maxLatencyUs,
+            _maxLatencyTimeUs,
+            _mappingStates.AggregateState,
+            _mappingStates.Snapshot());
     }
 
 }

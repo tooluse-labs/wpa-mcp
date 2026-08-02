@@ -10,6 +10,8 @@ namespace WpaMcp.Analyzers;
 // File mappings and I/O are processed in one trace-ordered pass. The event's own
 // FileName wins; otherwise the resolver uses only FileKey/FileObject names observed
 // no later than that event. Future rundown or pointer reuse cannot rename earlier I/O.
+// Simultaneous valid key/object mappings that disagree are reported as ambiguous;
+// neither candidate name is selected.
 public static class FileIoAnalysis
 {
     public static FileIoResponse TopFiles(
@@ -29,7 +31,7 @@ public static class FileIoAnalysis
         var identities = TraceIdentityIndex.For(trace);
         var scope = ProcessAnalysisScope.Resolve(window, pid, processStartUs, identities);
         var resolver = new FileObjectResolver();
-        var agg = new Dictionary<string, (long ReadBytes, long ReadCount, long WriteBytes, long WriteCount)>();
+        var agg = new Dictionary<string, FileIoAggregate>();
         long globalEventCount = 0;
         long matchedEventCount = 0;
 
@@ -42,15 +44,14 @@ public static class FileIoAnalysis
                 var timestampUs = ToUs(data.TimeStampRelativeMSec);
                 if (!scope.MatchesEvent(identities, data.ProcessID, timestampUs)) return;
                 matchedEventCount++;
-                var name = ResolveFileName(
+                var resolution = ResolveFileMapping(
                     resolver,
                     data.FileName,
                     data.FileObject,
                     data.FileKey,
                     timestampUs,
                     data.EventIndex);
-                var cur = agg.GetValueOrDefault(name);
-                agg[name] = (cur.ReadBytes + data.IoSize, cur.ReadCount + 1, cur.WriteBytes, cur.WriteCount);
+                GetAggregate(agg, resolution.File).AddRead(data.IoSize, resolution.MappingState);
             };
             kernel.FileIOWrite += data =>
             {
@@ -58,23 +59,18 @@ public static class FileIoAnalysis
                 var timestampUs = ToUs(data.TimeStampRelativeMSec);
                 if (!scope.MatchesEvent(identities, data.ProcessID, timestampUs)) return;
                 matchedEventCount++;
-                var name = ResolveFileName(
+                var resolution = ResolveFileMapping(
                     resolver,
                     data.FileName,
                     data.FileObject,
                     data.FileKey,
                     timestampUs,
                     data.EventIndex);
-                var cur = agg.GetValueOrDefault(name);
-                agg[name] = (cur.ReadBytes, cur.ReadCount, cur.WriteBytes + data.IoSize, cur.WriteCount + 1);
+                GetAggregate(agg, resolution.File).AddWrite(data.IoSize, resolution.MappingState);
             };
         });
 
-        var rows = agg
-            .Select(kv => new FileIoRow(kv.Key, kv.Value.ReadBytes, kv.Value.ReadCount, kv.Value.WriteBytes, kv.Value.WriteCount))
-            .OrderByDescending(r => r.ReadBytes + r.WriteBytes)
-            .Take(top)
-            .ToList();
+        var rows = RankRows(agg, top);
 
         // CapabilityStatus is scoped evidence across process-level tools: it is
         // observed only when this selector matched source events. A trace-wide
@@ -100,17 +96,46 @@ public static class FileIoAnalysis
             Warnings: warnings);
     }
 
+    internal static IReadOnlyList<FileIoRow> RankRows(
+        IEnumerable<KeyValuePair<string, FileIoAggregate>> aggregates,
+        int top)
+    {
+        ArgumentNullException.ThrowIfNull(aggregates);
+        return aggregates
+            // Rank with the same checked Int64 semantics used by the byte
+            // accumulators. Silent wraparound here would make the largest file
+            // appear small while the returned component totals still look exact.
+            .OrderByDescending(kv => kv.Value.TotalBytes)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Take(top)
+            .Select(kv => kv.Value.ToRow(kv.Key))
+            .ToList();
+    }
+
     internal static string ResolveFileName(
         FileObjectResolver resolver,
         string? eventFileName,
         ulong fileObject,
         ulong fileKey,
         long timestampUs) =>
-        !string.IsNullOrEmpty(eventFileName)
-            ? eventFileName
-            : resolver.ResolveAt(fileObject, fileKey, timestampUs);
+        ResolveFileMapping(
+            resolver,
+            eventFileName,
+            fileObject,
+            fileKey,
+            timestampUs).File;
 
-    private static string ResolveFileName(
+    internal static FileMappingResolution ResolveFileMapping(
+        FileObjectResolver resolver,
+        string? eventFileName,
+        ulong fileObject,
+        ulong fileKey,
+        long timestampUs) =>
+        !string.IsNullOrEmpty(eventFileName)
+            ? FileMappingResolution.FromEventName(eventFileName)
+            : resolver.ResolveDetailedAt(fileObject, fileKey, timestampUs);
+
+    private static FileMappingResolution ResolveFileMapping(
         FileObjectResolver resolver,
         string? eventFileName,
         ulong fileObject,
@@ -118,8 +143,21 @@ public static class FileIoAnalysis
         long timestampUs,
         Microsoft.Diagnostics.Tracing.EventIndex eventIndex) =>
         !string.IsNullOrEmpty(eventFileName)
-            ? eventFileName
-            : resolver.ResolveAt(fileObject, fileKey, timestampUs, eventIndex);
+            ? FileMappingResolution.FromEventName(eventFileName)
+            : resolver.ResolveDetailedAt(fileObject, fileKey, timestampUs, eventIndex);
+
+    private static FileIoAggregate GetAggregate(
+        IDictionary<string, FileIoAggregate> aggregates,
+        string file)
+    {
+        if (!aggregates.TryGetValue(file, out var aggregate))
+        {
+            aggregate = new FileIoAggregate();
+            aggregates.Add(file, aggregate);
+        }
+
+        return aggregate;
+    }
 
     internal static string? ClassifyNoData(
         ProcessAnalysisScope scope,
@@ -172,4 +210,44 @@ public static class FileIoAnalysis
 
     private static long ToUs(double timeStampRelativeMSec) =>
         TraceTime.FromMilliseconds(timeStampRelativeMSec);
+
+    internal sealed class FileIoAggregate
+    {
+        private readonly FileMappingStateAccumulator _mappingStates = new();
+
+        public long ReadBytes { get; private set; }
+        public long ReadCount { get; private set; }
+        public long WriteBytes { get; private set; }
+        public long WriteCount { get; private set; }
+        public long TotalBytes => checked(ReadBytes + WriteBytes);
+
+        public void AddRead(long bytes, string mappingState)
+        {
+            checked
+            {
+                ReadBytes += bytes;
+                ReadCount++;
+            }
+            _mappingStates.Add(mappingState);
+        }
+
+        public void AddWrite(long bytes, string mappingState)
+        {
+            checked
+            {
+                WriteBytes += bytes;
+                WriteCount++;
+            }
+            _mappingStates.Add(mappingState);
+        }
+
+        public FileIoRow ToRow(string file) => new(
+            file,
+            ReadBytes,
+            ReadCount,
+            WriteBytes,
+            WriteCount,
+            _mappingStates.AggregateState,
+            _mappingStates.Snapshot());
+    }
 }

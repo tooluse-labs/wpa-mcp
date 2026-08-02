@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using WpaMcp.Core;
@@ -47,7 +48,7 @@ internal sealed record IdentityDiagnostic(
 
 internal sealed class TraceIdentityIndex
 {
-    private static readonly ConditionalWeakTable<TraceLog, Lazy<TraceIdentityIndex>> Cache = new();
+    private static readonly ConditionalWeakTable<TraceLog, IdentityCacheEntry> Cache = new();
 
     private TraceIdentityIndex(
         ProcessInstanceResolver processes,
@@ -55,7 +56,11 @@ internal sealed class TraceIdentityIndex
         long traceEndUs,
         IReadOnlyList<IdentityDiagnostic> diagnostics,
         long threadLifecycleEventCount,
-        IReadOnlyDictionary<ProcessInstanceKey, long> threadLifecycleEventCountsByProcess)
+        IReadOnlyDictionary<ProcessInstanceKey, long> threadLifecycleEventCountsByProcess,
+        long observedThreadLifecycleEndpointEventCount,
+        IReadOnlyDictionary<ProcessInstanceKey, long> observedThreadLifecycleEndpointEventCountsByProcess,
+        long threadRundownEndpointEventCount,
+        IReadOnlyDictionary<ProcessInstanceKey, long> threadRundownEndpointEventCountsByProcess)
     {
         Processes = processes;
         Threads = threads;
@@ -63,6 +68,13 @@ internal sealed class TraceIdentityIndex
         Diagnostics = diagnostics;
         ThreadLifecycleEventCount = threadLifecycleEventCount;
         ThreadLifecycleEventCountsByProcess = threadLifecycleEventCountsByProcess;
+        ObservedThreadLifecycleEndpointEventCount =
+            observedThreadLifecycleEndpointEventCount;
+        ObservedThreadLifecycleEndpointEventCountsByProcess =
+            observedThreadLifecycleEndpointEventCountsByProcess;
+        ThreadRundownEndpointEventCount = threadRundownEndpointEventCount;
+        ThreadRundownEndpointEventCountsByProcess =
+            threadRundownEndpointEventCountsByProcess;
     }
 
     public ProcessInstanceResolver Processes { get; }
@@ -78,8 +90,36 @@ internal sealed class TraceIdentityIndex
     public IReadOnlyDictionary<ProcessInstanceKey, long>
         ThreadLifecycleEventCountsByProcess { get; }
 
+    public long ObservedThreadLifecycleEndpointEventCount { get; }
+
+    public IReadOnlyDictionary<ProcessInstanceKey, long>
+        ObservedThreadLifecycleEndpointEventCountsByProcess { get; }
+
+    public long ThreadRundownEndpointEventCount { get; }
+
+    public IReadOnlyDictionary<ProcessInstanceKey, long>
+        ThreadRundownEndpointEventCountsByProcess { get; }
+
     public static TraceIdentityIndex For(TraceLog trace) =>
-        For(trace, BuildFromTrace);
+        For(trace, TraceQueryExecutionContext.CurrentCancellationToken);
+
+    internal static TraceIdentityIndex For(
+        TraceLog trace,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        cancellationToken.ThrowIfCancellationRequested();
+        var entry = Cache.GetValue(trace, static _ => new IdentityCacheEntry());
+        if (entry.TryGetProvider(cancellationToken, out var provider))
+        {
+            var identity = provider(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return identity;
+        }
+        return entry.GetOrBuild(
+            () => BuildFromTrace(trace, cancellationToken),
+            cancellationToken);
+    }
 
     internal static TraceIdentityIndex For(
         TraceLog trace,
@@ -87,11 +127,29 @@ internal sealed class TraceIdentityIndex
     {
         ArgumentNullException.ThrowIfNull(trace);
         ArgumentNullException.ThrowIfNull(builder);
-        return Cache.GetValue(
-            trace,
-            key => new Lazy<TraceIdentityIndex>(
-                () => builder(key),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        var cancellationToken = TraceQueryExecutionContext.CurrentCancellationToken;
+        return Cache.GetValue(trace, static _ => new IdentityCacheEntry())
+            .GetOrBuild(() => builder(trace), cancellationToken);
+    }
+
+    internal static TraceIdentityIndex Register(
+        TraceLog trace,
+        TraceIdentityIndex identity)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(identity);
+        return Cache.GetValue(trace, static _ => new IdentityCacheEntry())
+            .Register(identity);
+    }
+
+    internal static void BindFactsProvider(
+        TraceLog trace,
+        Func<CancellationToken, TraceIdentityIndex> provider)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(provider);
+        Cache.GetValue(trace, static _ => new IdentityCacheEntry())
+            .BindProvider(provider);
     }
 
     internal static IReadOnlyList<ProcessLifetime> BuildProcessLifetimes(
@@ -102,7 +160,7 @@ internal sealed class TraceIdentityIndex
         var active = new Dictionary<int, ActiveProcess>();
         var lifetimes = new List<ProcessLifetime>();
 
-        foreach (var processEvent in events
+        foreach (var processEvent in AnalysisEvents.Enumerate(events)
                      .Select((value, index) => (value, index))
                      .OrderBy(item => item.value.TimestampUs)
                      .ThenBy(item => ProcessEventOrder(item.value.Kind))
@@ -179,6 +237,7 @@ internal sealed class TraceIdentityIndex
 
         foreach (var process in active.Values)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             lifetimes.Add(CloseProcess(
                 process,
                 traceEndUs,
@@ -186,7 +245,8 @@ internal sealed class TraceIdentityIndex
                 endFromRundown: process.EndFromRundown));
         }
 
-        foreach (var item in backfill.OrderBy(item => item.Pid).ThenBy(item => item.StartUs))
+        foreach (var item in AnalysisEvents.Enumerate(backfill)
+                     .OrderBy(item => item.Pid).ThenBy(item => item.StartUs))
         {
             ReconcileBackfill(lifetimes, item);
         }
@@ -207,8 +267,12 @@ internal sealed class TraceIdentityIndex
         var threadCatalog = new ThreadInstanceCatalog(processResolver.Lifetimes);
         var diagnostics = new List<IdentityDiagnostic>();
         var threadEventCountsByProcess = new Dictionary<ProcessInstanceKey, long>();
+        var observedThreadEndpointCountsByProcess =
+            new Dictionary<ProcessInstanceKey, long>();
+        var threadRundownEndpointCountsByProcess =
+            new Dictionary<ProcessInstanceKey, long>();
 
-        foreach (var threadEvent in threads
+        foreach (var threadEvent in AnalysisEvents.Enumerate(threads)
                      .Select((value, index) => (value, index))
                      .OrderBy(item => item.value.TimestampUs)
                      .ThenBy(item => ThreadEventOrder(item.value.Kind))
@@ -234,6 +298,11 @@ internal sealed class TraceIdentityIndex
             var process = resolution.Value.Value;
             threadEventCountsByProcess[process] = checked(
                 threadEventCountsByProcess.GetValueOrDefault(process) + 1);
+            var endpointCounts = threadEvent.Observed
+                ? observedThreadEndpointCountsByProcess
+                : threadRundownEndpointCountsByProcess;
+            endpointCounts[process] = checked(
+                endpointCounts.GetValueOrDefault(process) + 1);
             switch (threadEvent.Kind)
             {
                 case ThreadLifecycleEventKind.Start:
@@ -270,14 +339,20 @@ internal sealed class TraceIdentityIndex
             }
         }
 
+        AnalysisEvents.ThrowIfCancellationRequested();
         threadCatalog.Complete(traceEndUs);
+        AnalysisEvents.ThrowIfCancellationRequested();
         return new TraceIdentityIndex(
             processResolver,
             threadCatalog,
             traceEndUs,
-            diagnostics.ToArray(),
+            Array.AsReadOnly(diagnostics.ToArray()),
             threads.Count,
-            threadEventCountsByProcess);
+            threadEventCountsByProcess.ToFrozenDictionary(),
+            threads.LongCount(thread => thread.Observed),
+            observedThreadEndpointCountsByProcess.ToFrozenDictionary(),
+            threads.LongCount(thread => !thread.Observed),
+            threadRundownEndpointCountsByProcess.ToFrozenDictionary());
     }
 
     private static long ProcessEndUs(
@@ -309,10 +384,13 @@ internal sealed class TraceIdentityIndex
             threadEvent.TimestampUs);
     }
 
-    private static TraceIdentityIndex BuildFromTrace(TraceLog trace)
+    private static TraceIdentityIndex BuildFromTrace(
+        TraceLog trace,
+        CancellationToken cancellationToken)
     {
         var traceEndUs = TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds);
         var processEvents = new List<ProcessLifecycleEvent>();
+        var threadEvents = new List<ThreadLifecycleEvent>();
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ProcessStart += data => processEvents.Add(new ProcessLifecycleEvent(
@@ -331,19 +409,6 @@ internal sealed class TraceIdentityIndex
                 data.ProcessID,
                 TraceTime.FromMilliseconds(data.TimeStampRelativeMSec),
                 ProcessLifecycleEventKind.RundownStop));
-        });
-
-        var backfill = trace.Processes
-            .Select(process => new ProcessLifetimeBackfill(
-                process.ProcessID,
-                TraceTime.FromMilliseconds(process.StartTimeRelativeMsec),
-                TraceTime.FromMilliseconds(process.EndTimeRelativeMsec)))
-            .ToArray();
-        var processes = BuildProcessLifetimes(traceEndUs, processEvents, backfill);
-
-        var threadEvents = new List<ThreadLifecycleEvent>();
-        KernelEventWalker.Walk(trace, kernel =>
-        {
             kernel.ThreadStart += data => threadEvents.Add(new ThreadLifecycleEvent(
                 data.ProcessID,
                 data.ThreadID,
@@ -368,7 +433,19 @@ internal sealed class TraceIdentityIndex
                 TraceTime.FromMilliseconds(data.TimeStampRelativeMSec),
                 ThreadLifecycleEventKind.RundownStop,
                 Observed: false));
-        });
+        }, cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var backfill = AnalysisEvents.Enumerate(trace.Processes, cancellationToken)
+            .Select(process => new ProcessLifetimeBackfill(
+                process.ProcessID,
+                TraceTime.FromMilliseconds(process.StartTimeRelativeMsec),
+                TraceTime.FromMilliseconds(process.EndTimeRelativeMsec)))
+            .ToArray();
+        var processes = BuildProcessLifetimes(traceEndUs, processEvents, backfill);
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         return BuildFromEvents(traceEndUs, processes, threadEvents);
     }
@@ -464,4 +541,73 @@ internal sealed class TraceIdentityIndex
         long StartUs,
         bool StartObserved,
         bool EndFromRundown = false);
+
+    private sealed class IdentityCacheEntry
+    {
+        private readonly object _gate = new();
+        private TraceIdentityIndex? _identity;
+        private Func<CancellationToken, TraceIdentityIndex>? _provider;
+
+        internal bool TryGetProvider(
+            CancellationToken cancellationToken,
+            out Func<CancellationToken, TraceIdentityIndex> provider)
+        {
+            Enter(cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_identity is not null)
+                {
+                    provider = _ => _identity;
+                    return true;
+                }
+                provider = _provider!;
+                return provider is not null;
+            }
+            finally
+            {
+                Monitor.Exit(_gate);
+            }
+        }
+
+        internal void BindProvider(
+            Func<CancellationToken, TraceIdentityIndex> provider)
+        {
+            lock (_gate)
+                _provider ??= provider;
+        }
+
+        internal TraceIdentityIndex GetOrBuild(
+            Func<TraceIdentityIndex> builder,
+            CancellationToken cancellationToken)
+        {
+            Enter(cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_identity is not null)
+                    return _identity;
+                var built = builder();
+                cancellationToken.ThrowIfCancellationRequested();
+                _identity = built;
+                return built;
+            }
+            finally
+            {
+                Monitor.Exit(_gate);
+            }
+        }
+
+        internal TraceIdentityIndex Register(TraceIdentityIndex identity)
+        {
+            lock (_gate)
+                return _identity ??= identity;
+        }
+
+        private void Enter(CancellationToken cancellationToken)
+        {
+            while (!Monitor.TryEnter(_gate, millisecondsTimeout: 25))
+                cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
 }

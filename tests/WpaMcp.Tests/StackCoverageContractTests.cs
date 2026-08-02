@@ -26,7 +26,7 @@ public sealed class StackCoverageContractTests
         Assert.Equal(0, coverage.StackedEventCount);
         Assert.DoesNotContain(
             inspect.CapabilitySupportedTools,
-            row => row.ToolName == "image_load_top_stacks");
+            toolName => toolName == "image_load_top_stacks");
 
         var response = new ImageLoadTools(cache).ImageLoadTopStacks(WaitFixture, top: 5);
         var responseCoverage = Assert.IsType<DomainStackCoverage>(response.StackCoverage);
@@ -35,7 +35,10 @@ public sealed class StackCoverageContractTests
         Assert.Equal("no_stacks", responseCoverage.CoverageState);
         Assert.Equal("all_processes", response.ScopeMode);
         Assert.Empty(response.IncludedProcesses ?? []);
-        Assert.Contains(response.Rows, row => row.Function == "?!?");
+        Assert.Empty(response.Rows);
+        Assert.Equal("stacks_unavailable", response.NoDataReason);
+        Assert.True(responseCoverage.ContainsSyntheticUnknown);
+        Assert.Equal("?!?", responseCoverage.SyntheticUnknownFrame);
         Assert.Contains(response.Warnings, warning => warning.Contains(
             "stack_coverage_state=no_stacks", StringComparison.Ordinal));
     }

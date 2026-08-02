@@ -129,9 +129,10 @@ public class WaitAnalysisTests
             new BlockedInterval(Thread(10, 0, 2, 1), 10, 70, "WrQueue"),
             new BlockedInterval(Thread(10, 0, 3, 1), 20, 60, "WrUserRequest"),
         };
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(0, 100), Pid: 10, Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var scope = AggregateScope(
+            new TimeWindow(0, 100),
+            pidReuseObserved: false,
+            new ProcessInstanceKey(10, 0));
 
         var response = WpaMcp.Analyzers.WaitAnalysis.Project(intervals, scope, top: 1);
 
@@ -140,6 +141,63 @@ public class WaitAnalysisTests
             intervals.Sum(interval => scope.AccountInterval(
                 interval.Thread, interval.StartUs, interval.EndUs)),
             response.TotalBlockedUs);
+    }
+
+    [Fact]
+    public void WaitAccumulator_PublicProjectionKeepsAllReasonsForCompositeRouting()
+    {
+        var thread = Thread(pid: 10, processStartUs: 0, tid: 7, generation: 1);
+        var scope = AggregateScope(
+            new TimeWindow(0, 1_000),
+            pidReuseObserved: false,
+            thread.Process);
+        var projection = new WpaMcp.Analyzers.WaitAnalysis.WaitProjectionAccumulator(scope);
+        var reasons = new (string Reason, long BlockedUs)[]
+        {
+            ("Executive", 100),
+            ("WrUserRequest", 90),
+            ("WrDispatchInt", 89),
+            ("WrPreempted", 88),
+            ("WrQuantumEnd", 87),
+            ("WrDeferredPreempt", 86),
+        };
+        foreach (var reason in reasons)
+        {
+            projection.OnBlocked(new BlockedInterval(
+                thread, 0, reason.BlockedUs, reason.Reason));
+        }
+
+        var detailed = projection.BuildDetailed(
+            top: 1,
+            unmatchedBlockedIntervalCount: 0,
+            warnings: null);
+
+        var publicRow = Assert.Single(detailed.Response.Rows);
+        Assert.Equal(6, publicRow.TopWaitReasons.Count);
+        Assert.Contains(
+            publicRow.TopWaitReasons,
+            reason => reason.Reason == "WrDeferredPreempt");
+        var completeRow = Assert.Single(detailed.CompleteRows);
+        Assert.Equal(6, completeRow.TopWaitReasons.Count);
+
+        var publicCandidate = Assert.Single(
+            DiagnoseTools.BuildHighWaitCandidateAggregates(
+                detailed.Response.Rows,
+                requestedPid: 10,
+                maxCandidates: 1));
+        var candidate = Assert.Single(DiagnoseTools.BuildHighWaitCandidateAggregates(
+            detailed.CompleteRows,
+            requestedPid: 10,
+            maxCandidates: 1));
+        Assert.Equal(540, candidate.TotalBlockedUs);
+        Assert.Equal(6, candidate.TopWaitReasons.Count);
+        Assert.Equal(350.0 / 540, publicCandidate.SchedulerWaitPct, precision: 10);
+        Assert.Equal(350.0 / 540,
+            candidate.SchedulerWaitPct,
+            precision: 10);
+        Assert.True(DiagnoseTools.ShouldRunReadyThread(
+            publicCandidate.SchedulerWaitPct));
+        Assert.True(DiagnoseTools.ShouldRunReadyThread(candidate.SchedulerWaitPct));
     }
 
     [Fact]
@@ -182,9 +240,11 @@ public class WaitAnalysisTests
     [Fact]
     public void WaitAccumulator_LegacyPidReuseWarnsWithoutSelectingOneProcess()
     {
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(0, 300), Pid: 10, Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: true);
+        var scope = AggregateScope(
+            new TimeWindow(0, 300),
+            pidReuseObserved: true,
+            new ProcessInstanceKey(10, 0),
+            new ProcessInstanceKey(10, 200));
 
         var response = WpaMcp.Analyzers.WaitAnalysis.Project(
             [
@@ -206,9 +266,11 @@ public class WaitAnalysisTests
     {
         var first = Thread(10, 0, 7, 1);
         var second = Thread(10, 200, 7, 1);
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(0, 300), Pid: 10, Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: true);
+        var scope = AggregateScope(
+            new TimeWindow(0, 300),
+            pidReuseObserved: true,
+            first.Process,
+            second.Process);
 
         var response = WpaMcp.Analyzers.WaitAnalysis.Project(
             [
@@ -360,10 +422,10 @@ public class WaitAnalysisTests
     public void WaitAnalysis_WindowedPidFilterSurvivesOutOfWindowTidReuse()
     {
         var target = Thread(100, 0, 42, 1);
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(100_000, 200_000), Pid: 100,
-            Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var scope = AggregateScope(
+            new TimeWindow(100_000, 200_000),
+            pidReuseObserved: false,
+            target.Process);
         var resp = WpaMcp.Analyzers.WaitAnalysis.Project(
             [
                 new BlockedInterval(target, 90_000, 120_000, "WrUserRequest"),
@@ -390,10 +452,10 @@ public class WaitAnalysisTests
     public void WaitAnalysis_ClipsCpuAndBlockedIntervalsToWindowStart()
     {
         var target = Thread(100, 0, 42, 1);
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(100_000, 200_000), Pid: 100,
-            Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var scope = AggregateScope(
+            new TimeWindow(100_000, 200_000),
+            pidReuseObserved: false,
+            target.Process);
         var resp = WpaMcp.Analyzers.WaitAnalysis.Project(
             [new BlockedInterval(target, 120_000, 150_000, "WrUserRequest")],
             scope,
@@ -413,10 +475,10 @@ public class WaitAnalysisTests
     public void WaitAnalysis_StraddlingBlockedIntervalDoesNotEmitEmptyWindowWarning()
     {
         var target = Thread(100, 0, 42, 1);
-        var scope = new ThreadAnalysisScope(
-            new TimeWindow(100_000, 200_000), Pid: 100,
-            Process: null, Thread: null,
-            AggregatesPidLifetimes: true, PidReuseObserved: false);
+        var scope = AggregateScope(
+            new TimeWindow(100_000, 200_000),
+            pidReuseObserved: false,
+            target.Process);
         var resp = WpaMcp.Analyzers.WaitAnalysis.Project(
             [new BlockedInterval(target, 90_000, 250_000, "WrUserRequest")],
             scope,
@@ -476,13 +538,11 @@ public class WaitAnalysisTests
             pid: 10,
             processStartUs: null,
             lifetimes);
-        var threadScope = new ThreadAnalysisScope(
+        var threadScope = AggregateScope(
             window,
-            Pid: 10,
-            Process: null,
-            Thread: null,
-            AggregatesPidLifetimes: true,
-            PidReuseObserved: true);
+            pidReuseObserved: true,
+            first,
+            second);
 
         var response = WpaMcp.Analyzers.WaitAnalysis.Project(
             [
@@ -537,6 +597,37 @@ public class WaitAnalysisTests
             lifetime,
             AggregatesPidLifetimes: false,
             PidReuseObserved: false);
+    }
+
+    private static ThreadAnalysisScope AggregateScope(
+        TimeWindow window,
+        bool pidReuseObserved,
+        params ProcessInstanceKey[] processes)
+    {
+        Assert.NotEmpty(processes);
+        var included = processes
+            .Distinct()
+            .OrderBy(process => process.StartUs)
+            .ToArray();
+        Assert.All(included, process => Assert.Equal(included[0].Pid, process.Pid));
+        var lifetimes = included
+            .Select((process, index) => new ProcessLifetime(
+                process,
+                EndUs: index + 1 < included.Length
+                    ? included[index + 1].StartUs
+                    : window.EndUs,
+                StartObserved: true,
+                EndObserved: true))
+            .ToArray();
+        return new ThreadAnalysisScope(
+            window,
+            Pid: included[0].Pid,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: true,
+            PidReuseObserved: pidReuseObserved,
+            IncludedProcesses: included,
+            IncludedProcessLifetimes: lifetimes);
     }
 
     private static ThreadInstanceKey Thread(

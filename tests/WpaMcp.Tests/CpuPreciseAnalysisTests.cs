@@ -180,13 +180,25 @@ public class CpuPreciseAnalysisTests
             new ProcessInstanceKey(Pid: 100, StartUs: 100),
             Tid: 42,
             Generation: 1);
+        var includedProcesses = new[] { firstThread.Process, secondThread.Process };
+        var includedLifetimes = new[]
+        {
+            new ProcessLifetime(
+                firstThread.Process, EndUs: 100,
+                StartObserved: true, EndObserved: true),
+            new ProcessLifetime(
+                secondThread.Process, EndUs: 200,
+                StartObserved: true, EndObserved: true),
+        };
         var scope = new ThreadAnalysisScope(
             new TimeWindow(0, 200),
             Pid: 100,
             Process: null,
             Thread: null,
             AggregatesPidLifetimes: true,
-            PidReuseObserved: true);
+            PidReuseObserved: true,
+            IncludedProcesses: includedProcesses,
+            IncludedProcessLifetimes: includedLifetimes);
         var accumulator = new CpuPreciseAccumulator(top: 2, scope, traceEndUs: 200);
 
         accumulator.ProcessReady(new CpuPreciseResolvedReadyEvent(firstThread, TimestampUs: 0));

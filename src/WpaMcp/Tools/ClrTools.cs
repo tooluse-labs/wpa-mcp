@@ -10,13 +10,18 @@ namespace WpaMcp.Tools;
 public sealed class ClrTools
 {
     private readonly TraceCache _cache;
-    public ClrTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public ClrTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true), Description(
+        OpenWorld = false,
+        Destructive = false), Description(
         ".NET CLR GC analysis — list of garbage collections in the trace, with wall " +
         "duration AND 'stop the world' pause time per GC.  PerfView equivalent: 'GCStats'.  " +
         "Pairs complete GC and pause intervals over the whole trace, then projects them into " +
@@ -29,7 +34,7 @@ public sealed class ClrTools
         "unmatched and identity-unresolved fields must not be interchanged. Each row also carries Generation and Reason. Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the GC keyword in the capture profile.")]
     public GcAnalysisResponse ClrGcAnalysis(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Filter to a single process ID (recommended — without it, all PIDs share rows)")]
         int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -49,10 +54,10 @@ public sealed class ClrTools
     }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true), Description(
+        OpenWorld = false,
+        Destructive = false), Description(
         ".NET CLR JIT compilation analysis — top-N methods ranked by JIT duration.  PerfView " +
         "equivalent: 'JIT Stats'.  Matches MethodJittingStarted→MethodLoadVerbose by " +
         "(ProcessInstanceKey, ClrInstanceId, MethodId) over the whole trace, then projects the " +
@@ -66,7 +71,7 @@ public sealed class ClrTools
         "here — which is correct for 'what's the JIT cost in this trace'.  Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the JIT keyword.")]
     public JitAnalysisResponse ClrJitAnalysis(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Top N methods by JIT duration (default 50, max 1000)")] int top = 50,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -86,7 +91,7 @@ public sealed class ClrTools
             trace, pid, top, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by managed-heap allocation bytes.  PerfView equivalent: " +
         "'GC Heap Alloc Stacks'.  Driven by GCAllocationTick events (CLR fires one every " +
         "~100 KB allocated per (heap, generation, type)) — sampled, not exhaustive, but " +
@@ -95,7 +100,7 @@ public sealed class ClrTools
         "allocated type names by total bytes).  Requires Microsoft-Windows-DotNETRuntime " +
         "with the GC keyword.")]
     public ClrAllocStacksResponse ClrAllocTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N stacks by exclusive allocation bytes (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -121,17 +126,17 @@ public sealed class ClrTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrAllocStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            window.StartUs, window.EndUs, _privacyLog.Writer, whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the managed-allocation stack source.  " +
         "Metric is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO " +
         "focus, callees by bytes OUT.")]
     public CallerCalleeResponse ClrAllocCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -152,12 +157,12 @@ public sealed class ClrTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrAllocStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by .NET exception throw count.  PerfView equivalent: " +
         "'Exceptions Stacks'.  Fires once per *thrown* exception (rethrows are separate " +
         "events).  Useful for 'is this code path throwing 1000 exceptions per second' / " +
@@ -165,7 +170,7 @@ public sealed class ClrTools
         "includes TopTypes (top exception type names by count).  Requires " +
         "Microsoft-Windows-DotNETRuntime with the Exception keyword.")]
     public ClrExceptionStacksResponse ClrExceptionTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N stacks by exclusive exception count (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -191,17 +196,17 @@ public sealed class ClrTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrExceptionStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            window.StartUs, window.EndUs, _privacyLog.Writer, whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the .NET exception stack source.  " +
         "Metric is exception count; top-N callers ranked by inclusive count flowing INTO " +
         "focus, callees by count OUT.")]
     public CallerCalleeResponse ClrExceptionCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -222,12 +227,12 @@ public sealed class ClrTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrExceptionStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by .NET monitor-contention μs (managed `lock` / " +
         "Monitor.Enter waits).  PerfView equivalent: 'Monitor Contention Stacks'.  Matches " +
         "ContentionStart→ContentionStop by ThreadInstanceKey (process lifetime + TID " +
@@ -238,7 +243,7 @@ public sealed class ClrTools
         "from the same provider is excluded.  Requires Microsoft-Windows-DotNETRuntime with " +
         "the Contention keyword.")]
     public ClrContentionStacksResponse ClrContentionTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N stacks by exclusive blocked μs (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -264,17 +269,17 @@ public sealed class ClrTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrContentionStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            window.StartUs, window.EndUs, _privacyLog.Writer, whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the .NET monitor-contention stack " +
         "source.  Metric is blocked μs; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
     public CallerCalleeResponse ClrContentionCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -295,12 +300,12 @@ public sealed class ClrTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ClrContentionStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR managed-heap snapshot timeline — one row per GCHeapStats event (the CLR " +
         "fires this once at the end of each GC), with TotalHeapBytes, Gen0/1/2/LOH/POH " +
         "sizes, PinnedObjectCount, and GcHandleCount.  PerfView surfaces this in 'GCStats' " +
@@ -314,7 +319,7 @@ public sealed class ClrTools
         "Microsoft-Windows-DotNETRuntime with the GC keyword. A missing exact instance returns " +
         "scope_not_found rather than falling back.")]
     public GcHeapStatsResponse ClrGcHeapStats(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -332,7 +337,7 @@ public sealed class ClrTools
             trace, pid, window.StartUs, window.EndUs, processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         ".NET CLR finalizer analysis — top types finalized + observed finalizer-thread execution batches. " +
         "Two related streams matched here: GCFinalizeObject (per-object, carries TypeName) " +
         "is aggregated to the TopTypes table; GCFinalizersStart/Stop bracket each run of " +
@@ -343,7 +348,7 @@ public sealed class ClrTools
         "site; clr_alloc_top_stacks can supply separate allocator evidence. Requires " +
         "Microsoft-Windows-DotNETRuntime with the GC keyword.")]
     public FinalizerAnalysisResponse ClrFinalizerAnalysis(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,

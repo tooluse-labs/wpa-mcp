@@ -1,0 +1,2037 @@
+{
+  "formatVersion": "legacy-structured-stdio.v1",
+  "baselineKind": "observed_legacy_production_stdio_runtime_golden",
+  "contractDisposition": "compatibility_evidence_not_correctness_approval",
+  "migrationRule": "Preserve this artifact as defect evidence. An approved correctness fix must add and gate a corrected active runtime golden; it must not make current code reproduce a known-incorrect legacy response.",
+  "knownIncorrectDefects": [
+    {
+      "id": "LEGACY-STDIO-SCHEMA-001",
+      "disposition": "known_incorrect_must_change",
+      "summary": "diagnose_window omits schema-required nullable properties from structuredContent when their values are null.",
+      "observedCases": [
+        "diagnose_window.success:pid",
+        "diagnose_window.boundary:pid",
+        "diagnose_window.boundary:pressure"
+      ],
+      "doesNotAuthorize": "Treating the captured response as schema-valid or preserving the mismatch.",
+      "correctedGoldenName": "active-structured-stdio.v1.json"
+    }
+  ],
+  "fixture": {
+    "repoRelativePath": "tests/WpaMcp.Tests/fixtures/small_wait_bound.etl",
+    "sha256": "6f65fad5e6b25e1bf6d28c6ae0e27a002421df5a13f05692f9391e8fcbfcc95a",
+    "bytes": 8532148,
+    "runtimeCopy": "\u003CTRACE_PATH\u003E"
+  },
+  "validationScope": {
+    "catalogSchemaBaseline": "legacy-active-tools.v1.json",
+    "runtimeGolden": "actual WpaMcp.Program production stdio JSON-RPC",
+    "asserted": [
+      "newline-delimited JSON-RPC framing",
+      "five catalog-advertised structured tools",
+      "successful structuredContent presence",
+      "text JSON semantic equality with structuredContent",
+      "observed top-level outputSchema required-property presence or mismatch",
+      "tool-specific success, failure, and boundary terminal outcomes"
+    ],
+    "notClaimed": [
+      "full recursive JSON Schema evaluation (Phase 4 gate)",
+      "schema validity when a captured required-property mismatch is non-empty",
+      "legacy behavior is semantically correct",
+      "machine-specific performance or large-trace behavior"
+    ]
+  },
+  "transport": {
+    "protocolVersion": "2025-11-25",
+    "profile": "stateful",
+    "framing": "utf8_json_object_per_line",
+    "productionEntryPoint": "WpaMcp.Program",
+    "initializeResponse": {
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "logging": {},
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "serverInfo": {
+          "name": "WpaMcp",
+          "version": "0.3.0.0"
+        }
+      },
+      "id": "initialize",
+      "jsonrpc": "2.0"
+    },
+    "toolsList": {
+      "toolCount": 61,
+      "structuredToolNames": [
+        "diagnose_high_wait",
+        "diagnose_window",
+        "inspect_trace",
+        "unload_trace",
+        "wait_analysis"
+      ],
+      "resultBytes": 179107,
+      "resultSha256": "38b4fdb300c3a9460bf4c15ef563c3941cdfd9975d9e9f545e673609139a44ab"
+    },
+    "stdoutLineCount": 17,
+    "allStdoutLinesWereJson": true,
+    "exitCode": 0
+  },
+  "tools": [
+    {
+      "name": "diagnose_high_wait",
+      "outputSchemaBytes": 8322,
+      "outputSchemaSha256": "4dd51364a335778be101d1524ed04b80c9b560aeaccd32acf9db50ba7a86fbf3",
+      "success": {
+        "case": "bounded_composite_on_cswitch_fixture",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "maxCandidates": 3,
+          "topStacks": 3,
+          "topReadyStacks": 3,
+          "includeReadyStacks": false,
+          "timeBudgetMs": 100000
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 74933,
+        "normalizedCompactFrameSha256": "b5bd8221d56282dd0049c9bf2528469e775c77753e5fae92890e8e0a461a9f06",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "diagnose_high_wait-success",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 28823,
+          "structuredContentSha256": "ac1cf4fbbf6f75259db4b291bf1e62e13539508bc0ba04937fa1c40cec9369d7",
+          "structuredTopLevelSections": [
+            {
+              "name": "candidates",
+              "kind": "array",
+              "itemCount": 3,
+              "propertyCount": null,
+              "bytes": 1705,
+              "sha256": "4b6137306edb883e6437b61a39e119c4509b49edcf49bb8059ec40405bf0db22"
+            },
+            {
+              "name": "evidence",
+              "kind": "array",
+              "itemCount": 21,
+              "propertyCount": null,
+              "bytes": 9040,
+              "sha256": "aadfc58e56260154929c133c64f45b368788a041a3a5238eea0e216225f165a3"
+            },
+            {
+              "name": "notConcluded",
+              "kind": "array",
+              "itemCount": 3,
+              "propertyCount": null,
+              "bytes": 1154,
+              "sha256": "e2978ece66c5d87b9c5c8c3e57e6f50da4e22bdb7b7cc084cb05a5ed71fbd442"
+            },
+            {
+              "name": "nextTools",
+              "kind": "array",
+              "itemCount": 6,
+              "propertyCount": null,
+              "bytes": 1937,
+              "sha256": "5a4e73915b77408f3c068605c00b68d8089b9a7333478a9287a71fc08b55fc0d"
+            },
+            {
+              "name": "executedToolCalls",
+              "kind": "array",
+              "itemCount": 4,
+              "propertyCount": null,
+              "bytes": 2218,
+              "sha256": "942e941f50ea9d486879b771c0cdd0fbcdcddcfdf579ae357ce60f6faf9cd29f"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 8,
+              "propertyCount": null,
+              "bytes": 1451,
+              "sha256": "bc7886887e8f6c51dcd0fc68a0cec681b8e3d77d1ff0fa607bb2c389752c8da8"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 15,
+              "sha256": "6e22fd6b9cad5c6a93ac240228afe8f811772dd8ac1b37dd2ba373dfb305fa0d"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 429,
+              "propertyCount": null,
+              "bytes": 11081,
+              "sha256": "170e6106b723af18e8708c8c025659527d3422c2f373b8f6835f5225b1c2ba10"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "c48b5b1a9776c84602de2306d7903a7241158a5077e7a8519af75c33441b8334"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 10,
+              "sha256": "8f262091e8d94d7109cb473e673e368fcb3a38d0e8a9d19b776df5eb2aa58414"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "9de45f0d87b959b2d3931e2f1af5ec09e39fe369308e00b42028c63c99b678d8"
+            }
+          ],
+          "selectedFacts": {
+            "scopeMode": "all_processes",
+            "pidReuseObserved": false,
+            "scopeStatus": "ok",
+            "capabilityStatus": "observed",
+            "matchedEventCount": 9881,
+            "candidates.$count": 3,
+            "evidence.$count": 21,
+            "notConcluded.$count": 3,
+            "nextTools.$count": 6,
+            "executedToolCalls.$count": 4,
+            "warnings.$count": 8,
+            "includedProcesses.$count": 429
+          }
+        }
+      },
+      "failure": {
+        "case": "missing_required_path",
+        "arguments": {},
+        "terminal": "tool_error_result",
+        "textJsonEqualsStructuredContent": null,
+        "topLevelRequiredPropertiesPresent": null,
+        "missingTopLevelRequiredProperties": null,
+        "normalizedCompactFrameBytes": 173,
+        "normalizedCompactFrameSha256": "c39ef9c0c8ab6c3d8d166be6b63c862e52b5c7da10054b65471b884bcc3afebc",
+        "response": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "An error occurred invoking \u0027diagnose_high_wait\u0027."
+              }
+            ],
+            "isError": true
+          },
+          "id": "diagnose_high_wait-failure",
+          "jsonrpc": "2.0"
+        }
+      },
+      "boundary": {
+        "case": "missing_pid_returns_structured_scope_status",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "pid": 2147483647,
+          "maxCandidates": 3,
+          "topStacks": 3,
+          "topReadyStacks": 3,
+          "timeBudgetMs": 100000
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 1650,
+        "normalizedCompactFrameSha256": "3c8af49eaa7ab0455b9a0f4a8a9dcc2c76d5d06939f7727199d80a2255cadecb",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "diagnose_high_wait-boundary",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 619,
+          "structuredContentSha256": "0f8c59f86614f0e5320e937cac044848141b5b41c96e129c83bb4bb0fdda62d9",
+          "structuredTopLevelSections": [
+            {
+              "name": "candidates",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "evidence",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "notConcluded",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 240,
+              "sha256": "80dbb057002540cce16b7e196a1a0af907d1d296ed13679748f469f2275df5ee"
+            },
+            {
+              "name": "nextTools",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "executedToolCalls",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 93,
+              "sha256": "0ef4a75e2e507e3ec0b29e0da1162ca8af66eb8d408c9519d4e83085917bc15b"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 12,
+              "sha256": "e3db67692bcffe55218a65c50e3686a0f7a7940960adfc734ffd88bf8b695e9a"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 17,
+              "sha256": "99a9047b129389ba2fafbc7cd5f2b92fec2a87acf10e6a6c76270cbffe9f1081"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 9,
+              "sha256": "eb8bf0d80db323992f6b634aab492b1e6d9e96a8e87a511c2a0db75ab929452c"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "noDataReason",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 17,
+              "sha256": "99a9047b129389ba2fafbc7cd5f2b92fec2a87acf10e6a6c76270cbffe9f1081"
+            }
+          ],
+          "selectedFacts": {
+            "scopeMode": "unresolved",
+            "pidReuseObserved": false,
+            "scopeStatus": "scope_not_found",
+            "capabilityStatus": "unknown",
+            "matchedEventCount": 0,
+            "noDataReason": "scope_not_found",
+            "candidates.$count": 0,
+            "evidence.$count": 0,
+            "notConcluded.$count": 1,
+            "nextTools.$count": 0,
+            "executedToolCalls.$count": 0,
+            "warnings.$count": 1,
+            "includedProcesses.$count": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "diagnose_window",
+      "outputSchemaBytes": 15060,
+      "outputSchemaSha256": "2314b3e3cd508bf76c300d557ff1a59ef4fb77dcb65b0ae1709c645d8e2629d5",
+      "success": {
+        "case": "full_fixture_window_with_bounded_sections",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "startUs": 0,
+          "endUs": 499998,
+          "top": 3
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": false,
+        "missingTopLevelRequiredProperties": [
+          "pid"
+        ],
+        "normalizedCompactFrameBytes": 30983,
+        "normalizedCompactFrameSha256": "7e53e250ffdd57ad4b797d57620345836b9b00444fdbd39ebcb84db95f2320ae",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "diagnose_window-success",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 13856,
+          "structuredContentSha256": "6bdd0cce2205a75881a26a25455dbbfd79d831032bf2d4ab4277a46c68cd3b3e",
+          "structuredTopLevelSections": [
+            {
+              "name": "windowStartUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "windowEndUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 6,
+              "sha256": "944ef869d35bd28b9da5c53a73dc0b469ff7ab12085deeffea52c14ef532f183"
+            },
+            {
+              "name": "durationUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 6,
+              "sha256": "944ef869d35bd28b9da5c53a73dc0b469ff7ab12085deeffea52c14ef532f183"
+            },
+            {
+              "name": "hardFaultsByBytes",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "hardFaultsByMaxLatency",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "fileIoTopFiles",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "pressure",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 4,
+              "bytes": 113,
+              "sha256": "0ee1ed1a5d538ccf36a09db0cf029bf82bc7b8740fe3d7e22ef2c96eaa03d800"
+            },
+            {
+              "name": "securityScanTargets",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "slowScans",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "securityMatchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "securityPairedScanCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "securityTotalDurationUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "waits",
+              "kind": "array",
+              "itemCount": 3,
+              "propertyCount": null,
+              "bytes": 1444,
+              "sha256": "03b537c89b8e2a5939cfa9cbf87ce92c571a5957bf3dbd2cd0fedc4b2335dae9"
+            },
+            {
+              "name": "evidence",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 485,
+              "sha256": "384664c6f693f9b5b88f903cc5bac56f779f8afe1a9561b3a5c3f1247476bc1a"
+            },
+            {
+              "name": "notConcluded",
+              "kind": "array",
+              "itemCount": 5,
+              "propertyCount": null,
+              "bytes": 1851,
+              "sha256": "c18869d7814f683d2ba37226b967ea12ba420205ebac6304d7e14aaf9d20b95f"
+            },
+            {
+              "name": "nextTools",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 316,
+              "sha256": "7b8d65db12b552db9222cf1e9164a5cfd296c1d1a7da7d6f2c593440afbac828"
+            },
+            {
+              "name": "executedToolCalls",
+              "kind": "array",
+              "itemCount": 6,
+              "propertyCount": null,
+              "bytes": 4878,
+              "sha256": "ca4cc4e8e0c3eaeb9985c1bbbb75bed3954426a5bc25b24d094d37b641dc2023"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 15,
+              "propertyCount": null,
+              "bytes": 4267,
+              "sha256": "4f8d938ceb25b003605b8244b928c878a49016ec980d5d5ab0003931ed779d3f"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 15,
+              "sha256": "6e22fd6b9cad5c6a93ac240228afe8f811772dd8ac1b37dd2ba373dfb305fa0d"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "c48b5b1a9776c84602de2306d7903a7241158a5077e7a8519af75c33441b8334"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 10,
+              "sha256": "8f262091e8d94d7109cb473e673e368fcb3a38d0e8a9d19b776df5eb2aa58414"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "9de45f0d87b959b2d3931e2f1af5ec09e39fe369308e00b42028c63c99b678d8"
+            }
+          ],
+          "selectedFacts": {
+            "windowStartUs": 0,
+            "windowEndUs": 499998,
+            "durationUs": 499998,
+            "scopeMode": "all_processes",
+            "pidReuseObserved": false,
+            "scopeStatus": "ok",
+            "capabilityStatus": "observed",
+            "matchedEventCount": 9881,
+            "hardFaultsByBytes.$count": 0,
+            "hardFaultsByMaxLatency.$count": 0,
+            "fileIoTopFiles.$count": 0,
+            "securityScanTargets.$count": 0,
+            "slowScans.$count": 0,
+            "waits.$count": 3,
+            "evidence.$count": 1,
+            "notConcluded.$count": 5,
+            "nextTools.$count": 1,
+            "executedToolCalls.$count": 6,
+            "warnings.$count": 15,
+            "includedProcesses.$count": 0
+          }
+        }
+      },
+      "failure": {
+        "case": "missing_required_path",
+        "arguments": {
+          "startUs": 0,
+          "endUs": 1
+        },
+        "terminal": "tool_error_result",
+        "textJsonEqualsStructuredContent": null,
+        "topLevelRequiredPropertiesPresent": null,
+        "missingTopLevelRequiredProperties": null,
+        "normalizedCompactFrameBytes": 167,
+        "normalizedCompactFrameSha256": "9385932229cd486e727e80f61b391d13cc6a96ddb916835a51eb0acfea94d411",
+        "response": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "An error occurred invoking \u0027diagnose_window\u0027."
+              }
+            ],
+            "isError": true
+          },
+          "id": "diagnose_window-failure",
+          "jsonrpc": "2.0"
+        }
+      },
+      "boundary": {
+        "case": "preload_wide_window_guard",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "startUs": 0,
+          "endUs": 2,
+          "top": 3,
+          "maxWindowDurationUs": 1
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": false,
+        "missingTopLevelRequiredProperties": [
+          "pid",
+          "pressure"
+        ],
+        "normalizedCompactFrameBytes": 2529,
+        "normalizedCompactFrameSha256": "306189ec7a9b6a006e01cb5e24a19ec6da1731388fb17ec4538001bb58bb6cd4",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "diagnose_window-boundary",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 975,
+          "structuredContentSha256": "eb1ee3100f5226e50fb12deed392aac096c13316719bee17d3c5e2ca372c260c",
+          "structuredTopLevelSections": [
+            {
+              "name": "windowStartUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "windowEndUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35"
+            },
+            {
+              "name": "durationUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35"
+            },
+            {
+              "name": "hardFaultsByBytes",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "hardFaultsByMaxLatency",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "fileIoTopFiles",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "securityScanTargets",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "slowScans",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "securityMatchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "securityPairedScanCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "securityTotalDurationUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "waits",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "evidence",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "notConcluded",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 334,
+              "sha256": "717d164b3c35ccc44abff6f10207e6a3c030c3340286fe8ec18df90bf0103bde"
+            },
+            {
+              "name": "nextTools",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "executedToolCalls",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 1,
+              "propertyCount": null,
+              "bytes": 113,
+              "sha256": "657a3c3c05ee5b635ece4554e27b30d18b98a2d7dedf314e4df9cfa8b397e35a"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 15,
+              "sha256": "6f84385a5a80b3e569a278b71644693873914cdbd23ff157419d34b380347ca2"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 15,
+              "sha256": "6f84385a5a80b3e569a278b71644693873914cdbd23ff157419d34b380347ca2"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 9,
+              "sha256": "eb8bf0d80db323992f6b634aab492b1e6d9e96a8e87a511c2a0db75ab929452c"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "noDataReason",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 17,
+              "sha256": "13bd88dc7ba2e7ac3e99f7dc29065471cb16143e73b72f37f7e82a0dcdec7a6e"
+            }
+          ],
+          "selectedFacts": {
+            "windowStartUs": 0,
+            "windowEndUs": 2,
+            "durationUs": 2,
+            "scopeMode": "not_evaluated",
+            "pidReuseObserved": false,
+            "scopeStatus": "not_evaluated",
+            "capabilityStatus": "unknown",
+            "matchedEventCount": 0,
+            "noDataReason": "window_too_wide",
+            "hardFaultsByBytes.$count": 0,
+            "hardFaultsByMaxLatency.$count": 0,
+            "fileIoTopFiles.$count": 0,
+            "securityScanTargets.$count": 0,
+            "slowScans.$count": 0,
+            "waits.$count": 0,
+            "evidence.$count": 0,
+            "notConcluded.$count": 1,
+            "nextTools.$count": 0,
+            "executedToolCalls.$count": 0,
+            "warnings.$count": 1,
+            "includedProcesses.$count": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "inspect_trace",
+      "outputSchemaBytes": 20656,
+      "outputSchemaSha256": "d2ffa02efeefe97cb491afa946789966c033197ebb33573a21db908f7cee5ec3",
+      "success": {
+        "case": "tracked_small_wait_trace",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E"
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 77086,
+        "normalizedCompactFrameSha256": "fdbb4da733ba0c45d21f49a595b4e6ba267ac997295bcf3f71e0d6da8076fe2e",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "inspect_trace-success",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 31835,
+          "structuredContentSha256": "509eec381349afad73060ab7b9af76cb4b8ab7a17b03675087ec4135cb2d2f96",
+          "structuredTopLevelSections": [
+            {
+              "name": "trace",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 8,
+              "bytes": 255,
+              "sha256": "66b126e9d46d527b6605622d05eb29de9197e97fc17a7ba6030a1a3020ed4776"
+            },
+            {
+              "name": "capabilities",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 31,
+              "bytes": 6238,
+              "sha256": "cd3e409c584b909b5700b90ed5d91d2ff5b27eca55bbad57f962ec845a380724"
+            },
+            {
+              "name": "metadata",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 5,
+              "bytes": 10713,
+              "sha256": "84408205e4df5add9c6446fe0d90dba2feac9a868d7cae29dc2139e44bc7fbec"
+            },
+            {
+              "name": "symbolQuality",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 10,
+              "bytes": 4284,
+              "sha256": "3ff3bcedbe9613adf2b09c54d9760f7e7bad2918851d7f7440d34f27493a8191"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 10,
+              "propertyCount": null,
+              "bytes": 4062,
+              "sha256": "4620f668903afb320def737e4eb9d998e300ad32eb1f6d5320c3c65986bf11bd"
+            },
+            {
+              "name": "orientationTools",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 413,
+              "sha256": "4f9bc462b8a16184105993433652111baf7fb54c748b1cd6284b1779ccd2ff75"
+            },
+            {
+              "name": "capabilitySupportedTools",
+              "kind": "array",
+              "itemCount": 5,
+              "propertyCount": null,
+              "bytes": 1099,
+              "sha256": "993021b9fe0191d6350bf0cfb452710ad7b8e8e6229a88ad5f0f8b0d4fc75b35"
+            },
+            {
+              "name": "enabledCapabilities",
+              "kind": "array",
+              "itemCount": 8,
+              "propertyCount": null,
+              "bytes": 141,
+              "sha256": "0e0dab8cb3adf73bdb1cca449cfc77868bf410a60da20f7c470c9366681d28ce"
+            },
+            {
+              "name": "recommendedDiagnosticFlows",
+              "kind": "array",
+              "itemCount": 4,
+              "propertyCount": null,
+              "bytes": 2284,
+              "sha256": "6533f8c406e03d03f5bd4624ea0d82817b6816e7ae669cd2d89004e5cdacc40f"
+            },
+            {
+              "name": "analysisContract",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 9,
+              "bytes": 2158,
+              "sha256": "f7eb785596f657a4fa5bf03cbf10eadf45f5d6c3ea68c1c40ac34f430ed4f073"
+            }
+          ],
+          "selectedFacts": {
+            "trace.durationUs": 499998,
+            "trace.eventCount": 209672,
+            "trace.eventsLost": 0,
+            "trace.processCount": 429,
+            "capabilities.hasCSwitch": true,
+            "capabilities.hasCSwitchStacks": true,
+            "capabilities.hasReadyThread": true,
+            "capabilities.hasReadyThreadStacks": true,
+            "symbolQuality.frameResolutionMeasurementState": "not_measured",
+            "warnings.$count": 10,
+            "orientationTools.$count": 2,
+            "capabilitySupportedTools.$count": 5,
+            "enabledCapabilities.$count": 8,
+            "recommendedDiagnosticFlows.$count": 4
+          }
+        }
+      },
+      "failure": {
+        "case": "missing_required_path",
+        "arguments": {},
+        "terminal": "tool_error_result",
+        "textJsonEqualsStructuredContent": null,
+        "topLevelRequiredPropertiesPresent": null,
+        "missingTopLevelRequiredProperties": null,
+        "normalizedCompactFrameBytes": 163,
+        "normalizedCompactFrameSha256": "3ec0884d73099cfae49a62b4986d9c76c9bbfe2c7a67b1a19535b6e9c6633b2f",
+        "response": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "An error occurred invoking \u0027inspect_trace\u0027."
+              }
+            ],
+            "isError": true
+          },
+          "id": "inspect_trace-failure",
+          "jsonrpc": "2.0"
+        }
+      },
+      "boundary": {
+        "case": "cached_repeat_same_trace",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E"
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 77087,
+        "normalizedCompactFrameSha256": "8afd25a761bf7f6194f3a4e39c23cb68bd0dda3260f8362af2a3cf4deb0f1fa2",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "inspect_trace-boundary",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 31835,
+          "structuredContentSha256": "509eec381349afad73060ab7b9af76cb4b8ab7a17b03675087ec4135cb2d2f96",
+          "structuredTopLevelSections": [
+            {
+              "name": "trace",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 8,
+              "bytes": 255,
+              "sha256": "66b126e9d46d527b6605622d05eb29de9197e97fc17a7ba6030a1a3020ed4776"
+            },
+            {
+              "name": "capabilities",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 31,
+              "bytes": 6238,
+              "sha256": "cd3e409c584b909b5700b90ed5d91d2ff5b27eca55bbad57f962ec845a380724"
+            },
+            {
+              "name": "metadata",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 5,
+              "bytes": 10713,
+              "sha256": "84408205e4df5add9c6446fe0d90dba2feac9a868d7cae29dc2139e44bc7fbec"
+            },
+            {
+              "name": "symbolQuality",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 10,
+              "bytes": 4284,
+              "sha256": "3ff3bcedbe9613adf2b09c54d9760f7e7bad2918851d7f7440d34f27493a8191"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 10,
+              "propertyCount": null,
+              "bytes": 4062,
+              "sha256": "4620f668903afb320def737e4eb9d998e300ad32eb1f6d5320c3c65986bf11bd"
+            },
+            {
+              "name": "orientationTools",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 413,
+              "sha256": "4f9bc462b8a16184105993433652111baf7fb54c748b1cd6284b1779ccd2ff75"
+            },
+            {
+              "name": "capabilitySupportedTools",
+              "kind": "array",
+              "itemCount": 5,
+              "propertyCount": null,
+              "bytes": 1099,
+              "sha256": "993021b9fe0191d6350bf0cfb452710ad7b8e8e6229a88ad5f0f8b0d4fc75b35"
+            },
+            {
+              "name": "enabledCapabilities",
+              "kind": "array",
+              "itemCount": 8,
+              "propertyCount": null,
+              "bytes": 141,
+              "sha256": "0e0dab8cb3adf73bdb1cca449cfc77868bf410a60da20f7c470c9366681d28ce"
+            },
+            {
+              "name": "recommendedDiagnosticFlows",
+              "kind": "array",
+              "itemCount": 4,
+              "propertyCount": null,
+              "bytes": 2284,
+              "sha256": "6533f8c406e03d03f5bd4624ea0d82817b6816e7ae669cd2d89004e5cdacc40f"
+            },
+            {
+              "name": "analysisContract",
+              "kind": "object",
+              "itemCount": null,
+              "propertyCount": 9,
+              "bytes": 2158,
+              "sha256": "f7eb785596f657a4fa5bf03cbf10eadf45f5d6c3ea68c1c40ac34f430ed4f073"
+            }
+          ],
+          "selectedFacts": {
+            "trace.durationUs": 499998,
+            "trace.eventCount": 209672,
+            "trace.eventsLost": 0,
+            "trace.processCount": 429,
+            "capabilities.hasCSwitch": true,
+            "capabilities.hasCSwitchStacks": true,
+            "capabilities.hasReadyThread": true,
+            "capabilities.hasReadyThreadStacks": true,
+            "symbolQuality.frameResolutionMeasurementState": "not_measured",
+            "warnings.$count": 10,
+            "orientationTools.$count": 2,
+            "capabilitySupportedTools.$count": 5,
+            "enabledCapabilities.$count": 8,
+            "recommendedDiagnosticFlows.$count": 4
+          }
+        }
+      }
+    },
+    {
+      "name": "unload_trace",
+      "outputSchemaBytes": 1302,
+      "outputSchemaSha256": "b16b05153e548896fab140777d09cb7f6397642ebc9d257f8c79bd6e946264de",
+      "success": {
+        "case": "retire_resident_raw_trace",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E"
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 1073,
+        "normalizedCompactFrameSha256": "727e53d540d2b1a5631723a352c9f114e28ada7db465978315471b49f4c46632",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "unload_trace-success",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 428,
+          "structuredContentSha256": "27fb7520dc19f224167ad4d0d08e3637337d73da95aca6b20d659e112b6fa481",
+          "structuredTopLevelSections": [
+            {
+              "name": "path",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 24,
+              "sha256": "94f0a55ab9acd409e1a70eac9b0f776b32e745d3f3937fb5310558fb02bc8e81"
+            },
+            {
+              "name": "cacheEntryRetired",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "nextLoadForcesEtlxRefresh",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 223,
+              "sha256": "34a7c75c923cc2fabeb7eaa17423a2cfed9c03c5e50bd1b14c3333bedd7b1bb7"
+            },
+            {
+              "name": "refreshRequestedForCurrentServerProcess",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "refreshRequestLifetime",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 29,
+              "sha256": "d132900e5450a04c2629c3e46f9af4b0c8d852fcd622bc7b38a78142a0ebf767"
+            }
+          ],
+          "selectedFacts": {
+            "cacheEntryRetired": true,
+            "nextLoadForcesEtlxRefresh": true,
+            "refreshRequestedForCurrentServerProcess": true,
+            "refreshRequestLifetime": "current_server_process_only",
+            "warnings.$count": 2
+          }
+        }
+      },
+      "failure": {
+        "case": "missing_required_path",
+        "arguments": {},
+        "terminal": "tool_error_result",
+        "textJsonEqualsStructuredContent": null,
+        "topLevelRequiredPropertiesPresent": null,
+        "missingTopLevelRequiredProperties": null,
+        "normalizedCompactFrameBytes": 161,
+        "normalizedCompactFrameSha256": "76db36f43e71ccc174cc016b4826a88c38f6a5f2c21fbb74724dbca0a56ad331",
+        "response": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "An error occurred invoking \u0027unload_trace\u0027."
+              }
+            ],
+            "isError": true
+          },
+          "id": "unload_trace-failure",
+          "jsonrpc": "2.0"
+        }
+      },
+      "boundary": {
+        "case": "repeat_retirement_is_idempotent",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E"
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 1076,
+        "normalizedCompactFrameSha256": "d6164f849c53f01fe5b6c938a5db4725b059de6fbc3b7417eca838f5df6ceb05",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "unload_trace-boundary",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 429,
+          "structuredContentSha256": "d3a3f2d26f41dd3802bd300b86d8717fcae41bb856ec94a1227f936bcb26b261",
+          "structuredTopLevelSections": [
+            {
+              "name": "path",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 24,
+              "sha256": "94f0a55ab9acd409e1a70eac9b0f776b32e745d3f3937fb5310558fb02bc8e81"
+            },
+            {
+              "name": "cacheEntryRetired",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "nextLoadForcesEtlxRefresh",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 223,
+              "sha256": "34a7c75c923cc2fabeb7eaa17423a2cfed9c03c5e50bd1b14c3333bedd7b1bb7"
+            },
+            {
+              "name": "refreshRequestedForCurrentServerProcess",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "refreshRequestLifetime",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 29,
+              "sha256": "d132900e5450a04c2629c3e46f9af4b0c8d852fcd622bc7b38a78142a0ebf767"
+            }
+          ],
+          "selectedFacts": {
+            "cacheEntryRetired": false,
+            "nextLoadForcesEtlxRefresh": true,
+            "refreshRequestedForCurrentServerProcess": true,
+            "refreshRequestLifetime": "current_server_process_only",
+            "warnings.$count": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "wait_analysis",
+      "outputSchemaBytes": 6171,
+      "outputSchemaSha256": "2ad20b7e4e1718e522fe24f4a2d2f4127b64ac84584a987c422e2efac98bc6a5",
+      "success": {
+        "case": "bounded_top_on_cswitch_fixture",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "top": 3
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 6488,
+        "normalizedCompactFrameSha256": "d761248f45e07bc3d3975faf0d8236cb9a598f21dc78b2f20431f1a993a042d7",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "wait_analysis-success",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 2546,
+          "structuredContentSha256": "d691b7e5963134ee7e22dd55995baa66ec33e79ee41816b3f73feb6a35545ae4",
+          "structuredTopLevelSections": [
+            {
+              "name": "rows",
+              "kind": "array",
+              "itemCount": 3,
+              "propertyCount": null,
+              "bytes": 1444,
+              "sha256": "03b537c89b8e2a5939cfa9cbf87ce92c571a5957bf3dbd2cd0fedc4b2335dae9"
+            },
+            {
+              "name": "totalCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "d16fbdac99666bae54276fea4b95bda779f641499132c4451c5a99e15c90bbd6"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 331,
+              "sha256": "48616ff11273055718ffe9a2854c62249e9ff2d825701448fe223ebbcaa07302"
+            },
+            {
+              "name": "totalBlockedUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 7,
+              "sha256": "610fccfdb33c74b8c4733fc695d9856ab258b1a4320fd06987c478e3d13bfd75"
+            },
+            {
+              "name": "unmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 3,
+              "sha256": "1d0ebea552eb43d0b1e1561f6de8ae92e3de7f1abec52399244d1caed7dbdfa6"
+            },
+            {
+              "name": "hasContextSwitches",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "hasContextSwitchBlockingStacks",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "symbolResolutionState",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 16,
+              "sha256": "0296f22b01d3da51783b5e145c24403c9066251dff0d2f86a33204d0d2b0cd38"
+            },
+            {
+              "name": "windowCSwitchesAllThreads",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "d16fbdac99666bae54276fea4b95bda779f641499132c4451c5a99e15c90bbd6"
+            },
+            {
+              "name": "scopedCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "9de45f0d87b959b2d3931e2f1af5ec09e39fe369308e00b42028c63c99b678d8"
+            },
+            {
+              "name": "scopedStackedSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "dc753f4188908987dc79309a857f657ca062e53a1bac8f6d69328e9b4e58d48f"
+            },
+            {
+              "name": "scopedStackCoveragePct",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 16,
+              "sha256": "dc2f1639c685d6db85eaeaf9f6b20430d2a69be4e8e6e61cf1aa80da81690898"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 15,
+              "sha256": "6e22fd6b9cad5c6a93ac240228afe8f811772dd8ac1b37dd2ba373dfb305fa0d"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "c48b5b1a9776c84602de2306d7903a7241158a5077e7a8519af75c33441b8334"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 10,
+              "sha256": "8f262091e8d94d7109cb473e673e368fcb3a38d0e8a9d19b776df5eb2aa58414"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "9de45f0d87b959b2d3931e2f1af5ec09e39fe369308e00b42028c63c99b678d8"
+            },
+            {
+              "name": "includedThreads",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "traceUnmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 3,
+              "sha256": "1d0ebea552eb43d0b1e1561f6de8ae92e3de7f1abec52399244d1caed7dbdfa6"
+            },
+            {
+              "name": "scopedUnmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 3,
+              "sha256": "1d0ebea552eb43d0b1e1561f6de8ae92e3de7f1abec52399244d1caed7dbdfa6"
+            },
+            {
+              "name": "traceHasContextSwitches",
+              "kind": "true",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+            },
+            {
+              "name": "traceCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "d16fbdac99666bae54276fea4b95bda779f641499132c4451c5a99e15c90bbd6"
+            },
+            {
+              "name": "matchedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 4,
+              "sha256": "5f0a4a15acab8eab3f2ff0613da8d6e9d4dac06715666e9294542061e1162218"
+            },
+            {
+              "name": "traceIdentityUnresolvedCSwitchSideCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "bce12cadf8951327baa2a58227e946e2fa26b5a13404d71cea36d74451526cc3"
+            },
+            {
+              "name": "scopedIdentityUnresolvedCSwitchSideCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "bce12cadf8951327baa2a58227e946e2fa26b5a13404d71cea36d74451526cc3"
+            }
+          ],
+          "selectedFacts": {
+            "totalBlockedUs": 3936193,
+            "scopeMode": "all_processes",
+            "pidReuseObserved": false,
+            "scopeStatus": "ok",
+            "capabilityStatus": "observed",
+            "matchedEventCount": 9881,
+            "matchedIntervalCount": 9727,
+            "rows.$count": 3,
+            "warnings.$count": 2,
+            "includedProcesses.$count": 0,
+            "includedThreads.$count": 0
+          }
+        }
+      },
+      "failure": {
+        "case": "missing_required_path",
+        "arguments": {},
+        "terminal": "tool_error_result",
+        "textJsonEqualsStructuredContent": null,
+        "topLevelRequiredPropertiesPresent": null,
+        "missingTopLevelRequiredProperties": null,
+        "normalizedCompactFrameBytes": 163,
+        "normalizedCompactFrameSha256": "b66c882a1ca908886146a7430de5ddc3da64aa6fb585cec4e8eef2645747f505",
+        "response": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "An error occurred invoking \u0027wait_analysis\u0027."
+              }
+            ],
+            "isError": true
+          },
+          "id": "wait_analysis-failure",
+          "jsonrpc": "2.0"
+        }
+      },
+      "boundary": {
+        "case": "missing_pid_returns_structured_scope_status",
+        "arguments": {
+          "path": "\u003CTRACE_PATH\u003E",
+          "top": 3,
+          "pid": 2147483647
+        },
+        "terminal": "success_result",
+        "textJsonEqualsStructuredContent": true,
+        "topLevelRequiredPropertiesPresent": true,
+        "missingTopLevelRequiredProperties": [],
+        "normalizedCompactFrameBytes": 2365,
+        "normalizedCompactFrameSha256": "1399f5d03bec1809a393e3e888852ea9b4d9899c18e646e1e4cebf1622adb37f",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": "wait_analysis-boundary",
+          "responseProperties": [
+            "result",
+            "id",
+            "jsonrpc"
+          ],
+          "resultProperties": [
+            "content",
+            "structuredContent"
+          ],
+          "contentShape": [
+            {
+              "properties": [
+                "type",
+                "text"
+              ],
+              "type": "text",
+              "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+            }
+          ],
+          "structuredContentBytes": 964,
+          "structuredContentSha256": "b0227cd1b88deb1a30df3b20cac94bbf06233a59d1c1088d325b30e59f2f60ca",
+          "structuredTopLevelSections": [
+            {
+              "name": "rows",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "totalCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "warnings",
+              "kind": "array",
+              "itemCount": 2,
+              "propertyCount": null,
+              "bytes": 264,
+              "sha256": "54d86a4d4406ed43076be478253f756a386e6dbe01be910096fd8b43ac2fd69a"
+            },
+            {
+              "name": "totalBlockedUs",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "unmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "hasContextSwitches",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "hasContextSwitchBlockingStacks",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "symbolResolutionState",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 16,
+              "sha256": "0296f22b01d3da51783b5e145c24403c9066251dff0d2f86a33204d0d2b0cd38"
+            },
+            {
+              "name": "windowCSwitchesAllThreads",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "scopedCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "scopedStackedSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "scopeMode",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 12,
+              "sha256": "e3db67692bcffe55218a65c50e3686a0f7a7940960adfc734ffd88bf8b695e9a"
+            },
+            {
+              "name": "pidReuseObserved",
+              "kind": "false",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 5,
+              "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+            },
+            {
+              "name": "includedProcesses",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "scopeStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 17,
+              "sha256": "99a9047b129389ba2fafbc7cd5f2b92fec2a87acf10e6a6c76270cbffe9f1081"
+            },
+            {
+              "name": "capabilityStatus",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 9,
+              "sha256": "eb8bf0d80db323992f6b634aab492b1e6d9e96a8e87a511c2a0db75ab929452c"
+            },
+            {
+              "name": "matchedEventCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "noDataReason",
+              "kind": "string",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 17,
+              "sha256": "99a9047b129389ba2fafbc7cd5f2b92fec2a87acf10e6a6c76270cbffe9f1081"
+            },
+            {
+              "name": "includedThreads",
+              "kind": "array",
+              "itemCount": 0,
+              "propertyCount": null,
+              "bytes": 2,
+              "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            {
+              "name": "traceUnmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "scopedUnmatchedBlockedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "traceCSwitches",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "matchedIntervalCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "traceIdentityUnresolvedCSwitchSideCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            },
+            {
+              "name": "scopedIdentityUnresolvedCSwitchSideCount",
+              "kind": "number",
+              "itemCount": null,
+              "propertyCount": null,
+              "bytes": 1,
+              "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+            }
+          ],
+          "selectedFacts": {
+            "totalBlockedUs": 0,
+            "scopeMode": "unresolved",
+            "pidReuseObserved": false,
+            "scopeStatus": "scope_not_found",
+            "capabilityStatus": "unknown",
+            "matchedEventCount": 0,
+            "matchedIntervalCount": 0,
+            "noDataReason": "scope_not_found",
+            "rows.$count": 0,
+            "warnings.$count": 2,
+            "includedProcesses.$count": 0,
+            "includedThreads.$count": 0
+          }
+        }
+      }
+    }
+  ]
+}

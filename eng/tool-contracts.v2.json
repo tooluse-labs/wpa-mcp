@@ -1,0 +1,3971 @@
+{
+  "schemaVersion": "tool-contracts.v2",
+  "contractVersion": "2.0",
+  "inputSchemaOverlays": [
+    {
+      "overlayId": "symbol_context_binding_v1",
+      "selectorParameter": "resolveSymbols",
+      "injectedInputProperty": "symbolContextId",
+      "expectedToolCount": 35
+    }
+  ],
+  "tools": [
+    {
+      "toolName": "list_capabilities",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CapabilityDiscoveryTools",
+      "method": "ListCapabilities",
+      "inputType": "parameters(domain:System.String,goal:System.String,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ListCapabilitiesResponse",
+      "capabilityIds": [
+        "catalog.capability.list"
+      ],
+      "requiredCapabilities": [
+        "runtime.validated_active_catalog"
+      ],
+      "selectableScopes": [
+        "server"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "none"
+      ],
+      "costClass": "bootstrap",
+      "discoveryPriority": 0,
+      "domain": "bootstrap",
+      "ordinal": 0,
+      "defaultOrdering": "domain_asc_capability_id_asc",
+      "tieBreakers": [
+        "capability_id_asc"
+      ],
+      "pageableSections": [
+        "/capabilities"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "catalog.active.project"
+      ],
+      "allowedMeasurementBases": [
+        "metadata"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "CATALOG_DECLARED_NOT_WPA_EXHAUSTIVE",
+        "UNLISTED_CAPABILITY_UNKNOWN"
+      ],
+      "evidenceReferences": [
+        "evidence.catalog.capability.list"
+      ]
+    },
+    {
+      "toolName": "alpc_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.AlpcTools",
+      "method": "AlpcCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "ipc.alpc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "ipc",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.alpc.alpc_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.ipc.alpc.stacks"
+      ]
+    },
+    {
+      "toolName": "alpc_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.AlpcTools",
+      "method": "AlpcTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.AlpcStacksResponse",
+      "capabilityIds": [
+        "ipc.alpc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "ipc",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.alpc.alpc_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.ipc.alpc.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_alloc_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrAllocCallerCallee",
+      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "clr.alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_alloc_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_alloc_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrAllocTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ClrAllocStacksResponse",
+      "capabilityIds": [
+        "clr.alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 10,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/rows",
+        "/topTypes",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_alloc_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_contention_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrContentionCallerCallee",
+      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "clr.contention.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 20,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_contention_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.contention.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_contention_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrContentionTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ClrContentionStacksResponse",
+      "capabilityIds": [
+        "clr.contention.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 30,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_contention_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.contention.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_exception_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrExceptionCallerCallee",
+      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "clr.exception.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 40,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_exception_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.exception.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_exception_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrExceptionTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ClrExceptionStacksResponse",
+      "capabilityIds": [
+        "clr.exception.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 50,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/rows",
+        "/topTypes",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_exception_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.exception.stacks"
+      ]
+    },
+    {
+      "toolName": "clr_finalizer_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrFinalizerAnalysis",
+      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.FinalizerAnalysisResponse",
+      "capabilityIds": [
+        "clr.finalizer.activity"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 60,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/batches",
+        "/topTypes"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_finalizer_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "FINALIZATION_NOT_LEAK_PROOF"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.finalizer.activity"
+      ]
+    },
+    {
+      "toolName": "clr_gc_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrGcAnalysis",
+      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.GcAnalysisResponse",
+      "capabilityIds": [
+        "clr.gc.intervals"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 70,
+      "defaultOrdering": "start_us_asc",
+      "tieBreakers": [
+        "pid_asc",
+        "process_start_us_asc",
+        "end_us_asc",
+        "generation_asc",
+        "reason_ordinal_asc",
+        "interval_kind_ordinal_asc",
+        "clr_instance_id_asc_nulls_first",
+        "gc_count_asc_nulls_first",
+        "is_orphan_pause_asc",
+        "accounted_duration_us_asc",
+        "accounted_pause_us_asc_nulls_first"
+      ],
+      "pageableSections": [
+        "/events"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_gc_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.gc.intervals"
+      ]
+    },
+    {
+      "toolName": "clr_gc_heap_stats",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrGcHeapStats",
+      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.GcHeapStatsResponse",
+      "capabilityIds": [
+        "clr.gc.heap_stats"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 80,
+      "defaultOrdering": "time_us_asc",
+      "tieBreakers": [
+        "pid_asc",
+        "process_start_us_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_gc_heap_stats"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SNAPSHOTS_NOT_CONTINUOUS_TREND"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.gc.heap_stats"
+      ]
+    },
+    {
+      "toolName": "clr_jit_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ClrTools",
+      "method": "ClrJitAnalysis",
+      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.JitAnalysisResponse",
+      "capabilityIds": [
+        "clr.jit.intervals"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "clr",
+      "ordinal": 90,
+      "defaultOrdering": "accounted_duration_us_desc",
+      "tieBreakers": [
+        "start_us_asc",
+        "pid_asc",
+        "process_start_us_asc",
+        "method_ordinal_asc",
+        "end_us_asc",
+        "method_il_size_asc"
+      ],
+      "pageableSections": [
+        "/topMethods"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.clr.clr_jit_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL"
+      ],
+      "evidenceReferences": [
+        "evidence.clr.jit.intervals"
+      ]
+    },
+    {
+      "toolName": "cpu_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CpuTools",
+      "method": "CpuCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "cpu.sampled.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "cpu",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.cpu.cpu_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SAMPLED_CPU_NOT_EXACT_TIME"
+      ],
+      "evidenceReferences": [
+        "evidence.cpu.sampled.stacks"
+      ]
+    },
+    {
+      "toolName": "cpu_precise_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CpuTools",
+      "method": "CpuPreciseAnalysis",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CpuPreciseResponse",
+      "capabilityIds": [
+        "scheduler.cpu_accounting"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 0,
+      "defaultOrdering": "cpu_us_desc",
+      "tieBreakers": [
+        "ready_latency_us_desc",
+        "pid_asc",
+        "process_start_us_asc",
+        "tid_asc",
+        "thread_generation_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.cpu.cpu_precise_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCHEDULER_TIME_NOT_STACK_ATTRIBUTION"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.cpu_accounting"
+      ]
+    },
+    {
+      "toolName": "cpu_top_functions",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CpuTools",
+      "method": "CpuTopFunctions",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CpuTopFunctionsResponse",
+      "capabilityIds": [
+        "cpu.sampled.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "cpu",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.cpu.cpu_top_functions"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SAMPLED_CPU_NOT_EXACT_TIME"
+      ],
+      "evidenceReferences": [
+        "evidence.cpu.sampled.stacks"
+      ]
+    },
+    {
+      "toolName": "cpu_top_functions_batch",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CpuTools",
+      "method": "CpuTopFunctionsBatch",
+      "inputType": "parameters(path:System.String,pids:System.Int32[],top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E[])",
+      "outputType": "WpaMcp.Output.CpuTopFunctionsBatchResponse",
+      "capabilityIds": [
+        "cpu.sampled.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "cpu",
+      "ordinal": 20,
+      "defaultOrdering": "not_applicable",
+      "tieBreakers": [],
+      "pageableSections": [],
+      "paginationMode": "none",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.cpu.cpu_top_functions_batch"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SAMPLED_CPU_NOT_EXACT_TIME"
+      ],
+      "evidenceReferences": [
+        "evidence.cpu.sampled.stacks"
+      ]
+    },
+    {
+      "toolName": "diagnose_high_wait",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.DiagnoseTools",
+      "method": "DiagnoseHighWait",
+      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,maxCandidates:System.Int32,topStacks:System.Int32,topReadyStacks:System.Int32,includeReadyStacks:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.DiagnoseHighWaitResponse",
+      "capabilityIds": [
+        "diagnosis.wait.composite"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "composite",
+      "discoveryPriority": 100,
+      "domain": "diagnosis",
+      "ordinal": 0,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/candidates",
+        "/evidence",
+        "/notConcluded",
+        "/nextTools",
+        "/executedToolCalls"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.diagnose.diagnose_high_wait"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE"
+      ],
+      "evidenceReferences": [
+        "evidence.diagnosis.wait.composite"
+      ]
+    },
+    {
+      "toolName": "diagnose_slow_startup",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.DiagnoseTools",
+      "method": "DiagnoseSlowStartup",
+      "inputType": "parameters(path:System.String,nameSubstring:System.String,maxCandidates:System.Int32,minWaitRatio:System.Double,startupWindowUs:System.Int64,topImageLoads:System.Int32,topCpu:System.Int32,slowFirstImageLoadThresholdUs:System.Int64,topWindowEvidence:System.Int32,maxWindowDurationUs:System.Int64)",
+      "outputType": "WpaMcp.Output.DiagnoseSlowStartupResponse",
+      "capabilityIds": [
+        "diagnosis.startup.composite"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "composite",
+      "discoveryPriority": 100,
+      "domain": "diagnosis",
+      "ordinal": 10,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/candidates",
+        "/evidence",
+        "/notConcluded",
+        "/nextTools",
+        "/executedToolCalls",
+        "/firstImageLoadGapEvidence",
+        "/discovery/excludedSamples"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.diagnose.diagnose_slow_startup"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "heuristic",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "TEMPORAL_GAP_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.diagnosis.startup.composite"
+      ]
+    },
+    {
+      "toolName": "diagnose_window",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.DiagnoseTools",
+      "method": "DiagnoseWindow",
+      "inputType": "parameters(path:System.String,startUs:System.Int64,endUs:System.Int64,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,maxWindowDurationUs:System.Int64,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.DiagnoseWindowResponse",
+      "capabilityIds": [
+        "diagnosis.window.composite"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "composite",
+      "discoveryPriority": 100,
+      "domain": "diagnosis",
+      "ordinal": 20,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/hardFaultsByBytes",
+        "/hardFaultsByMaxLatency",
+        "/fileIoTopFiles",
+        "/securityScanTargets",
+        "/slowScans",
+        "/waits",
+        "/evidence",
+        "/notConcluded",
+        "/nextTools",
+        "/executedToolCalls",
+        "/pressure/topPeakWorkingSetProcesses",
+        "/pressure/topPeakCommitProcesses"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.diagnose.diagnose_window"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "heuristic",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.diagnosis.window.composite"
+      ]
+    },
+    {
+      "toolName": "disk_io_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "DiskIoCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "io.disk.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.disk_io_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.io.disk.stacks"
+      ]
+    },
+    {
+      "toolName": "disk_io_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "DiskIoTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.DiskIoStacksResponse",
+      "capabilityIds": [
+        "io.disk.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.disk_io_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.io.disk.stacks"
+      ]
+    },
+    {
+      "toolName": "file_io_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "FileIoCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "io.file.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 20,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.file_io_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.io.file.stacks"
+      ]
+    },
+    {
+      "toolName": "file_io_top_files",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "FileIoTopFiles",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.FileIoResponse",
+      "capabilityIds": [
+        "io.file.aggregate"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 30,
+      "defaultOrdering": "total_bytes_desc",
+      "tieBreakers": [
+        "file_path_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.file_io_top_files"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED"
+      ],
+      "evidenceReferences": [
+        "evidence.io.file.aggregate"
+      ]
+    },
+    {
+      "toolName": "file_io_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "FileIoTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.FileIoStacksResponse",
+      "capabilityIds": [
+        "io.file.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 40,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.file_io_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.io.file.stacks"
+      ]
+    },
+    {
+      "toolName": "find_marker",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MarkerTools",
+      "method": "FindMarker",
+      "inputType": "parameters(path:System.String,nameSubstring:System.String,top:System.Int32,mode:System.String,fieldMaxChars:System.Int32)",
+      "outputType": "WpaMcp.Output.MarkerSearchResponse",
+      "capabilityIds": [
+        "trace.marker.search"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "trace",
+      "ordinal": 0,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/counts",
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.marker.find_marker"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "MARKER_MATCH_NOT_SEMANTICS"
+      ],
+      "evidenceReferences": [
+        "evidence.trace.marker.search"
+      ]
+    },
+    {
+      "toolName": "generic_event_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.GenericProviderTools",
+      "method": "GenericEventCallerCallee",
+      "inputType": "parameters(path:System.String,providerName:System.String,focusFunction:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "provider.generic.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "provider",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "provider",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.genericprovider.generic_event_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "GENERIC_PROVIDER_FILTER_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.provider.generic.stacks"
+      ]
+    },
+    {
+      "toolName": "generic_event_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.GenericProviderTools",
+      "method": "GenericEventTopStacks",
+      "inputType": "parameters(path:System.String,providerName:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.GenericEventStacksResponse",
+      "capabilityIds": [
+        "provider.generic.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "provider",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "provider",
+      "ordinal": 10,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/rows",
+        "/topEventNames",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.genericprovider.generic_event_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "GENERIC_PROVIDER_FILTER_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.provider.generic.stacks"
+      ]
+    },
+    {
+      "toolName": "hard_fault_by_file",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.HardFaultTools",
+      "method": "HardFaultByFile",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,orderBy:System.String,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.HardFaultByFileResponse",
+      "capabilityIds": [
+        "memory.hard_fault.files"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 0,
+      "defaultOrdering": "caller_selected_metric_desc",
+      "tieBreakers": [
+        "page_in_bytes_desc",
+        "page_in_count_desc",
+        "file_path_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.hardfault.hard_fault_by_file"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.hard_fault.files"
+      ]
+    },
+    {
+      "toolName": "hard_fault_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.HardFaultTools",
+      "method": "HardFaultCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "memory.hard_fault.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 10,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.hardfault.hard_fault_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.hard_fault.stacks"
+      ]
+    },
+    {
+      "toolName": "hard_fault_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.HardFaultTools",
+      "method": "HardFaultTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.HardFaultStacksResponse",
+      "capabilityIds": [
+        "memory.hard_fault.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 20,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.hardfault.hard_fault_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.hard_fault.stacks"
+      ]
+    },
+    {
+      "toolName": "heap_alloc_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.HeapTools",
+      "method": "HeapAllocCallerCallee",
+      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "heap.alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "heap",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.heap.heap_alloc_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION"
+      ],
+      "evidenceReferences": [
+        "evidence.heap.alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "heap_alloc_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.HeapTools",
+      "method": "HeapAllocTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.HeapAllocStacksResponse",
+      "capabilityIds": [
+        "heap.alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "heap",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.heap.heap_alloc_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION"
+      ],
+      "evidenceReferences": [
+        "evidence.heap.alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "image_load_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ImageLoadTools",
+      "method": "ImageLoadCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "image.load.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "image",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.imageload.image_load_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.image.load.stacks"
+      ]
+    },
+    {
+      "toolName": "image_load_timing",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ImageLoadTools",
+      "method": "ImageLoadTiming",
+      "inputType": "parameters(path:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ImageLoadTimingResponse",
+      "capabilityIds": [
+        "image.load.timing"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "process"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "image",
+      "ordinal": 10,
+      "defaultOrdering": "time_us_asc",
+      "tieBreakers": [
+        "event_index_asc"
+      ],
+      "pageableSections": [
+        "/loads"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.imageload.image_load_timing"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "TEMPORAL_GAP_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.image.load.timing"
+      ]
+    },
+    {
+      "toolName": "image_load_top_gaps",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ImageLoadTools",
+      "method": "ImageLoadTopGaps",
+      "inputType": "parameters(path:System.String,pid:System.Int32,top:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ImageLoadTopGapsResponse",
+      "capabilityIds": [
+        "image.load.timing"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "process"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "image",
+      "ordinal": 20,
+      "defaultOrdering": "gap_from_previous_us_desc",
+      "tieBreakers": [
+        "time_us_asc",
+        "event_index_asc"
+      ],
+      "pageableSections": [
+        "/topGaps"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.imageload.image_load_top_gaps"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "TEMPORAL_GAP_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.image.load.timing"
+      ]
+    },
+    {
+      "toolName": "image_load_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ImageLoadTools",
+      "method": "ImageLoadTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ImageLoadStacksResponse",
+      "capabilityIds": [
+        "image.load.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "image",
+      "ordinal": 30,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.imageload.image_load_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.image.load.stacks"
+      ]
+    },
+    {
+      "toolName": "inspect_trace",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "InspectTrace",
+      "inputType": "parameters(path:System.String,domain:System.String,goal:System.String,cursor:System.String)",
+      "outputType": "WpaMcp.Output.InspectTraceResponse",
+      "capabilityIds": [
+        "trace.capability.inspect"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "bootstrap",
+      "discoveryPriority": 0,
+      "domain": "bootstrap",
+      "ordinal": 10,
+      "defaultOrdering": "capabilities_domain_asc_id_asc_then_workflows_id_asc",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/traceEvidenceMap/workflows",
+        "/traceEvidenceMap/capabilities",
+        "/metadata/providerEvents/topProviders",
+        "/metadata/drivers/topDrivers",
+        "/symbolQuality/topUnresolvedModules",
+        "/symbolQuality/frameResolution/topUnresolvedModules",
+        "/symbolQuality/topModulesMissingPdbName",
+        "/orientationTools",
+        "/capabilitySupportedTools",
+        "/enabledCapabilities",
+        "/recommendedDiagnosticFlows"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.inspect_trace"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "PARSED_COUNT_NOT_RAW_CAPTURE_TOTAL",
+        "SYMBOLS_NOT_FRAME_RESOLUTION",
+        "EVENT_CLASS_OBSERVED_NOT_CAPTURE_CONFIG"
+      ],
+      "evidenceReferences": [
+        "evidence.trace.capability.inspect"
+      ]
+    },
+    {
+      "toolName": "interrupt_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.InterruptTools",
+      "method": "InterruptCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "hardware.interrupt.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "hardware",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.interrupt.interrupt_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.hardware.interrupt.stacks"
+      ]
+    },
+    {
+      "toolName": "interrupt_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.InterruptTools",
+      "method": "InterruptTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean)",
+      "outputType": "WpaMcp.Output.InterruptStacksResponse",
+      "capabilityIds": [
+        "hardware.interrupt.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "hardware",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.interrupt.interrupt_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.hardware.interrupt.stacks"
+      ]
+    },
+    {
+      "toolName": "list_processes",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "ListProcesses",
+      "inputType": "parameters(path:System.String,orderBy:System.String,top:System.Int32,includeSystem:System.Boolean,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ProcessListResponse",
+      "capabilityIds": [
+        "trace.process.inventory"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 0,
+      "domain": "bootstrap",
+      "ordinal": 20,
+      "defaultOrdering": "caller_selected_metric_desc",
+      "tieBreakers": [
+        "wall_us_desc_when_wait_ratio",
+        "pid_asc",
+        "process_start_us_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.list_processes"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.trace.process.inventory"
+      ]
+    },
+    {
+      "toolName": "load_trace",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "LoadTrace",
+      "inputType": "parameters(path:System.String,forceRefresh:System.Boolean)",
+      "outputType": "WpaMcp.Output.LoadTraceResponse",
+      "capabilityIds": [
+        "lifecycle.trace.load"
+      ],
+      "requiredCapabilities": [
+        "runtime.secure_trace_load"
+      ],
+      "selectableScopes": [
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "sideEffects": [
+        "owned_trace_artifact_write"
+      ],
+      "costClass": "bootstrap",
+      "discoveryPriority": 0,
+      "domain": "bootstrap",
+      "ordinal": 30,
+      "defaultOrdering": "not_applicable",
+      "tieBreakers": [],
+      "pageableSections": [],
+      "paginationMode": "none",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.load_trace"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "metadata"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "LOAD_RESULT_NOT_HANDLE_STATUS_INSPECTION",
+        "RAW_PATH_NOT_QUERY_REFERENCE",
+        "RETAINED_QUOTA_NOT_WHOLE_ROOT_PEAK"
+      ],
+      "evidenceReferences": [
+        "evidence.lifecycle.trace.load"
+      ]
+    },
+    {
+      "toolName": "memory_resource_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
+      "method": "MemoryResourceAnalysis",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.MemoryResourceResponse",
+      "capabilityIds": [
+        "memory.resource.activity"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 30,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/processes",
+        "/handles",
+        "/poolProcesses",
+        "/poolTags",
+        "/systemMemory",
+        "/pressure/topPeakWorkingSetProcesses",
+        "/pressure/topPeakCommitProcesses"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.virtualmemory.memory_resource_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ACTIVITY_NOT_STATE_SNAPSHOT"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.resource.activity"
+      ]
+    },
+    {
+      "toolName": "net_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.NetIoTools",
+      "method": "NetCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "network.io.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "network",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.netio.net_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "NETWORK_EVENT_NOT_CONNECTION_CAUSALITY"
+      ],
+      "evidenceReferences": [
+        "evidence.network.io.stacks"
+      ]
+    },
+    {
+      "toolName": "net_connections",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.NetIoTools",
+      "method": "NetConnections",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.NetConnectionsResponse",
+      "capabilityIds": [
+        "network.connections"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "network",
+      "ordinal": 10,
+      "defaultOrdering": "observed_duration_us_desc_nulls_last",
+      "tieBreakers": [
+        "open_time_us_asc",
+        "pid_asc",
+        "process_start_us_asc",
+        "conn_id_text_asc"
+      ],
+      "pageableSections": [
+        "/connections"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.netio.net_connections"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "NETWORK_EVENT_NOT_CONNECTION_CAUSALITY"
+      ],
+      "evidenceReferences": [
+        "evidence.network.connections"
+      ]
+    },
+    {
+      "toolName": "net_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.NetIoTools",
+      "method": "NetTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.NetIoStacksResponse",
+      "capabilityIds": [
+        "network.io.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "network",
+      "ordinal": 20,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.netio.net_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "NETWORK_EVENT_NOT_CONNECTION_CAUSALITY"
+      ],
+      "evidenceReferences": [
+        "evidence.network.io.stacks"
+      ]
+    },
+    {
+      "toolName": "process_create_timing",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "ProcessCreateTiming",
+      "inputType": "parameters(path:System.String,parentPid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ProcessCreateTimingResponse",
+      "capabilityIds": [
+        "trace.process.creation"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "process"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "trace",
+      "ordinal": 30,
+      "defaultOrdering": "start_time_us_asc",
+      "tieBreakers": [
+        "pid_asc",
+        "source_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/children"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.process_create_timing"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.trace.process.creation"
+      ]
+    },
+    {
+      "toolName": "ready_thread_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ReadyThreadTools",
+      "method": "ReadyThreadCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "scheduler.ready.association"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 10,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.readythread.ready_thread_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.ready.association"
+      ]
+    },
+    {
+      "toolName": "ready_thread_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ReadyThreadTools",
+      "method": "ReadyThreadTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.ReadyThreadStacksResponse",
+      "capabilityIds": [
+        "scheduler.ready.association"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 20,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.readythread.ready_thread_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.ready.association"
+      ]
+    },
+    {
+      "toolName": "registry_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.RegistryTools",
+      "method": "RegistryCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "registry.activity.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "registry",
+      "ordinal": 0,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.registry.registry_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.registry.activity.stacks"
+      ]
+    },
+    {
+      "toolName": "registry_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.RegistryTools",
+      "method": "RegistryTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.RegistryStacksResponse",
+      "capabilityIds": [
+        "registry.activity.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "registry",
+      "ordinal": 10,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.registry.registry_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.registry.activity.stacks"
+      ]
+    },
+    {
+      "toolName": "security_scan_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.SecurityTools",
+      "method": "SecurityScanAnalysis",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processSubstring:System.String,pathSubstring:System.String,providerSubstring:System.String,targetProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.SecurityScanAnalysisResponse",
+      "capabilityIds": [
+        "security.scan.heuristics"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "provider"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "security",
+      "ordinal": 0,
+      "defaultOrdering": "section_specific",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/rows",
+        "/slowScans",
+        "/providers"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.security.security_scan_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "heuristic",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "HEURISTIC_NOT_ATTRIBUTION",
+        "SECURITY_EVENT_NOT_SCANNER_IDENTITY",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.security.scan.heuristics"
+      ]
+    },
+    {
+      "toolName": "prepare_symbols",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.SymbolLifecycleTools",
+      "method": "PrepareSymbols",
+      "inputType": "parameters(traceId:System.String,symbolPolicyRef:System.String,top:System.Int32)",
+      "outputType": "WpaMcp.Output.PrepareSymbolsResponse",
+      "capabilityIds": [
+        "lifecycle.symbol.prepare"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "symbol.policy.approved"
+      ],
+      "selectableScopes": [
+        "server",
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "sideEffects": [
+        "symbol_context_preparation"
+      ],
+      "costClass": "local_probe",
+      "discoveryPriority": 100,
+      "domain": "lifecycle",
+      "ordinal": 0,
+      "defaultOrdering": "not_applicable",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/modulePdbIdentities"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.symbol.prepare_symbols"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "CONFIGURATION_NOT_SYMBOL_RESOLUTION",
+        "SYMBOLS_NOT_FRAME_RESOLUTION"
+      ],
+      "evidenceReferences": [
+        "evidence.lifecycle.symbol.prepare"
+      ]
+    },
+    {
+      "toolName": "thread_lifetime",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "ThreadLifetime",
+      "inputType": "parameters(path:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ThreadLifetimeResponse",
+      "capabilityIds": [
+        "trace.thread.lifetime"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "process"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "trace",
+      "ordinal": 40,
+      "defaultOrdering": "start_time_us_asc",
+      "tieBreakers": [
+        "tid_asc",
+        "thread_generation_asc"
+      ],
+      "pageableSections": [
+        "/threads"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.thread_lifetime"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "temporal",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "THREAD_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.trace.thread.lifetime"
+      ]
+    },
+    {
+      "toolName": "unload_trace",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.MetaTools",
+      "method": "UnloadTrace",
+      "inputType": "parameters(traceId:System.String,waitForDrain:System.Boolean)",
+      "outputType": "WpaMcp.Output.UnloadTraceResponse",
+      "capabilityIds": [
+        "lifecycle.trace.unload"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id"
+      ],
+      "selectableScopes": [
+        "trace"
+      ],
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "sideEffects": [
+        "trace_handle_retirement"
+      ],
+      "costClass": "bootstrap",
+      "discoveryPriority": 100,
+      "domain": "lifecycle",
+      "ordinal": 10,
+      "defaultOrdering": "not_applicable",
+      "tieBreakers": [],
+      "pageableSections": [],
+      "paginationMode": "none",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.meta.unload_trace"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "metadata"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "UNLOAD_NOT_ARTIFACT_DELETION",
+        "UNLOAD_RESULT_NOT_HANDLE_STATUS_INSPECTION"
+      ],
+      "evidenceReferences": [
+        "evidence.lifecycle.trace.unload"
+      ]
+    },
+    {
+      "toolName": "virtual_alloc_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
+      "method": "VirtualAllocCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "memory.virtual_alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 40,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.virtualmemory.virtual_alloc_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "OPERATION_VOLUME_NOT_NET_GROWTH"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.virtual_alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "virtual_alloc_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
+      "method": "VirtualAllocTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.VirtualAllocStacksResponse",
+      "capabilityIds": [
+        "memory.virtual_alloc.stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "memory",
+      "ordinal": 50,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.virtualmemory.virtual_alloc_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "OPERATION_VOLUME_NOT_NET_GROWTH"
+      ],
+      "evidenceReferences": [
+        "evidence.memory.virtual_alloc.stacks"
+      ]
+    },
+    {
+      "toolName": "wait_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.WaitTools",
+      "method": "WaitAnalysis",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.WaitAnalysisResponse",
+      "capabilityIds": [
+        "scheduler.blocked_time"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 30,
+      "defaultOrdering": "blocked_us_desc",
+      "tieBreakers": [
+        "cpu_us_desc",
+        "pid_asc",
+        "process_start_us_asc",
+        "tid_asc",
+        "thread_generation_asc"
+      ],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.wait.wait_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SCOPED_DENOMINATOR_REQUIRED",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.blocked_time"
+      ]
+    },
+    {
+      "toolName": "wait_caller_callee",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.WaitTools",
+      "method": "WaitCallerCallee",
+      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.CallerCalleeResponse",
+      "capabilityIds": [
+        "scheduler.blocked_stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window",
+        "focus_frame"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 40,
+      "defaultOrdering": "inclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/callers",
+        "/callees",
+        "/stats/topUnresolvedModules"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.wait.wait_caller_callee"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.blocked_stacks"
+      ]
+    },
+    {
+      "toolName": "wait_top_stacks",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.WaitTools",
+      "method": "WaitTopStacks",
+      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.WaitTopStacksResponse",
+      "capabilityIds": [
+        "scheduler.blocked_stacks"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "stack_scan",
+      "discoveryPriority": 100,
+      "domain": "scheduler",
+      "ordinal": 50,
+      "defaultOrdering": "exclusive_metric_desc",
+      "tieBreakers": [
+        "function_ordinal_asc"
+      ],
+      "pageableSections": [
+        "/rows",
+        "/stats/topUnresolvedModules",
+        "/when/buckets"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.wait.wait_top_stacks"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "evidenceReferences": [
+        "evidence.scheduler.blocked_stacks"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,18 @@
 # wpa-mcp — 能力缺口对比（vs WPA / PerfView）
 
-> Working notes，不是 RFC。盘点 WPA / PerfView 暴露、但 wpa-mcp 尚未覆盖的分析能力，以及那些专属于 GUI 工具、对 LLM 消费者没必要补的能力。
+> **当前状态（2026-08-01）：** 本文是人类可读的 delta ledger，不是 runtime
+> catalog。validated development model 当前包含 60 个 active tools、51 个 declared
+> capabilities、15 个 goals、15 个 workflows；其中 10 个 capability 被明确映射到
+> `evaluator.declared_gap`。下表还包含尚未进入 catalog 的更广泛 WPA/PerfView 候选。
+> `eng/capabilities.v1.json`、`eng/tool-contracts.v2.json`、Active Catalog validator
+> 和 runtime Resource 才是权威。
+
+> Working notes，不是 RFC。server 要完整暴露 declared capability map 以降低选择成本，
+> 同时完整暴露 evidence gap，避免 LLM 把 unsupported/unmeasured 能力变成结论。该地图只
+> 对 wpa-mcp 声明的 surface 完整，绝不代表整个 WPA/ETW universe；未列出表示
+> `unknown_not_catalogued`，不表示已证明不存在。
 >
-> **文档集合的逻辑分工**——三份现行文档，顺序约束的流水线：
+> **2026-05 当时的文档集合分工**——三份历史规划文档，顺序约束的流水线：
 >
 > - **`CAPABILITY_GAPS.md`（本文）** ——**补什么**（稳定的清单）
 > - **`MCP_SURFACE_DESIGN.md`** ——**怎么补**（Tool / Resource / Prompt、三层架构、annotation 分级）
@@ -13,6 +23,8 @@
 > 早期 brainstorm 文档已归档到 `docs/archive/` 以供溯源。
 >
 > **修订说明：**
+> - **v7 (2026-08-01)**：按 validated 60-tool/51-capability catalog 对齐历史 inventory；记录 10 个 manifest-declared gap；把 CPU Precise、memory resources、system metadata、provider counts、capture diagnostics 从错误的“完全缺失”改成“core 已覆盖、剩余边界明确”。
+> - **v6 (2026-08-01)**：加入 contract rollout 与客户端证据 release gap，并使用精确的机器可读 blocker code；历史 analyzer inventory 不变。
 > - **v5 (2026-05-15)**：删除 4 层 punchlist；优先级现在只在 `MCP_IMPLEMENTATION_TASKS.md` 里。本文档只保留稳定的能力清单（A/B/C/D + 不该补 + UI vs data 误判 + 反模式 callout）。文档集合清理同时归档了 `OPTIMIZATION.md`。
 > - **v4 (2026-05-15)**：把 punchlist 改写为 4 层优先级结构；明文加入反模式警告；重新定位文档集合为顺序约束；A-4 与 B-5 加风险注脚。
 > - **v3 (2026-05-15)**：code review 后收紧多处事实陈述；新增 A 表三个缺口。
@@ -28,16 +40,38 @@
 - **C. 元数据**——trace 自身的信息
 - **D. Trace lifecycle / 预处理**——分析前后对 trace 文件本身的操作
 
+### Runtime 权威与发现路径
+
+- Tools-only client 调 `list_capabilities`；支持 Resource 的 client 跟完
+  `wpa://capabilities/server`、`wpa://tools/server`、`wpa://workflows/server`
+  链接的全部页。
+- 选定工具后，从 `wpa://tools/{toolName}/sections` 及其所有 page 读取完整 evidence
+  和 result-section 语义。gap ledger 不能替代 runtime ordering、truncation、precision
+  与 conclusion boundary。
+- `inspect_trace` 为一个已加载 generation 提供 Trace Evidence Map。server declaration、
+  trace evidence availability 与实际 query outcome 是三种不同状态。
+- 当前 10 个 manifest-declared gap 是：`symbols.configuration.path`、
+  `symbols.configuration.server`、`symbols.diagnostics.metadata`、
+  `scheduler.ready.causality`、`security.scanner.attribution`、
+  `symbols.frame_resolution.measured`、`trace.raw_event_count.external`、
+  `attribution.cross_domain.causal`、`lifecycle.trace.handle`、
+  `lifecycle.trace.artifact_peak_bound`。
+
+其中有些 gap 故意声明“缺少独立能力”，即使更窄的事实已在别处存在。例如
+`prepare_symbols` 可以报告 verified readiness，load/query/unload 也已实现 handle
+lifecycle；但当前 context-bound frame resolver 不可用，也没有独立的
+handle-status/inventory tool。catalog 保留这些区别，避免模型把间接事实扩大解释。
+
 ---
 
 ## A. 数据维度缺口
 
 | 缺口 | 价值 | 备注 |
 |---|---|---|
-| **CPU Usage Precise**（基于 CSwitch 的 on-CPU µs，区别于 Sampled 的统计采样） | 高 | 现 `cpu_*` 是 Sampled 视角；`wait_*` 是反面（off-CPU），都回答不了"thread 实际在 CPU 上跑了多少 µs"。补上 Precise 后凑齐 Sampled CPU / Precise on-CPU / Wait off-CPU 的 thread-time 三角。**注意**：这只是 WPA Precise 视图的一半——另一半见下一行 Scheduler 维度 |
-| **Scheduler / core / priority 分析**（per-core 归属、CPU migration、priority inversion、ready latency、quantum end） | 中高 | WPA CPU Usage (Precise) 视图的更深一层。回答"跑在哪个 core？"、"是否在 core 之间反复迁移？"、"是否被 priority inversion 卡住？"、"ready 到 run 的延迟分布？"。与 `ready_thread_*` 不同——后者是唤醒事件本身，不是调度延迟分布 |
+| **CPU Usage Precise**（基于 CSwitch 的 on-CPU µs，区别于 Sampled 统计采样） | core 已覆盖 | `cpu_precise_analysis` 已按可重放 process/thread instance 报告精确 CSwitch on-CPU time、ready-to-run latency、per-core attribution 和 quantum/preemption count。本行作为 closure evidence 保留，不再是 open capability。 |
+| **Scheduler / core / priority 分析**（CPU migration、priority inversion、更丰富 priority timeline） | 中高，部分覆盖 | `cpu_precise_analysis` 已覆盖 per-core attribution、ready latency、quantum/preemption count；`ready_thread_*` 明确只是 association evidence。专用 migration summary、priority timeline 和 mechanistic priority-inversion proof 仍缺失。`scheduler.ready.causality` 保持 declared gap，防止把 readier stack 过度解释成“谁唤醒”。 |
 | **GC heap dump (`.gcdump`) 加载 + 对象引用图 + retention path** | 高 | 内存泄漏调研必备。现 `clr_gc_*` 只在 ETW 事件层，回答不了"谁还持有这堆 `byte[]`" |
-| **内存资源视图**（working set、commit、private bytes、paged / non-paged pool、handle count） | 高 | 系统内存视角，**和分配事件流不重叠**：`clr_gc_*` 是托管分配、`heap_alloc_*` 是 NT heap 事件、`virtual_alloc_*` 是地址空间预留事件。这些都回答不了"现在实际驻留多少？"、"paged pool 是否耗尽？"、"handle 是否在泄漏？"。WPA 有专门视图，wpa-mcp 完全没覆盖。<br/>**风险注脚 (v4)**：需要先验证现有 wpr profile 是否实际采集 working-set / commit / pool / handle 计数器。如果需要新增 wpr keyword，本条降一档优先级——analyzer 无法恢复从未被记录的事件 |
+| **内存资源视图**（working set、commit、private bytes、pool/handle activity） | core 已覆盖，retention gap 仍在 | `memory_resource_analysis` 已投影 `Memory/ProcessMemInfo` snapshot，以及观测到的 handle create/close、pool allocation/free delta，并明确 capture requirement 与 scope。这些 delta 不是 absolute current counter，趋势也不能证明 leak 或 retention path；`.gcdump` object graph 与权威 retained-object attribution 仍未覆盖。 |
 | **Async / Task chain stitching**（CLR Task 跨线程续帧重组） | 高 | `clr_*` 工具按事件分散返回，async 调用链拼不起来；PerfView 有 task tracing 做这件事 |
 | **UI 响应性 / 输入延迟 / frame pacing**（input-to-render 延迟、DWM frame pacing、compositor 卡顿） | 中高 | 用户感知性能的维度。下文的 `Window-in-focus` 只回答"哪个窗口在前台"，不回答"从按键到出画面多久"。桌面 / UI 应用调研刚需 |
 | **GPU profiling**（Compute Graphics / GPU Work） | 中 | 场景窄但 GPU-bound 场景无替代 |
@@ -50,7 +84,7 @@
 
 | 缺口 | 价值 | 备注 |
 |---|---|---|
-| **Time-window filtering——统一 + 共享 ROI context + correctness tests** | 中高 | **v1 现状描述纠错。** `startUs` / `endUs` 参数**已经**存在于大多数 stack-shaped 工具上——`grep -l "startUs\|endUs"` 在 `src/` 命中 40+ 文件。**真正缺口**：(a) 覆盖不齐；(b) 调用之间不能共享 ROI context；(c) clip 边界没有系统性 correctness tests。优先级是 **统一 + 共享 context + 加测试**，不是"从零加 startUs/endUs" |
+| **跨调用共享 ROI context** | 中高，部分覆盖 | per-call 半开区间 `startUs <= t < endUs` 与边界测试已广泛实现；lifecycle-relative 工具有意采用不同 scope，admitted timeline/inventory result 可以发布绑定 cursor。仍没有跨独立调用共享的 first-class immutable ROI object，因此客户端必须原样重放 window 与 identity selector。 |
 | **跨 trace diff**（baseline vs regression） | 高 | 瓶颈是跨 capture 的 process-identity 匹配 |
 | **灵活 group-by / pivot**（按 module / namespace / 线程池 / payload 字段重聚合） | 中高 | WPA 拖列即可，PerfView 有 GroupPats；wpa-mcp 输出 schema 固定 |
 | **Aggregation mode 切换**（sum / avg / max / min / count / weighted） | 中 | 多数列锁死 sum 或 count |
@@ -62,9 +96,9 @@
 
 | 缺口 | 价值 | 备注 |
 |---|---|---|
-| **System Configuration**（OS build、CPU model / 拓扑、core count、boot config、driver 列表——SystemConfig 事件承载） | 高 | `load_trace` 只给 `Capabilities`，没给 trace 来源的硬件 / OS 上下文。ETW 通过 SystemConfig 事件携带这些信息，analyzer 取出来即可。AC / battery 状态和 frequency transitions 来自 Kernel-Power provider 的动态事件，归 A 表 "Power profiling"，不在这一行 |
-| **Per-provider trace statistics**（per-provider 事件数、buffer 配置、丢事件信号） | 中高 | 基础 `EventsLost` 已经通过 `TraceMeta.EventsLost` 暴露，但 per-provider 拆分还没有。ETW buffer loss 本质上是 session 级，严格的 per-provider 丢事件拆分可能无法重建。能做的是 per-provider 事件数 |
-| **采集质量诊断**（profile 推荐、缺 keyword 指导、stackwalk 完整性、符号解析率） | 中高 | "这条 trace 该信几分？"的另一半。基于现有 `Capabilities` + `SymbolStatus` 反推，告诉 LLM 该让用户怎么重采。**纯分析端能力——不涉及启停 ETW session** |
+| **System Configuration**（OS build、CPU model/topology、core count、boot config、driver list） | core 已覆盖，source-nullable gap 仍在 | `inspect_trace` 已投影 trace-derived system metadata 与 driver summary。trace 未携带的字段保持 nullable，绝不拿 host machine 值填充；power-state timeline 仍是另一项 gap。 |
+| **Per-provider trace statistics**（event count、buffer config、dropped-event provenance） | count 已覆盖，raw/session 细节仍缺 | `inspect_trace` 已报告 parser-materialized provider event count 与带 provenance 的 trace-level loss metadata。不会推断 raw external record count、provider-specific loss attribution 或完整 ETW buffer config；`trace.raw_event_count.external` 是 declared gap。 |
+| **采集质量诊断**（capability evidence、stack completeness、symbol boundary） | core 已覆盖，resolution/recapture gap 仍在 | `inspect_trace` 已暴露 Trace Evidence Map、同域 stack coverage、quality warning、PDB-identity state 与 next-step boundary。`prepare_symbols` 测量 verified local readiness，但当前 context-bound frame resolver fail closed，`symbols.frame_resolution.measured` 仍是 declared gap。这些信息不能证明原始 keyword 配置，也不会自动重采。 |
 | **Symbol source lookup**（返回 `file:line`） | 中 | LLM 拿到行号可对照源码 |
 | **Inline frame expansion** | 中 | inline 函数现被外层吞掉，深度 drilldown 会失真 |
 
@@ -72,7 +106,10 @@
 
 ## D. Trace lifecycle / 预处理
 
-不是核心分析，但分析端合理地拥有 trace 文件预处理这条线——`tools/etlshrink/` 已经作为独立项目存在，先例已立。
+secure core lifecycle 已实现：`load_trace` 是唯一 raw source 入口，返回
+principal-scoped immutable TraceId；`unload_trace` retire handle，但不宣称 artifact
+已删除。下表剩余内容是新的 artifact-producing transformation，不是 core lifecycle
+的缺失部分。
 
 | 缺口 | 价值 | 备注 |
 |---|---|---|
@@ -121,12 +158,36 @@
 
 ---
 
-## 优先级
+## Contract rollout 与客户端证据缺口
 
-**⚠️ 反模式，不要做**：按本文档从上到下的顺序补能力。参照工具（WPA / PerfView）按采集 / 域排列功能，不是按 LLM 价值排列。**应按 `MCP_IMPLEMENTATION_TASKS.md` 的优先级结构排序**，而不是顺着本文档读。
+以下是 release blocker，不是被隐藏的 analyzer capability：
 
-本文档描述**相对 WPA / PerfView 缺什么**——这是一个慢变化的清单。**怎么排序工作** 由 `MCP_IMPLEMENTATION_TASKS.md` 承担（P0 导航基础 → P1 路由与 composite → P2 低风险高价值 → P3 高价值高风险），它可以每个 sprint 演进而不动本文档。
+| 缺口 | 机器可读状态 | 后果 |
+|---|---|---|
+| 经审查的 legacy result 投影 | `release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime` | ADR 0005 要求 0.4.x 默认 legacy + raw path。当前选择 `legacy` 会在启动时被拒绝，因此不能仅靠显式开启 Contract 2.0 就发布 0.4.x。 |
+| 完整 0.5.x 弃用窗口与 usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 在仓库内审查这份证据之前，1.0 不得删除 legacy/raw compatibility；环境变量不能绕过发布历史门禁。 |
+| 支持客户端的分页/token/cache 矩阵 | `release_blocked:supported_client_matrix_incomplete` | package stdio harness 已遍历全部页，但 0.5 切 secure default 前，仍需记录具名第三方客户端的 page aggregation、prompt-schema token 与 cache 行为。只消费第一页的客户端不兼容。 |
+| corrected active contract baselines | `release_blocked:corrected_active_contract_baselines_not_release_approved` | `active-tools.v1.json`、`active-dto-inventory.v1.json`、`active-structured-stdio.v1.json` 必须与 package executable 来自同一 commit 和 runtime profile。 |
+| artifact materialization 物理峰值 | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | retained-store quota 与 checkpoint 不能证明 opaque converter 的瞬态磁盘峰值。发布必须有通过的 `artifact-materialization-budget.v1.json`，不能把推测冒充 hard cap。 |
+
+本次启动选择的真实 profile 位于 `wpa://runtime/profile`；缺少 release gate
+绝不能伪装成 analyzer 已支持。详见 `CLIENT_COMPATIBILITY.zh-CN.md` 与
+`CONTRACT_MIGRATION.zh-CN.md`。
 
 ---
 
-最后修订：2026-05-15 (v5)。
+## 优先级
+
+**反模式：** 不要从上到下照表补功能，也不要为了省 prompt 隐藏已有专用工具。候选必须
+先具备稳定 CapabilityId、answered/not-answered question、required evidence/stack、
+scope/cost/symbol requirement、maximum relationship、runtime evaluator 或显式 gap
+evaluator、tool/section contract、benchmark 与 compatibility decision，之后才能由批准的
+task/ADR 排期。
+
+历史 `MCP_IMPLEMENTATION_TASKS.md` 不是当前 backlog。accepted architecture 与 Phase
+0–7 的实施/release gate 见 `MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`
+以及 ADR 0002–0005。
+
+---
+
+最后修订：2026-08-01 (v7)。

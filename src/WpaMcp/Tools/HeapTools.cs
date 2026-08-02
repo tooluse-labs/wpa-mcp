@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class HeapTools
 {
     private readonly TraceCache _cache;
-    public HeapTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public HeapTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by NT-heap allocation bytes (RtlAllocateHeap / HeapAlloc " +
         "/ malloc / new — anything that lands in the user-mode heap).  PerfView equivalent: " +
         "'HeapAllocStacks'. This is an observed allocation-flow view, not proof of retained " +
@@ -24,7 +29,7 @@ public sealed class HeapTools
         "enabled per-process (default WPR profiles do NOT enable it; use PerfView's " +
         "/HeapTrace flag or a custom .wprp <Heap> element).")]
     public HeapAllocStacksResponse HeapAllocTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N stacks by exclusive heap bytes (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -50,17 +55,17 @@ public sealed class HeapTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return HeapAllocStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            window.StartUs, window.EndUs, _privacyLog.Writer, whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in the NT-heap allocation stack source.  " +
         "Metric is heap-allocation bytes; top-N callers ranked by inclusive bytes flowing " +
         "INTO focus, callees by bytes OUT.")]
     public CallerCalleeResponse HeapAllocCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact case-sensitive function name; copy it verbatim from heap_alloc_top_stacks.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -81,7 +86,7 @@ public sealed class HeapTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return HeapAllocStackAnalysis.CallerCallee(
-            trace, focusFunction, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, focusFunction, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

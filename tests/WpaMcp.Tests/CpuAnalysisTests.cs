@@ -88,8 +88,14 @@ public class CpuAnalysisTests
             trace, top: 1000, scope, TextWriter.Null, resolveSymbols: true);
 
         Assert.True(expectedSamples > 0);
-        Assert.Equal(expectedSamples, unresolved.Rows.Sum(row => row.ExclusiveSamples));
-        Assert.Equal(expectedSamples, resolved.Rows.Sum(row => row.ExclusiveSamples));
+        Assert.Equal((long)expectedSamples, unresolved.StackCoverage?.TotalEventCount);
+        Assert.Equal((long)expectedSamples, resolved.StackCoverage?.TotalEventCount);
+        Assert.Equal(
+            unresolved.StackCoverage!.StackedEventCount,
+            unresolved.Rows.Sum(row => row.ExclusiveSamples));
+        Assert.Equal(
+            resolved.StackCoverage!.StackedEventCount,
+            resolved.Rows.Sum(row => row.ExclusiveSamples));
     }
 
     [Fact]
@@ -139,7 +145,7 @@ public class CpuAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10, startUs: 0);
 
-        Assert.NotEmpty(resp.Rows);
+        Assert.True(resp.TotalSamples > 0);
         Assert.All(resp.Rows, r =>
         {
             Assert.Null(r.ExclusivePctOfTrace);
@@ -162,10 +168,9 @@ public class CpuAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10, endUs: endUs);
 
-        var noStackRow = resp.Rows.First(r => r.Function == "?!?");
-        Assert.Equal(expectedSamples, noStackRow.ExclusiveSamples);
-        Assert.Null(noStackRow.ExclusivePctOfTrace);
-        Assert.Null(noStackRow.InclusivePctOfTrace);
+        Assert.Equal((long)expectedSamples, resp.TotalSamples);
+        Assert.Equal((long)expectedSamples, resp.StackCoverage?.TotalEventCount);
+        Assert.DoesNotContain(resp.Rows, row => row.Function == "?!?");
     }
 
     [Fact]
@@ -174,7 +179,7 @@ public class CpuAnalysisTests
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var resp = tools.CpuTopFunctions(FixturePath, top: 10, startUs: 0, includeTracePct: true);
 
-        Assert.NotEmpty(resp.Rows);
+        Assert.True(resp.TotalSamples > 0);
         Assert.All(resp.Rows, r =>
         {
             Assert.NotNull(r.ExclusivePctOfTrace);
@@ -503,7 +508,7 @@ public class CpuAnalysisTests
         Assert.Empty(execution.PerPid);
         Assert.Empty(execution.CompletedPids);
         Assert.Equal([pid], execution.SkippedPids);
-        Assert.True(execution.Partial);
+        Assert.False(execution.Partial);
         var scope = Assert.Single(execution.ScopeResults);
         Assert.Equal("budget_skipped", scope.ResultStatus);
         Assert.Equal("budget_exhausted", scope.NoDataReason);
@@ -595,31 +600,27 @@ public class CpuAnalysisTests
     }
 
     [Fact]
-    public void CpuCallerCallee_OnNoStackRootReturnsExpectedShape()
+    public void CpuSyntheticUnknown_IsCoverageEvidenceNotARealFrameOrFocus()
     {
-        // small_cpu.etl was captured without Sample-stackwalks enabled, so 100% of CPU
-        // samples land on the synthetic "?!?" root. Test against that — it's the only
-        // frame guaranteed to be present, and exercising it validates the caller/callee
-        // mechanics on a sample with no real stack:
-        //   focusInclusive == focusExclusive == totalSamples (every sample IS the ?!? leaf)
-        //   Callers should contain a single "<root>" entry (?!? was interned with Invalid caller)
-        //   Callees should contain a single "<self>" entry (?!? is always the leaf)
+        // small_cpu.etl was captured without Sample stack walks. The unknown remainder is
+        // fully exposed by StackCoverage, but ?!? must never look like a captured call chain.
         var tools = new CpuTools(new TraceCache(capacity: 2));
         var topResp = tools.CpuTopFunctions(FixturePath, top: 5);
-        Assert.Contains(topResp.Rows, r => r.Function == "?!?");
-        var noStackRow = topResp.Rows.First(r => r.Function == "?!?");
+        Assert.DoesNotContain(topResp.Rows, row => row.Function == "?!?");
+        Assert.Equal("stacks_unavailable", topResp.NoDataReason);
+        Assert.True(topResp.StackCoverage?.ContainsSyntheticUnknown);
 
         var ccResp = tools.CpuCallerCallee(FixturePath, function: "?!?", top: 10);
         Assert.Equal("?!?", ccResp.FocusFunction);
         Assert.Equal("samples", ccResp.MetricName);
-        Assert.True(ccResp.FocusInclusiveMetric > 0,
-            $"?!? should have inclusive samples > 0; got {ccResp.FocusInclusiveMetric}");
+        Assert.Equal(0, ccResp.FocusInclusiveMetric);
+        Assert.Equal(0, ccResp.FocusExclusiveMetric);
         Assert.Equal(topResp.StackCoverage, ccResp.StackCoverage);
-        Assert.Equal(noStackRow.InclusiveSamples, ccResp.FocusInclusiveMetric);
-        // ?!? is the leaf of every no-stack sample, so exclusive == inclusive.
-        Assert.Equal(ccResp.FocusInclusiveMetric, ccResp.FocusExclusiveMetric);
-        Assert.Contains(ccResp.Callers, c => c.Function == "<root>");
-        Assert.Contains(ccResp.Callees, c => c.Function == "<self>");
+        Assert.Empty(ccResp.Callers);
+        Assert.Empty(ccResp.Callees);
+        Assert.Equal("stacks_unavailable", ccResp.NoDataReason);
+        Assert.Contains(ccResp.Warnings, warning => warning.StartsWith(
+            "synthetic_unknown_focus_not_stack_evidence:", StringComparison.Ordinal));
     }
 
     [Fact]

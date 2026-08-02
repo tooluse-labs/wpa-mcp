@@ -17,10 +17,8 @@ namespace WpaMcp.Analyzers;
 // is triggering those page-ins" — the question that a slow-process-creation case actually
 // wants answered (eager loader vs lazy use vs scanner-induced).
 //
-// Sample weight = ByteCount, so ExclusiveMetric reads as "exclusive bytes paged in by this
-// frame". The CallTree separately tracks ExclusiveCount (one per AddSample call), giving us
-// "fault count" for free without a second stack source — important because each AddSample
-// adds an entry to the interner and a second source would double symbol-resolution cost.
+// Sample weight = ByteCount. A parallel checked Int64 projection tracks exact per-frame bytes
+// and fault counts without a second stack source or a float-to-integer round trip.
 //
 // Like HardFaultByFileAnalysis, requires the HardFaults kernel keyword in the capture profile. Default
 // WPR profiles do NOT enable it — see tests/WpaMcp.Tests/fixtures/MmapCapture.wprp. The
@@ -47,23 +45,18 @@ public static class PageFaultStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        // CallTree on the metric-weighted source gives us BOTH dimensions for free:
-        //   ExclusiveMetric = sum of ByteCount values ending at this frame ("bytes paged in")
-        //   ExclusiveCount  = number of samples ending at this frame   ("faults")
-        // No need for a parallel count-only stack source.
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalBytesMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new HardFaultStackRow(
-                Function: n.Name,
-                ExclusivePageInBytes: (long)n.ExclusiveMetric,
-                InclusivePageInBytes: (long)n.InclusiveMetric,
-                ExclusiveFaultCount: (long)n.ExclusiveCount,
-                InclusiveFaultCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusivePageInBytes: n.ExclusiveMetric,
+                InclusivePageInBytes: n.InclusiveMetric,
+                ExclusiveFaultCount: n.ExclusiveCount,
+                InclusiveFaultCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -76,7 +69,7 @@ public static class PageFaultStackAnalysis
             TotalFaultCount: ctx.TotalFaults,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("bytes"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

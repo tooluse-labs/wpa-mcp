@@ -1,160 +1,112 @@
-# Symbol resolution recipes
+# Symbol preparation recipes
 
-`_NT_SYMBOL_PATH` accepts semicolon-separated entries. Each `SRV*<cache>*<url>` entry is a symbol server with a local cache; bare paths point at folders containing PDBs.
+The current secure profile uses an explicit, local-only symbol lifecycle. It
+does not read `_NT_SYMBOL_PATH`, contact a symbol server, inspect a trace's
+directory, or search arbitrary disk locations.
 
-## Path syntax
+Keep these evidence states separate:
 
-```
-[entry];[entry];[entry]…
-```
+1. **Trace PDB identity** — PDB name, GUID, and age carried by trace metadata.
+2. **Local candidate** — a file found at an allowed shape below an approved root.
+3. **Verified readiness** — the candidate was opened, matched the complete
+   identity, copied into the private verified store, and pinned.
+4. **Observed frame resolution** — a stack query actually attempted and resolved
+   code-frame names.
 
-Each entry is one of:
+`prepare_symbols` can establish state 3. It intentionally reports state 4 as
+unmeasured. The current build has no context-bound TraceEvent adapter for state
+4, so resolution remains a declared gap. Null/unmeasured is not 0%.
 
-| Form | Meaning |
-|---|---|
-| `SRV*<cache-dir>*<server-url>` | Symbol server with local cache. Cache dir is created on demand. |
-| `SRV*<cache-dir>*\\server\share` | UNC-backed "server" — team-shared symbol drop. |
-| `<bare-folder>` | Local folder. `diagnose_symbols` probes only `<bare-folder>\<pdbName>`; it does not treat a plain path as a symbol-store root. |
-| `cache*<dir>` | Cache-only entry (no fetch). Rare; usually you want `SRV*`. |
+## Configure the startup policy
 
-**Order matters** — entries are tried left-to-right; first signature match wins. Put faster / preferred sources first:
+Configure one or more absolute local candidate roots and a disjoint private
+verified store:
 
-- Local dev build folders go **first** when iterating on a build (so your fresh PDB beats the public one).
-- `SRV*` entries self-cache after first hit, so order between multiple servers matters less than freshness.
-
-## Common setups
-
-### Microsoft system symbols (always recommended)
-
-```
-SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols
+```powershell
+wpa-mcp.exe --symbol-local-root "C:\Symbols" `
+  --symbol-store-root "$env:LOCALAPPDATA\WpaMcp\symbol-store"
 ```
 
-Resolves `ntoskrnl`, `ntdll`, `kernelbase`, `fltmgr`, `wdfilter`, and the rest of the Windows public surface.
+Repeat `--symbol-local-root` to approve more roots. Equivalent environment
+variables are:
 
-### + Chromium-family browsers (Chrome, Edge, Brave, …)
-
-```
-SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols;SRV*C:\Symbols*https://chromium-browser-symsrv.commondatastorage.googleapis.com
-```
-
-Public Chromium PDBs cover official builds of any browser using the Chromium symbol server.
-
-### + Private vendor symbol server
-
-```
-…above…;SRV*C:\Symbols*https://your-internal-symsrv.example.com/symbols
+```text
+WPAMCP_SYMBOL_LOCAL_ROOTS=C:\Symbols;D:\BuildSymbols
+WPAMCP_SYMBOL_STORE_ROOT=C:\Users\me\AppData\Local\WpaMcp\symbol-store
 ```
 
-UNC variant for team shared drives:
+If any candidate root is configured, the store root is required. Roots and the
+store must be absolute, local, and mutually disjoint; UNC, device,
+alternate-stream, and reparse traversal are denied. The PowerShell installer
+defaults to:
 
-```
-…above…;SRV*C:\Symbols*\\fileserver\symbols
-```
-
-### + Local dev build PDBs
-
-```
-C:\src\myapp\out\Default;…above…
+```text
+candidate root: %LocalAppData%\WpaMcp\symbol-candidates
+verified store: %LocalAppData%\WpaMcp\symbol-store
 ```
 
-For its no-download readiness check, `diagnose_symbols` probes a bare-folder entry only for a direct `<folder>\<pdbName>` file. It probes `<root>\<pdbName>\<GUIDAge>\<pdbName>` only when the root came from `SRV`, `SYMSRV`, or `CACHE`. Place the bare build-output folder ahead of public servers to prefer your local rebuild during real stack lookup.
+## Place candidates
 
-## Build prerequisites for your own DLLs
+For each trace identity, preparation probes only these shapes:
 
-A symbol server with the right URL doesn't help if the build never produced a usable PDB, or if the PDB's signature doesn't match the deployed DLL.
-
-**.NET / C#**
-
-```xml
-<PropertyGroup>
-  <DebugType>portable</DebugType>
-  <DebugSymbols>true</DebugSymbols>
-</PropertyGroup>
+```text
+<root>\<pdbName>
+<root>\<pdbName>\<GUIDAge>\<pdbName>
 ```
 
-Portable PDB is the default for new SDK-style projects. For legacy projects targeting full framework, `<DebugType>full</DebugType>` produces a Windows PDB that TraceEvent reads natively. Keep PDB output enabled in Release configurations — many template `.csproj` files disable it.
+Acquire Microsoft, Chromium, vendor, or private PDBs outside wpa-mcp, then copy
+them under an approved root. The server itself performs no remote fetch. A
+recognizable filename or symbol-store location is not readiness: the PDB must
+be opened and its name/GUID/age must exactly match the trace identity.
 
-**C++ (MSVC)**
+For locally built binaries:
 
-- Compiler: `/Zi` (or `/Z7`)
-- Linker: `/DEBUG:FULL`
-- Keep the PDB next to the DLL on the build output path
+- .NET/C#: enable portable or Windows PDB output and keep the PDB from the exact
+  deployed build.
+- MSVC C++: use `/Zi` and `/DEBUG:FULL`, including Release builds.
+- Re-linking changes the identity; an older same-name PDB does not match.
 
-Both are needed in Release builds too — Release configurations strip PDBs by default in many project templates.
+## Run the lifecycle
 
-**Signature match is non-negotiable**
+Ask the client to perform the following sequence:
 
-PDB and DLL must share the same signature (GUID + age). Re-linking the same source file produces a different signature; the old PDB will not resolve the new DLL. Whenever you redeploy a binary, redeploy its PDB.
-
-## Persisting the path
-
-| Lifetime | How |
-|---|---|
-| Current MCP-server process, set at runtime | `set_symbol_path` / `add_symbol_server`; the change remains until changed again or the server exits |
-| Current MCP-server process, initialized at startup | `--symbol-path "..."` in the MCP client's `args` list (see manual install in README) |
-| Per user, system-wide | `[Environment]::SetEnvironmentVariable("_NT_SYMBOL_PATH", "...", "User")` |
-| Install-time, baked into client config | `install.ps1 -SymbolPath "..."` writes `--symbol-path` into every detected MCP client's args |
-
-For team shared setups, a JSON/TOML `args` entry is usually the right answer: checked in alongside the rest of the config, no per-machine state.
-
-## Setting at runtime
-
-```
-> set_symbol_path SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols false
-> add_symbol_server https://chromium-browser-symsrv.commondatastorage.googleapis.com
-> diagnose_symbols C:\my\trace.etl
+```text
+1. load_trace(path) -> TraceId
+2. prepare_symbols(TraceId) -> SymbolContextId
+3. inspect verified readiness without calling it frame resolution
 ```
 
-`set_symbol_path`'s second argument is `append` (default `true`). Pass `false` to **replace** the entire path — useful when you want to start clean. `add_symbol_server` always appends and is idempotent.
+The SymbolContextId is immutable and bound to the principal, trace generation,
+policy, resolver, privacy/contract profile, module identities, and verified
+artifacts. A query must supply it explicitly. There is no ambient fallback to
+the process environment, trace directory, arbitrary disk, or a remote server.
+In the current build, `resolveSymbols=true` fails closed with
+`symbol_resolution_unavailable` and detail
+`context_bound_frame_resolution_unavailable`; it never invokes the legacy
+ambient resolver.
 
-When `add_symbol_server` is called without `cacheDir`, `DefaultCacheDir` is the fallback it would use. The legacy `diagnose_symbols.CacheDir` field is only a compatibility alias of that value; inspect `ConfiguredSymbolPath` rather than assuming the fallback is the active cache.
+## Interpret the result
 
-## Verifying it worked
+- `ModulesWithPdbIdentity` is trace metadata coverage, not symbol resolution.
+- `ModulesWithVerifiedSymbolArtifact` / readiness describes exact local artifact
+  verification, not function-name lookup.
+- Preparation leaves frame counts/rate unmeasured by design.
+- `symbols.frame_resolution.measured` remains a declared gap until a
+  context-bound lookup implementation and real-trace evidence are admitted.
+- An external/offline frame-resolution measurement is not evidence that this
+  MCP runtime performed context-bound lookup.
+- Candidate failure or absence must remain not-ready/unknown; it cannot be
+  converted into a 0% measured frame-resolution claim.
 
-```
-> load_trace C:\my\trace.etl
-> diagnose_symbols C:\my\trace.etl
-> cpu_top_functions C:\my\trace.etl
-```
+## Historical interface warning
 
-Keep four layers separate:
+`set_symbol_path`, `add_symbol_server`, and `diagnose_symbols` belong to the old
+0.2-era interface and are not in the current 60-tool Active Catalog.
+`--symbol-path` is rejected in the secure profile. Do not instruct a current
+client to configure `_NT_SYMBOL_PATH` or fetch a remote symbol server through
+wpa-mcp.
 
-1. `HasCompletePdbIdentity` means the trace has a PDB name + GUID + age lookup key. It does not prove that a PDB exists locally or remotely.
-2. `LocalSymbolCandidates` shows at most 10 files with the expected name. `LocalSymbolCandidateCount` and `LocalSymbolCandidatesTruncated` disclose the complete discovery set. Every candidate is validated before display truncation, and an exact match is moved to the front of the displayed list.
-3. `diagnose_symbols` directly opens each discovered candidate path and reports `exact_identity_match`, `identity_mismatch`, `invalid_local_pdb_candidate`, or `candidate_identity_unverified`. Container-probe rejection and explicit portable-PDB data errors can establish invalid data; ambiguous Windows DIA failures remain `candidate_identity_unverified` rather than claiming candidate corruption. `LocalPdbReady` is true only after the PDB's actual GUID/age matches and the format-appropriate reader succeeds.
-4. The relevant stack tool reports `SymbolResolutionState` plus `Stats.ObservedUniqueCodeFrameNameResolutionRate` and `Stats.ObservedMetricWeightedCodeFrameNameResolutionRate`. These are measured only across real code frames reached by that query; synthetic `?!?` frames are excluded. A null rate means no eligible code frames were measured, not 0% resolution.
-
-If identity metadata is incomplete, recapture or merge the ETL on the collection machine before choosing a server: without PDB name + GUID + age there is no executable symbol-server query. Otherwise use the module hint to improve PDB availability, then rerun the stack query. Interpret the observed rate with domain stack coverage and synthetic-frame counts; there is no universal threshold that makes every trace actionable.
-
-## Changing paths mid-session
-
-Each stack query snapshots the currently configured path and adds the ETL directory to that query's `SymbolReader` without writing it back to `_NT_SYMBOL_PATH`. After `set_symbol_path` / `add_symbol_server`, rerun the relevant stack tool so lookup uses the new snapshot. Previously resolved names can remain cached in the resident `TraceLog`; the response's lookup state and observed frame rates describe the current query rather than claiming a pristine resolver session.
-
-## Filesystem side effects and MCP metadata
-
-Symbol configuration and logical event analysis are separate from filesystem side effects:
-
-- The first query for a raw `.etl` can call `TraceLog.OpenOrConvert`, creating or refreshing an adjacent `.etlx`.
-- A stack query with `resolveSymbols=true` can contact configured servers and write/download PDBs into their caches.
-- Consequently, every tool uses `ReadOnly=false` MCP metadata in 0.3.0 because a call can change server or filesystem state, even though analyzers do not edit the ETL's logical event content. Caller-supplied trace/cache paths may be UNC, mapped, or reparse-point targets, so raw-path tools conservatively use `OpenWorld=true` even when they do not run remote symbol lookup; `set_symbol_path` is the sole `OpenWorld=false` tool.
-- `Destructive=true` conservatively covers adjacent-ETLX replacement/refresh, cache retirement, and replacement of the process-wide symbol path. Incremental `add_symbol_server` is the sole `Destructive=false` tool. All tools are marked idempotent except `set_symbol_path`.
-- `diagnose_symbols` opens only the exact candidate paths it discovered, using an empty symbol search path. It does not actively access remote SRV/UNC entries or download PDBs. A configured local-looking filesystem root can nevertheless be redirected by the OS through a mapped drive or reparse point; the tool deliberately performs no expensive network-topology detection. This identity/readiness check remains distinct from an executed stack lookup and does not measure frame-name resolution.
-
-## Cache management
-
-- Default cache: `%LocalAppData%\WpaMcp\Symbols`. Override per-server in the `SRV*` entry.
-- Separate from PerfView's `C:\Symbols` to avoid PDB-lock contention if both tools run side by side.
-- The cache grows monotonically. After heavy use it can reach several GB.
-- Safe to delete the entire directory at any time; the next stack-resolving tool call re-fetches whatever it actually needs.
-
-## Common gotchas
-
-| Symptom | Likely cause |
-|---|---|
-| An executed stack lookup has low observed code-frame resolution across your DLLs | The configured path may be missing, unreachable, or lack matching PDB signatures. Check `LookupState`, `LookupFailure`, and module readiness before attributing the cause. |
-| MS modules resolve, your DLL does not | Your build skipped PDB output, or PDB and deployed DLL are from different builds. |
-| Results differ after `set_symbol_path` | Rerun the stack query and compare its query-local lookup state/rates; already resolved frame names may remain cached in the loaded trace. |
-| Internal symsrv timeouts | VPN required; `_NT_SYMBOL_PROXY` env var if you need an HTTP proxy for the symbol fetch. |
-| Two MCP servers fighting over PDB locks | Point each at a different cache directory. |
-| `diagnose_symbols` says "PDB not indexed" for a Windows system DLL (e.g. `crypt32`, `bcrypt`, `setupapi`) | Symbols themselves still resolve normally if `msdl.microsoft.com` is on `_NT_SYMBOL_PATH` — only the per-module hint text is missing. The hint comes from an explicit allowlist (kernel + GDI + COM + .NET runtime + Defender + graphics + network + DWM); modules not on the list fall through to the generic message. |
+See [`ARCHITECTURE.md`](ARCHITECTURE.md),
+[`CONTRACT_MIGRATION.md`](CONTRACT_MIGRATION.md), and
+[`CLIENT_COMPATIBILITY.md`](CLIENT_COMPATIBILITY.md) for lifecycle and evidence
+contract details.

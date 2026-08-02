@@ -62,6 +62,7 @@ internal sealed class ProcessInstanceResolver
 
         foreach (var group in lifetimes.GroupBy(lifetime => lifetime.Key))
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var entries = group.ToArray();
             var observedEnds = entries
                 .Where(lifetime => lifetime.EndObserved)
@@ -120,6 +121,7 @@ internal sealed class ProcessInstanceResolver
         var hasConflictingObservedEnd = false;
         foreach (var lifetime in lifetimes)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if ((!processStartUs.HasValue ||
                  lifetime.Key.StartUs == processStartUs.Value) &&
                 lifetime.Contains(timestampUs))
@@ -145,6 +147,7 @@ internal sealed class ProcessInstanceResolver
         var candidateIndex = 0;
         foreach (var lifetime in lifetimes)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if ((!processStartUs.HasValue ||
                  lifetime.Key.StartUs == processStartUs.Value) &&
                 lifetime.Contains(timestampUs))

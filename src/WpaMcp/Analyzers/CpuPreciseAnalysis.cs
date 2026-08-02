@@ -35,7 +35,8 @@ public static class CpuPreciseAnalysis
             identities.TraceEndUs,
             threadEndUs: identities.Threads.EndUsFor,
             threadStartUs: identities.Threads.StartUsFor,
-            processScope: processScope);
+            processScope: processScope,
+            identities: identities);
         long unresolvedIdentityCount = 0;
 
         KernelEventWalker.Walk(trace, kernel =>
@@ -231,6 +232,7 @@ internal sealed class CpuPreciseAccumulator
     private readonly bool _seedFirstObservedRunningInterval;
     private readonly ProcessAnalysisScope? _processScope;
     private readonly Func<ThreadInstanceKey, long?>? _threadStartUs;
+    private readonly TraceIdentityIndex? _identities;
     private readonly SchedulerIntervalAccumulator _scheduler;
     private readonly Dictionary<ThreadInstanceKey, ThreadStats> _threads = new();
     private readonly Dictionary<ThreadInstanceKey, long> _pendingReadyUs = new();
@@ -259,17 +261,27 @@ internal sealed class CpuPreciseAccumulator
         _top = top;
         var effectiveTraceEndUs = traceEndUs ?? endUs ?? long.MaxValue;
         var window = new TimeWindow(startUs ?? 0, endUs ?? effectiveTraceEndUs);
+        var syntheticProcess = pid.HasValue
+            ? new ProcessLifetime(
+                new ProcessInstanceKey(pid.Value, StartUs: 0),
+                effectiveTraceEndUs,
+                StartObserved: false,
+                EndObserved: false)
+            : null;
         _scope = new ThreadAnalysisScope(
             window,
             pid,
             Process: null,
             Thread: null,
             AggregatesPidLifetimes: pid.HasValue,
-            PidReuseObserved: false);
+            PidReuseObserved: false,
+            IncludedProcesses: syntheticProcess is null ? null : [syntheticProcess.Key],
+            IncludedProcessLifetimes: syntheticProcess is null ? null : [syntheticProcess]);
         _traceEndUs = effectiveTraceEndUs;
         _seedFirstObservedRunningInterval = true;
         _processScope = null;
         _threadStartUs = null;
+        _identities = null;
         _scheduler = new SchedulerIntervalAccumulator();
     }
 
@@ -279,7 +291,8 @@ internal sealed class CpuPreciseAccumulator
         long traceEndUs,
         Func<ThreadInstanceKey, long?>? threadEndUs = null,
         Func<ThreadInstanceKey, long?>? threadStartUs = null,
-        ProcessAnalysisScope? processScope = null)
+        ProcessAnalysisScope? processScope = null,
+        TraceIdentityIndex? identities = null)
     {
         if (traceEndUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(traceEndUs));
@@ -290,6 +303,7 @@ internal sealed class CpuPreciseAccumulator
         _seedFirstObservedRunningInterval = false;
         _processScope = processScope;
         _threadStartUs = threadStartUs;
+        _identities = identities;
         _scheduler = new SchedulerIntervalAccumulator(threadEndUs);
     }
 
@@ -424,6 +438,7 @@ internal sealed class CpuPreciseAccumulator
                          .Select(item => item.Key)
                          .ToArray())
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 _knownRunningByCore.Remove(duplicate);
             }
             _knownRunningByCore[core] = data.NewThread.Value;
@@ -447,6 +462,7 @@ internal sealed class CpuPreciseAccumulator
                      .Select(item => item.Key)
                      .ToArray())
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             _knownRunningByCore.Remove(core);
         }
     }
@@ -466,7 +482,11 @@ internal sealed class CpuPreciseAccumulator
 
         _traceIdentityUnresolvedCSwitchSideCount = checked(
             _traceIdentityUnresolvedCSwitchSideCount + 1);
-        if (_scope.MatchesPoint(pid, tid, timestampUs))
+        var matchesScope = _identities is null
+            ? _scope.MatchesPoint(pid, tid, timestampUs)
+            : _scope.MatchesRawUnresolvedCandidate(
+                _identities, pid, tid, timestampUs);
+        if (matchesScope)
         {
             _scopedIdentityUnresolvedCSwitchSideCount = checked(
                 _scopedIdentityUnresolvedCSwitchSideCount + 1);
@@ -478,7 +498,7 @@ internal sealed class CpuPreciseAccumulator
         EnsureMutable();
         _built = true;
         var completion = _scheduler.Complete(_traceEndUs);
-        foreach (var interval in completion.ClosedAtTraceEnd)
+        foreach (var interval in AnalysisEvents.Enumerate(completion.ClosedAtTraceEnd))
             AccountRunning(interval);
         _knownRunningByCore.Clear();
 
@@ -626,7 +646,7 @@ internal sealed class CpuPreciseAccumulator
     {
         var topCores = stats.CoreCpuUs
             .OrderByDescending(item => item.Value)
-            .Take(8)
+            .ThenBy(item => item.Key)
             .Select(item => new CpuCoreBucket(
                 Core: item.Key,
                 CpuUs: item.Value,
@@ -670,7 +690,7 @@ internal sealed class CpuPreciseAccumulator
                  allRows.All(row => row.CpuUs == 0 && row.ContextSwitches == 0))
         {
             warnings.Add(_scopedIdentityUnresolvedCSwitchSideCount > 0
-                ? "source_events_unattributed: CSwitch sides with matching raw PID/TID/time were observed, but thread-instance identity was unresolved or ambiguous; no scoped attribution was guessed."
+                ? "source_events_unattributed: CSwitch sides matched the lifetime-aware raw PID/TID selector and half-open query window, but thread-instance identity was unresolved or ambiguous; no scoped attribution was guessed."
                 : "no_events_in_scope: CSwitch events were present in the trace, but none matched the requested pid/thread/window scope.");
         }
 

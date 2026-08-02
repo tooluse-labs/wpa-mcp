@@ -63,7 +63,7 @@ internal static class StartupProcessCatalog
             traceDurationUs,
             nameSubstring,
             maxCollectionItems);
-        foreach (var metadata in processes)
+        foreach (var metadata in AnalysisEvents.Enumerate(processes))
             builder.Add(metadata);
         return builder.Build();
     }
@@ -80,7 +80,7 @@ internal static class StartupProcessCatalog
 
         IEnumerable<StartupTraceProcessMetadata> ReadTraceMetadata()
         {
-            foreach (var process in trace.Processes)
+            foreach (var process in AnalysisEvents.Enumerate(trace.Processes))
             {
                 var key = new ProcessInstanceKey(
                     process.ProcessID,
@@ -93,12 +93,13 @@ internal static class StartupProcessCatalog
                     process.ParentID,
                     process.Name ?? string.Empty,
                     TraceTime.FromMilliseconds(process.CPUMSec),
-                    () => capturedProcess.LoadedModules.Count());
+                    () => AnalysisEvents.Enumerate(capturedProcess.LoadedModules).Count());
             }
         }
 
         bool HasTraceMetadata(ProcessInstanceKey key)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var process = trace.Processes.GetProcess(
                 key.Pid,
                 TraceMetadataLookupMilliseconds(key));
@@ -140,7 +141,7 @@ internal static class StartupProcessCatalog
             nameSubstring,
             maxCollectionItems);
 
-        foreach (var traceProcess in traceProcesses)
+        foreach (var traceProcess in AnalysisEvents.Enumerate(traceProcesses))
         {
             var exactLifetimes = processes.FindExact(traceProcess.Key);
             if (processes.ConflictingObservedEndKeys.Contains(traceProcess.Key) ||
@@ -171,7 +172,7 @@ internal static class StartupProcessCatalog
         }
 
         ProcessInstanceKey? previousKey = null;
-        foreach (var lifetime in processes.Lifetimes)
+        foreach (var lifetime in AnalysisEvents.Enumerate(processes.Lifetimes))
         {
             if (previousKey.HasValue && previousKey.Value == lifetime.Key)
                 continue;

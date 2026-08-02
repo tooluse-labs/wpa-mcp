@@ -1,8 +1,12 @@
 using System.ComponentModel;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
+using WpaMcp.Core.Catalog;
 using WpaMcp.Output;
 
 namespace WpaMcp.Tools;
@@ -12,110 +16,405 @@ public sealed class MetaTools
 {
     private const long MinCpuUsForWaitRatioSort = 5_000;
     private const double MinCpuShareForWaitRatioSort = 0.00001;
+    private const int InspectCapabilityPageSize = 16;
+    private const int InspectWorkflowPageSize = 8;
 
     private readonly TraceCache _cache;
-    public MetaTools(TraceCache cache) => _cache = cache;
+    private readonly TraceToolRuntime? _traceRuntime;
+    private readonly ActiveToolCatalog? _catalog;
+    private readonly QueryResultCursorCoordinator _queryResults;
+    private static readonly Lazy<ActiveToolCatalog> DirectCatalog = new(
+        static () => ActiveToolCatalog.LoadAndValidate(),
+        LazyThreadSafetyMode.ExecutionAndPublication);
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
-        "Loads (or returns cached) a Windows ETW .etl trace. First load can take 30s-3min; subsequent calls are instant. " +
-        "Materializing an ETL may create or refresh its ETLX sidecar, so this tool is not filesystem-read-only. " +
+    public MetaTools(TraceCache cache)
+    {
+        _cache = cache;
+        _queryResults = DirectQueryResults();
+    }
+
+    public MetaTools(TraceCache cache, TraceToolRuntime traceRuntime)
+    {
+        _cache = cache;
+        _traceRuntime = traceRuntime;
+        _queryResults = DirectQueryResults();
+    }
+
+    public MetaTools(
+        TraceCache cache,
+        CapabilityDiscoveryRuntime capabilityDiscovery)
+    {
+        _cache = cache;
+        _catalog = capabilityDiscovery.Catalog;
+        _queryResults = capabilityDiscovery.QueryResults;
+    }
+
+    public MetaTools(
+        TraceCache cache,
+        TraceToolRuntime traceRuntime,
+        CapabilityDiscoveryRuntime capabilityDiscovery)
+    {
+        _cache = cache;
+        _traceRuntime = traceRuntime;
+        _catalog = capabilityDiscovery.Catalog;
+        _queryResults = capabilityDiscovery.QueryResults;
+    }
+
+    private static QueryResultCursorCoordinator DirectQueryResults() =>
+        new($"direct_{Guid.NewGuid():N}", "off");
+
+    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+        "Loads an allowed local Windows ETW .etl/.etlx source into the server-owned immutable artifact store and returns a canonical principal-scoped TraceId. " +
+        "This is the only raw trace-source entry point. It rejects UNC/device/ADS/reparse paths before artifact writes, snapshots an opened handle, and converts only inside the owned store. " +
+        "Repeated loads of the same unchanged generation return the same TraceId. Set forceRefresh=true after a deliberate in-place rewrite that preserved file identity, length, and timestamps. " +
         "Response includes symbol-server recommendations based on the modules referenced by the trace. " +
         "No startUs/endUs: this is whole-trace cache/orientation, not event-window analysis.")]
     public LoadTraceResponse LoadTrace(
-        [Description("Absolute path to .etl file")] string path)
+        [Description("Absolute local .etl/.etlx path under a configured trace root. Raw paths are accepted only by load_trace.")] string path,
+        [Description("Force a new secure source snapshot instead of trusting the cached file-identity/length/timestamp observation. Default false.")] bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
     {
+        if (_traceRuntime is not null)
+        {
+            var loaded = _traceRuntime.Load(path, forceRefresh, cancellationToken);
+            try
+            {
+                using var registryLease = _traceRuntime.Acquire(
+                    loaded.Handle.TraceId,
+                    cancellationToken);
+                var productionFacts = registryLease.GetFacts(cancellationToken);
+                return new LoadTraceResponse(
+                    BuildTraceMeta(loaded.Handle.TraceId, productionFacts),
+                    BuildSymbolStatus(productionFacts.PdbIdentities),
+                    productionFacts.Capabilities,
+                    TraceId: loaded.Handle.TraceId,
+                    TraceRefKind: "canonical",
+                    ReusedExisting: loaded.Handle.ReusedExisting,
+                    Persistence: "persistent",
+                    SourceGenerationAssurance: loaded.SourceValidation switch
+                    {
+                        TraceSourceValidationEvidence.OpenedHandleSnapshotContentHash =>
+                            "opened_handle_snapshot_content_hash_verified",
+                        TraceSourceValidationEvidence.CachedFileIdentityLengthAndTimestamps =>
+                            "cached_file_identity_length_timestamps",
+                        _ => "unavailable",
+                    },
+                    ForceRefreshApplied: loaded.ForceRefreshApplied,
+                    ArtifactRetention: "independent_retention_policy",
+                    Warnings: []);
+            }
+            catch
+            {
+                // A newly published handle must not survive a load call that never
+                // produced its generation facts response. A reused handle belongs
+                // to an earlier successful call and must remain valid.
+                if (!loaded.Handle.ReusedExisting)
+                    _traceRuntime.Unload(loaded.Handle.TraceId);
+                throw;
+            }
+        }
+
+        // Direct analyzer tests retain the old constructor as a non-production seam.
         using var traceLease = _cache.Acquire(path);
-        var trace = traceLease.Trace;
-        var capabilities = traceLease.Capabilities;
-        return new LoadTraceResponse(BuildTraceMeta(path, trace), BuildSymbolStatus(trace), capabilities);
+        var directFacts = traceLease.GetFacts(cancellationToken);
+        return new LoadTraceResponse(
+            BuildTraceMeta(path, directFacts),
+            BuildSymbolStatus(directFacts.PdbIdentities),
+            directFacts.Capabilities);
     }
 
     [McpServerTool(
         ReadOnly = false,
         Idempotent = true,
-        OpenWorld = true,
+        OpenWorld = false,
         Destructive = true,
         UseStructuredContent = true), Description(
-        "Retires the cached trace for a path without interrupting queries that already hold a lease. " +
-        "For a raw .etl path, registers an adjacent-.etlx refresh request for the next successful load in this running server process; " +
-        "the request does not survive restart and the sidecar is not changed until that load. " +
-        "Use after replacing or rewriting an ETL in place, especially when size and timestamps were preserved. " +
-        "No startUs/endUs: cache retirement applies to the entire canonical trace path. Repeated calls are safe.")]
+        "Retires one canonical TraceId for this stdio session, rejects new acquisitions, and optionally waits for active query leases to drain. " +
+        "Repeated calls are idempotent and return already_unloaded. This operation never accepts a raw path and does not delete the immutable ETLX artifact; artifact retention is governed independently. " +
+        "No startUs/endUs: lifecycle retirement applies to the complete loaded generation.")]
     public UnloadTraceResponse UnloadTrace(
-        [Description("Absolute or relative path to the cached .etl or .etlx trace")] string path)
+        [Description("Canonical TraceId returned by load_trace (trc_ plus 32 lowercase hexadecimal digits)")] string traceId,
+        [Description("Wait up to 30 seconds for active analysis leases to drain; false returns pending immediately.")] bool waitForDrain = true,
+        CancellationToken cancellationToken = default)
     {
-        Validation.RequireText(path);
-        var canonical = Path.GetFullPath(path);
-        var retired = _cache.Unload(canonical);
-        var refreshRequested = string.Equals(
-            Path.GetExtension(canonical), ".etl", StringComparison.OrdinalIgnoreCase);
-        var warnings = new List<string>
+        if (_traceRuntime is null)
         {
-            "Active queries keep their existing trace lease until they complete.",
+            throw new InvalidOperationException(
+                "unload_trace requires the production TraceId lifecycle runtime.");
+        }
+
+        var result = _traceRuntime.Unload(traceId);
+        var drainStatus = result.DrainTask.IsCompleted
+            ? "drained"
+            : "pending";
+        if (waitForDrain && !result.DrainTask.IsCompleted)
+        {
+            try
+            {
+                result.DrainTask.WaitAsync(
+                        TimeSpan.FromSeconds(30),
+                        cancellationToken)
+                    .GetAwaiter().GetResult();
+                drainStatus = "drained";
+            }
+            catch (TimeoutException)
+            {
+                drainStatus = "timed_out";
+            }
+        }
+
+        var lifecycleStatus = result.Status switch
+        {
+            TraceHandleUnloadStatus.Unloaded => "unloaded",
+            TraceHandleUnloadStatus.AlreadyUnloaded => "already_unloaded",
+            TraceHandleUnloadStatus.Expired => "expired",
+            _ => "unknown",
         };
-        if (refreshRequested)
-        {
-            warnings.Add(
-                "The ETLX refresh request exists only in this running server process. " +
-                "A restart clears it, and regeneration is not proven until a later load succeeds.");
-        }
-        else
-        {
-            warnings.Add(
-                "No raw-ETL sidecar refresh was requested because the supplied path is not a .etl path.");
-        }
         return new UnloadTraceResponse(
-            canonical,
-            retired,
-            refreshRequested,
-            warnings,
-            RefreshRequestedForCurrentServerProcess: refreshRequested);
+            traceId,
+            lifecycleStatus,
+            drainStatus,
+            result.ActiveLeases,
+            Idempotent: true,
+            ArtifactDisposition: "retained_by_independent_policy",
+            Warnings:
+            [
+                "Active queries keep their generation lease until completion.",
+                "Trace handle retirement does not prove artifact deletion.",
+            ]);
     }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true,
+        OpenWorld = false,
+        Destructive = false,
         UseStructuredContent = true), Description(
         "Inspects a trace once and returns machine-readable orientation: capture capabilities, " +
-        "system metadata, provider counts, stackwalk completeness, PDB identity/configuration quality, quality " +
+        "system metadata, provider counts, stackwalk completeness, trace-native PDB identity quality, quality " +
         "warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, " +
         "the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. " +
+        "PlannerExecution reports this call's approved trace-facts operation, snapshot reuse mode, physical-pass participation, scan-count basis, phase durations, and budget termination; it never presents generation-history timing as current-call work. " +
         "Stack recommendations require attached stacks in that exact event domain; unrelated global " +
         "stacks never enable them. The AnalysisContract object supplies machine-readable rules for scope, " +
         "counts, empty results, symbols, thread replay, and causal restraint. " +
-        "inspect_trace does not probe local PDB candidates or run frame lookup; use diagnose_symbols " +
-        "for verified local readiness and a stack tool for observed frame-name resolution. " +
+        "inspect_trace does not read _NT_SYMBOL_PATH, probe local PDB candidates, or run frame lookup; use prepare_symbols " +
+        "for startup-policy-approved immutable local readiness. " +
         "Recommendations are capability-driven hints, not goal-specific rankings. " +
-        "The first call may materialize or refresh an ETLX sidecar, so this tool is not filesystem-read-only. " +
+        "The default ID-only profile reads an already loaded immutable generation and never converts a caller path. " +
+        "When raw-path compatibility is explicitly enabled, the server advertises conservative profile-specific annotations instead. " +
+        "domain/goal filters and qrc_ cursor pages are bound to the principal, immutable trace generation, catalog, privacy profile, normalized query, and stable capability-then-workflow ordering. " +
+        "Only the first page carries the large orientation blocks; every continuation retains the trace evidence boundaries and declares evidence_continuation explicitly. " +
         "No startUs/endUs: capabilities, metadata, provider counts, and PDB identity/configuration describe the whole trace.")]
     public InspectTraceResponse InspectTrace(
-        [Description("Absolute path to .etl file")] string path)
+        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Optional lowercase capability domain filter. Cursor continuations must repeat the same normalized filter.")] string? domain = null,
+        [Description("Optional lowercase catalog goal filter. Cursor continuations must repeat the same normalized filter.")] string? goal = null,
+        [Description("Opaque qrc_ continuation returned by a prior inspect_trace page. It is bound to the principal and immutable trace generation.")] string? cursor = null,
+        CancellationToken cancellationToken = default)
     {
         using var traceLease = _cache.Acquire(path);
-        var trace = traceLease.Trace;
-        var capabilities = traceLease.Capabilities;
-        var metadata = traceLease.Metadata;
-        var symbolQuality = BuildInspectSymbolQuality(trace);
-        var warnings = BuildTraceQualityWarnings(trace.EventsLost, capabilities, symbolQuality);
-        var orientationTools = BuildOrientationTools(symbolQuality);
-        var capabilitySupportedTools = BuildCapabilitySupportedTools(capabilities);
-        var enabledCapabilities = BuildEnabledCapabilities(capabilities);
-        var recommendedFlows = BuildRecommendedDiagnosticFlows(capabilities);
+        var catalog = _catalog ?? DirectCatalog.Value;
+        var normalizedDomain = QueryResultCursorCoordinator.NormalizeFilter(domain, nameof(domain));
+        var normalizedGoal = QueryResultCursorCoordinator.NormalizeFilter(goal, nameof(goal));
+        var traceGenerationId = BuildTraceGenerationId(traceLease.GenerationIdentity);
+        var publicTraceId = TraceQueryExecutionContext.CurrentReference?.TraceId ?? path;
+        var pagePosition = _queryResults.ResolveInspectTrace(
+            publicTraceId,
+            traceGenerationId,
+            catalog.CatalogVersion,
+            normalizedDomain,
+            normalizedGoal,
+            cursor);
+        var orientationIncluded = cursor is null;
+        var planned = new QueryPlanner(catalog).ExecuteTraceFacts(
+            traceLease,
+            "inspect_trace",
+            facts =>
+            {
+                var capabilities = facts.Capabilities;
+                var metadata = facts.Metadata;
+                var symbolQuality = BuildInspectSymbolQuality(facts.PdbIdentities);
+                var warnings = BuildTraceQualityWarnings(
+                    facts.CaptureIntegrity.ReportedEventsLost,
+                    capabilities,
+                    symbolQuality);
+                var evidenceMap = TraceEvidenceMapBuilder.Build(catalog, facts, symbolQuality);
+                var filteredCapabilityIds = catalog.Capabilities
+                    .Where(capability =>
+                        (normalizedDomain is null || string.Equals(
+                            capability.Domain,
+                            normalizedDomain,
+                            StringComparison.Ordinal)) &&
+                        (normalizedGoal is null || capability.GoalIds.Contains(
+                            normalizedGoal,
+                            StringComparer.Ordinal)))
+                    .Select(capability => capability.CapabilityId)
+                    .ToHashSet(StringComparer.Ordinal);
+                var filteredCapabilities = evidenceMap.Capabilities
+                    .Where(capability => filteredCapabilityIds.Contains(capability.CapabilityId))
+                    .ToArray();
+                var filteredWorkflowIds = catalog.Workflows
+                    .Where(workflow => workflow.CapabilityIds.Any(filteredCapabilityIds.Contains))
+                    .Select(workflow => workflow.WorkflowId)
+                    .ToHashSet(StringComparer.Ordinal);
+                var filteredWorkflows = evidenceMap.Workflows
+                    .Where(workflow => filteredWorkflowIds.Contains(workflow.WorkflowId))
+                    .ToArray();
+                var filteredMap = evidenceMap with
+                {
+                    Filter = new TraceEvidenceMapFilter(normalizedDomain, normalizedGoal),
+                    CatalogCapabilityCount = catalog.Capabilities.Count,
+                    TotalCapabilities = filteredCapabilities.Length,
+                    ReturnedCapabilities = filteredCapabilities.Length,
+                    CatalogWorkflowCount = catalog.Workflows.Count,
+                    TotalWorkflows = filteredWorkflows.Length,
+                    ReturnedWorkflows = filteredWorkflows.Length,
+                    Capabilities = filteredCapabilities,
+                    Workflows = filteredWorkflows,
+                };
+                var (pageCapabilities, pageWorkflows, hasMore) = SelectInspectPage(
+                    pagePosition,
+                    filteredCapabilities,
+                    filteredWorkflows);
+                var pageMap = filteredMap with
+                {
+                    ReturnedCapabilities = pageCapabilities.Length,
+                    ReturnedWorkflows = pageWorkflows.Length,
+                    Capabilities = pageCapabilities,
+                    Workflows = pageWorkflows,
+                };
+                var orientationTools = BuildCatalogOrientationProjection(catalog);
+                var capabilitySupportedTools = BuildCatalogToolProjection(catalog, filteredMap);
+                var enabledCapabilities = filteredCapabilities
+                    .Where(capability => capability.TraceStatus is
+                        ToolCapabilityStatus.Available or ToolCapabilityStatus.Partial)
+                    .Select(capability => capability.CapabilityId)
+                    .ToArray();
+                var recommendedFlows = filteredWorkflows
+                    .Select(workflow => workflow.WorkflowId)
+                    .ToArray();
 
-        return new InspectTraceResponse(
-            BuildTraceMeta(path, trace),
-            capabilities,
-            metadata,
-            symbolQuality,
-            warnings,
-            orientationTools,
-            capabilitySupportedTools,
-            enabledCapabilities,
-            recommendedFlows,
-            BuildAnalysisContractGuidance());
+                return new InspectTraceResponse(
+                    BuildTraceMeta(path, facts),
+                    capabilities,
+                    orientationIncluded ? metadata : null,
+                    orientationIncluded ? symbolQuality : null,
+                    orientationIncluded ? warnings : [],
+                    orientationIncluded ? orientationTools : [],
+                    orientationIncluded ? capabilitySupportedTools : [],
+                    orientationIncluded ? enabledCapabilities : [],
+                    orientationIncluded ? recommendedFlows : [],
+                    new InspectTracePageContext(
+                        pagePosition.Phase,
+                        pagePosition.Index,
+                        orientationIncluded ? "full_orientation" : "evidence_continuation",
+                        orientationIncluded,
+                        traceGenerationId,
+                        QueryResultCursorCoordinator.InspectOrdering,
+                        normalizedDomain,
+                        normalizedGoal),
+                    hasMore,
+                    hasMore ? QueryResultCursorRegistry.PendingDeliveryToken : null,
+                    orientationIncluded ? BuildAnalysisContractGuidance() : null,
+                    pageMap,
+                    LegacyProjectionState: "deprecated_id_only_derived_projection");
+            },
+            cancellationToken);
+        return planned.Value with { PlannerExecution = planned.Telemetry };
     }
+
+    private static (
+        TraceCapabilityEvidenceRecord[] Capabilities,
+        TraceWorkflowEvidenceRecord[] Workflows,
+        bool HasMore) SelectInspectPage(
+        QueryResultCursorPosition position,
+        IReadOnlyList<TraceCapabilityEvidenceRecord> capabilities,
+        IReadOnlyList<TraceWorkflowEvidenceRecord> workflows)
+    {
+        if (position.Phase == "capabilities")
+        {
+            if (position.Index < 0 || position.Index >= capabilities.Count && capabilities.Count > 0)
+                throw InvalidInspectCursorPosition();
+            if (capabilities.Count == 0)
+            {
+                if (position.Index != 0 || workflows.Count != 0)
+                    throw InvalidInspectCursorPosition();
+                return ([], [], false);
+            }
+            var page = capabilities.Skip(position.Index)
+                .Take(InspectCapabilityPageSize)
+                .ToArray();
+            return (
+                page,
+                [],
+                position.Index + page.Length < capabilities.Count || workflows.Count > 0);
+        }
+
+        if (position.Phase == "workflows")
+        {
+            if (position.Index < 0 || position.Index >= workflows.Count)
+                throw InvalidInspectCursorPosition();
+            var page = workflows.Skip(position.Index)
+                .Take(InspectWorkflowPageSize)
+                .ToArray();
+            return (
+                [],
+                page,
+                position.Index + page.Length < workflows.Count);
+        }
+
+        throw InvalidInspectCursorPosition();
+    }
+
+    private static QueryResultCursorException InvalidInspectCursorPosition() =>
+        new(
+            QueryResultCursorFailureKind.Invalid,
+            "The inspect_trace cursor position is outside its bound result set.");
+
+    private static string BuildTraceGenerationId(
+        TraceCache.GenerationIdentity generation)
+    {
+        var stamp = generation.Stamp;
+        var material = string.Join(
+            "\n",
+            generation.Sequence.ToString(CultureInfo.InvariantCulture),
+            stamp.CanonicalPath,
+            stamp.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture),
+            stamp.CreationTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture),
+            stamp.Length.ToString(CultureInfo.InvariantCulture),
+            stamp.VolumeSerialNumber?.ToString(CultureInfo.InvariantCulture) ?? "-",
+            stamp.FileId?.ToString(CultureInfo.InvariantCulture) ?? "-");
+        return "tgen_" + Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(material)))[..32].ToLowerInvariant();
+    }
+
+    private static IReadOnlyList<string> BuildCatalogOrientationProjection(
+        ActiveToolCatalog catalog) => catalog.Tools
+        .Where(tool => tool.DiscoveryPriority == 0 ||
+            tool.SideEffects.Contains("symbol_context_preparation", StringComparer.Ordinal))
+        .Select(tool => tool.ToolName)
+        .ToArray();
+
+    private static IReadOnlyList<string> BuildCatalogToolProjection(
+        ActiveToolCatalog catalog,
+        TraceEvidenceMapRecord map)
+    {
+        var enabled = map.Capabilities.Where(capability => capability.TraceStatus is
+                ToolCapabilityStatus.Available or ToolCapabilityStatus.Partial)
+            .Select(capability => capability.CapabilityId)
+            .ToHashSet(StringComparer.Ordinal);
+        return catalog.Tools.Where(tool => tool.DiscoveryPriority != 0 &&
+                !tool.SideEffects.Contains("symbol_context_preparation", StringComparer.Ordinal) &&
+                tool.Capabilities.Any(capability => enabled.Contains(capability.CapabilityId)))
+            .Select(tool => tool.ToolName)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildCatalogWorkflowProjection(
+        TraceEvidenceMapRecord map) => map.Workflows
+        .Select(workflow => workflow.WorkflowId)
+        .ToArray();
 
     private static AnalysisContractGuidance BuildAnalysisContractGuidance() =>
         new(
@@ -123,8 +422,8 @@ public sealed class MetaTools
                 "Only ScopeStatus=ok authorizes attribution. single_process is exact; " +
                 "pid_aggregate intentionally combines IncludedProcesses while retaining their instance keys; " +
                 "rows and totals may aggregate across them according to each tool's accounting contract. " +
-                "Exact-only tools return structured process_start_required for a clean multi-lifetime PID; " +
-                "ambiguous_process_instance is reserved for unsafe lifetime evidence.",
+                "Exact-only tools return failed error.code=process_start_required for a clean multi-lifetime PID; " +
+                "error.code=ambiguous_process_instance is reserved for unsafe lifetime evidence.",
             TraceScopedRule:
                 "Trace* is whole-trace diagnostic evidence; Scoped* uses the selected identity and " +
                 "requested [startUs,endUs) window. Never use Trace* as a scoped denominator.",
@@ -139,47 +438,68 @@ public sealed class MetaTools
                 "and ?!? is synthetic unknown evidence rather than a captured call chain.",
             SymbolRule:
                 "PDB identity and verified local readiness are not function-name resolution. " +
-                "Only stack-tool SymbolStats after lookup measure observed frame resolution.",
+                "Only an explicit same-generation SymbolContextId may authorize future frame lookup; this build reports lookup unavailable rather than falling back implicitly.",
             ThreadReplayRule:
                 "Replay exact CPU/Wait thread rows with pid + processStartUs + tid + threadStartUs + " +
                 "threadGeneration; generation disambiguates equal inferred start times.",
             CausalityRule:
                 "Associated/readier stacks and heuristic security matches support hypotheses but do " +
                 "not independently prove an unblocker, scanner identity, root cause, or causality.",
+            ScopeFailureErrors: new ScopeFailureErrorGuidance(),
             NoDataReasons: new NoDataReasonGuidance());
 
-    private static TraceMeta BuildTraceMeta(string path, TraceLog trace)
+    private static TraceMeta BuildTraceMeta(
+        string path,
+        TraceFactsSnapshot facts)
     {
-        var processes = trace.Processes;
+        var publicReference = TraceQueryExecutionContext.CurrentReference?.TraceId ?? path;
         return new TraceMeta(
-            Path: path,
-            DurationUs: (long)trace.SessionDuration.TotalMicroseconds,
-            EventCount: trace.EventCount,
-            EventsLost: trace.EventsLost,
-            ProcessCount: processes.Count);
+            Path: publicReference,
+            DurationUs: facts.DurationUs,
+            EventCount: facts.LogicalEventCount,
+            EventsLost: facts.CaptureIntegrity.ReportedEventsLost,
+            ProcessCount: facts.Processes.Count,
+            EventCountRepresentation: facts.Provenance.EventCountRepresentation);
     }
 
-    private static SymbolStatus BuildSymbolStatus(TraceLog trace)
+    private static SymbolStatus BuildSymbolStatus(
+        IReadOnlyList<TracePdbIdentityFact> modules)
     {
-        var ntPath = SymbolPathState.CurrentPath;
-        var cacheDir = DefaultSymbolCacheDir();
-        var warning = string.IsNullOrEmpty(ntPath)
-            ? "_NT_SYMBOL_PATH is not set. Stack queries still probe the trace directory through a query-local path, but no configured local stores or symbol servers are available. " +
-              "Call set_symbol_path or add_symbol_server, or configure the environment in MCP config."
-            : null;
-
-        return new SymbolStatus(ntPath, cacheDir, warning, BuildSymbolRecommendations(trace));
+        var modulesWithPdbName = modules.Count(module =>
+            !string.IsNullOrWhiteSpace(Path.GetFileName(module.PdbName)));
+        var modulesWithCompletePdbIdentity = modules.Count(module =>
+            !string.IsNullOrWhiteSpace(Path.GetFileName(module.PdbName)) &&
+            module.PdbSignature != Guid.Empty &&
+            module.PdbAge > 0);
+        return new SymbolStatus(
+            modules.Count,
+            modulesWithPdbName,
+            modulesWithCompletePdbIdentity,
+            modules.Count == 0
+                ? null
+                : modulesWithCompletePdbIdentity / (double)modules.Count,
+            LocalReadinessMeasurementState: "unmeasured",
+            FrameResolutionMeasurementState: "unmeasured",
+            NextStep: "prepare_symbols",
+            EvidenceBoundaries:
+            [
+                "pdb_identity_is_trace_metadata_not_symbol_resolution",
+                "local_readiness_unmeasured_without_symbol_context",
+                "frame_resolution_unmeasured",
+            ]);
     }
 
-    private static InspectSymbolQuality BuildInspectSymbolQuality(TraceLog trace)
+    private static InspectSymbolQuality BuildInspectSymbolQuality(
+        IReadOnlyList<TracePdbIdentityFact> modules)
     {
-        var modules = trace.ModuleFiles.ToList();
         var modulesMissingPdbName = modules
             .Where(module => string.IsNullOrWhiteSpace(module.PdbName))
-            .OrderBy(module => module.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(module => module.ModuleName, StringComparer.OrdinalIgnoreCase)
             .Select(module =>
             {
-                var name = module.Name ?? "<unknown>";
+                var name = string.IsNullOrWhiteSpace(module.ModuleName)
+                    ? "<unknown>"
+                    : module.ModuleName;
                 return new InspectModuleMissingPdbName(
                     name,
                     "Recapture or merge the ETL on the collection machine so the PDB name, GUID, and Age identity is recorded before choosing a symbol server.");
@@ -201,13 +521,10 @@ public sealed class MetaTools
             : modulesWithCompletePdbIdentity / (double)modules.Count;
 
         return new InspectSymbolQuality(
-            NtSymbolPath: SymbolPathState.CurrentPath,
-            CacheDir: DefaultSymbolCacheDir(),
             ModuleCount: modules.Count,
             ResolvedModuleCount: null,
             ModuleResolutionRate: null,
             TopUnresolvedModules: Array.Empty<InspectUnresolvedModule>(),
-            Recommendations: BuildSymbolRecommendations(trace),
             ModulesWithPdbName: modulesWithPdbName,
             ModulesWithPdbNameRate: pdbNameRate,
             ModulesWithCompletePdbIdentity: modulesWithCompletePdbIdentity,
@@ -237,24 +554,13 @@ public sealed class MetaTools
                 DegradedTools: Array.Empty<string>()));
         }
 
-        if (string.IsNullOrEmpty(symbolQuality.NtSymbolPath))
-        {
-            warnings.Add(new TraceQualityWarning(
-                Code: "symbol_path_unset",
-                Severity: "warn",
-                Message: "_NT_SYMBOL_PATH is not set, so OS and product module frames may remain unresolved.",
-                NextStep: "Run diagnose_symbols, then add_symbol_server or set_symbol_path with the recommended symbol servers.",
-                AffectedTools: StackDependentToolNames,
-                DegradedTools: Array.Empty<string>()));
-        }
-
         if (symbolQuality.CompletePdbIdentityRate is < 0.8)
         {
             warnings.Add(new TraceQualityWarning(
                 Code: "low_module_pdb_identity_coverage",
                 Severity: "warn",
                 Message: $"{symbolQuality.CompletePdbIdentityRate.Value * 100:F1}% of loaded modules carry a complete PDB name + GUID + Age identity; this is metadata coverage, not measured frame resolution.",
-                NextStep: "Recapture or merge the ETL on the collection machine to preserve complete PDB identities, then run diagnose_symbols and the target stack tool with resolveSymbols=true.",
+                NextStep: "Recapture or merge the ETL on the collection machine to preserve complete PDB identities; then call prepare_symbols to measure approved immutable local readiness.",
                 AffectedTools: StackDependentToolNames,
                 DegradedTools: Array.Empty<string>()));
         }
@@ -341,8 +647,8 @@ public sealed class MetaTools
             HasAnyClrCapability(capabilities),
             "missing_clr_runtime",
             "info",
-            "CLR runtime events were not observed.",
-            "Recapture with Microsoft-Windows-DotNETRuntime enabled if .NET JIT, GC, allocation, exception, or contention analysis matters. Use tests/WpaMcp.Tests/fixtures/JitOnlyCapture.wprp for minimal JIT-only traces.",
+            "No supported CLR JIT, GC, allocation, exception, contention, or finalizer source events were recognized; this does not prove that the CLR provider emitted no other events.",
+            "If these CLR analyses matter, verify the requested Microsoft-Windows-DotNETRuntime event families and keywords as well as parser support before recapturing. Use tests/WpaMcp.Tests/fixtures/JitOnlyCapture.wprp for minimal JIT-only traces.",
             ClrToolNames);
 
         AddMissingCapabilityWarning(
@@ -356,7 +662,7 @@ public sealed class MetaTools
 
         AddMissingCapabilityWarning(
             warnings,
-            capabilities.HasNetConnections,
+            HasNetworkConnectionLifecycle(capabilities),
             "missing_network_connections",
             "info",
             "Network connection lifecycle events were not observed.",
@@ -370,6 +676,15 @@ public sealed class MetaTools
             "info",
             "Process memory resource snapshots were not observed.",
             "Recapture with MemoryInfoWS enabled, for example tests/WpaMcp.Tests/fixtures/MemoryCapture.wprp.",
+            MemoryResourceToolNames);
+
+        AddMissingCapabilityWarning(
+            warnings,
+            capabilities.HasMemorySystemInfo,
+            "missing_memory_system_info",
+            "info",
+            "System-wide memory resource snapshots were not observed.",
+            "Recapture with system memory counters enabled when available/free/commit pressure matters.",
             MemoryResourceToolNames);
 
         AddMissingCapabilityWarning(
@@ -423,13 +738,11 @@ public sealed class MetaTools
                 ["orientation"]),
         };
 
-        if (string.IsNullOrEmpty(symbolQuality.NtSymbolPath) ||
-            symbolQuality.CompletePdbIdentityRate is < 0.8 ||
-            symbolQuality.Recommendations.Count > 0)
+        if (symbolQuality.ModulesWithCompletePdbIdentity > 0)
         {
             recommendations.Add((
-                "diagnose_symbols",
-                "Symbol-path configuration or module PDB identity/local readiness needs validation; actual frame-name resolution must still be measured by a stack tool.",
+                "prepare_symbols",
+                "The trace contains complete PDB identities. Prepare an explicit immutable context to measure startup-policy-approved local readiness; this does not itself measure frame-name resolution.",
                 ["symbols", "quality"]));
         }
 
@@ -440,6 +753,14 @@ public sealed class MetaTools
     {
         var recommendations = new List<(string ToolName, string Reason, string[] Goals)>();
 
+        if (capabilities.ObservedProcessStartEventCount > 0)
+        {
+            recommendations.Add((
+                "process_create_timing",
+                "Observed ProcessStart events are present; inspect child-start timing for one exact parent process lifetime. ImageLoad evidence is optional and may be absent.",
+                ["startup", "process_creation"]));
+        }
+
         AddStackRecommendation(
             capabilities.HasCpuSamples,
             "cpu",
@@ -449,7 +770,9 @@ public sealed class MetaTools
 
         if (capabilities.HasCSwitch)
         {
-            recommendations.Add(("cpu_precise_analysis", "Context switch events are present; compute exact on-CPU time, ready latency, and core attribution.", ["cpu", "scheduler"]));
+            recommendations.Add(("cpu_precise_analysis", capabilities.HasReadyThread
+                ? "Context switch and ReadyThread events are present; compute exact on-CPU time, ready latency, and core attribution."
+                : "Context switch events are present; compute exact on-CPU time and core attribution. Ready latency remains unavailable without ReadyThread events.", ["cpu", "scheduler"]));
             recommendations.Add(("wait_analysis", "Context switch events are present; identify blocked threads and dominant wait reasons.", ["wait"]));
         }
 
@@ -506,11 +829,19 @@ public sealed class MetaTools
             "Hard-fault events with attached stacks are present; attribute page-in bytes to associated call chains.",
             ["memory", "hard_faults", "stacks"]);
 
-        if (capabilities.HasClrGc)
-            recommendations.Add(("clr_gc_analysis", "CLR GC events are present; inspect GC duration and stop-the-world pause time.", ["gc", "dotnet"]));
+        if (capabilities.ClrGcIntervalEndpointEventCount > 0)
+            recommendations.Add(("clr_gc_analysis", "CLR GC/pause interval endpoints are present; inspect paired durations and unmatched endpoint evidence.", ["gc", "dotnet"]));
 
-        if (capabilities.HasClrJit)
-            recommendations.Add(("clr_jit_analysis", "CLR JIT events are present; rank methods by JIT compilation duration.", ["jit", "dotnet"]));
+        if (capabilities.ClrGcHeapStatsEventCount > 0)
+            recommendations.Add(("clr_gc_heap_stats", "GCHeapStats snapshots are present; inspect observed heap-size points without inferring a continuous trend.", ["gc", "memory", "dotnet"]));
+
+        if (capabilities.ClrFinalizerSourceEventCount > 0)
+            recommendations.Add(("clr_finalizer_analysis", "CLR finalizer object or batch-endpoint events are present; keep object counts, endpoint counts, and completed batch pairs distinct.", ["gc", "finalizers", "dotnet"]));
+
+        if (capabilities.ClrJitIntervalEndpointEventCount > 0)
+            recommendations.Add(("clr_jit_analysis", capabilities.ClrJitCompletedIntervalCount > 0
+                ? "Completed CLR JIT interval evidence is present; rank paired methods by compilation duration while honoring unmatched/boundary counts."
+                : "CLR JIT source endpoints are present without a completed interval; inspect unmatched/boundary evidence without inferring compilation duration.", ["jit", "dotnet"]));
 
         AddStackRecommendation(capabilities.HasClrAlloc, "clr_alloc", "clr_alloc_top_stacks",
             "CLR allocation ticks with attached stacks are present; rank managed allocation sources.", ["memory", "dotnet", "stacks"]);
@@ -521,10 +852,15 @@ public sealed class MetaTools
         AddStackRecommendation(capabilities.HasNetIo, "net_io", "net_top_stacks",
             "Network byte events with attached stacks are present; attribute TCP/UDP bytes to call stacks.", ["network", "stacks"]);
 
-        if (capabilities.HasNetConnections)
-            recommendations.Add(("net_connections", "Network connection lifecycle events are present; inspect TCP connect/accept/disconnect timing.", ["network", "connections"]));
+        if (HasNetworkConnectionLifecycle(capabilities))
+            recommendations.Add(("net_connections",
+                capabilities.NetworkConnectionCompletedLifecycleCount > 0
+                    ? "Completed network lifecycles are present; inspect observed TCP timing while honoring unmatched and bounded lifecycle counts."
+                    : "Network lifecycle source endpoints are present without a completed lifecycle; inspect endpoint and boundary evidence without inferring connection duration.",
+                ["network", "connections"]));
 
-        if (capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents || capabilities.HasPoolEvents)
+        if (capabilities.HasMemoryProcessInfo || capabilities.HasMemorySystemInfo ||
+            capabilities.HasHandleEvents || capabilities.HasPoolEvents)
             recommendations.Add(("memory_resource_analysis", BuildMemoryResourceRecommendationReason(capabilities), ["memory"]));
 
         AddStackRecommendation(capabilities.HasAlpc, "alpc", "alpc_top_stacks",
@@ -593,19 +929,23 @@ public sealed class MetaTools
         AddCapability(enabled, capabilities.HasAttachedEventStacks, "attached_event_stacks");
         AddCapability(enabled, capabilities.HasVirtualAlloc, "virtual_alloc");
         AddCapability(enabled, capabilities.HasNetIo, "network_io");
-        AddCapability(enabled, capabilities.HasNetConnections, "network_connections");
+        AddCapability(enabled, HasNetworkConnectionLifecycle(capabilities), "network_connections");
         AddCapability(enabled, capabilities.HasRegistry, "registry");
         AddCapability(enabled, capabilities.HasReadyThread, "ready_thread");
         AddCapability(enabled, capabilities.HasInterrupt, "interrupts");
         AddCapability(enabled, capabilities.HasAlpc, "alpc");
-        AddCapability(enabled, capabilities.HasThreadEvents, "thread_events");
-        AddCapability(enabled, capabilities.HasClrGc, "clr_gc");
-        AddCapability(enabled, capabilities.HasClrJit, "clr_jit");
+        AddCapability(enabled, capabilities.ThreadLifecycleSourceEventCount > 0, "thread_lifetime_source_events");
+        AddCapability(enabled, capabilities.ObservedProcessStartEventCount > 0, "observed_process_starts");
+        AddCapability(enabled, capabilities.ClrGcIntervalEndpointEventCount > 0, "clr_gc_intervals");
+        AddCapability(enabled, capabilities.ClrGcHeapStatsEventCount > 0, "clr_gc_heap_stats");
+        AddCapability(enabled, capabilities.ClrFinalizerSourceEventCount > 0, "clr_finalizer_activity");
+        AddCapability(enabled, capabilities.ClrJitIntervalEndpointEventCount > 0, "clr_jit_interval_source_events");
         AddCapability(enabled, capabilities.HasClrAlloc, "clr_alloc");
         AddCapability(enabled, capabilities.HasClrException, "clr_exception");
         AddCapability(enabled, capabilities.HasClrContention, "clr_contention");
         AddCapability(enabled, capabilities.HasNtHeap, "nt_heap");
         AddCapability(enabled, capabilities.HasMemoryProcessInfo, "memory_process_info");
+        AddCapability(enabled, capabilities.HasMemorySystemInfo, "memory_system_info");
         AddCapability(enabled, capabilities.HasHandleEvents, "handle_events");
         AddCapability(enabled, capabilities.HasPoolEvents, "pool_events");
         AddCapability(enabled, capabilities.HasCSwitchStacks, "cswitch_stacks");
@@ -618,7 +958,8 @@ public sealed class MetaTools
     {
         var flows = new List<DiagnosticFlowRecommendation>();
 
-        if (capabilities.HasImageLoad || capabilities.HasCSwitch || capabilities.HasCpuSamples)
+        if (capabilities.ObservedProcessStartEventCount > 0 ||
+            capabilities.HasImageLoad || capabilities.HasCSwitch || capabilities.HasCpuSamples)
         {
             flows.Add(Flow(
                 "slow_startup",
@@ -626,6 +967,7 @@ public sealed class MetaTools
                 ["list_processes", "diagnose_slow_startup"],
                 ["startup", "process_creation"],
                 [
+                    (capabilities.ObservedProcessStartEventCount > 0, "observed_process_starts"),
                     (capabilities.HasImageLoad, "image_load"),
                     (capabilities.HasCSwitch, "context_switches"),
                     (capabilities.HasCpuSamples, "cpu_samples"),
@@ -639,7 +981,9 @@ public sealed class MetaTools
                     (!capabilities.HasCpuSamples, "No CPU samples were observed; startup CPU attribution will be absent."))));
         }
 
-        if (capabilities.HasHardFaults || capabilities.HasFileIo || capabilities.HasCSwitch || capabilities.HasMemoryProcessInfo || capabilities.HasHandleEvents || capabilities.HasPoolEvents)
+        if (capabilities.HasHardFaults || capabilities.HasFileIo || capabilities.HasCSwitch ||
+            capabilities.HasMemoryProcessInfo || capabilities.HasMemorySystemInfo ||
+            capabilities.HasHandleEvents || capabilities.HasPoolEvents)
         {
             flows.Add(Flow(
                 "window_triage",
@@ -651,6 +995,7 @@ public sealed class MetaTools
                     (capabilities.HasFileIo, "file_io"),
                     (capabilities.HasCSwitch, "context_switches"),
                     (capabilities.HasMemoryProcessInfo, "memory_process_info"),
+                    (capabilities.HasMemorySystemInfo, "memory_system_info"),
                     (capabilities.HasHandleEvents, "handle_events"),
                     (capabilities.HasPoolEvents, "pool_events"),
                 ],
@@ -753,7 +1098,8 @@ public sealed class MetaTools
                     (capabilities.HasDiskIo && !hasDiskIoStacks, $"disk_io_top_stacks omitted because disk_io stack coverage is {diskIoStackCoverage?.CoverageState ?? "unknown"}."))));
         }
 
-        if (capabilities.HasMemoryProcessInfo || capabilities.HasHardFaults)
+        if (capabilities.HasMemoryProcessInfo || capabilities.HasMemorySystemInfo ||
+            capabilities.HasHardFaults)
         {
             flows.Add(Flow(
                 "memory_pressure",
@@ -762,6 +1108,7 @@ public sealed class MetaTools
                 ["memory", "hard_faults"],
                 [
                     (capabilities.HasMemoryProcessInfo, "memory_process_info"),
+                    (capabilities.HasMemorySystemInfo, "memory_system_info"),
                     (capabilities.HasHardFaults, "hard_faults"),
                 ],
                 BuildFlowCaveats(
@@ -780,11 +1127,13 @@ public sealed class MetaTools
                 BuildClrRuntimeToolSequence(capabilities),
                 BuildClrRuntimeGoals(capabilities),
                 [
-                    (capabilities.HasClrGc, "clr_gc"),
+                    (capabilities.ClrGcIntervalEndpointEventCount > 0, "clr_gc_intervals"),
+                    (capabilities.ClrGcHeapStatsEventCount > 0, "clr_gc_heap_stats"),
+                    (capabilities.ClrFinalizerSourceEventCount > 0, "clr_finalizer_activity"),
                     (capabilities.HasClrAlloc, "clr_alloc"),
                     (capabilities.HasClrException, "clr_exception"),
                     (capabilities.HasClrContention, "clr_contention"),
-                    (capabilities.HasClrJit, "clr_jit"),
+                    (capabilities.ClrJitIntervalEndpointEventCount > 0, "clr_jit_interval_source_events"),
                     (hasClrAllocStacks, "clr_alloc_stacks"),
                     (hasClrExceptionStacks, "clr_exception_stacks"),
                     (hasClrContentionStacks, "clr_contention_stacks"),
@@ -796,11 +1145,11 @@ public sealed class MetaTools
                     (capabilities.HasClrContention, "clr_contention", "clr_contention_top_stacks"))));
         }
 
-        if (capabilities.HasNetIo || capabilities.HasNetConnections)
+        if (capabilities.HasNetIo || HasNetworkConnectionLifecycle(capabilities))
         {
             var hasNetIoStacks = HasDomainStacks(capabilities, "net_io");
             var networkTools = new List<string>();
-            if (capabilities.HasNetConnections)
+            if (HasNetworkConnectionLifecycle(capabilities))
                 networkTools.Add("net_connections");
             if (hasNetIoStacks)
                 networkTools.Add("net_top_stacks");
@@ -810,12 +1159,12 @@ public sealed class MetaTools
                 networkTools,
                 ["network"],
                 [
-                    (capabilities.HasNetConnections, "network_connections"),
+                    (HasNetworkConnectionLifecycle(capabilities), "network_connections"),
                     (capabilities.HasNetIo, "network_io"),
                     (hasNetIoStacks, "network_io_stacks"),
                 ],
                 BuildFlowCaveats(
-                    (!capabilities.HasNetConnections, "net_connections omitted because connection lifecycle events were not observed."),
+                    (!HasNetworkConnectionLifecycle(capabilities), "net_connections omitted because connection lifecycle events were not observed."),
                     (!capabilities.HasNetIo, "net_top_stacks omitted because network byte events were not observed."))
                     .Concat(BuildDomainStackCaveats(
                         capabilities,
@@ -857,12 +1206,13 @@ public sealed class MetaTools
     private static IReadOnlyList<string> BuildClrRuntimeToolSequence(TraceCapabilities capabilities)
     {
         var tools = new List<string>();
-        if (capabilities.HasClrGc)
-        {
+        if (capabilities.ClrGcIntervalEndpointEventCount > 0)
             tools.Add("clr_gc_analysis");
+        if (capabilities.ClrGcHeapStatsEventCount > 0)
             tools.Add("clr_gc_heap_stats");
-        }
-        if (capabilities.HasClrJit)
+        if (capabilities.ClrFinalizerSourceEventCount > 0)
+            tools.Add("clr_finalizer_analysis");
+        if (capabilities.ClrJitIntervalEndpointEventCount > 0)
             tools.Add("clr_jit_analysis");
         if (capabilities.HasClrAlloc && HasDomainStacks(capabilities, "clr_alloc"))
             tools.Add("clr_alloc_top_stacks");
@@ -876,9 +1226,12 @@ public sealed class MetaTools
     private static IReadOnlyList<string> BuildClrRuntimeGoals(TraceCapabilities capabilities)
     {
         var goals = new List<string> { "dotnet" };
-        if (capabilities.HasClrGc)
+        if (capabilities.ClrGcIntervalEndpointEventCount > 0 ||
+            capabilities.ClrGcHeapStatsEventCount > 0)
             goals.Add("gc");
-        if (capabilities.HasClrJit)
+        if (capabilities.ClrFinalizerSourceEventCount > 0)
+            goals.Add("finalizers");
+        if (capabilities.ClrJitIntervalEndpointEventCount > 0)
             goals.Add("jit");
         if (capabilities.HasClrAlloc)
             goals.Add("allocations");
@@ -899,11 +1252,16 @@ public sealed class MetaTools
             .ToList();
 
     private static bool HasAnyClrCapability(TraceCapabilities capabilities) =>
-        capabilities.HasClrGc ||
-        capabilities.HasClrJit ||
+        capabilities.ClrGcIntervalEndpointEventCount > 0 ||
+        capabilities.ClrGcHeapStatsEventCount > 0 ||
+        capabilities.ClrFinalizerSourceEventCount > 0 ||
+        capabilities.ClrJitIntervalEndpointEventCount > 0 ||
         capabilities.HasClrAlloc ||
         capabilities.HasClrException ||
         capabilities.HasClrContention;
+
+    private static bool HasNetworkConnectionLifecycle(TraceCapabilities capabilities) =>
+        capabilities.NetworkConnectionLifecycleEndpointEventCount > 0;
 
     private static DomainStackCoverage? GetDomainStackCoverage(
         TraceCapabilities capabilities,
@@ -952,18 +1310,15 @@ public sealed class MetaTools
         var signals = new List<string>();
         if (capabilities.HasMemoryProcessInfo)
             signals.Add("working set and commit/private-byte snapshots");
+        if (capabilities.HasMemorySystemInfo)
+            signals.Add("system-wide available/free/commit snapshots");
         if (capabilities.HasHandleEvents)
             signals.Add("handle create/close deltas");
         if (capabilities.HasPoolEvents)
             signals.Add("observed pool allocation/free deltas");
 
-        return $"Memory resource events are present; inspect {string.Join(", ", signals)} by process.";
+        return $"Memory resource events are present; inspect {string.Join(", ", signals)}.";
     }
-
-    private static string DefaultSymbolCacheDir() =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WpaMcp", "Symbols");
 
     private static readonly string[] CpuSampleToolNames =
     [
@@ -1097,124 +1452,140 @@ public sealed class MetaTools
         "generic_event_caller_callee",
     ];
 
-    private static IReadOnlyList<SymbolRecommendation> BuildSymbolRecommendations(
-        TraceLog trace)
-    {
-        // Catalog entries that recommend a server (skip the no-public-PDB tier — it has no
-        // URL to recommend, only diagnose_symbols consumes it).
-        var serverEntries = SymbolHintCatalog.Entries
-            .Where(e => e.ServerUrl != null && e.LoadTraceReason != null)
-            .ToList();
-
-        var hits = serverEntries
-            .Select(e => (Entry: e, Modules: new SortedSet<string>(StringComparer.OrdinalIgnoreCase)))
-            .ToList();
-
-        foreach (var module in trace.ModuleFiles)
-        {
-            // A symbol server lookup requires the PDB name + GUID + Age key. Modules that
-            // lack it need recapture/merge guidance, not a server recommendation that cannot
-            // be executed. Identity metadata is still not proof that functions resolved.
-            if (!SymbolTools.HasCompletePdbIdentity(
-                    module.PdbName,
-                    module.PdbSignature,
-                    module.PdbAge))
-                continue;
-
-            var name = module.Name ?? string.Empty;
-            for (var i = 0; i < hits.Count; i++)
-            {
-                if (hits[i].Entry.Matches(name))
-                {
-                    hits[i].Modules.Add(name);
-                    break;
-                }
-            }
-        }
-
-        return hits
-            .Where(h => h.Modules.Count > 0)
-            .Select(h => new SymbolRecommendation(
-                Reason: h.Entry.LoadTraceReason!,
-                ServerUrl: h.Entry.ServerUrl!,
-                MatchedModuleCount: h.Modules.Count,
-                SampleModules: h.Modules.Take(5).ToList()))
-            .ToList();
-    }
-
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
-        "Lists processes in the loaded trace. Default order is CPU time descending. " +
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+        "Lists process lifetimes in the loaded trace using exact cursor pagination. Default order is CPU time descending. " +
         "WaitRatio = WallUs/CpuUs ranks 'high wall, low CPU' process-lifetime candidates; " +
         "the ratio alone does not identify what they waited on. " +
         "PID 0 (Idle) and PID 4 (System) hidden by default — pass includeSystem=true to surface them. " +
         "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
         "trace end) and processes with near-zero sampled CPU are pushed to the bottom because " +
-        "their ratio is denominator-sensitive noise. " +
+        "their ratio is denominator-sensitive noise. Rows use a stable total order and top is the page-size limit; " +
+        "follow nextCursor with path/orderBy/top/includeSystem unchanged until hasMore=false to enumerate every lifetime. " +
         "No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.")]
     public ProcessListResponse ListProcesses(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Sort order: 'cpu' (default), 'wall', or 'wait_ratio'")] string orderBy = "cpu",
-        [Description("Top N rows (default 50, max 1000)")] int top = 50,
-        [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false)
+        [Description("Maximum rows in this page (default 50, max 1000). Repeat unchanged with cursor.")] int top = 50,
+        [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false,
+        [Description("Opaque qrc_ continuation from the preceding page; bound to this session, immutable trace generation, ordering, top, includeSystem, contract, and privacy profile.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
     {
         Validation.RequireTop(top);
         Validation.RequireText(orderBy);
+        orderBy = orderBy.ToLowerInvariant();
         using var traceLease = _cache.Acquire(path);
-        var trace = traceLease.Trace;
-        var rows = ProcessProjection.Rows(trace, includeSystem).ToList();
+        var facts = traceLease.GetFacts(cancellationToken);
+        var rows = facts.Processes
+            .Where(row => includeSystem || (row.Pid != 0 && row.Pid != 4))
+            .ToList();
         var totalCount = rows.Count;
         var hidden = includeSystem
             ? 0
-            : trace.Processes.Count(p => p.ProcessID == 0 || p.ProcessID == 4);
+            : facts.Processes.Count(row => row.Pid == 0 || row.Pid == 4);
 
-        rows = orderBy.ToLowerInvariant() switch
+        rows = orderBy switch
         {
-            "cpu" => rows.OrderByDescending(r => r.CpuUs).ToList(),
-            "wall" => rows.OrderByDescending(r => r.WallUs).ToList(),
+            "cpu" => rows
+                .OrderByDescending(r => r.CpuUs)
+                .ThenBy(r => r.Pid)
+                .ThenBy(r => r.StartUs)
+                .ToList(),
+            "wall" => rows
+                .OrderByDescending(r => r.WallUs)
+                .ThenBy(r => r.Pid)
+                .ThenBy(r => r.StartUs)
+                .ToList(),
             "wait_ratio" => rows
                 .OrderByDescending(WaitRatioSortKey)
                 .ThenByDescending(r => r.WallUs)
+                .ThenBy(r => r.Pid)
+                .ThenBy(r => r.StartUs)
                 .ToList(),
             _ => throw new ArgumentException(
                 $"orderBy must be 'cpu', 'wall', or 'wait_ratio'; got '{orderBy}'", nameof(orderBy)),
         };
 
-        rows = rows.Take(top).ToList();
-        return new ProcessListResponse(rows, hidden, totalCount);
+        var query = TimelinePagination.CanonicalQuery(
+            TimelinePagination.ListProcessesTool,
+            ("orderBy", orderBy),
+            ("top", TimelinePagination.Number(top)),
+            ("includeSystem", includeSystem ? "true" : "false"));
+        var context = TimelinePagination.CreateContext(
+            traceLease,
+            path,
+            TimelinePagination.ListProcessesTool,
+            query,
+            TimelinePagination.ListProcessesOrdering(orderBy));
+        var position = _queryResults.ResolveTimeline(context, cursor);
+        var page = TimelinePagination.Slice(
+            rows,
+            position,
+            top,
+            TimelinePagination.ProcessKey);
+        return new ProcessListResponse(
+            page.Rows,
+            hidden,
+            totalCount,
+            context.PageContext(
+                page.StartIndex,
+                top,
+                page.TotalCount,
+                page.Rows.Count),
+            ReturnedCount: page.Rows.Count,
+            HasMore: page.HasMore,
+            NextCursor: page.HasMore
+                ? QueryResultCursorRegistry.PendingDeliveryToken
+                : null);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-fork timing for a parent process — given a PID, returns every child the kernel " +
         "reported as having that parent, with FirstImageLoadOffsetUs (the kernel-side window " +
         "between ProcessStart and the first DLL load; this interval can include process-create " +
         "callbacks, security inspection, suspension, and other mechanisms, but does not identify " +
         "which mechanism caused the gap) and GapFromPreviousSpawnUs (lets you spot fork " +
         "bursts vs steady-state). Median/p95/max aggregates across kernel gaps surface " +
-        "worst-case in a single number. No startUs/endUs: scope is the parent's child-process lifecycle, " +
-        "with rows ordered by child spawn time. Clean parent-PID reuse returns structured " +
+        "worst-case in a single number. No startUs/endUs: scope is the parent's child-process lifecycle. " +
+        "Children use exact cursor pagination ordered by StartTimeUs, Pid, then SourceOrdinal; " +
+        "SpawnCount remains the exact full-result total. Follow nextCursor until hasMore=false. " +
+        "Clean parent-PID reuse returns structured " +
         "ScopeStatus/NoDataReason=process_start_required with replayable candidates; conflicting lifetime " +
         "evidence returns ambiguous_process_instance. A missing exact parent lifetime returns scope_not_found.")]
     public ProcessCreateTimingResponse ProcessCreateTiming(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
         int parentPid,
-        [Description("Top N children by spawn order (default 50, max 1000). Children are " +
-                     "sorted chronologically; 'top' caps response size on prolific spawners.")]
-        int top = 50,
+        [Description("Maximum children to return in this page (default 50, max 1000). This does not change SpawnCount.")]
+        int pageSize = 50,
         [Description("Exact parent process start in trace-relative microseconds. Required when the parent PID has multiple lifetimes.")]
-        long? processStartUs = null)
+        long? processStartUs = null,
+        [Description("Opaque qrc_ continuation returned by the previous page. It is bound to the principal/session, trace generation, tool contract, symbol/privacy context, normalized query, scope, and ordering.")]
+        string? cursor = null)
     {
-        Validation.RequireTop(top);
+        Validation.RequireTop(pageSize);
         Validation.RequirePositivePid(parentPid);
         Validation.RequireThreadSelector(
             parentPid, tid: null, processStartUs, threadStartUs: null);
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;
-        return ProcessCreateTimingAnalysis.Analyze(
-            trace, parentPid, top, processStartUs);
+        var query = TimelinePagination.CanonicalQuery(
+            TimelinePagination.ProcessCreateTimingTool,
+            ("parentPid", TimelinePagination.Number(parentPid)),
+            ("processStartUs", TimelinePagination.OptionalNumber(processStartUs)),
+            ("pageSize", TimelinePagination.Number(pageSize)));
+        var context = TimelinePagination.CreateContext(
+            traceLease,
+            path,
+            TimelinePagination.ProcessCreateTimingTool,
+            query,
+            TimelinePagination.ProcessCreateTimingOrdering);
+        var position = _queryResults.ResolveTimeline(context, cursor);
+        return ProcessCreateTimingAnalysis.AnalyzePage(
+            trace, parentPid, pageSize, processStartUs, position, context);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Per-process thread-lifecycle list — every ThreadStart / ThreadStop in chronological " +
         "order for one PID, with start time, end time, and lifetime in microseconds.  Useful " +
         "for 'did the thread pool spawn 200 threads in the startup window' / 'is something " +
@@ -1222,6 +1593,8 @@ public sealed class MetaTools
         "TraceResidentEnd; threads alive when capture started are flagged TraceResidentStart " +
         "(their StartTimeUs is 0 = trace start, not the real spawn).  PeakConcurrentThreads " +
         "gives the maximum number of simultaneously-live threads for the selected process instance. " +
+        "Rows use exact cursor pagination ordered by StartTimeUs, Tid, then ThreadGeneration; " +
+        "TotalThreads remains the exact full-result total. Follow nextCursor until hasMore=false. " +
         "Clean PID reuse returns structured ScopeStatus/NoDataReason=process_start_required with replayable " +
         "candidates unless processStartUs selects one lifetime; conflicting lifetime evidence returns " +
         "ambiguous_process_instance. Requires the Thread " +
@@ -1229,19 +1602,34 @@ public sealed class MetaTools
         "per-PID thread lifecycle timeline; timestamps identify the interval boundaries. A missing exact " +
         "lifetime returns ScopeStatus=scope_not_found rather than falling back to another instance.")]
     public ThreadLifetimeResponse ThreadLifetime(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Process ID")] int pid,
-        [Description("Top N threads, ordered by start time (default 200, max 1000)")] int top = 200,
+        [Description("Maximum threads to return in this page (default 200, max 1000). This does not change TotalThreads.")] int pageSize = 200,
         [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple clean lifetimes; otherwise process_start_required returns candidate keys.")]
-        long? processStartUs = null)
+        long? processStartUs = null,
+        [Description("Opaque qrc_ continuation returned by the previous page. It is bound to the principal/session, trace generation, tool contract, symbol/privacy context, normalized query, scope, and ordering.")]
+        string? cursor = null)
     {
-        Validation.RequireTop(top);
+        Validation.RequireTop(pageSize);
         Validation.RequirePositivePid(pid);
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;
-        return ThreadLifetimeAnalysis.Analyze(trace, pid, top, processStartUs);
+        var query = TimelinePagination.CanonicalQuery(
+            TimelinePagination.ThreadLifetimeTool,
+            ("pid", TimelinePagination.Number(pid)),
+            ("processStartUs", TimelinePagination.OptionalNumber(processStartUs)),
+            ("pageSize", TimelinePagination.Number(pageSize)));
+        var context = TimelinePagination.CreateContext(
+            traceLease,
+            path,
+            TimelinePagination.ThreadLifetimeTool,
+            query,
+            TimelinePagination.ThreadLifetimeOrdering);
+        var position = _queryResults.ResolveTimeline(context, cursor);
+        return ThreadLifetimeAnalysis.AnalyzePage(
+            trace, pid, pageSize, processStartUs, position, context);
     }
 
     // Trace-resident processes and near-zero-CPU rows get huge ratios from tiny denominators.

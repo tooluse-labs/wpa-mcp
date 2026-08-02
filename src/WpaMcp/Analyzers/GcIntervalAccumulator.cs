@@ -186,6 +186,7 @@ internal sealed class GcIntervalAccumulator
 
         foreach (var pause in pauses)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var owner = SelectOwner(pause, gcs);
             if (owner is null)
             {

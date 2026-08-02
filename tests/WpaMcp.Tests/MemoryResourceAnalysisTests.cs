@@ -327,6 +327,14 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Equal("observed", matched.CapabilityStatus);
         Assert.Null(matched.NoDataReason);
 
+        var systemOnly = MemoryResourceAnalysis.ClassifyDataContract(
+            scope,
+            eventClassObserved: true,
+            matchedEventCount: 0,
+            hasWindowGlobalSystemEvidence: true);
+        Assert.Equal("partial", systemOnly.CapabilityStatus);
+        Assert.Null(systemOnly.NoDataReason);
+
         var unattributed = MemoryResourceAnalysis.ClassifyDataContract(
             scope,
             eventClassObserved: true,
@@ -526,6 +534,69 @@ public sealed class MemoryResourceAnalysisTests
         Assert.Equal(1, projection.TraceIdentityUnresolvedFreeCount);
         Assert.Equal(1, projection.ScopedIdentityUnresolvedFreeCount);
         Assert.Empty(accumulator.PoolProcessRows(10));
+    }
+
+    [Fact]
+    public void RankedSections_UseStableIdentityTieBreakersForEqualMetrics()
+    {
+        var insertionOrder = new[]
+        {
+            new ProcessInstanceKey(20, 200),
+            new ProcessInstanceKey(10, 300),
+            new ProcessInstanceKey(10, 100),
+        };
+        var accumulator = new MemoryResourceAnalysis.InstanceAccumulator(
+            process => $"p{process.Pid}-{process.StartUs}");
+
+        for (var index = 0; index < insertionOrder.Length; index++)
+        {
+            var process = insertionOrder[index];
+            accumulator.AddSnapshot(
+                process, timeUs: 500, workingSetBytes: 64,
+                commitBytes: 32, privateBytes: 16);
+            accumulator.AddHandle(
+                process,
+                MemoryResourceAnalysis.HandleEventKind.Create);
+            accumulator.AddPool(
+                process, isAllocation: true, entry: (ulong)(index + 1),
+                bytes: 64, tag: "SAME", poolKind: "paged");
+        }
+
+        var expectedProcesses = new[]
+        {
+            (Pid: 10, ProcessStartUs: 100L),
+            (Pid: 10, ProcessStartUs: 300L),
+            (Pid: 20, ProcessStartUs: 200L),
+        };
+        Assert.Equal(
+            expectedProcesses,
+            accumulator.ProcessRows(10)
+                .Select(row => (row.Pid, row.ProcessStartUs)));
+        Assert.Equal(
+            expectedProcesses,
+            accumulator.HandleRows(10)
+                .Select(row => (row.Pid, row.ProcessStartUs)));
+        Assert.Equal(
+            expectedProcesses,
+            accumulator.PoolProcessRows(10)
+                .Select(row => (row.Pid, row.ProcessStartUs)));
+
+        var tagAccumulator = new MemoryResourceAnalysis.InstanceAccumulator(
+            process => process.ToString());
+        var owner = new ProcessInstanceKey(1, 0);
+        tagAccumulator.AddPool(owner, true, 1, 64, "B", "paged");
+        tagAccumulator.AddPool(owner, true, 2, 64, "A", "paged");
+        tagAccumulator.AddPool(owner, true, 3, 64, "A", "nonpaged");
+
+        Assert.Equal(
+            new[]
+            {
+                (Tag: "A", PoolKind: "nonpaged"),
+                (Tag: "A", PoolKind: "paged"),
+                (Tag: "B", PoolKind: "paged"),
+            },
+            tagAccumulator.PoolTagRows(10)
+                .Select(row => (row.Tag, row.PoolKind)));
     }
 
     private static string MemoryFixturePath()

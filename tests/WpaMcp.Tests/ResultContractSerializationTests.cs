@@ -10,6 +10,46 @@ public sealed class ResultContractSerializationTests
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public void CapabilityCompletionEvidence_SerializesAsTypedStructuredBoundary()
+    {
+        var evidence = new ToolCapabilityEvidence(
+            capabilityId: "clr.jit.intervals",
+            traceStatus: ToolCapabilityStatus.Partial,
+            scopedStatus: ToolCapabilityStatus.Partial,
+            totalEventCount: 3,
+            matchedEventCount: 1,
+            captureIntegrity: ToolCaptureIntegrityStatus.Unknown,
+            evidenceIds: ["evidence.clr_jit"],
+            traceCompletedEvidenceCount: 1,
+            traceUnmatchedEvidenceCount: 1,
+            traceBoundaryEvidenceCount: 0,
+            evidenceCompletionState:
+                ToolEvidenceCompletionState.CompletedWithIncompleteEvidence);
+
+        var json = JsonSerializer.SerializeToElement(evidence, WebJson);
+
+        Assert.Equal(
+            "completed_with_incomplete_evidence",
+            json.GetProperty("evidenceCompletionState").GetString());
+        Assert.Equal(1, json.GetProperty("traceCompletedEvidenceCount").GetInt64());
+        Assert.Equal(1, json.GetProperty("traceUnmatchedEvidenceCount").GetInt64());
+        Assert.Equal(0, json.GetProperty("traceBoundaryEvidenceCount").GetInt64());
+
+        Assert.Throws<ArgumentException>(() => new ToolCapabilityEvidence(
+            capabilityId: "clr.jit.intervals",
+            traceStatus: ToolCapabilityStatus.Available,
+            scopedStatus: ToolCapabilityStatus.Available,
+            totalEventCount: 2,
+            matchedEventCount: 2,
+            captureIntegrity: ToolCaptureIntegrityStatus.Unknown,
+            evidenceIds: ["evidence.clr_jit"],
+            traceCompletedEvidenceCount: 1,
+            traceUnmatchedEvidenceCount: 0,
+            traceBoundaryEvidenceCount: 0,
+            evidenceCompletionState: ToolEvidenceCompletionState.NotApplicable));
+    }
+
+    [Fact]
     public void TraceAndScopedDiagnostics_SerializeAsDistinctFields()
     {
         var wait = new WaitAnalysisResponse(
@@ -143,18 +183,17 @@ public sealed class ResultContractSerializationTests
         Assert.Equal("unpaired_endpoints_in_scope", connectionJson.GetProperty("noDataReason").GetString());
 
         var unload = new UnloadTraceResponse(
-            Path: @"C:\trace.etl",
-            CacheEntryRetired: false,
-            NextLoadForcesEtlxRefresh: true,
-            Warnings: [],
-            RefreshRequestedForCurrentServerProcess: true);
+            TraceId: "trc_0123456789abcdef0123456789abcdef",
+            LifecycleStatus: "already_unloaded",
+            DrainStatus: "drained",
+            ActiveLeases: 0,
+            Idempotent: true,
+            ArtifactDisposition: "retained_by_independent_policy",
+            Warnings: []);
         var unloadJson = JsonSerializer.SerializeToElement(unload, WebJson);
-        Assert.False(unloadJson.GetProperty("cacheEntryRetired").GetBoolean());
-        Assert.True(unloadJson.GetProperty("nextLoadForcesEtlxRefresh").GetBoolean());
-        Assert.True(unloadJson.GetProperty("refreshRequestedForCurrentServerProcess").GetBoolean());
-        Assert.Equal(
-            "current_server_process_only",
-            unloadJson.GetProperty("refreshRequestLifetime").GetString());
+        Assert.Equal("already_unloaded", unloadJson.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("drained", unloadJson.GetProperty("drainStatus").GetString());
+        Assert.True(unloadJson.GetProperty("idempotent").GetBoolean());
     }
 
     [Fact]
@@ -209,20 +248,25 @@ public sealed class ResultContractSerializationTests
         AssertDescriptions<SecurityScanAnalysisResponse>(
             "ScopedUnattributedEventCount");
         AssertDescriptions<UnloadTraceResponse>(
-            "Path", "CacheEntryRetired", "NextLoadForcesEtlxRefresh", "Warnings",
-            "RefreshRequestedForCurrentServerProcess", "RefreshRequestLifetime");
+            "TraceId", "LifecycleStatus", "DrainStatus", "ActiveLeases",
+            "Idempotent", "ArtifactDisposition", "Warnings");
         AssertDescriptions<InspectTraceResponse>("AnalysisContract");
-        AssertDescriptions<SymbolStatus>("CacheDir");
-        AssertDescriptions<InspectSymbolQuality>("CacheDir");
+        AssertDescriptions<SymbolStatus>(
+            "LocalReadinessMeasurementState", "FrameResolutionMeasurementState");
+        AssertDescriptions<InspectSymbolQuality>(
+            "LocalReadinessMeasurementState", "FrameResolutionMeasurementState");
         AssertDescriptions<AnalysisContractGuidance>(
             "ScopeRule", "TraceScopedRule", "CountRule", "CapabilityRule",
             "StackRule", "SymbolRule", "ThreadReplayRule", "CausalityRule",
-            "NoDataReasons");
+            "ScopeFailureErrors", "NoDataReasons");
         AssertDescriptions<NoDataReasonGuidance>(
-            "ScopeNotFound", "AmbiguousProcessInstance", "ProcessStartRequired",
-            "AmbiguousThreadInstance",
-            "EventClassNotObserved", "NoEventsInScope", "SourceEventsUnattributed",
-            "NoCompletedIntervalsInScope", "StacksUnavailable", "FocusNotFound");
+            "EventClassNotObserved", "NoEventsInScope", "NoCompletedIntervalsInScope",
+            "UnpairedEndpointsInScope", "SourceEventsUnattributed", "StacksUnavailable",
+            "SymbolsUnresolved", "FocusNotFound", "NoNameMatch",
+            "NoCandidatesInConsideredInput", "NoCapabilitiesMatchFilter");
+        AssertDescriptions<ScopeFailureErrorGuidance>(
+            "ProcessInstanceNotFound", "ProcessStartRequired", "AmbiguousProcessInstance",
+            "ThreadInstanceNotFound", "AmbiguousThreadInstance");
 
         AssertDescriptionContains<CallerCalleeResponse>(
             "NoDataReason", "ambiguous_process_instance", "ambiguous_thread_instance");

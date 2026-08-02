@@ -72,7 +72,7 @@ public class ClrContentionStackAnalysisTests
     }
 
     [Fact]
-    public void EndpointContract_SingleScopedEndpointIsObservedButIncomplete()
+    public void EndpointContract_SingleScopedEndpointIsUnknownWithoutCompletedEvidence()
     {
         var contract = ClrContentionStackAnalysis.BuildEndpointContract(
             processScope: null,
@@ -83,7 +83,7 @@ public class ClrContentionStackAnalysisTests
             scopedSourceEndpointCount: 1,
             scopedIdentityUnresolvedEndpointCount: 0);
 
-        Assert.Equal("observed", contract.CapabilityStatus);
+        Assert.Equal("unknown", contract.CapabilityStatus);
         Assert.Equal(1, contract.MatchedEventCount);
         Assert.Equal("no_completed_intervals_in_scope", contract.NoDataReason);
     }

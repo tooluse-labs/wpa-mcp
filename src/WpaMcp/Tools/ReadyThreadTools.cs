@@ -10,16 +10,21 @@ namespace WpaMcp.Tools;
 public sealed class ReadyThreadTools
 {
     private readonly TraceCache _cache;
-    public ReadyThreadTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public ReadyThreadTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N associated readier/wakeup stack evidence ranked by ReadyThread event count. " +
         "Events are aggregated by optional `awakenedPid` and requested window; the stack belongs " +
         "to the readier, not the awakened thread. Results are not paired one-to-one with a " +
         "specific wait interval or subsequent CSwitch and cannot alone establish root cause. " +
         "Use after `wait_analysis` as supporting evidence. Requires CSwitch / ReadyThread events.")]
     public ReadyThreadStacksResponse ReadyThreadTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Aggregate events for threads in this awakened PID, not the readier PID. " +
                      "This scope does not identify a specific wait interval.")]
@@ -50,18 +55,18 @@ public sealed class ReadyThreadTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), awakenedPid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: awakenedPid.HasValue || awakenedProcessStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             awakenedProcessStartUs: awakenedProcessStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for associated readier/wakeup stack evidence around a focus " +
         "function. Metric is ReadyThread event count, aggregated by optional `awakenedPid` and " +
         "requested window. Results are not paired one-to-one with a specific wait interval or " +
         "subsequent CSwitch and cannot alone establish root cause.")]
     public CallerCalleeResponse ReadyThreadCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in ready_thread_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -85,7 +90,7 @@ public sealed class ReadyThreadTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return ReadyThreadStackAnalysis.CallerCallee(
-            trace, function, top, awakenedPid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, awakenedPid, window.StartUs, window.EndUs, _privacyLog.Writer,
             awakenedProcessStartUs,
             filterSpecified: awakenedPid.HasValue || awakenedProcessStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

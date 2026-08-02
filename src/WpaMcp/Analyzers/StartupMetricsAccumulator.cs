@@ -90,9 +90,9 @@ internal sealed class StartupMetricsAccumulator : ISchedulerIntervalSink
         ArgumentNullException.ThrowIfNull(running);
         ArgumentNullException.ThrowIfNull(blocked);
         var accumulator = new StartupMetricsAccumulator(processes);
-        foreach (var interval in running)
+        foreach (var interval in AnalysisEvents.Enumerate(running))
             accumulator.OnRunning(interval);
-        foreach (var interval in blocked)
+        foreach (var interval in AnalysisEvents.Enumerate(blocked))
             accumulator.OnBlocked(interval);
         return accumulator.Complete();
     }

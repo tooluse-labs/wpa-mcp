@@ -139,6 +139,59 @@ public sealed class PlatformDecisionTests
     }
 
     [Fact]
+    public void CandidateRunner_GetExactDotNetValidatesConfiguredHostBeforePathFallback()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"platform-dotnet-host-{Guid.NewGuid():N}");
+        var configuredRoot = Path.Combine(directory, "configured");
+        var secondaryRoot = Path.Combine(directory, "secondary");
+        var fallbackRoot = Path.Combine(directory, "fallback");
+        Directory.CreateDirectory(configuredRoot);
+        Directory.CreateDirectory(secondaryRoot);
+        Directory.CreateDirectory(fallbackRoot);
+        try
+        {
+            var configuredHost = Path.Combine(configuredRoot, "dotnet.cmd");
+            var secondaryHost = Path.Combine(secondaryRoot, "dotnet.cmd");
+            var fallbackHost = Path.Combine(fallbackRoot, "dotnet.cmd");
+            File.WriteAllText(configuredHost, "@echo off\r\necho 8.0.420 [configured]\r\n");
+            File.WriteAllText(secondaryHost, "@echo off\r\necho 10.0.302 [secondary]\r\n");
+            File.WriteAllText(fallbackHost, "@echo off\r\necho 10.0.302 [fallback]\r\n");
+
+            var script = LocateRepoFile("scripts", "Test-PlatformCandidate.ps1").Replace("'", "''", StringComparison.Ordinal);
+            var secondary = secondaryHost.Replace("'", "''", StringComparison.Ordinal);
+            var fallback = fallbackHost.Replace("'", "''", StringComparison.Ordinal);
+            var missing = Path.Combine(directory, "missing", "dotnet.exe").Replace("'", "''", StringComparison.Ordinal);
+            var configuredPath = configuredRoot.Replace("'", "''", StringComparison.Ordinal);
+            var fallbackPath = fallbackRoot.Replace("'", "''", StringComparison.Ordinal);
+            var environment = new Dictionary<string, string>
+            {
+                ["PATH"] = fallbackRoot,
+                ["WPAMCP_DOTNET_HOST"] = configuredHost,
+                ["DOTNET_HOST_PATH"] = secondaryHost,
+            };
+
+            var result = RunPowerShell(
+                $". '{script}' -CandidateId net10-stable-stateful; " +
+                "$wrongVersion = Get-ExactDotNet '10.0.302'; " +
+                $"$env:PATH = '{configuredPath}'; $env:WPAMCP_DOTNET_HOST = '{fallback}'; $validConfigured = Get-ExactDotNet '10.0.302'; " +
+                $"$env:PATH = '{fallbackPath}'; $env:WPAMCP_DOTNET_HOST = '{missing}'; $missingConfigured = Get-ExactDotNet '10.0.302'; " +
+                $"$env:PATH = '{configuredPath}'; Remove-Item Env:WPAMCP_DOTNET_HOST -ErrorAction SilentlyContinue; $env:DOTNET_HOST_PATH = '{secondary}'; $dotNetHostPath = Get-ExactDotNet '10.0.302'; " +
+                "[ordered]@{ WrongVersion = $wrongVersion; ValidConfigured = $validConfigured; MissingConfigured = $missingConfigured; DotNetHostPath = $dotNetHostPath } | ConvertTo-Json -Compress",
+                environment);
+            Assert.True(result.ExitCode == 0, $"Configured host selection failed. stderr: {result.Stderr}");
+            using var evidence = JsonDocument.Parse(result.Stdout);
+            Assert.Equal(Path.GetFullPath(fallbackHost), evidence.RootElement.GetProperty("WrongVersion").GetString(), ignoreCase: true);
+            Assert.Equal(Path.GetFullPath(fallbackHost), evidence.RootElement.GetProperty("ValidConfigured").GetString(), ignoreCase: true);
+            Assert.Equal(Path.GetFullPath(fallbackHost), evidence.RootElement.GetProperty("MissingConfigured").GetString(), ignoreCase: true);
+            Assert.Equal(Path.GetFullPath(secondaryHost), evidence.RootElement.GetProperty("DotNetHostPath").GetString(), ignoreCase: true);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CandidateRunner_ReleaseUnitTestsExcludeOuterPlatformDecisionTests()
     {
         var source = File.ReadAllText(LocateRepoFile("scripts", "Test-PlatformCandidate.ps1"));

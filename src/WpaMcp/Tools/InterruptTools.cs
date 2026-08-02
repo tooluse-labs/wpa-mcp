@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class InterruptTools
 {
     private readonly TraceCache _cache;
-    public InterruptTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public InterruptTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by kernel interrupt time (DPC + ISR), in microseconds — " +
         "answers 'which driver routines are burning CPU at high IRQL'.  PerfView equivalent: " +
         "DPC/ISR Stacks.  ISR (Interrupt Service Routine) is the immediate kernel response to " +
@@ -23,7 +28,7 @@ public sealed class InterruptTools
         "baseline; this tool does not impose a universal healthy threshold or infer driver fault. Requires Interrupt + " +
         "DPC keywords (default WPR 'CPU' profiles enable both).")]
     public InterruptStacksResponse InterruptTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -47,16 +52,16 @@ public sealed class InterruptTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return InterruptStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly),
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: startUs.HasValue || endUs.HasValue);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the interrupt-stack data.  Metric is " +
         "interrupt time in microseconds; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
     public CallerCalleeResponse InterruptCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in interrupt_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -74,7 +79,7 @@ public sealed class InterruptTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return InterruptStackAnalysis.CallerCallee(
-            trace, function, top, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, window.StartUs, window.EndUs, _privacyLog.Writer,
             filterSpecified: startUs.HasValue || endUs.HasValue);
     }
 }

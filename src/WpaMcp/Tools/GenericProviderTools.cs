@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class GenericProviderTools
 {
     private readonly TraceCache _cache;
-    public GenericProviderTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public GenericProviderTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by event count for ANY user-mode ETW provider — PerfView's " +
         "'Any Stacks' view applied to a single provider.  Use this when you need stack-rankable " +
         "data from a provider that doesn't have a dedicated tool: AspNetCore, Kestrel, EFCore, " +
@@ -24,7 +29,7 @@ public sealed class GenericProviderTools
         "them, every sample lands on the leaf frame and the view confirms the provider fired " +
         "but doesn't trace the call chain.")]
     public GenericEventStacksResponse GenericEventTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact provider name (e.g., 'Microsoft-AspNetCore-Hosting')")] string providerName,
         [Description("Optional event-name substring (case-insensitive). Empty / null = all events from the provider.")] string? eventNameSubstring = null,
         [Description("Top N stacks by exclusive event count (default 50, max 1000)")] int top = 50,
@@ -55,17 +60,17 @@ public sealed class GenericProviderTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return GenericEventStackAnalysis.TopStacks(
             trace, providerName, eventNameSubstring, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, Console.Error, whenBuckets,
+            window.StartUs, window.EndUs, _privacyLog.Writer, whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller-callee drill-down on a focus frame in a generic provider's stack source.  " +
         "Same provider + event-name filtering as generic_event_top_stacks.  Metric is event " +
         "count; top-N callers ranked by inclusive count flowing INTO focus, callees by count OUT.")]
     public CallerCalleeResponse GenericEventCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Exact provider name")] string providerName,
         [Description("Exact case-sensitive function name; copy it verbatim from generic_event_top_stacks.")] string focusFunction,
         [Description("Optional event-name substring. Empty / null = all events from the provider.")] string? eventNameSubstring = null,
@@ -92,7 +97,7 @@ public sealed class GenericProviderTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return GenericEventStackAnalysis.CallerCallee(
             trace, providerName, eventNameSubstring, focusFunction, top, pid,
-            window.StartUs, window.EndUs, Console.Error,
+            window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

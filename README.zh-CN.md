@@ -30,16 +30,25 @@
   <img src="assets/quickstart-demo.gif" alt="wpa-mcp 快速上手演示——加载 trace、找出慢进程、钻进进程创建 burst" width="800">
 </p>
 
-装好之后（[一行命令在下面](#安装)），用自然语言问 agent，它会挑对应的工具：
+装好之后（[一行命令在下面](#安装)），直接用自然语言问 agent。server 提供完整、
+可分页的能力地图，让模型无需猜测，也不会静默丢掉低频专用工具：
 
 ```
+> 这个 server 能分析什么？
+（list_capabilities——51 个 declared capabilities，其中包含显式 gap；关联
+ 15 个 goals、15 个 workflows 和可调用工具；必须跟完全部 cursor page）
+
 > 加载这个 trace：C:\path\to\trace.etl
-（load_trace——首次 30 秒~3 分钟构建 .etlx 索引，后续复用缓存。
- 返回 trace 元信息和 materialization 后实际观测到的事件类型 map。）
+（load_trace——唯一 raw source 入口；把允许的本地 trace 快照到 server-owned
+ artifact store，并返回 principal-scoped TraceId。）
 
 > 看一下这份 trace 能回答什么问题。
-（inspect_trace——已观测 capability、每事件域栈覆盖率、PDB identity metadata / 配置、
- quality warnings 和适用 next-tool 提示；本地 readiness 要再调 diagnose_symbols）
+（inspect_trace——用 TraceId 返回 trace evidence map、同域栈覆盖率、PDB identity
+ metadata、quality boundary、workflow 和适用工具；不宣称本地符号 ready 或 frame 已解析。）
+
+> 为这份 trace 准备启动时批准的本地符号。
+（prepare_symbols——可选；精确校验 PDB identity 后返回 immutable SymbolContextId，
+ 但仍不声称 frame 已解析。）
 
 > 诊断 PID <X> 在 <t0> 到 <t1> 的 high wait。
 （diagnose_high_wait——同一时间窗的一次调用，返回 candidates、evidence、
@@ -79,8 +88,8 @@ curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/i
 通过一行命令转发额外参数：
 
 ```powershell
-# PowerShell——指定 tag、限定客户端、自定义 symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.24 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+# PowerShell——指定 tag、限定客户端、批准一个本地 PDB candidate root
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.24 -Client claude-desktop -SymbolLocalRoot 'C:\Symbols' -SymbolStoreRoot '$env:LOCALAPPDATA\WpaMcp\symbol-store'"
 ```
 
 ```bash
@@ -100,13 +109,13 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目，并删除 `%USERPROFILE%\.local\bin\wpa-mcp.exe`。符号缓存保留（要清理就删 `%LocalAppData%\WpaMcp\Symbols\`）。
+会从所有检测到的 MCP 客户端中移除 `wpa-mcp` 条目，并删除 `%USERPROFILE%\.local\bin\wpa-mcp.exe`。approved candidate 目录与 private verified-symbol store 会保留。
 
 ### 系统要求
 
 - Windows 10 / 11（TraceEvent 内核 API 仅 Windows）
 - 一行安装路径不需要 .NET runtime；release 已包含 self-contained Windows executable。
-- 符号解析需要：设置 `_NT_SYMBOL_PATH`，或者在运行时通过 symbol 工具配置（见 [配置 → Symbols](#symbols)）。
+- verified symbol readiness 需要：把可信 PDB candidate 放入启动时批准的本地 root，再对已加载的 TraceId 调 `prepare_symbols`（见[Symbol 配置](#symbol-configuration)）。secure profile 不读取 `_NT_SYMBOL_PATH`，也不抓取远端符号；当前 build 尚不能用返回的 context 解析 frame。
 
 <details>
 <summary><strong>从 clone 安装（开发者）</strong></summary>
@@ -129,7 +138,7 @@ cd wpa-mcp
 
 ```powershell
 .\scripts\setup.ps1 -Client claude-desktop                    # 强制指定客户端
-.\scripts\setup.ps1 -SymbolPath "SRV*C:\Symbols*https://..." # 自定义 _NT_SYMBOL_PATH
+.\scripts\setup.ps1 -SymbolLocalRoot "C:\Symbols" -SymbolStoreRoot "$env:LOCALAPPDATA\WpaMcp\symbol-store"
 .\scripts\setup.ps1 -SkipBuild                                # 用现有 DLL，跳过 build
 ```
 
@@ -175,11 +184,15 @@ dotnet test                                                   # 跑 xUnit 套件
   "mcpServers": {
     "wpa-mcp": {
       "command": "dotnet",
-      "args": ["C:/Users/me/Dev/wpa-mcp/src/WpaMcp/bin/Release/net10.0/WpaMcp.dll"],
-      "env": {
-        "_NT_SYMBOL_PATH": "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
-        "WPAMCP_CACHE_SIZE": "2"
-      }
+      "args": [
+        "C:/Users/me/Dev/wpa-mcp/src/WpaMcp/bin/Release/net10.0/WpaMcp.dll",
+        "--symbol-local-root",
+        "C:\\Symbols",
+        "--symbol-store-root",
+        "C:\\Users\\me\\AppData\\Local\\WpaMcp\\symbol-store",
+        "--cache-size",
+        "2"
+      ]
     }
   }
 }
@@ -191,13 +204,11 @@ dotnet test                                                   # 跑 xUnit 套件
 claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WpaMcp/bin/Release/net10.0/WpaMcp.dll
 ```
 
-（环境变量加 `-e _NT_SYMBOL_PATH=...`。）
-
 **Claude Desktop**——`%APPDATA%\Claude\claude_desktop_config.json`，结构和上面一样。
 
 **Codex / Cursor / 其它 MCP-兼容客户端**——server 走 stdio MCP；任何接受 `command + args` 配置的客户端都行。用上面那段 JSON。
 
-**验证**——重启客户端后，工具会以 `mcp__wpa-mcp__load_trace` 这种命名出现。第一次对一个新 `.etl` 调 `load_trace` 会花 30 秒~3 分钟构建 `.etlx` 索引（写到 stderr）。
+**验证**——重启客户端后，工具会以 `mcp__wpa-mcp__load_trace` 这种命名出现。第一次对一个新 `.etl` 调 `load_trace` 可能花 30 秒~3 分钟在 owned artifact store 中 materialize 索引（日志写到 stderr）。
 
 </details>
 
@@ -205,44 +216,76 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WpaMcp
 
 ## 工具
 
-MCP 工具面覆盖多个 ETW 分析域，底层基于 PerfView 同款的 `Microsoft.Diagnostics.Tracing.TraceEvent` 库。共用 parser 不等于每个视图天然与 PerfView 等价；各分析器会返回实例范围、实际观测到的能力、覆盖率和空结果状态，供调用方判断证据边界。
+当前 validated development surface 包含 **60 个 active tools、51 个 declared
+capabilities、15 个 goals、15 个 workflows**。capability 数量包含显式声明的 gap；
+它只对本 server catalog 完整，并不覆盖整个 WPA/ETW universe。客户端必须跟完
+`tools/list` 和 `list_capabilities` 的每个 cursor page，不能把第一页或这里的快照数字
+硬编码成完整目录。
+
+底层使用 PerfView 同款 `Microsoft.Diagnostics.Tracing.TraceEvent` 库，但共用 parser
+不等于视图天然等价。每个 analyzer 都公开 scope、source capability evidence、
+completeness、precision 与 conclusion boundary，让调用方判断结果究竟证明了什么。
+
+能力优先的客户端可调用 `list_capabilities`；支持 Resource 的客户端可先读
+`wpa://capabilities/server`、`wpa://tools/server`、`wpa://workflows/server`。
+选定工具后，应跟完 `wpa://tools/{toolName}/sections` 的全部页，取得每个 section 的
+ordering、truncation proof、evidence、measurement、relationship 与 conclusion
+contract。Resource 用来降低选择成本，不允许客户端据此隐藏工具或跳过 `tools/list` 页。
 
 ### wpa-mcp 相对 PerfView 加了什么
 
 * **Agent 驱动而不是 UI 驱动**：PerfView 是 Windows GUI 一路点过去；wpa-mcp 是 stdio MCP server，自然语言对话即可。同样的数据，省去界面操作，方便编进 CI / 回归脚本。
 * **复合工具**：`diagnose_window`、`diagnose_high_wait`、`diagnose_slow_startup`、`process_create_timing`、`image_load_top_gaps` 把 PerfView 多步操作打包成一次调用。
-* **Capabilities-aware**：`load_trace` 报告 ETLX materialization 后实际观测到的事件类型；单个响应进一步区分 `scope_not_found`、`event_class_not_observed`、`no_events_in_scope` 和 `stacks_unavailable`。没有观测到事件并不能反向证明某个 capture keyword 一定没开。
-* **per-trace symbol 推荐**：`load_trace` 只为具有完整 PDB name/GUID/age lookup identity 的匹配模块推荐 server；identity 不完整时改为提示 recapture/merge。在 PerfView 里这要靠用户自己摸索。
+* **两层能力地图**：`list_capabilities` 说明 server 声明什么；`inspect_trace` 评估一份已加载 trace 实际支持什么。缺少 parsed evidence 不会被静默升级为 capture keyword 结论。
+* **显式符号证据**：trace PDB identity、verified local artifact readiness 与实际 frame-name resolution 是三种不同状态。`prepare_symbols` 可以建立第二种；当前 build 没有 context-bound TraceEvent frame resolver，因此第三种保持 declared gap，不能从 readiness 推断。
 
 ### 设计理念
 
-wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理**。
+wpa-mcp 遵循一个总原则：**完整暴露能力，用能力地图降低选择成本；完整暴露证据
+边界，用结构化契约阻止 LLM 过度解释。**
 
-* **Orientation 工具**（`load_trace`、`inspect_trace`）提前暴露 capability、已启用信号列表、quality gap、推荐诊断路径、symbol 健康度，让模型从真实信号选下一步，而不是从空结果反推。
+* **Orientation 工具**（`list_capabilities`、`load_trace`、`inspect_trace`）先暴露 server 声明、trace evidence map、quality gap 与 workflow，让模型按事实选择，而不是从空结果反推。
 * **Diagnostic composite**（`diagnose_window`、`diagnose_high_wait`、`diagnose_slow_startup`）压缩调用路径但保留证据链——通过 `Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 字段输出，故意不返回综合出的 "root cause" 字段。
 * **Per-domain 行 / 栈工具**贴近 PerfView 形态。进程级工具暴露所选 `(Pid, ProcessStartUs)` 生命周期，或明确标注按 PID 聚合；栈工具报告目标事件域自己的覆盖率，不拿其他事件的栈来推断当前工具可用。
 
-### 0.3.0 结果契约迁移
+### Contract 2.0 证据 envelope
 
-解释 `Rows` 前必须先解释结构化契约：
+全部 60 个 active tools 都返回同一 closed structured envelope。解释领域行之前必须
+先解释它：
 
 | 字段 | 契约 |
 |---|---|
-| `ScopeStatus` / `ScopeMode` | 请求的进程 / 线程实例是否成功解析，以及结果是精确实例、全进程还是显式 PID 聚合。scope 非 `ok` 不能当成一次成功但为空的分析。 |
-| `CapabilityStatus` | `observed` 表示解析成功的目标范围匹配到该工具的源证据；`not_observed` 只用于已确认的全 trace 缺失；过滤范围内的不确定情况保持 `unknown`。 |
-| `MatchedEventCount` / `MatchedIntervalCount` | 目标范围内的原始源事件 / 端点，与投影出的完整区间分别计数；两者都不是全 trace 分母，也不一定等于聚合 / top-N 后的行数。 |
-| `NoDataReason` / `Warnings` | 区分 scope 缺失或歧义、`event_class_not_observed`、`no_events_in_scope`、`source_events_unattributed`、`no_completed_intervals_in_scope`、`stacks_unavailable` 和 `focus_not_found`。空数组本身没有稳定语义。 |
-| `MetricPrecision` / `RowMetricAccounting` / `ExactTotalAccounting` | TraceEvent call tree 累积出的 stack row metric 即使序列化为 `long`，也可能是 `float32_per_sample_approximate`；标成 `exact_long` 的源总量和覆盖计数才是精确整数。不要要求近似行严格求和等于精确总量。 |
+| `status`、`data`、`error`、`noData` | 区分成功有数据、成功无数据、部分结果和执行/投递失败。脱离结构状态的空领域数据没有稳定含义。 |
+| `toolRef`、`traceRef`、`scope` | 标识准确工具/契约、immutable trace generation/可选 symbol context，以及解析后的进程/线程/窗口。selector 非 `ok` 不是“成功但为空”。 |
+| `capabilityEvidence` | 分离全 trace 与 scoped availability/count、completion 和 capture integrity；两种范围的值不能互作分子分母。 |
+| `completeness`、`sections`、`hasMore` | 逐 section 报告 role、returned/total state、精确 sort/tie-breaker、遗漏状态、proof mode；只有确实能续页时才给 cursor。 |
+| `evidenceBoundary` | 声明 evidence ID、measurement basis、relationship、conclusion status、provenance 和 `doesNotProve`。association/heuristic evidence 不是 causal attribution。 |
+| `precision` | 声明 identifier/metric precision、rounding、accounting 和 denominator。公开 stack metric 使用并行 checked Int64 accumulator，不把 TraceEvent 的 float sample metric 倒灌成“精确整数”。 |
 
-以 `Trace*` 开头的字段描述 materialized 全 trace；以 `Scoped*` 开头的字段描述所选实例 / 窗口。除非字段说明明确给出该比率，否则不要把两者拼成分子分母。重放进程行必须带 `pid + processStartUs`；线程行应保留 `pid + processStartUs + tid + threadStartUs + threadGeneration`。即使捕获边界推断让两个生命周期具有相同开始时间，generation 仍可精确区分。
+每个工具的完整 section contract 还发布在
+`wpa://tools/{toolName}/sections`。异质 composite 的多个 section 不能共用一个
+tool-wide 排序或证明声明。
 
-`inspect_trace` 会在非空 `AnalysisContract` 中返回同一组规则，并通过该工具真实的 MCP `outputSchema` 导出这份紧凑契约。这样客户端能拿到机器可见的解释规则，同时避免在完整工具目录中重复所有大型 response schema、突破受保护的 `tools/list` 预算。
+如果最小合法成功 envelope 仍放不进精确 frame budget，server 返回 terminal
+`response_too_large` failure：`data=null`、`scope=null`、空
+`sections/failedSections`、`hasMore=false`。它表示投递失败，不表示请求 scope 没事件，
+也不包含 continuation。
 
-0.3.0 的 MCP metadata 将所有工具声明为 `ReadOnly=false`，因为调用可能改变 server 或文件系统状态：首次 `TraceLog.OpenOrConvert` 可能创建 / 替换相邻 `.etlx`，unload 会 retire resident cache，symbol 配置在进程内全局生效，`resolveSymbols=true` 还可能下载 / 写入 PDB。调用者给出的 trace/cache path 可能是 UNC、mapped drive 或 reparse point，因此 raw-path 工具即使不解析符号也保守标为 `OpenWorld=true`；只有 `set_symbol_path` 为 `OpenWorld=false`。`Destructive=true` 保守覆盖 sidecar 替换 / 刷新、cache retirement 和全局 symbol path 替换；增量追加的 `add_symbol_server` 是唯一 `Destructive=false` 工具。除 `set_symbol_path` 外其余工具均标为幂等。这些标记描述运行风险，不表示会改写 ETL 的逻辑事件流。
+opaque ID 是 JSON string，绝不能经过 JavaScript `number`。重放进程行必须保留
+`pid + processStartUs`；线程还要保留 `tid + threadStartUs + threadGeneration`。
+
+secure ID-only profile 下，57 个分析/发现工具声明为 read-only、idempotent、
+closed-world、non-destructive。`load_trace` 会写 owned artifact store，
+`prepare_symbols` 可能写 private verified-symbol store，`unload_trace` 会 retire handle。
+启动时选定 profile 的投影 annotation 才是权威；应读取 `wpa://runtime/profile`，不要
+假设所有 profile 的副作用相同。
 
 ### 使用方式
 
-**永远先调 `load_trace`**：它打开 `.etl`、构建（或复用）`.etlx` 索引，并返回 `Capabilities` map，表示 materialized TraceLog 中实际观测到的受支持事件类型。这些字段是已解析事件的证据，不是原始 capture keyword 配置的证明。Map 覆盖：
+不熟悉 server surface 时先调 `list_capabilities`。开始 trace 分析时，**任何 trace
+query 之前都必须先调 `load_trace`**，并使用返回的 TraceId。它把允许的本地 source
+快照到 server-owned artifact store；返回的是 parsed evidence，不是原始 capture
+keyword 配置证明。随后由 `inspect_trace` 投影 trace-specific evidence map。已解析域包括：
 
 * **CPU 采样和调度** —— `HasCpuSamples`、`HasCSwitch`、`HasReadyThread`、`HasStackWalks`
 * **文件 / 磁盘 / mmap I/O 和 loader** —— `HasFileIo`、`HasDiskIo`、`HasHardFaults`、`HasImageLoad`
@@ -256,13 +299,18 @@ wpa-mcp 的目标是：**不误导模型，也不限制模型继续推理**。
 完整调用流程：
 
 ```
-.etl trace
-    │
-    ▼
-load_trace  ──►  返回 Capabilities map
-    │
-    │  （可选：capture profile 或调查路径不清楚时调 inspect_trace）
-    ▼
+list_capabilities ──► declared capabilities + goals + workflows
+
+.etl source ──► load_trace ──► TraceId ──► inspect_trace evidence map
+                              │
+                              ├────► composite / domain query（未解析符号）
+                              │
+                              └────► 可选 prepare_symbols
+                                          │
+                                          ▼
+                                  SymbolContextId（仅 readiness）
+                                  当前 resolveSymbols=true 会返回
+                                  symbol_resolution_unavailable
 
   Composite  （推荐用于常见 workflow）
   ──────────────────────────────────
@@ -278,12 +326,19 @@ load_trace  ──►  返回 Capabilities map
   top-N         top-N         focus-frame
   行            调用栈        钻取
 
-  示例：cpu_top_functions  ──►  cpu_top_stacks  ──►  cpu_caller_callee
+  示例：file_io_top_files  ──►  file_io_top_stacks  ──►  file_io_caller_callee
 ```
 
-如果不确定 capture profile 覆盖了什么，或者下一步调查路径不清楚，接着调 `inspect_trace`。常见 workflow 优先用 `diagnose_window`、`diagnose_high_wait`、`diagnose_slow_startup` 这类 composite，不要一开始就手工拼单个调用——它们的 `Evidence`、`NotConcluded`、`ExecutedToolCalls`、`NextTools` 会说明跑了什么、哪些结论不能下、下一步该往哪里钻。
+常见 workflow 优先用 `diagnose_window`、`diagnose_high_wait`、
+`diagnose_slow_startup` 这类 composite，再按 section/evidence contract 钻取。它们会
+说明执行了什么、哪些结论不能下、下一步去哪里。当前 composite 仍是 direct execution，
+不能把它当成“单次 shared planner dispatch”的证据。
 
-多数 stack-oriented 工具组遵循同样的三件套结构：**summary**（top-N 平铺行）、**stacks**（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" / "Callees" tab 一致。
+具备全部三层的 domain 遵循这一结构：**summary**（top-N 平铺行）、**stacks**
+（top-N 调用栈，按 metric 加权）、**caller-callee 钻取**（给一个 focus frame，
+返回其 caller / callee 邻居，metric 加权）——形式与 PerfView 的 "Callers" /
+"Callees" tab 一致。CPU 是例外：从 `cpu_top_functions` 直接钻取到
+`cpu_caller_callee`；当前没有 active `cpu_top_stacks` 工具。
 
 下面的表格里 "PerfView 对应" 列指 PerfView GUI 中的对应视图。标 **[复合]** 的把多个 PerfView 视图打包成一次调用，标 **[手动过滤]** 的暴露 PerfView Events 视图能看到但没预聚合的原始事件，标 **[程序化]** 的用结构化 JSON 替代 GUI 对话框。其余多数工具是 PerfView 视图的 1:1 映射。
 
@@ -297,7 +352,9 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 
 不接受 `startUs` / `endUs` 的工具有意采用不同的作用域；每个工具的 MCP description 会说明是哪一种：
 
-* **全 trace orientation / 配置** —— `load_trace`、`inspect_trace`、`list_processes`、`find_marker`、`diagnose_symbols`、`set_symbol_path`、`add_symbol_server`。
+* **Server catalog** —— `list_capabilities` 不属于任何 trace scope。
+* **Trace/symbol lifecycle** —— `load_trace` 接收 raw source 并返回 TraceId；`prepare_symbols` 接收 TraceId 并返回 SymbolContextId；`unload_trace` 只 retire public handle。
+* **全 trace orientation/query** —— `inspect_trace`、`list_processes`、`find_marker` 查询已加载的 immutable generation。
 * **生命周期视图** —— `process_create_timing`、`thread_lifetime`、`image_load_timing`、`image_load_top_gaps`、`diagnose_slow_startup` 用进程启动相对或生命周期相对的窗口，而不是任意 trace 窗口。
 * **全 trace 或窗口化 by-file 汇总** —— `file_io_top_files` 和 `hard_fault_by_file` 按文件名汇总，并支持显式 `startUs` / `endUs` 窗口。需要事件关联调用链证据时用对应的 stack 工具。
 
@@ -305,10 +362,11 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| **`load_trace`** | 加载 / 缓存 `.etl`，返回 trace 元信息、已观测事件能力和 per-trace symbol-server 推荐。`EventCount` 是 ETLX materialized logical-event count；原始 ETW record count 与 parser coverage ratio 未实测时明确返回 not measured，不做反推。 | 打开 trace 文件（无 `Capabilities` 等价物） |
-| **`unload_trace`** | retire 内存 entry，且不打断仍持有 lease 的查询。对 raw `.etl`，它只在当前 server 进程登记 sidecar refresh 请求；下一次成功 load 会尝试刷新。请求不会跨重启保留，因此原位改写后要调用，若 server 随后重启则必须在加载前再次调用。 | 使派生索引失效后关闭并重开 |
-| **`inspect_trace`** | 一次性 orientation：已观测能力、system metadata、provider counts、每事件域栈覆盖率、PDB identity metadata / 配置、quality warnings 和 next-tool hints。它不探测本地 PDB candidate 或 readiness；该层要调 `diagnose_symbols`，实际 frame 解析率则只在栈 lookup 真正执行后统计。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
-| `list_processes` | 列出进程生命周期（可按 `cpu` / `wall` / `wait_ratio` 排序）。`WaitRatio = WallUs / CpuUs` 只用于排序"高 wall、低 CPU"候选，不能识别具体等待对象。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
+| **`list_capabilities`** | 可分页 Server Capability Map：declared capability（含显式 gap）、goal、workflow、可调用工具、cost/scope/symbol requirement 与 evidence boundary。只对本 server catalog 完整，不代表 WPA 全集。 | **[程序化]**——无直接 GUI 等价物 |
+| **`load_trace`** | 唯一 raw trace-source 入口。校验允许的本地 `.etl`/`.etlx`，从已打开 handle 快照进 owned immutable artifact store，并返回 canonical principal-scoped TraceId。parsed event count 不是 raw ETW record count。 | 打开 trace 文件（无 TraceId 等价物） |
+| **`unload_trace`** | retire TraceId、拒绝新 acquire，并可等待 lease drain。它不删除 immutable artifact，也不宣称物理空间已经释放。 | 关闭 trace handle |
+| **`inspect_trace`** | 可分页 Trace Evidence Map：parsed capability assessment、system metadata、provider count、同域 stack coverage、trace PDB identity、quality boundary、self-attribution、适用工具与 workflow。它不探测本地 PDB，也不测 frame resolution；`prepare_symbols` 只建立 verified local readiness，当前 build 的 context-bound frame lookup 仍不可用。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
+| `list_processes` | 通过 cursor 分页列出完整进程生命周期 inventory（可按 `cpu` / `wall` / `wait_ratio` 排序）；必须用相同 query 跟完全部 `nextCursor`。`WaitRatio = WallUs / CpuUs` 只用于排序"高 wall、低 CPU"候选，不能识别具体等待对象。默认隐藏 PID 0（Idle）和 PID 4（System）。 | Processes 视图 |
 | `process_create_timing` | 按父进程生命周期列出子进程创建时序。`FirstImageLoadOffsetUs` 是 `ProcessStart` 到首个 DLL 加载之间的观测区间；其中可能包含回调、扫描、挂起、调度等工作，单凭该区间不能确定机制或根因。 | **[复合]**——Processes + Events + Excel；见 [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md)（英文） |
 | `thread_lifetime` | 给定 PID 的线程生命周期时序——每次 `ThreadStart` / `ThreadStop`，附 `StartTimeUs` / `EndTimeUs` / `LifetimeUs`，加 `PeakConcurrentThreads`。捕捉线程池抖动 / fork bomb 模式。`TraceResidentStart/End` 标识由 trace capture 边界限定（而非真正 spawn / 退出）的线程。 | **[手动过滤]**——Events 视图，过滤 `Thread/Start` + `Thread/Stop` 后手动配对 |
 
@@ -440,19 +498,60 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
-| `set_symbol_path` | 给运行中的 server 设 `_NT_SYMBOL_PATH`（替换或追加）。 | File → Set Symbol Path… |
-| `add_symbol_server` | 追加一个符号服务器 URL，可选本地缓存目录（默认 `%LocalAppData%\WpaMcp\Symbols`）。 | File → Set Symbol Path…（单条） |
-| `diagnose_symbols` | 报告模块的 PDB identity / local candidate 状态并给出 symbol-path 建议。不会因为存在 PDB 名称或文件就标成 ready / resolved；真正执行栈 lookup 前，frame count 与 resolution rate 为 null / not measured。 | **[程序化]**——以结构化 JSON + 自动推荐替代 Modules 标签 + Set Symbol Path 对话框 |
+| `prepare_symbols` | 对已加载 TraceId 的完整 trace-native PDB identity 集合检查 startup-approved 本地 candidate root，精确验证 name/GUID/age，把匹配 artifact pin 到 private store，并返回 immutable SymbolContextId。无网络访问，也不宣称 frame resolution；当前 context-bound frame resolver 不可用。 | **[程序化]**——显式 local symbol preparation lifecycle |
 
 ---
 
 ## 配置
 
+### 结果契约与 trace reference profile
+
+结果契约和 trace-reference 策略都在 stdio transport 读取请求之前一次性选择；
+任何 tool call 都不能切换模式。MCP 客户端可从 `wpa://runtime/profile` 读取本次
+启动的真实模式、弃用告警和 release blocker。
+
+```json
+{
+  "env": {
+    "WPAMCP_CONTRACT_MODE": "2.0",
+    "WPAMCP_TRACE_REFERENCE_MODE": "id_only"
+  }
+}
+```
+
+等价 CLI 参数是 `--contract-mode 2.0` 与
+`--trace-reference-mode id_only`；CLI 覆盖环境变量。contract 值严格限定为
+`legacy` / `2.0`，trace reference 值为 `compatibility` / `id_only`。
+
+当前源码版本仍是 `0.3.0`：可运行的开发 profile 是 Contract 2.0 + ID-only，
+但 ADR 0005 明确把 0.4 之前的 release line 标成 `releaseStatus=blocked`。
+`legacy` 值已进入显式矩阵，但仓库尚无经过审查的 legacy result adapter，因此
+选择它会在启动时 fail closed，不能把 active Contract 2.0 envelope 冒充 legacy。
+raw-path compatibility 只能通过显式启动开关启用，并会给出 1.0.0 删除告警。
+固定 profile 前请阅读[契约迁移](docs/CONTRACT_MIGRATION.zh-CN.md)与
+[客户端兼容性](docs/CLIENT_COMPATIBILITY.zh-CN.md)。
+
+诊断时可用 `--runtime-profile` 输出默认 profile JSON；当 ADR rollout gate 尚未
+满足时，`--validate-release-profile` 返回退出码 78。两者都不会启动 MCP 或读取 stdin。
+
 ### Trace 缓存
 
-LRU，默认容量 2 条 trace，可用 `WPAMCP_CACHE_SIZE=N` 覆盖。每个查询在完整使用期间持有 cache lease；eviction、unload 或 shutdown 只会 retire entry，最后一个活动 lease 结束后才释放 TraceLog。若 native/mmap 清理失败，entry 仍由 cache 中央持有并在后续 shutdown 调用重试，不会随 `using` 局部变量退出而失联。并发首次访问只允许胜出的 Lazy 打开 / 转换 ETL，不会重复加载同一份大 trace。
+LRU 默认保留 2 个 materialized trace generation，可用 `WPAMCP_CACHE_SIZE=N` 覆盖。
+`load_trace` 从允许的 source handle 取快照，只在 owned artifact store 中 materialize；
+secure profile 的 query 只接受 TraceId，不会创建 caller-owned adjacent `.etlx`。query 在
+完整使用期间持有 generation lease；eviction、unload、shutdown 只 retire handle，最后
+一个 lease drain 后才释放 backend。同一 generation 的构造与 trace-facts extraction
+都是 single-flight。
 
-Cache key 使用规范化的完整路径；Windows 下按大小写不敏感比较，因此只有路径大小写不同的别名共享同一 entry，通过任一写法调用 `unload_trace` 都会使该 entry 失效。新鲜度戳包含最后写入时间、创建时间、长度，以及 Windows 能提供时的卷 / file identity；替换文件和大多数改写都会 retire 旧 entry。残余边界：若同一文件被原位改写，同时保持相同 file identity、长度和时间戳，缓存无法自动识别；再次查询前应调用 `unload_trace`。对 raw `.etl`，这会登记仅限当前 server 的 refresh 请求，下一次成功加载会尝试重建相邻 `.etlx`；重启会清除该请求，因此重启后、加载改写 ETL 前必须再次调用 `unload_trace`。已持有 lease 的查询仍可正常完成。
+重复加载同一 observed generation 返回同一个 canonical handle。若故意原位改写且保留
+了可观察 identity、length、timestamp，可用 `forceRefresh=true`。`unload_trace` 只 retire
+public handle，不会立即删除 immutable artifact。未被 pin 的 trace artifact 默认在最后一次
+store 访问 7 天后过期；可在启动时用 `WPAMCP_TRACE_ARTIFACT_RETENTION_MINUTES` 或
+`--trace-artifact-retention-minutes` 配置为 1 分钟至 365 天。live handle 会 pin 对象，
+因此 TTL 不会使 active generation 失效；最后一个 pin drain 后才执行过期清理，generation
+cache 也不能静默复活已过期 artifact。retained-store quota 和 materialization checkpoint
+已执行，但 opaque converter 的瞬态物理磁盘峰值仍是显式 release blocker，不能冒充
+hard bound。
 
 ### 自己抓 trace
 
@@ -464,39 +563,40 @@ wpr.exe -start tests\WpaMcp.Tests\fixtures\MmapCapture.wprp -filemode
 wpr.exe -stop C:\path\to\my_capture.etl
 ```
 
-### Symbols（符号）
+### Symbol configuration
 
-> **应从真正执行过 lookup 的栈工具判断符号质量。** 必须分清四层：trace 中的 PDB identity（name + GUID + age）、本地发现的 PDB candidate、已验证的 local readiness，以及实际观测到的 frame-name resolution。`diagnose_symbols` 会直接打开已发现的 candidate，并且仅在 GUID/age 精确匹配时标记 ready；它不会主动访问远端 SRV/UNC entry 或下载符号。但配置中看似本地的 root 仍可能被 Windows 通过 mapped drive 或 reparse point 重定向。实际 frame 解析率仍必须由真正执行 lookup 的栈查询测量。解析率为 null 表示没有可测 code frame，不等于 0%。
+> **必须分开 readiness 与 resolution。** 四种状态是 trace PDB identity（name + GUID
+> + age）、本地 candidate、verified local readiness 和 observed frame-name
+> resolution。`prepare_symbols` 可以建立 readiness，并故意把 resolution 报成
+> unmeasured。当前 context-bound TraceEvent frame resolver 不可用，任何 active query
+> 都不得把 readiness 升级成 measured resolution；null rate 不是 0%。
 
-#### 路径在哪里设
+#### 启动策略
 
-`_NT_SYMBOL_PATH` 接收用分号分隔的多条 entry：`SRV*<cache>*<url>` 是符号服务器，裸路径是本地 PDB 目录，可以混用。三条配置路径（任选一条——最终都设置同一个环境变量）：
+secure policy 仅允许本地符号。它不读取 `_NT_SYMBOL_PATH`，不检查 trace 目录，不搜索
+任意路径，不访问 symbol server，也不允许 tool call 临时传 root。启动前配置一个或多个
+absolute local candidate root，以及与它们互不包含的 private verified store：
 
-1. **启动前设环境变量**（最干净，重启后仍生效）：
-   ```powershell
-   [Environment]::SetEnvironmentVariable("_NT_SYMBOL_PATH",
-       "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols", "User")
-   ```
-2. **在 MCP 配置 JSON 里加 `env` 块**（见上面的手动安装）。最方便和团队成员共享。
-3. **运行时通过工具调用**——直接对 agent 说："*把 symbol path 设成 SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols，然后对这个 trace 跑 `diagnose_symbols`*。"
+```powershell
+wpa-mcp.exe --symbol-local-root "C:\Symbols" `
+  --symbol-store-root "$env:LOCALAPPDATA\WpaMcp\symbol-store"
+```
 
-`add_symbol_server` 未传 `cacheDir` 时，fallback cache 是 `%LocalAppData%\WpaMcp\Symbols`（和 PerfView 的 `C:\Symbols` 分开，避免 PDB lock 争用）。`diagnose_symbols.DefaultCacheDir` 只报告这个 fallback；旧字段 `CacheDir` 是兼容 alias，并不证明当前 `ConfiguredSymbolPath` 正在使用该目录。每条 trace 的针对性推荐会出现在 `load_trace` 的返回字段 `SymbolStatus.Recommendations` 里。
+等价环境变量为 `WPAMCP_SYMBOL_LOCAL_ROOTS`（Windows 上用分号分隔）和
+`WPAMCP_SYMBOL_STORE_ROOT`。启用 candidate root 时必须配置 store root；UNC、device、
+alternate-stream 路径会被拒绝，candidate root 与 store 不能包含彼此。installer 默认
+配置 `%LocalAppData%\WpaMcp\symbol-candidates` 与
+`%LocalAppData%\WpaMcp\symbol-store`。
 
-#### 微软模块之外的符号
-
-`load_trace` 的自动推荐只认它内置的 pattern（Microsoft、Chromium）。自家 DLL、第三方 SDK、内部构建的符号需要显式追加，常见写法：
-
-| 你手上有什么 | 应该追加的 entry |
-|---|---|
-| 内部团队符号服务器 | `SRV*C:\Symbols*https://internal-symsrv.example.com/symbols` |
-| 团队共享的 UNC 盘 | `SRV*C:\Symbols*\\fileserver\symbols` |
-| 本地 dev 构建产物（自家 PDB） | `C:\src\myapp\out\Default`（裸路径，无 `SRV*`） |
-
-**顺序有意义**——entry 从左到右尝试，首个签名命中就停。迭代构建时把本地 dev 目录放**最前**，让刚出炉的 PDB 优先于公开 PDB 命中。
+PDB 可放在 `<root>\<pdbName>`，或 symbol-store 形状的
+`<root>\<pdbName>\<GUIDAge>\<pdbName>`。公开/私有 PDB 需在 wpa-mcp 之外获取，再复制
+到 approved root；MCP server 自身不做远端抓取。每个 candidate 都必须被实际打开，
+并与 trace 中完整 PDB name/GUID/age 精确匹配，之后才会复制并 pin 到 private verified
+store。
 
 #### 自家 DLL 的构建前置条件
 
-符号服务器配得再对，构建本身没产 PDB——或者 PDB 跟最终部署的 DLL 不是同一次构建——也无济于事。
+approved local root 配得再对，构建本身没产 PDB——或者 PDB 跟最终部署的 DLL 不是同一次构建——也无济于事。
 
 - **.NET / C#**：`<DebugType>portable</DebugType>` + `<DebugSymbols>true</DebugSymbols>`。检查 Release 配置没把 PDB 输出关掉。
 - **C++（MSVC）**：`/Zi` + `/DEBUG:FULL`，Release 也要开。PDB 跟 DLL 留同目录。
@@ -505,11 +605,19 @@ wpr.exe -stop C:\path\to\my_capture.etl
 #### 验证是否生效
 
 ```
-> load_trace C:\my\trace.etl
-> diagnose_symbols C:\my\trace.etl
-> cpu_top_functions C:\my\trace.etl
+> 加载 C:\my\trace.etl，并保留返回的 TraceId。
+> 对该 TraceId 调 prepare_symbols，并保留返回的 SymbolContextId。
+> 检查 prepare_symbols 的 readiness，但不要把它解释成 function 已解析。
 ```
 
-`diagnose_symbols` 给出 PDB identity、本地 candidate 状态与配置 hint。普通 bare path 只探测 `<root>\<pdbName>`；只有 `SRV`/`SYMSRV`/`CACHE` 中的非 UNC filesystem root 才按 `<root>\<pdbName>\<GUIDAge>\<pdbName>` 探测。所有 candidate 都会先验证，再把展示列表限制为 10 条；`LocalSymbolCandidateCount` / `LocalSymbolCandidatesTruncated` 公开总数与截断状态，精确匹配路径优先展示。Symbol-store 位置或可识别 container 本身并不能证明 identity；工具报告 `exact_identity_match`、`identity_mismatch`、`invalid_local_pdb_candidate` 或 `candidate_identity_unverified`。Windows DIA 错误若无法区分 candidate 不兼容和 reader 故障，会保守地保持 `candidate_identity_unverified`，不会伪称文件损坏。只有格式对应的 reader 读出的 GUID/age 精确匹配时，`LocalPdbReady` 才为 true。应对相应栈工具传 `resolveSymbols=true` 测量实际 frame 解析率。查询使用 query-local effective symbol path，不修改 `_NT_SYMBOL_PATH`；只有 `set_symbol_path` 和 `add_symbol_server` 会有意修改该进程设置。`diagnose_symbols` 不主动访问远端 SRV/UNC entry、也不下载 PDB，但 Windows 仍可能通过 mapped drive/reparse point 重定向看似本地的 root；加载 trace 也可能写 `.etlx` sidecar，见上文说明。
+SymbolContextId 绑定 principal、trace generation、policy、resolver、privacy/contract
+profile、module identity 与 verified artifact。目标 lookup contract 要求 stack query
+同时显式给出它和 `resolveSymbols=true`，不存在 ambient fallback；但当前 build 会用
+`symbol_resolution_unavailable` / `context_bound_frame_resolution_unavailable` fail
+closed，因为 context-bound TraceEvent adapter 尚未实现。因此
+`symbols.frame_resolution.measured` 仍是 declared gap；unsymbolized result 与 preparation
+metadata 不能冒充实测 resolution rate。
 
-完整配方（UNC 路径、私有 vendor、Chromium 浏览器、缓存管理、踩坑排查）见 [`docs/SYMBOL_RECIPES.zh-CN.md`](docs/SYMBOL_RECIPES.zh-CN.md)（中文）/ [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md)（英文）。架构总览和贡献时要注意的不变量见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)（均英文）。
+架构与兼容边界见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、
+[`docs/CONTRACT_MIGRATION.zh-CN.md`](docs/CONTRACT_MIGRATION.zh-CN.md) 和
+[`docs/CLIENT_COMPATIBILITY.zh-CN.md`](docs/CLIENT_COMPATIBILITY.zh-CN.md)。

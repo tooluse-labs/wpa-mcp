@@ -1,0 +1,295 @@
+{
+  "formatVersion": "side-effect-inventory.v1",
+  "observation": {
+    "catalogSource": "eng/tool-contracts.v2.json",
+    "activeCatalogSnapshotTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
+    "toolCount": 60,
+    "profiles": ["id_only", "compatibility"],
+    "reviewScope": "Every current Active Catalog tool under both trace-reference profiles, plus separately disclosed host-wrapper effects.",
+    "reviewedAt": "2026-08-01"
+  },
+  "annotationBoundary": {
+    "included": "The tool request domain: worst reachable effects of the active implementation and shared trace/symbol services during one tool request.",
+    "excluded": "Operator-configured transport startup and host observability are deployment-domain effects, not the semantic effect of each tool invocation.",
+    "reason": "hostWrapperEffects keeps uniform startup/telemetry effects visible without weakening or inflating per-tool MCP annotations.",
+    "traceReferenceRule": "ID-only queries use an already loaded TraceId and cannot materialize a source; the explicit compatibility profile may receive an approved raw local path and therefore inherits load/conversion effects.",
+    "symbolRule": "Queries without SymbolContextId do no symbol lookup. Queries with SymbolContextId read only pinned verified artifacts; prepare_symbols is the sole symbol-store mutation boundary and current remote resolution is explicitly unimplemented.",
+    "artifactQuotaRule": "Retained artifact quotas and materialization checkpoints are enforced, but the opaque converter transient physical peak is not proven as a whole-root physical peak cap."
+  },
+  "stateEnums": {
+    "pathAccess": [
+      "none",
+      "loaded_owned_trace_artifact",
+      "loaded_owned_trace_and_verified_symbol_artifacts",
+      "caller_trace_and_owned_artifacts",
+      "caller_trace_owned_and_verified_symbol_artifacts",
+      "approved_symbol_roots_and_owned_store",
+      "configured_telemetry_and_server_owned_roots"
+    ],
+    "diskWrite": [
+      "none",
+      "conditional_owned_artifact_materialization",
+      "conditional_verified_symbol_copy",
+      "conditional_startup_and_write_when_enabled"
+    ],
+    "network": [
+      "none",
+      "approved_symbol_origins_declared_currently_unimplemented",
+      "conditional_configured_sink"
+    ],
+    "processState": [
+      "bounded_discovery_cursor_registry_mutation",
+      "trace_lease_and_analysis_cache_mutation",
+      "trace_handle_artifact_and_analysis_cache_mutation",
+      "trace_handle_and_artifact_registry_mutation",
+      "trace_handle_retirement",
+      "symbol_context_registry_and_store_mutation",
+      "host_call_tracking_and_registry_lifecycle"
+    ],
+    "externalStorage": [
+      "none",
+      "approved_local_source_only",
+      "approved_symbol_origins_declared_currently_unimplemented",
+      "conditional_configured_sink"
+    ],
+    "measurementState": [
+      "static_reviewed",
+      "static_reviewed_dependency_behavior",
+      "release_blocked_physical_peak_unproven",
+      "not_runtime_measured"
+    ]
+  },
+  "hostWrapperEffects": {
+    "id": "configured_host_wrapper",
+    "description": "After the first accepted frame, host startup may establish server-owned roots and opt-in telemetry may write to stderr or a configured file.",
+    "effects": {
+      "pathAccess": {"state": "configured_telemetry_and_server_owned_roots", "measurementState": "static_reviewed"},
+      "diskWrite": {"state": "conditional_startup_and_write_when_enabled", "measurementState": "static_reviewed_dependency_behavior"},
+      "network": {"state": "conditional_configured_sink", "measurementState": "not_runtime_measured"},
+      "processState": {"state": "host_call_tracking_and_registry_lifecycle", "measurementState": "static_reviewed"},
+      "externalStorage": {"state": "conditional_configured_sink", "measurementState": "not_runtime_measured"}
+    },
+    "triggers": [
+      "A rejected oversized first frame is handled before telemetry, trace-artifact, and symbol-store constructors; an accepted first frame permits normal host initialization.",
+      "WPAMCP_TELEMETRY=1 enables bounded call tracking and optional configured-file output; this does not alter a tool's domain annotation."
+    ],
+    "evidenceSources": [
+      {"path": "src/WpaMcp/Program.cs", "member": "Program.Main/first-frame prime and runtime construction", "basis": "Orders ingress rejection before mutable runtime construction and then binds configured stores."},
+      {"path": "src/WpaMcp/Core/ToolTelemetry.cs", "member": "ToolTelemetryOptions.FromEnvironment/ToolTelemetry", "basis": "Defines opt-in stderr/file host observability and bounded call tracking."}
+    ]
+  },
+  "families": [
+    {
+      "id": "none",
+      "description": "Server/catalog discovery with no trace, filesystem, symbol, or external-world access.",
+      "effects": {
+        "pathAccess": {"state": "none", "measurementState": "static_reviewed"},
+        "diskWrite": {"state": "none", "measurementState": "static_reviewed"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "bounded_discovery_cursor_registry_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "none", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["Paged capability discovery may mint/redeem an opaque bounded in-process cursor; it does not inspect a trace or external resource."],
+      "expectedAnnotations": {"readOnlyHint": true, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Tools/CapabilityDiscoveryTools.cs", "member": "CapabilityDiscoveryTools.ListCapabilities", "basis": "Routes only to the validated declared capability catalog."},
+        {"path": "src/WpaMcp/Core/CapabilityDiscovery.cs", "member": "CapabilityDiscoveryService/CapabilityCursorRegistry", "basis": "Implements bounded opaque discovery paging without trace or filesystem access."}
+      ]
+    },
+    {
+      "id": "loaded_trace_query",
+      "description": "ID-only query over an already loaded immutable trace generation.",
+      "effects": {
+        "pathAccess": {"state": "loaded_owned_trace_artifact", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "none", "measurementState": "static_reviewed"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_lease_and_analysis_cache_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "none", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["A canonical TraceId acquires one generation lease; query execution cannot fall back to raw-path loading, conversion, symbol probing, or network."],
+      "expectedAnnotations": {"readOnlyHint": true, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Core/TraceQueryExecutionContext.cs", "member": "TraceQueryExecutionFilters", "basis": "Resolves ID-only query scope to an existing generation lease and fails closed otherwise."},
+        {"path": "src/WpaMcp/Core/TraceHandleRegistry.cs", "member": "TraceHandleRegistry.Acquire", "basis": "Provides principal-scoped immutable handle leases without source conversion."}
+      ]
+    },
+    {
+      "id": "loaded_trace_stack_query",
+      "description": "ID-only stack query; optional symbol lookup is restricted to the supplied immutable context's pinned verified artifacts.",
+      "effects": {
+        "pathAccess": {"state": "loaded_owned_trace_and_verified_symbol_artifacts", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "none", "measurementState": "static_reviewed"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_lease_and_analysis_cache_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "none", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["Without SymbolContextId no lookup occurs; with one, the query leases already verified pinned artifacts and never downloads, copies, or changes _NT_SYMBOL_PATH."],
+      "expectedAnnotations": {"readOnlyHint": true, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Core/SymbolQueryExecutionFilters.cs", "member": "SymbolQueryExecutionFilters", "basis": "Binds lookup to the same generation and immutable SymbolContextId."},
+        {"path": "src/WpaMcp/Core/SymbolContextRegistry.cs", "member": "SymbolContextRegistry.AcquireAsync", "basis": "Leases verified artifact pins without probing current cache or network state."}
+      ]
+    },
+    {
+      "id": "raw_trace_query",
+      "description": "Explicit compatibility query that may materialize an approved local raw source before running the same active implementation.",
+      "effects": {
+        "pathAccess": {"state": "caller_trace_and_owned_artifacts", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "conditional_owned_artifact_materialization", "measurementState": "release_blocked_physical_peak_unproven"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_handle_artifact_and_analysis_cache_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "approved_local_source_only", "measurementState": "static_reviewed"}
+      },
+      "triggers": [
+        "Raw paths are accepted only in the explicit compatibility profile and pass local-root, same-object, device, UNC, and reparse policy checks.",
+        "A cold .etl path may snapshot/convert/publish/evict only inside the server-owned artifact root; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"
+      ],
+      "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Core/TraceAccessPolicy.cs", "member": "TraceAccessPolicy.OpenApprovedSource", "basis": "Enforces local approved roots, safe handles, and reparse/device rejection."},
+        {"path": "src/WpaMcp/Core/TraceLifecycleService.cs", "member": "TraceArtifactLoader/TraceLifecycleService.LoadAsync", "basis": "Routes compatibility paths through the canonical generation single-flight."},
+        {"path": "src/WpaMcp/Core/OwnedTraceArtifactStore.cs", "member": "OwnedTraceArtifactStore.GetOrCreateAsync", "basis": "Owns snapshot/conversion/publication, retained quotas, and the explicit transient-peak release blocker."}
+      ]
+    },
+    {
+      "id": "raw_trace_stack_query",
+      "description": "Explicit compatibility stack query: raw-source materialization plus read-only use of an optional pre-prepared symbol context.",
+      "effects": {
+        "pathAccess": {"state": "caller_trace_owned_and_verified_symbol_artifacts", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "conditional_owned_artifact_materialization", "measurementState": "release_blocked_physical_peak_unproven"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_handle_artifact_and_analysis_cache_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "approved_local_source_only", "measurementState": "static_reviewed"}
+      },
+      "triggers": [
+        "All raw_trace_query source/artifact conditions apply; symbol resolution still requires a same-generation immutable SymbolContextId.",
+        "Query-time symbol use reads only pinned verified artifacts and performs no download/cache population; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"
+      ],
+      "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Core/TraceLifecycleService.cs", "member": "TraceArtifactLoader/TraceLifecycleService.LoadAsync", "basis": "Shares canonical compatibility materialization with non-stack queries."},
+        {"path": "src/WpaMcp/Core/OwnedTraceArtifactStore.cs", "member": "OwnedTraceArtifactStore.GetOrCreateAsync", "basis": "Owns conversion effects and exposes the physical-peak release blocker."},
+        {"path": "src/WpaMcp/Core/SymbolQueryExecutionFilters.cs", "member": "SymbolQueryExecutionFilters", "basis": "Forbids query-time fallback beyond the immutable symbol context."}
+      ]
+    },
+    {
+      "id": "owned_trace_artifact_write",
+      "description": "Loads an approved source into the owned immutable artifact store and creates/reuses a principal-scoped TraceId.",
+      "effects": {
+        "pathAccess": {"state": "caller_trace_and_owned_artifacts", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "conditional_owned_artifact_materialization", "measurementState": "release_blocked_physical_peak_unproven"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_handle_and_artifact_registry_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "approved_local_source_only", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["load_trace may copy/convert/publish/evict in the owned root and mint/reuse a handle; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"],
+      "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Tools/MetaTools.cs", "member": "MetaTools.LoadTrace", "basis": "Exposes canonical load and TraceId result semantics."},
+        {"path": "src/WpaMcp/Core/OwnedTraceArtifactStore.cs", "member": "OwnedTraceArtifactStore.GetOrCreateAsync", "basis": "Owns all trace-derived writes and retained quota/peak boundary."}
+      ]
+    },
+    {
+      "id": "trace_handle_retirement",
+      "description": "Retires only the caller's TraceId binding and drains leases; immutable artifacts have independent retention.",
+      "effects": {
+        "pathAccess": {"state": "none", "measurementState": "static_reviewed"},
+        "diskWrite": {"state": "none", "measurementState": "static_reviewed"},
+        "network": {"state": "none", "measurementState": "static_reviewed"},
+        "processState": {"state": "trace_handle_retirement", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "none", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["unload_trace never parses a raw path or deletes artifacts; repeat retirement returns stable already_unloaded."],
+      "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": true},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Tools/MetaTools.cs", "member": "MetaTools.UnloadTrace", "basis": "Accepts only TraceId and projects stable retirement state."},
+        {"path": "src/WpaMcp/Core/TraceHandleRegistry.cs", "member": "TraceHandleRegistry.RetireAsync", "basis": "Retires the binding, drains leases, and preserves independent artifact retention."}
+      ]
+    },
+    {
+      "id": "symbol_context_preparation",
+      "description": "Prepares an immutable symbol context by verifying approved local candidates into the private store; remote origins are declared but not implemented in this build.",
+      "effects": {
+        "pathAccess": {"state": "approved_symbol_roots_and_owned_store", "measurementState": "static_reviewed_dependency_behavior"},
+        "diskWrite": {"state": "conditional_verified_symbol_copy", "measurementState": "static_reviewed_dependency_behavior"},
+        "network": {"state": "approved_symbol_origins_declared_currently_unimplemented", "measurementState": "static_reviewed"},
+        "processState": {"state": "symbol_context_registry_and_store_mutation", "measurementState": "static_reviewed"},
+        "externalStorage": {"state": "approved_symbol_origins_declared_currently_unimplemented", "measurementState": "static_reviewed"}
+      },
+      "triggers": ["prepare_symbols may read policy-approved local candidates, verify identity/content, copy/evict in the private store, pin artifacts, and mint/reuse SymbolContextId; it never changes _NT_SYMBOL_PATH."],
+      "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": true, "destructiveHint": false},
+      "evidenceSources": [
+        {"path": "src/WpaMcp/Tools/SymbolLifecycleTools.cs", "member": "SymbolLifecycleTools.PrepareSymbols", "basis": "Exposes the sole public symbol-preparation mutation boundary."},
+        {"path": "src/WpaMcp/Core/SymbolPreparation.cs", "member": "SymbolPreparationService/LocalOnlySymbolPreparationResolver", "basis": "Binds preparation to an approved policy and local candidates."},
+        {"path": "src/WpaMcp/Core/VerifiedSymbolArtifactStore.cs", "member": "LocalVerifiedSymbolArtifactStore.TryVerifyAndPinLocalAsync", "basis": "Copies and verifies only into the protected private symbol store."}
+      ]
+    }
+  ],
+  "tools": [
+    {"name":"alpc_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"alpc_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_alloc_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_alloc_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_contention_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_contention_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_exception_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_exception_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"clr_finalizer_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"clr_gc_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"clr_gc_heap_stats","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"clr_jit_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"cpu_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"cpu_precise_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"cpu_top_functions","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"cpu_top_functions_batch","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"diagnose_high_wait","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"diagnose_slow_startup","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"diagnose_window","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"disk_io_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"disk_io_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"file_io_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"file_io_top_files","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"file_io_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"find_marker","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"generic_event_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"generic_event_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"hard_fault_by_file","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"hard_fault_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"hard_fault_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"heap_alloc_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"heap_alloc_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"image_load_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"image_load_timing","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"image_load_top_gaps","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"image_load_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"inspect_trace","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"interrupt_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"interrupt_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"list_capabilities","manifestSideEffectClass":"none","idOnlyFamily":"none","compatibilityFamily":"none"},
+    {"name":"list_processes","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"load_trace","manifestSideEffectClass":"owned_trace_artifact_write","idOnlyFamily":"owned_trace_artifact_write","compatibilityFamily":"owned_trace_artifact_write"},
+    {"name":"memory_resource_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"net_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"net_connections","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"net_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"prepare_symbols","manifestSideEffectClass":"symbol_context_preparation","idOnlyFamily":"symbol_context_preparation","compatibilityFamily":"symbol_context_preparation"},
+    {"name":"process_create_timing","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"ready_thread_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"ready_thread_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"registry_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"registry_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"security_scan_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"thread_lifetime","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"unload_trace","manifestSideEffectClass":"trace_handle_retirement","idOnlyFamily":"trace_handle_retirement","compatibilityFamily":"trace_handle_retirement"},
+    {"name":"virtual_alloc_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"virtual_alloc_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"wait_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"wait_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"wait_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"}
+  ],
+  "knownFindings": [
+    "OwnedTraceArtifactStore retained quotas are not a proven whole-root physical peak cap; release remains blocked until converter execution has an independent quota boundary.",
+    "prepare_symbols advertises open-world policy conservatively, while this implementation intentionally fails remote resolution as unimplemented instead of silently performing network access.",
+    "ADR 0005 release-stage defaults are a separate rollout gate; this inventory records both reachable profiles and does not declare which release may default to either."
+  ]
+}

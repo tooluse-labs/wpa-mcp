@@ -8,6 +8,12 @@
 
 **Tech Stack:** The C# version, TFM, MCP SDK, and TraceEvent package selected by Child 11A; the current baseline is C# 12, .NET 8, ModelContextProtocol 1.2.0, and TraceEvent 3.2.2. Lifecycle code uses `TimeProvider`, `System.Threading.Channels`, Windows process identity APIs, JSON source generation, and xUnit concurrency tests.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+This plan continues to own trace-entry state, handle/lease lifetime, backend retirement, quotas, and exactly-once disposal. Those runtime ownership rules are separate from persistent artifact retention: retirement may close the trace handle/backend and make an ID unusable without deciding when a content-addressed ETLX or symbol artifact is deleted.
+
+Under [ADR 0002](../../decisions/0002-capability-map-evidence-contract.md), the retention/deletion policy is a follow-up ADR gate. Therefore the older “final reference immediately deletes the object” target below is suspended as a persistent-artifact policy; until the follow-up decision, final-reference logic may release runtime leases and accounting but must not be treated as authorization for a final public retention guarantee.
+
 ## Global Constraints
 
 - This plan starts after `2026-07-29-trace-symbol-access-policy.md`. It consumes `TraceDescriptor`, `ITraceRegistry`, `TraceLease`, `ITraceBackend`, `ITraceReferenceResolver`, `TraceArtifactKey`, `TraceArtifactStore`, and the trace-ID grammar without changing tool call sites.

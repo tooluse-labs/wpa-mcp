@@ -8,10 +8,10 @@ public static class WarningBuilder
     public static string SymbolResolution(double rate)
         => $"observed_unique_code_frame_name_resolution_rate={rate * 100:F1}%; this post-lookup " +
            "heuristic covers sample-reachable code frames only and is not a per-PDB success rate. " +
-           "Interpret it with LookupState and domain stack coverage; run diagnose_symbols() for path/readiness hints.";
+           "Interpret it with LookupState, domain stack coverage, and the exact immutable symbolContextId used for lookup.";
 
     public static string SymbolResolutionSkipped(string toolName)
-        => $"Native symbol resolution skipped for {toolName} fast mode; pass resolveSymbols=true after narrowing pid/startUs/endUs when exact function names matter.";
+        => $"Native symbol resolution skipped for {toolName}; call prepare_symbols for an immutable same-generation context before requesting resolution. Context-bound frame lookup is unavailable in this build and fails explicitly rather than using an implicit fallback.";
 
     public const string HardFaultKeywordHint =
         "MemoryHardFaults keyword required in capture profile. " +

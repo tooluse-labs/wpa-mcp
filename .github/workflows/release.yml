@@ -14,7 +14,13 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/quality.yml
+
   build:
+    needs: quality
     runs-on: windows-latest
 
     steps:
@@ -22,6 +28,28 @@ jobs:
 
       - name: Setup build environment
         uses: ./.github/actions/setup-wpamcp
+
+      - name: Verify immutable release identity
+        id: release_identity
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content src/WpaMcp/WpaMcp.csproj -Raw
+          $version = @($project.Project.PropertyGroup.Version | Where-Object { $_ })[0].Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Project version '$version' is not a supported release version."
+          }
+
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $expectedTag = "v$version"
+            if ($env:GITHUB_REF_NAME -cne $expectedTag) {
+              throw "Release tag '$env:GITHUB_REF_NAME' does not match project version '$expectedTag'."
+            }
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Restore normal locked graph
+        run: dotnet restore WpaMcp.sln --locked-mode
 
       - name: Restore locked win-x64 graph
         run: dotnet restore src/WpaMcp/WpaMcp.csproj -r win-x64 --locked-mode -p:NuGetLockFilePath=packages.win-x64.lock.json
@@ -38,6 +66,88 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=false `
             -o publish/win-x64
 
+      - name: Validate immutable runtime rollout profile
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          $profileJson = & .\publish\win-x64\WpaMcp.exe --runtime-profile
+          if ($LASTEXITCODE -ne 0) {
+            throw "Published host could not report its runtime profile."
+          }
+          $profile = $profileJson | ConvertFrom-Json
+          $profileJson | Set-Content release/runtime-profile.v1.json -Encoding utf8
+
+          if ($profile.schemaVersion -cne 'runtime-profile.v1' -or
+              $profile.runtimeVersion -cne '${{ steps.release_identity.outputs.version }}' -or
+              $profile.selectionScope -cne 'startup_immutable' -or
+              -not $profile.runnable -or
+              $profile.contractModeExplicit -or
+              $profile.traceReferenceModeExplicit) {
+            throw "Published runtime profile does not match the immutable release identity/default profile."
+          }
+
+          $null = & .\publish\win-x64\WpaMcp.exe --validate-release-profile
+          if ($LASTEXITCODE -ne 0 -or $profile.releaseStatus -cne 'eligible') {
+            $blockers = $profile.releaseBlockers -join '; '
+            throw "ADR 0005 runtime rollout gate blocked this release: $blockers"
+          }
+
+      - name: Test exact published package over stdio
+        shell: pwsh
+        env:
+          WPAMCP_RELEASE_REQUIRED: '1'
+          WPAMCP_RELEASE_SERVER_PATH: ${{ github.workspace }}\publish\win-x64\WpaMcp.exe
+          WPAMCP_RELEASE_EVIDENCE_PATH: ${{ github.workspace }}\release\release-package-stdio.v1.json
+        run: dotnet test tests/WpaMcp.Tests/WpaMcp.Tests.csproj -c Release --no-restore -m:1 -nr:false --filter "Category=Package"
+
+      - name: Validate external release evidence gates
+        shell: pwsh
+        run: |
+          $required = @(
+            'tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json',
+            'tests/WpaMcp.Tests/ContractBaselines/active-dto-inventory.v1.json',
+            'tests/WpaMcp.Tests/ContractBaselines/active-structured-stdio.v1.json',
+            'eng/contract-baselines/supported-client-matrix.v1.json',
+            'eng/contract-baselines/artifact-materialization-budget.v1.json'
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Required release evidence is missing: $path"
+            }
+          }
+
+          $clients = Get-Content eng/contract-baselines/supported-client-matrix.v1.json -Raw | ConvertFrom-Json
+          if ($clients.schemaVersion -cne 'supported-client-matrix.v1' -or
+              $clients.status -cne 'passed' -or
+              @($clients.clients).Count -eq 0 -or
+              @($clients.clients | Where-Object {
+                -not $_.allToolPagesConsumed -or
+                -not $_.schemaTokensMeasured -or
+                -not $_.promptCacheBehaviorMeasured
+              }).Count -ne 0) {
+            throw 'Supported-client paging/token/cache evidence is not release-approved.'
+          }
+
+          $artifact = Get-Content eng/contract-baselines/artifact-materialization-budget.v1.json -Raw | ConvertFrom-Json
+          if ($artifact.schemaVersion -cne 'artifact-materialization-budget.v1' -or
+              $artifact.status -cne 'passed' -or
+              -not $artifact.opaqueConverterTransientPeakProven) {
+            throw 'Opaque converter transient-peak evidence is not release-approved.'
+          }
+
+      - name: Verify package evidence uses the gated default profile
+        shell: pwsh
+        run: |
+          $profile = Get-Content release/runtime-profile.v1.json -Raw | ConvertFrom-Json
+          $package = Get-Content release/release-package-stdio.v1.json -Raw | ConvertFrom-Json
+          if ($package.commit -cne '${{ github.sha }}' -or
+              $package.runtimeVersion -cne $profile.runtimeVersion -or
+              $package.contractMode -cne $profile.contractMode -or
+              $package.traceReferenceMode -cne $profile.traceReferenceMode -or
+              $package.runtimeProfileReleaseStatus -cne $profile.releaseStatus) {
+            throw "Package stdio evidence, runtime profile, version, or commit do not match."
+          }
+
       - name: Stage release assets
         shell: pwsh
         run: |
@@ -50,8 +160,37 @@ jobs:
 
           # Keep the historical single-exe asset for manual users and older installers.
           Copy-Item publish/win-x64/WpaMcp.exe release/wpa-mcp-win-x64.exe
-          .\release\root\bin\wpa-mcp.exe --version
+          $reportedVersion = .\release\root\bin\wpa-mcp.exe --version
+          $expectedVersion = 'WpaMcp ${{ steps.release_identity.outputs.version }}'
+          if ($reportedVersion -cne $expectedVersion) {
+            throw "Published host reported '$reportedVersion'; expected '$expectedVersion'."
+          }
           Get-ChildItem release/
+
+      - name: Record immutable release evidence
+        shell: pwsh
+        run: |
+          $evidence = [ordered]@{
+            schemaVersion = 'release-evidence.v1'
+            commit = '${{ github.sha }}'
+            ref = '${{ github.ref }}'
+            version = '${{ steps.release_identity.outputs.version }}'
+            capabilityManifestSha256 = (Get-FileHash eng/capabilities.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            toolContractManifestSha256 = (Get-FileHash eng/tool-contracts.v2.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            activeToolSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            activeDtoSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-dto-inventory.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            activeStdioSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-structured-stdio.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            supportedClientMatrixSha256 = (Get-FileHash eng/contract-baselines/supported-client-matrix.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            artifactMaterializationBudgetSha256 = (Get-FileHash eng/contract-baselines/artifact-materialization-budget.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            runtimeProfileSha256 = (Get-FileHash release/runtime-profile.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            capabilityContractDesignSha256 = (Get-FileHash docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md -Algorithm SHA256).Hash.ToLowerInvariant()
+            packageStdioEvidenceSha256 = (Get-FileHash release/release-package-stdio.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            assets = [ordered]@{
+              executableSha256 = (Get-FileHash release/wpa-mcp-win-x64.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+              zipSha256 = (Get-FileHash release/wpa-mcp-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+          $evidence | ConvertTo-Json -Depth 5 | Set-Content release/release-evidence.v1.json -Encoding utf8
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -60,6 +199,9 @@ jobs:
           files: |
             release/wpa-mcp-win-x64.zip
             release/wpa-mcp-win-x64.exe
+            release/release-package-stdio.v1.json
+            release/runtime-profile.v1.json
+            release/release-evidence.v1.json
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

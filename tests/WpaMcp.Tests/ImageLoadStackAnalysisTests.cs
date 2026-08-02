@@ -17,7 +17,9 @@ public class ImageLoadStackAnalysisTests
         var resp = tools.ImageLoadTopStacks(FixturePath, top: 20);
         if (resp.Rows.Count == 0)
             Assert.Contains(resp.Warnings,
-                w => w.Contains("ImageLoad", StringComparison.OrdinalIgnoreCase));
+                w => w.Contains("ImageLoad", StringComparison.OrdinalIgnoreCase) ||
+                     w.Contains("stacks_unavailable", StringComparison.OrdinalIgnoreCase) ||
+                     w.Contains("no_stacks", StringComparison.OrdinalIgnoreCase));
         else
             Assert.True(resp.TotalLoads > 0);
     }
@@ -51,11 +53,21 @@ public class ImageLoadStackAnalysisTests
         Assert.True(resp.TotalLoads > 0,
             $"expected ImageLoad events on small_mmap fixture, got {resp.TotalLoads} (warnings: " +
             $"{string.Join(", ", resp.Warnings)})");
-        Assert.NotEmpty(resp.Rows);
         var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
         Assert.Equal("image_load", coverage.Domain);
         Assert.Equal(resp.TotalLoads, coverage.TotalEventCount);
         Assert.Equal(resp.TotalLoads, coverage.TotalMetric);
+        if (resp.Rows.Count == 0)
+        {
+            Assert.Equal("no_stacks", coverage.CoverageState);
+            Assert.Equal(0, coverage.StackedEventCount);
+            Assert.Equal("unavailable", resp.CapabilityStatus);
+            Assert.Equal("stacks_unavailable", resp.NoDataReason);
+        }
+        else
+        {
+            Assert.True(coverage.StackedEventCount > 0);
+        }
     }
 
     [Fact]

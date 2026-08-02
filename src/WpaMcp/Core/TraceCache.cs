@@ -8,9 +8,12 @@ namespace WpaMcp.Core;
 
 public sealed class TraceCache : IDisposable
 {
+    private static long _nextGenerationSequence;
     private readonly LruCache<string, CacheEntry> _cache;
     private readonly Func<string, TraceLog> _openTrace;
     private readonly Action<TraceLog> _disposeTrace;
+    private readonly Func<TraceLog, long, CancellationToken, TraceFactsSnapshot>
+        _factsBuilder;
     private readonly bool _refreshStaleSidecars;
     private readonly HashSet<string> _sidecarRefreshRequests;
     private readonly object _sidecarRefreshLock = new();
@@ -32,7 +35,8 @@ public sealed class TraceCache : IDisposable
         int capacity,
         Func<string, TraceLog> openTrace,
         Action<TraceLog> disposeTrace,
-        bool refreshStaleSidecars = false)
+        bool refreshStaleSidecars = false,
+        Func<TraceLog, long, CancellationToken, TraceFactsSnapshot>? factsBuilder = null)
     {
         ArgumentNullException.ThrowIfNull(openTrace);
         ArgumentNullException.ThrowIfNull(disposeTrace);
@@ -44,6 +48,13 @@ public sealed class TraceCache : IDisposable
 
         _openTrace = openTrace;
         _disposeTrace = disposeTrace;
+        _factsBuilder = factsBuilder ??
+            (static (trace, generationSequence, cancellationToken) =>
+                TraceFactsSnapshotBuilder.Build(
+                    trace,
+                    generationSequence,
+                    cancellationToken,
+                    TraceFactsBuildBudget.Default));
         _refreshStaleSidecars = refreshStaleSidecars;
         var pathComparer = OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase
@@ -62,6 +73,11 @@ public sealed class TraceCache : IDisposable
     public TraceLease Acquire(string path)
     {
         ThrowIfDisposed();
+        if (TraceQueryExecutionContext.TryAcquireBound(this, path, out var boundLease))
+        {
+            TraceCacheCallContext.RecordHit();
+            return boundLease;
+        }
         if (!File.Exists(path))
             throw new FileNotFoundException($"trace file not found: {path}", path);
 
@@ -126,6 +142,7 @@ public sealed class TraceCache : IDisposable
                 canonical,
                 OpenTrace,
                 _disposeTrace,
+                _factsBuilder,
                 OnEntryRetirementCompleted);
             try
             {
@@ -174,6 +191,21 @@ public sealed class TraceCache : IDisposable
         try
         {
             return _cache.Remove(canonical);
+        }
+        catch (ObjectDisposedException)
+        {
+            throw new ObjectDisposedException(nameof(TraceCache));
+        }
+    }
+
+    internal bool RetireGeneration(GenerationIdentity generation)
+    {
+        ThrowIfDisposed();
+        try
+        {
+            return _cache.Remove(
+                generation.Stamp.CanonicalPath,
+                entry => entry.Generation == generation);
         }
         catch (ObjectDisposedException)
         {
@@ -339,9 +371,19 @@ public sealed class TraceCache : IDisposable
             string canonicalPath,
             Func<string, TraceLog> openTrace,
             Action<TraceLog> disposeTrace,
+            Func<TraceLog, long, CancellationToken, TraceFactsSnapshot>? factsBuilder = null,
             Action<CacheEntry>? onRetirementCompleted = null)
         {
             Stamp = stamp;
+            Generation = new GenerationIdentity(
+                stamp,
+                Interlocked.Increment(ref _nextGenerationSequence));
+            factsBuilder ??= static (trace, generationSequence, cancellationToken) =>
+                TraceFactsSnapshotBuilder.Build(
+                    trace,
+                    generationSequence,
+                    cancellationToken,
+                    TraceFactsBuildBudget.Default);
             _disposeTrace = disposeTrace;
             _onRetirementCompleted = onRetirementCompleted;
             Trace = new Lazy<TraceLog>(() =>
@@ -351,6 +393,9 @@ public sealed class TraceCache : IDisposable
                 {
                     opened = openTrace(canonicalPath);
                     TraceSymbolContext.Register(opened, canonicalPath);
+                    TraceIdentityIndex.BindFactsProvider(
+                        opened,
+                        cancellationToken => Facts!.Get(cancellationToken).Identity);
                     return opened;
                 }
                 catch
@@ -360,24 +405,53 @@ public sealed class TraceCache : IDisposable
                     throw;
                 }
             }, LazyThreadSafetyMode.ExecutionAndPublication);
-            Capabilities = new Lazy<TraceCapabilities>(
-                () => TraceCapabilitiesDetector.Detect(Trace.Value),
-                LazyThreadSafetyMode.ExecutionAndPublication);
-            Metadata = new Lazy<TraceMetadata>(
-                () => TraceMetadataAnalysis.Analyze(Trace.Value, Capabilities.Value),
-                LazyThreadSafetyMode.ExecutionAndPublication);
+            Facts = new TraceFactsSnapshotCache(
+                Generation.Sequence,
+                cancellationToken => factsBuilder(
+                    Trace.Value,
+                    Generation.Sequence,
+                    cancellationToken),
+                acquireOperationPin: () =>
+                {
+                    if (!TryAcquireBound())
+                    {
+                        throw new InvalidOperationException(
+                            "The trace generation cannot pin a facts scan operation.");
+                    }
+                },
+                releaseOperationPin: Release);
         }
 
         internal FileStamp Stamp { get; }
+        internal GenerationIdentity Generation { get; }
         internal Lazy<TraceLog> Trace { get; }
-        internal Lazy<TraceCapabilities> Capabilities { get; }
-        internal Lazy<TraceMetadata> Metadata { get; }
+        internal TraceFactsSnapshotCache Facts { get; }
 
         internal bool TryAcquire()
         {
             lock (_lock)
             {
                 if (_retired)
+                    return false;
+                checked { _leaseCount++; }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Acquires another lease from an already-bound generation. Unlike an LRU
+        /// lookup, this remains valid after the path entry is evicted: a registry
+        /// anchor keeps the exact generation alive and authorizes the clone.
+        /// </summary>
+        internal bool TryAcquireBound()
+        {
+            lock (_lock)
+            {
+                // A resident generation may pin its first derived facts scan even
+                // when a transitional Get() caller no longer owns a query lease.
+                // Once retired, however, only an existing registry/query anchor may
+                // authorize another clone; a zero-count retired entry is terminal.
+                if (_disposed || _disposeClaimed || (_retired && _leaseCount == 0))
                     return false;
                 checked { _leaseCount++; }
                 return true;
@@ -439,6 +513,7 @@ public sealed class TraceCache : IDisposable
         {
             try
             {
+                Facts.Dispose();
                 _disposeTrace(trace);
             }
             catch
@@ -541,6 +616,8 @@ public sealed class TraceCache : IDisposable
             internal uint FileIndexLow;
         }
     }
+
+    internal readonly record struct GenerationIdentity(FileStamp Stamp, long Sequence);
 }
 
 public sealed class TraceLease : IDisposable
@@ -552,9 +629,61 @@ public sealed class TraceLease : IDisposable
 
     public TraceLog Trace => GetEntry().Trace.Value;
 
-    public TraceCapabilities Capabilities => GetEntry().Capabilities.Value;
+    public TraceCapabilities Capabilities =>
+        GetFacts(TraceQueryExecutionContext.CurrentCancellationToken).Capabilities;
 
-    public TraceMetadata Metadata => GetEntry().Metadata.Value;
+    public TraceMetadata Metadata =>
+        GetFacts(TraceQueryExecutionContext.CurrentCancellationToken).Metadata;
+
+    internal TraceFactsSnapshot Facts =>
+        GetFacts(TraceQueryExecutionContext.CurrentCancellationToken);
+
+    internal TraceFactsSnapshot GetFacts(
+        CancellationToken cancellationToken) =>
+        GetEntry().Facts.Get(cancellationToken);
+
+    internal Task<TraceFactsSnapshot> GetFactsAsync(
+        CancellationToken cancellationToken) =>
+        GetEntry().Facts.GetAsync(cancellationToken);
+
+    internal TraceFactsAcquisition GetFactsAcquisition(
+        CancellationToken cancellationToken) =>
+        GetEntry().Facts.GetAcquisition(cancellationToken);
+
+    internal Task<TraceFactsAcquisition> GetFactsAcquisitionAsync(
+        CancellationToken cancellationToken) =>
+        GetEntry().Facts.GetAcquisitionAsync(cancellationToken);
+
+    internal TraceFactsScanTelemetry FactsTelemetry =>
+        GetEntry().Facts.GetTelemetry();
+
+    internal bool TryGetReadyFacts(out TraceFactsSnapshot snapshot) =>
+        GetEntry().Facts.TryGetReady(out snapshot);
+
+    internal TraceCache.GenerationIdentity GenerationIdentity
+    {
+        get
+        {
+            lock (_disposeLock)
+                return GetEntry().Generation;
+        }
+    }
+
+    /// <summary>
+    /// Clones a query lease from a registry-owned anchor. This intentionally does
+    /// not consult the raw-path LRU: eviction must not rebind a trace ID or make an
+    /// otherwise active handle unusable.
+    /// </summary>
+    internal TraceLease CloneBound()
+    {
+        lock (_disposeLock)
+        {
+            var entry = GetEntry();
+            if (!entry.TryAcquireBound())
+                throw new InvalidOperationException("The bound trace generation is no longer available.");
+            return new TraceLease(entry);
+        }
+    }
 
     public void Dispose()
     {

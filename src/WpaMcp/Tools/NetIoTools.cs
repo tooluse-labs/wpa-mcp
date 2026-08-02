@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class NetIoTools
 {
     private readonly TraceCache _cache;
-    public NetIoTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public NetIoTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by network bytes (TCP + UDP, send + receive, IPv4 + IPv6) — " +
         "answers 'which call chain is doing all the network IO'.  PerfView equivalent: " +
         "'TCP/IP Stacks' + 'UDP/IP Stacks' merged.  Distinguishes 'one socket streaming a big " +
@@ -22,7 +27,7 @@ public sealed class NetIoTools
         "use find_marker for those.  Requires the NetworkTrace keyword in the capture profile " +
         "(default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public NetIoStacksResponse NetTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -50,17 +55,17 @@ public sealed class NetIoTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the network-stack data.  Metric is " +
         "network bytes (send + receive, TCP + UDP, IPv4 + IPv6); top-N callers ranked by " +
         "inclusive bytes flowing INTO focus, callees by bytes OUT.")]
     public CallerCalleeResponse NetCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in net_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -82,16 +87,16 @@ public sealed class NetIoTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return NetIoStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true), Description(
+        OpenWorld = false,
+        Destructive = false), Description(
         "Per-connection TCP lifecycle list — Connect/Accept paired with Disconnect/Reconnect " +
         "by `connid` to give 'connection X opened at T1, closed at T2, lasted T2−T1'.  " +
         "Useful for finding unusually long observed connection lifecycles. This duration is " +
@@ -99,14 +104,19 @@ public sealed class NetIoTools
         "cannot by itself attribute a slow RPC to setup. Role: connect = outbound, accept = inbound. IPv4 + IPv6 merged " +
         "into one list with an IsIPv6 flag.  Connections still open when capture stopped have " +
         "TraceResidentEnd=true with null CloseTimeUs and DurationUs. Pairing uses the emitter's " +
-        "process lifetime plus connid, so PID/connid reuse cannot cross-pair sessions. Reconnect on a connid is " +
-        "treated as the prior session ending. An in-scope Disconnect/Reconnect without a preceding " +
+        "process lifetime plus connid, so PID/connid reuse cannot cross-pair sessions. A second open on the same " +
+        "slot marks the prior row replaced_open_unobserved with null CloseTimeUs/DurationUs; its timestamp is not " +
+        "invented as a close. Reconnect on a connid is " +
+        "treated as the prior session ending. ConnIdText is the authoritative exact unsigned-decimal " +
+        "identifier; the deprecated numeric ConnId is null above JavaScript's safe-integer limit, as " +
+        "reported by ConnIdLegacyStatus. " +
+        "An in-scope Disconnect/Reconnect without a preceding " +
         "open increments UnpairedCloseCount and returns NoDataReason=unpaired_endpoints_in_scope " +
         "when no lifecycle can be projected; it is not mislabeled as no events. Requires the NetworkTrace keyword in the " +
         "capture profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public NetConnectionsResponse NetConnections(
-        [Description("Absolute path to .etl file")] string path,
-        [Description("Top N connections by duration descending (default 100, max 1000)")] int top = 100,
+        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Top N connections: observed durations descending, then unobserved/null durations last; stable ties use open time, PID, process start, and exact connection ID (default 100, max 1000)")] int top = 100,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start; connections whose lifecycle intersects the window are included")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive); connections whose lifecycle intersects the window are included")] long? endUs = null,

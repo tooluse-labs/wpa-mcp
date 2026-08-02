@@ -139,7 +139,7 @@ internal static class SchedulerIntervalTraceReader
         });
 
         var completion = scheduler.Complete(identities.TraceEndUs);
-        foreach (var interval in completion.ClosedAtTraceEnd)
+        foreach (var interval in AnalysisEvents.Enumerate(completion.ClosedAtTraceEnd))
             PublishRunning(interval, sinks);
         return new SchedulerStreamSummary(
             completion,

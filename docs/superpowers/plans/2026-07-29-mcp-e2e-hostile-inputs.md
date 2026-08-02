@@ -8,6 +8,12 @@
 
 **Tech Stack:** C# and xUnit on Windows; the exact TFM/SDK/MCP protocol pinned by Child 11A; `System.Diagnostics.Process`; named pipes/events for test barriers; TraceEvent-backed committed ETL fixtures; self-contained `win-x64` package from Child 11B.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+The real-process suite must prove that runtime `tools/list` equals the single active catalog and that every paged catalog/capability surface can be enumerated to completion with stable ordering, no duplicates, no omissions, and tamper-/context-mismatch-safe cursors. It must also exercise exact counters and identifiers above `2^53`, limit-minus/exact/plus-one response fitting, explicit truncation/continuation metadata, and stale/unknown/unsafe opaque identifiers without lossy numeric coercion or raw-value leakage.
+
+Symbol-context cases must distinguish an explicit valid context, unknown/stale context, policy denial, and no context; the no-context case performs no disk/network probe and reports unmeasured resolution. These checks supplement the hostile-path matrix below and use the production catalog, serializer, pagination codec, and stdio framing rather than reflection-only surrogates.
+
 ## Global Constraints
 
 - Load the exact protocol revision/profile from Child 11A's `eng/SelectedPlatform.props`; this plan must not assume that either the stateful or stateless candidate won.

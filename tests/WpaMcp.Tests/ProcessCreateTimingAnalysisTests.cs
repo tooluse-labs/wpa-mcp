@@ -32,7 +32,7 @@ public class ProcessCreateTimingAnalysisTests
             .FirstOrDefault();
         if (spawner == 0) return;
 
-        var resp = meta.ProcessCreateTiming(MmapFixture, parentPid: spawner, top: 50);
+        var resp = meta.ProcessCreateTiming(MmapFixture, parentPid: spawner, pageSize: 50);
         Assert.Equal(spawner, resp.ParentPid);
         Assert.True(resp.SpawnCount > 0);
         Assert.NotEmpty(resp.Children);
@@ -60,7 +60,7 @@ public class ProcessCreateTimingAnalysisTests
     {
         if (!File.Exists(MmapFixture)) return;
         var meta = new MetaTools(new TraceCache(capacity: 2));
-        var resp = meta.ProcessCreateTiming(MmapFixture, parentPid: 999_999, top: 100);
+        var resp = meta.ProcessCreateTiming(MmapFixture, parentPid: 999_999, pageSize: 100);
         Assert.Equal(0, resp.SpawnCount);
         Assert.Empty(resp.Children);
         Assert.Contains(resp.Warnings, w =>
@@ -117,13 +117,13 @@ public class ProcessCreateTimingAnalysisTests
     {
         var meta = new MetaTools(new TraceCache(capacity: 2));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 0, top: 10));
+            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 0, pageSize: 10));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            meta.ProcessCreateTiming("nonexistent.etl", parentPid: -1, top: 10));
+            meta.ProcessCreateTiming("nonexistent.etl", parentPid: -1, pageSize: 10));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, top: 0));
+            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, pageSize: 0));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, top: 1001));
+            meta.ProcessCreateTiming("nonexistent.etl", parentPid: 1, pageSize: 1001));
     }
 
     [Fact]
@@ -152,5 +152,50 @@ public class ProcessCreateTimingAnalysisTests
             selectedParent, observedParentPid: 42, childStartUs: 350));
         Assert.False(ProcessCreateTimingAnalysis.ChildBelongsToParentInstance(
             selectedParent, observedParentPid: 99, childStartUs: 150));
+    }
+
+    [Fact]
+    public void TimingEstimators_HaveDeclaredEvenMedianMeanRoundingAndNearestRankBoundaries()
+    {
+        Assert.Equal(2, ProcessCreateTimingAnalysis.RoundedMean([1, 2]));
+        Assert.Equal(2, ProcessCreateTimingAnalysis.MedianRounded([1, 2]));
+        Assert.Equal(2, ProcessCreateTimingAnalysis.NearestRank(
+            [1, 2], numerator: 95, denominator: 100));
+
+        var twenty = Enumerable.Range(1, 20).Select(value => (long)value).ToArray();
+        Assert.Equal(11, ProcessCreateTimingAnalysis.MedianRounded(twenty));
+        Assert.Equal(19, ProcessCreateTimingAnalysis.NearestRank(
+            twenty, numerator: 95, denominator: 100));
+    }
+
+    [Fact]
+    public void ProcessCreateTiming_ReturnsOnlyObservedChildStarts()
+    {
+        if (!File.Exists(MmapFixture)) return;
+        var cache = new TraceCache(capacity: 2);
+        var meta = new MetaTools(cache);
+        var inventory = meta.ListProcesses(MmapFixture, top: 1000).Rows;
+        var spawner = inventory
+            .Where(row => row.ParentPid > 0 && row.ProcessStartObserved)
+            .GroupBy(row => row.ParentPid)
+            .Select(group => group.Key)
+            .FirstOrDefault(parentPid => inventory.Any(row => row.Pid == parentPid));
+        if (spawner == 0) return;
+
+        var response = meta.ProcessCreateTiming(
+            MmapFixture,
+            spawner,
+            pageSize: 1000);
+        var observedKeys = inventory
+            .Where(row => row.ParentPid == spawner && row.ProcessStartObserved)
+            .Select(row => (row.Pid, row.StartUs))
+            .ToHashSet();
+
+        Assert.All(response.Children, child =>
+            Assert.Contains((child.Pid, child.StartTimeUs), observedKeys));
+        Assert.Equal(response.SpawnCount, response.MatchedEventCount);
+        Assert.Equal(
+            inventory.Count(row => row.ParentPid == spawner && !row.ProcessStartObserved),
+            response.BackfilledChildrenExcluded);
     }
 }

@@ -217,9 +217,20 @@ public sealed class McpSurfaceConformanceTests
 
     private static void AssertWindowFailure(MethodInfo method, long startUs, long endUs)
     {
-        var constructor = method.DeclaringType!.GetConstructor([typeof(TraceCache)]);
-        Assert.NotNull(constructor);
-        var target = constructor!.Invoke([new TraceCache(capacity: 1)]);
+        var constructor = method.DeclaringType!.GetConstructors()
+            .Single(candidate =>
+            {
+                var parameters = candidate.GetParameters();
+                return parameters.Length > 0 &&
+                       parameters[0].ParameterType == typeof(TraceCache) &&
+                       parameters.Skip(1).All(parameter => parameter.HasDefaultValue);
+            });
+        var constructorArguments = constructor.GetParameters()
+            .Select((parameter, index) => index == 0
+                ? (object)new TraceCache(capacity: 1)
+                : parameter.DefaultValue)
+            .ToArray();
+        var target = constructor.Invoke(constructorArguments);
         var arguments = method.GetParameters()
             .Select(parameter => ArgumentFor(parameter, startUs, endUs))
             .ToArray();

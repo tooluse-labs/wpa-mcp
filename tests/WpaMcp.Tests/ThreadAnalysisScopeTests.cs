@@ -89,9 +89,32 @@ public sealed class ThreadAnalysisScopeTests
         Assert.Null(result.Value!.Value.Process);
         Assert.True(result.Value.Value.AggregatesPidLifetimes);
         Assert.True(result.Value.Value.PidReuseObserved);
+        Assert.Equal(
+            [new ProcessInstanceKey(50, 0), new ProcessInstanceKey(50, 200)],
+            result.Value.Value.IncludedProcesses);
+        Assert.Equal(2, result.Value.Value.IncludedProcessLifetimes?.Count);
+        Assert.True(result.Value.Value.MatchesPoint(50, 7, 0));
+        Assert.True(result.Value.Value.MatchesPoint(50, 7, 99));
+        Assert.False(result.Value.Value.MatchesPoint(50, 7, 100));
         Assert.True(result.Value.Value.MatchesPoint(50, 7, 25));
         Assert.True(result.Value.Value.MatchesPoint(50, 9, 225));
+        Assert.False(result.Value.Value.MatchesPoint(50, 8, 150));
         Assert.False(result.Value.Value.MatchesPoint(51, 9, 225));
+        var first = new ThreadInstanceKey(
+            new ProcessInstanceKey(50, 0), 7, 1);
+        var second = new ThreadInstanceKey(
+            new ProcessInstanceKey(50, 200), 9, 1);
+        var excludedThird = new ThreadInstanceKey(
+            new ProcessInstanceKey(50, 120), 8, 1);
+        Assert.True(result.Value.Value.MatchesPoint(first, timestampUs: 0));
+        Assert.False(result.Value.Value.MatchesPoint(first, timestampUs: 100));
+        Assert.True(result.Value.Value.MatchesPoint(second, timestampUs: 200));
+        Assert.False(result.Value.Value.MatchesPoint(
+            excludedThird,
+            timestampUs: 150));
+        Assert.Equal(10, result.Value.Value.AccountInterval(first, 90, 110));
+        Assert.Equal(10, result.Value.Value.AccountInterval(second, 190, 210));
+        Assert.Equal(0, result.Value.Value.AccountInterval(excludedThird, 120, 180));
     }
 
     [Fact]
@@ -154,6 +177,74 @@ public sealed class ThreadAnalysisScopeTests
         Assert.Equal(InstanceResolutionStatus.Unresolved, thread.Status);
         Assert.Empty(process.Candidates);
         Assert.Empty(thread.Candidates);
+    }
+
+    [Fact]
+    public void Resolve_MissingPidOnly_IsUnresolved()
+    {
+        var result = ThreadAnalysisScope.Resolve(
+            new TimeWindow(0, 300), 999, tid: null, processStartUs: null,
+            threadStartUs: null, ReusedProcessIdentityIndex());
+
+        Assert.Equal(InstanceResolutionStatus.Unresolved, result.Status);
+        Assert.Null(result.Value);
+        Assert.Empty(result.Candidates);
+    }
+
+    [Fact]
+    public void PidAggregateWithoutIncludedLifetimes_FailsClosed()
+    {
+        var thread = new ThreadInstanceKey(
+            new ProcessInstanceKey(50, 0), Tid: 7, Generation: 1);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 100),
+            Pid: 50,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: true,
+            PidReuseObserved: false);
+
+        Assert.False(scope.MatchesPoint(50, 7, timestampUs: 0));
+        Assert.False(scope.MatchesPoint(thread, timestampUs: 0));
+        Assert.Equal(0, scope.AccountInterval(thread, startUs: 0, endUs: 10));
+    }
+
+    [Fact]
+    public void PidAggregate_RejectsReuseGapAndExcludedThirdLifetime()
+    {
+        var first = new ProcessLifetime(
+            new ProcessInstanceKey(50, 0), EndUs: 40,
+            StartObserved: true, EndObserved: true);
+        var second = new ProcessLifetime(
+            new ProcessInstanceKey(50, 60), EndUs: 100,
+            StartObserved: true, EndObserved: true);
+        var excludedThird = new ProcessLifetime(
+            new ProcessInstanceKey(50, 120), EndUs: 160,
+            StartObserved: true, EndObserved: true);
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 180,
+            processes: [first, second, excludedThird],
+            threads: []);
+        var scope = new ThreadAnalysisScope(
+            new TimeWindow(0, 180),
+            Pid: 50,
+            Process: null,
+            Thread: null,
+            AggregatesPidLifetimes: true,
+            PidReuseObserved: true,
+            IncludedProcesses: [first.Key, second.Key],
+            IncludedProcessLifetimes: [first, second]);
+        var excludedThread = new ThreadInstanceKey(
+            excludedThird.Key, Tid: 7, Generation: 1);
+
+        Assert.True(scope.MatchesPoint(50, tid: 7, timestampUs: 0));
+        Assert.False(scope.MatchesPoint(50, tid: 7, timestampUs: 40));
+        Assert.False(scope.MatchesPoint(50, tid: 7, timestampUs: 50));
+        Assert.False(scope.MatchesPoint(50, tid: 7, timestampUs: 130));
+        Assert.False(scope.MatchesRawUnresolvedCandidate(
+            identities, 50, tid: 7, timestampUs: 130));
+        Assert.False(scope.MatchesPoint(excludedThread, timestampUs: 130));
+        Assert.Equal(0, scope.AccountInterval(excludedThread, 120, 140));
     }
 
     [Fact]

@@ -40,7 +40,8 @@ public static class GcAnalysis
                 if (!process.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -80,7 +81,9 @@ public static class GcAnalysis
                 if (!process.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs,
+                            atEndpoint: true))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -118,7 +121,8 @@ public static class GcAnalysis
                 if (!process.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -155,7 +159,9 @@ public static class GcAnalysis
                 if (!process.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs,
+                            atEndpoint: true))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -282,7 +288,7 @@ public static class GcAnalysis
         var gen1 = 0;
         var gen2 = 0;
 
-        foreach (var gc in intervals.Gcs)
+        foreach (var gc in AnalysisEvents.Enumerate(intervals.Gcs))
         {
             if (!matchesProcess(gc.Key.Process))
                 continue;
@@ -314,7 +320,7 @@ public static class GcAnalysis
 
             if (!wall.HasValue)
             {
-                foreach (var pause in pauses)
+                foreach (var pause in AnalysisEvents.Enumerate(pauses))
                 {
                     totalFullPauseUs += pause.FullDurationUs;
                     totalAccountedPauseUs += pause.AccountedDurationUs;
@@ -380,7 +386,7 @@ public static class GcAnalysis
                 IntervalKind: "gc_wall"));
         }
 
-        foreach (var pause in intervals.OrphanPauses)
+        foreach (var pause in AnalysisEvents.Enumerate(intervals.OrphanPauses))
         {
             if (!matchesProcess(pause.Key.Process))
                 continue;
@@ -418,7 +424,20 @@ public static class GcAnalysis
                 IntervalKind: "orphan_pause"));
         }
 
-        rows.Sort((left, right) => left.StartUs.CompareTo(right.StartUs));
+        rows = rows
+            .OrderBy(row => row.StartUs)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.ProcessStartUs)
+            .ThenBy(row => row.EndUs)
+            .ThenBy(row => row.Generation)
+            .ThenBy(row => row.Reason, StringComparer.Ordinal)
+            .ThenBy(row => row.IntervalKind, StringComparer.Ordinal)
+            .ThenBy(row => row.ClrInstanceId)
+            .ThenBy(row => row.GcCount)
+            .ThenBy(row => row.IsOrphanPause)
+            .ThenBy(row => row.AccountedDurationUs)
+            .ThenBy(row => row.AccountedPauseUs)
+            .ToList();
 
         var warnings = new List<string>();
         var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
@@ -442,7 +461,7 @@ public static class GcAnalysis
                  scopedUsableSourceEventCount == 0)
         {
             warnings.Add(
-                "source_events_unattributed: GC/pause endpoints with matching raw PID/time were observed, but process or CLR instance identity was unresolved; no interval attribution was guessed.");
+                "source_events_unattributed: GC/pause endpoints matched the lifetime-aware raw process selector and half-open query window, but process or CLR instance identity was unresolved; no interval attribution was guessed.");
         }
         else if (rows.Count == 0)
         {
@@ -566,19 +585,19 @@ public static class GcAnalysis
         Func<ProcessInstanceKey, bool> matchesProcess)
     {
         long count = 0;
-        foreach (var gc in intervals.Gcs)
+        foreach (var gc in AnalysisEvents.Enumerate(intervals.Gcs))
         {
             if (!matchesProcess(gc.Key.Process))
                 continue;
             if (window.ContainsPoint(gc.StartUs)) count++;
             if (window.ContainsPoint(gc.EndUs)) count++;
-            foreach (var pause in gc.Pauses)
+            foreach (var pause in AnalysisEvents.Enumerate(gc.Pauses))
             {
                 if (window.ContainsPoint(pause.StartUs)) count++;
                 if (window.ContainsPoint(pause.EndUs)) count++;
             }
         }
-        foreach (var pause in intervals.OrphanPauses)
+        foreach (var pause in AnalysisEvents.Enumerate(intervals.OrphanPauses))
         {
             if (!matchesProcess(pause.Key.Process))
                 continue;
@@ -635,7 +654,7 @@ public static class GcAnalysis
         bool singlePointEvidence)
     {
         long count = 0;
-        foreach (var anomaly in anomalies)
+        foreach (var anomaly in AnalysisEvents.Enumerate(anomalies))
         {
             if (!matchesProcess(anomaly.Process))
                 continue;
@@ -650,13 +669,14 @@ public static class GcAnalysis
         return count;
     }
 
-    private static bool MatchesRawScope(
+    internal static bool MatchesRawScope(
         ProcessAnalysisScope scope,
+        TraceIdentityIndex identities,
         int pid,
-        long timestampUs) =>
-        scope.IsResolved &&
-        scope.Window.ContainsPoint(timestampUs) &&
-        (!scope.Pid.HasValue || scope.Pid.Value == pid);
+        long timestampUs,
+        bool atEndpoint = false) =>
+        scope.MatchesRawUnresolvedCandidate(
+            identities, pid, timestampUs, atEndpoint);
 
     internal static ushort? TryReadClrInstanceId(TraceEvent data)
     {

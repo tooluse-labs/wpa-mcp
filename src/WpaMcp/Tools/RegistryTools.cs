@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class RegistryTools
 {
     private readonly TraceCache _cache;
-    public RegistryTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public RegistryTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by registry-operation count — answers 'who's pounding the " +
         "registry' / 'where do these lookups come from'.  PerfView equivalent: 'Registry Stacks' " +
         "view.  Counts Query, Open, Create, SetValue, Delete, Enumerate, Virtualize events; " +
@@ -20,7 +25,7 @@ public sealed class RegistryTools
         "metric — registry ops don't have a natural byte cost).  Requires the Registry keyword " +
         "in the capture profile (default WPR 'CPU' / 'CPU.light' profiles do NOT enable it).")]
     public RegistryStacksResponse RegistryTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -48,17 +53,17 @@ public sealed class RegistryTools
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return RegistryStackAnalysis.TopStacks(
             trace, StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly), pid,
-            window.StartUs, window.EndUs, symbolLog: Console.Error, whenBuckets: whenBuckets,
+            window.StartUs, window.EndUs, symbolLog: _privacyLog.Writer, whenBuckets: whenBuckets,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue,
             processStartUs: processStartUs);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the registry-stack data.  Metric is " +
         "operation count; top-N callers ranked by inclusive ops flowing INTO focus, callees " +
         "by ops OUT.")]
     public CallerCalleeResponse RegistryCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in registry_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -80,7 +85,7 @@ public sealed class RegistryTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return RegistryStackAnalysis.CallerCallee(
-            trace, function, top, pid, window.StartUs, window.EndUs, Console.Error,
+            trace, function, top, pid, window.StartUs, window.EndUs, _privacyLog.Writer,
             processStartUs,
             filterSpecified: pid.HasValue || processStartUs.HasValue || startUs.HasValue || endUs.HasValue);
     }

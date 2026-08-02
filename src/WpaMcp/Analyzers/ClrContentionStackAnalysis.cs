@@ -59,23 +59,19 @@ public static class ClrContentionStackAnalysis
             context.ScopedIdentityUnresolvedEndpointCount);
         contract.AddWarning(context.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData)
-        {
-            StackSource = context.Normalized,
-        };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
-        var completeNodes = callTree.ByID
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(context.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
+        var completeNodes = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => context.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(node => node.ExclusiveMetric)
             .ToArray();
         var rows = completeNodes
             .Take(top)
             .Select(node => new ClrContentionStackRow(
-                Function: node.Name,
-                ExclusiveBlockedUs: (long)node.ExclusiveMetric,
-                InclusiveBlockedUs: (long)node.InclusiveMetric,
-                ExclusiveCount: (long)node.ExclusiveCount,
-                InclusiveCount: (long)node.InclusiveCount,
+                Function: node.Function,
+                ExclusiveBlockedUs: node.ExclusiveMetric,
+                InclusiveBlockedUs: node.InclusiveMetric,
+                ExclusiveCount: node.ExclusiveCount,
+                InclusiveCount: node.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, node.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, node.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(
@@ -86,8 +82,8 @@ public static class ClrContentionStackAnalysis
                     request.HasFilter,
                     context.TraceTotalUs,
                     node.InclusiveMetric),
-                ExclusiveAccountedBlockedUs: (long)node.ExclusiveMetric,
-                InclusiveAccountedBlockedUs: (long)node.InclusiveMetric,
+                ExclusiveAccountedBlockedUs: node.ExclusiveMetric,
+                InclusiveAccountedBlockedUs: node.InclusiveMetric,
                 AccountingMode: DurationAccounting.ClippedOverlapMode))
             .ToArray();
 
@@ -97,7 +93,7 @@ public static class ClrContentionStackAnalysis
             TotalEventCount: context.Projection.Samples.Count,
             Stats: context.Stats,
             Warnings: context.Warnings,
-            When: when.Build(),
+            When: when.Build("microseconds"),
             TotalFullBlockedUs: context.Projection.TotalFullDurationUs,
             TotalAccountedBlockedUs: context.Projection.TotalAccountedDurationUs,
             UnmatchedIntervalCount: context.Projection.UnmatchedIntervalCount,
@@ -196,6 +192,7 @@ public static class ClrContentionStackAnalysis
 
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!MatchesProcess(processScope, pair.Key.Process))
                 continue;
 
@@ -280,8 +277,12 @@ public static class ClrContentionStackAnalysis
                     !resolution.Value.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (scope.MatchesPoint(
-                            data.ProcessID, data.ThreadID, timestampUs))
+                    if (IsScopedUnresolvedEndpoint(
+                            scope,
+                            identities,
+                            data.ProcessID,
+                            data.ThreadID,
+                            timestampUs))
                     {
                         scopedIdentityUnresolvedEndpointCount++;
                     }
@@ -320,8 +321,13 @@ public static class ClrContentionStackAnalysis
                     !resolution.Value.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (scope.MatchesPoint(
-                            data.ProcessID, data.ThreadID, timestampUs))
+                    if (IsScopedUnresolvedEndpoint(
+                            scope,
+                            identities,
+                            data.ProcessID,
+                            data.ThreadID,
+                            timestampUs,
+                            atEndpoint: true))
                     {
                         scopedIdentityUnresolvedEndpointCount++;
                     }
@@ -369,11 +375,13 @@ public static class ClrContentionStackAnalysis
         long traceTotalUs = 0;
         foreach (var pair in result.Pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             traceTotalUs = checked(traceTotalUs + pair.FullDurationUs);
         }
 
         foreach (var sample in projection.Samples)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var stackKey = new ContentionStackKey(
                 sample.Thread,
                 sample.StartUs,
@@ -439,6 +447,16 @@ public static class ClrContentionStackAnalysis
             coverage,
             warnings);
     }
+
+    internal static bool IsScopedUnresolvedEndpoint(
+        ThreadAnalysisScope scope,
+        TraceIdentityIndex identities,
+        int pid,
+        int tid,
+        long timestampUs,
+        bool atEndpoint = false) =>
+        scope.MatchesRawUnresolvedCandidate(
+            identities, pid, tid, timestampUs, atEndpoint);
 
     internal static StackResultContract BuildEndpointContract(
         ProcessAnalysisScope? processScope,

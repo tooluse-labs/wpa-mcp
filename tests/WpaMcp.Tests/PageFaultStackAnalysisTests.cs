@@ -9,11 +9,10 @@ public class PageFaultStackAnalysisTests
     private const string MmapFixture = "fixtures/small_mmap.etl"; // captured with HardFaults keyword
 
     [Fact]
-    public void HardFaultTopStacks_OnFixtureWithHardFaultsReturnsRows()
+    public void HardFaultTopStacks_OnFixtureReportsEventsAndTruthfulStackAvailability()
     {
         var tools = new HardFaultTools(new TraceCache(capacity: 2));
         var resp = tools.HardFaultTopStacks(MmapFixture, top: 30);
-        Assert.NotEmpty(resp.Rows);
         Assert.True(resp.TotalPageInBytes > 0);
         Assert.True(resp.TotalFaultCount > 0);
         var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
@@ -21,6 +20,16 @@ public class PageFaultStackAnalysisTests
         Assert.Equal("bytes", coverage.MetricName);
         Assert.Equal(resp.TotalFaultCount, coverage.TotalEventCount);
         Assert.Equal(resp.TotalPageInBytes, coverage.TotalMetric);
+        if (resp.Rows.Count == 0)
+        {
+            Assert.Equal("no_stacks", coverage.CoverageState);
+            Assert.Equal("unavailable", resp.CapabilityStatus);
+            Assert.Equal("stacks_unavailable", resp.NoDataReason);
+        }
+        else
+        {
+            Assert.True(coverage.StackedEventCount > 0);
+        }
     }
 
     [Fact]

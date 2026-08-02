@@ -50,17 +50,16 @@ public static class GenericEventStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new GenericEventStackRow(
-                Function: n.Name,
-                ExclusiveCount: (long)n.ExclusiveMetric,
-                InclusiveCount: (long)n.InclusiveMetric,
+                Function: n.Function,
+                ExclusiveCount: n.ExclusiveMetric,
+                InclusiveCount: n.InclusiveMetric,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
@@ -75,7 +74,7 @@ public static class GenericEventStackAnalysis
             TopEventNames: ctx.TopEventNames,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("event_count"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,
@@ -171,10 +170,10 @@ public static class GenericEventStackAnalysis
             req.When.Add(nowUs, 1);
         }
 
-        var source = trace.Events.GetSource();
+        var source = AnalysisEvents.CreateDispatcher(trace);
         new DynamicTraceEventParser(source).AddCallbackForProviderEvents(Filter, Handle);
         new RegisteredTraceEventParser(source).AddCallbackForProviderEvents(Filter, Handle);
-        source.Process();
+        AnalysisEvents.Process(source);
         raw.Source.DoneAddingSamples();
 
         var lookupAttempt = StackSourceTopN.TryLookupWarmSymbols(

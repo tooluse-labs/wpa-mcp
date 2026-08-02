@@ -36,7 +36,7 @@ public class BlockedTimeStackAnalysisTests
     }
 
     [Fact]
-    public void EndpointContract_ScopedSwitchWithoutCompletedIntervalIsObserved()
+    public void EndpointContract_ScopedSwitchWithoutCompletedIntervalIsUnknown()
     {
         var contract = BlockedTimeStackAnalysis.BuildEndpointContract(
             scope: null,
@@ -46,7 +46,7 @@ public class BlockedTimeStackAnalysisTests
             scopedSourceEndpointCount: 1,
             scopedIdentityUnresolvedEndpointCount: 0);
 
-        Assert.Equal("observed", contract.CapabilityStatus);
+        Assert.Equal("unknown", contract.CapabilityStatus);
         Assert.Equal(1, contract.MatchedEventCount);
         Assert.Equal("no_completed_intervals_in_scope", contract.NoDataReason);
     }
@@ -77,7 +77,9 @@ public class BlockedTimeStackAnalysisTests
         if (resp.Rows.Count == 0)
             Assert.Contains(resp.Warnings,
                 w => w.Contains("CSwitch", StringComparison.OrdinalIgnoreCase) ||
-                     w.Contains("no blocked-time samples", StringComparison.OrdinalIgnoreCase));
+                     w.Contains("no blocked-time samples", StringComparison.OrdinalIgnoreCase) ||
+                     w.Contains("stacks_unavailable", StringComparison.OrdinalIgnoreCase) ||
+                     w.Contains("no_stacks", StringComparison.OrdinalIgnoreCase));
         else
             Assert.True(resp.TotalBlockedUs > 0);
         var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);

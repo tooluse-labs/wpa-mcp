@@ -52,6 +52,7 @@ public class TimeWindowSemanticsTests
     {
         var expectedNoWindowTools = new HashSet<string>(StringComparer.Ordinal)
         {
+            $"{nameof(CapabilityDiscoveryTools)}.{nameof(CapabilityDiscoveryTools.ListCapabilities)}",
             $"{nameof(DiagnoseTools)}.{nameof(DiagnoseTools.DiagnoseSlowStartup)}",
             $"{nameof(ImageLoadTools)}.{nameof(ImageLoadTools.ImageLoadTiming)}",
             $"{nameof(ImageLoadTools)}.{nameof(ImageLoadTools.ImageLoadTopGaps)}",
@@ -62,9 +63,7 @@ public class TimeWindowSemanticsTests
             $"{nameof(MetaTools)}.{nameof(MetaTools.ProcessCreateTiming)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.ThreadLifetime)}",
             $"{nameof(MetaTools)}.{nameof(MetaTools.UnloadTrace)}",
-            $"{nameof(SymbolTools)}.{nameof(SymbolTools.SetSymbolPath)}",
-            $"{nameof(SymbolTools)}.{nameof(SymbolTools.AddSymbolServer)}",
-            $"{nameof(SymbolTools)}.{nameof(SymbolTools.DiagnoseSymbols)}",
+            $"{nameof(SymbolLifecycleTools)}.{nameof(SymbolLifecycleTools.PrepareSymbols)}",
         };
 
         var nonWindowed = McpToolMethods()

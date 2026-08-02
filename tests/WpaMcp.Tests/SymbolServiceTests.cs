@@ -139,10 +139,9 @@ public class SymbolServiceTests
             var configured = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH");
             var trace = cache.Get("fixtures/small_cpu.etl");
 
-            var traceDir = Path.GetDirectoryName(Path.GetFullPath("fixtures/small_cpu.etl"))!;
             Assert.Equal(configured, Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
             using var reader = StackSourceTopN.OpenSymbolReader(trace, TextWriter.Null);
-            Assert.StartsWith(traceDir + ";SRV*", reader.SymbolPath);
+            Assert.Equal(string.Empty, reader.SymbolPath);
             Assert.Equal(configured, Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"));
         }
         finally { Environment.SetEnvironmentVariable("_NT_SYMBOL_PATH", saved); }

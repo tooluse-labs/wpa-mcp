@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "privacy-taxonomy.v1",
+  "fields": [
+    { "property": "path", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "file", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "fileName", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "directory", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "traceDirectory", "kind": "trace_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "imagePath", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "sourcePath", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "artifactPath", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "expectedPath", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "filePath", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "pdbPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "symbolPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "currentSymbolPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "configuredSymbolPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "effectiveSymbolPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "ntSymbolPath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "cachePath", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "cacheDir", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "defaultCacheDir", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "localSymbolCandidates", "kind": "symbol_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "registryPath", "kind": "registry_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "registryKey", "kind": "registry_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
+    { "property": "registryValue", "kind": "registry_value", "paths": "retain", "strict": "redact", "approvedBasename": false },
+    { "property": "markerPayload", "kind": "marker_payload", "paths": "retain", "strict": "redact", "approvedBasename": false },
+    { "property": "payload", "kind": "marker_payload", "paths": "retain", "strict": "redact", "approvedBasename": false },
+    { "property": "machine", "kind": "machine_name", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "machineName", "kind": "machine_name", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "user", "kind": "user_name", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "userName", "kind": "user_name", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "host", "kind": "host", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "hostName", "kind": "host", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "ipAddress", "kind": "ip_address", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "localAddress", "kind": "ip_address", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "remoteAddress", "kind": "ip_address", "paths": "retain", "strict": "alias", "approvedBasename": false },
+    { "property": "module", "kind": "symbol_path", "paths": "retain", "strict": "retain", "approvedBasename": true },
+    { "property": "imageName", "kind": "symbol_path", "paths": "retain", "strict": "retain", "approvedBasename": true },
+    { "property": "pdbName", "kind": "symbol_path", "paths": "retain", "strict": "retain", "approvedBasename": true },
+    { "property": "expectedPdbName", "kind": "symbol_path", "paths": "retain", "strict": "retain", "approvedBasename": true }
+  ],
+  "semanticPaths": [
+    { "toolName": "find_marker", "jsonPointerPattern": "/data/rows/*/fields/*/value", "kind": "marker_payload", "paths": "retain", "strict": "redact" }
+  ],
+  "aliasEnabledInputs": [
+    { "toolName": "load_trace", "parameterName": "path", "kind": "trace_path" },
+    { "toolName": "set_symbol_path", "parameterName": "path", "kind": "symbol_path" },
+    { "toolName": "add_symbol_server", "parameterName": "cacheDir", "kind": "symbol_path" }
+  ]
+}

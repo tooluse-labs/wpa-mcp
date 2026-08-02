@@ -12,9 +12,8 @@ namespace WpaMcp.Analyzers;
 // questions, and for diagnosing "high wall, low CPU" where the wait is on a network
 // round-trip rather than disk or CPU.
 //
-// Sample weight = bytes per send/recv (from TcpIp/UdpIp data's `size` field).  CallTree.
-// ExclusiveMetric reads as "exclusive bytes sent/received by this frame"; ExclusiveCount
-// tracks the operation count on the same stack source.
+// Sample weight = bytes per send/recv (from TcpIp/UdpIp data's `size` field). A parallel
+// checked Int64 projection reports exact per-frame bytes and operation counts.
 //
 // Includes both IPv4 (TcpIpSend/Recv) and IPv6 (TcpIpSendIPV6/RecvIPV6) variants, and TCP
 // + UDP equivalents.  Connect / Accept / Disconnect events are NOT counted here (they have
@@ -44,19 +43,18 @@ public static class NetIoStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalBytesMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new NetIoStackRow(
-                Function: n.Name,
-                ExclusiveBytes: (long)n.ExclusiveMetric,
-                InclusiveBytes: (long)n.InclusiveMetric,
-                ExclusiveOpCount: (long)n.ExclusiveCount,
-                InclusiveOpCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveBytes: n.ExclusiveMetric,
+                InclusiveBytes: n.InclusiveMetric,
+                ExclusiveOpCount: n.ExclusiveCount,
+                InclusiveOpCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -71,7 +69,7 @@ public static class NetIoStackAnalysis
             UdpBytes: ctx.UdpBytes,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("bytes"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

@@ -1318,13 +1318,27 @@ function Copy-TrackedWorktree {
 function Get-ExactDotNet {
     param([Parameter(Mandatory)][string]$SdkVersion)
 
-    $installed = @(& dotnet --list-sdks 2>$null)
-    if ($installed | Where-Object { $_ -match "^$([regex]::Escape($SdkVersion))\s" }) {
-        return (Get-Command dotnet -ErrorAction Stop).Source
-    }
+    $configuredHost = $env:WPAMCP_DOTNET_HOST
+    if ($null -eq $configuredHost) { $configuredHost = $env:DOTNET_HOST_PATH }
 
-    $isolated = Join-Path $script:RepositoryRoot ".superpowers\sdd\2026-07-29-platform-release-governance\dotnet-$SdkVersion\dotnet.exe"
-    if (Test-Path -LiteralPath $isolated) { return $isolated }
+    $hostPaths = @($configuredHost)
+    $pathHost = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $pathHost) { $hostPaths += [string]$pathHost.Source }
+    $hostPaths += Join-Path $script:RepositoryRoot ".superpowers\sdd\2026-07-29-platform-release-governance\dotnet-$SdkVersion\dotnet.exe"
+
+    foreach ($hostPath in $hostPaths) {
+        $hostPath = [string]$hostPath
+        if ($hostPath -notmatch '\S' -or -not (Test-Path -LiteralPath $hostPath -PathType Leaf)) { continue }
+        try {
+            $resolvedHost = (Resolve-Path -LiteralPath $hostPath).Path
+            $installed = @(& $resolvedHost --list-sdks 2>$null)
+            if ($LASTEXITCODE -eq 0 -and
+                ($installed | Where-Object { $_ -match "^$([regex]::Escape($SdkVersion))\s" })) {
+                return $resolvedHost
+            }
+        }
+        catch { }
+    }
     throw "Exact .NET SDK $SdkVersion is not installed or provisioned."
 }
 

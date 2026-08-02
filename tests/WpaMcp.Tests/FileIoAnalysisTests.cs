@@ -21,6 +21,17 @@ public class FileIoAnalysisTests
         Assert.True(resp.MatchedEventCount > 0);
         Assert.Null(resp.NoDataReason);
         Assert.NotNull(resp.Warnings);
+        Assert.All(resp.Rows, row =>
+        {
+            var counts = row.MappingStateEventCounts;
+            Assert.Equal(
+                row.ReadCount + row.WriteCount,
+                counts.EventNameEventCount +
+                counts.TemporalFileKeyEventCount +
+                counts.TemporalFileObjectEventCount +
+                counts.AmbiguousTemporalMappingEventCount +
+                counts.UnresolvedFileIdentityEventCount);
+        });
     }
 
     [Fact]
@@ -171,6 +182,72 @@ public class FileIoAnalysisTests
             timestampUs: 200);
 
         Assert.Equal("event.dat", name);
+    }
+
+    [Fact]
+    public void ResolveFileMapping_EventNameWinsAndReportsItsBasis()
+    {
+        var resolver = new FileObjectResolver();
+        resolver.AddMapping(fileObject: 0x10, fileKey: 0x20, timestampUs: 100, "object.dat");
+        resolver.AddFileKeyMapping(fileKey: 0x30, timestampUs: 150, "key.dat");
+
+        var resolution = FileIoAnalysis.ResolveFileMapping(
+            resolver,
+            eventFileName: "event.dat",
+            fileObject: 0x10,
+            fileKey: 0x30,
+            timestampUs: 200);
+
+        Assert.Equal("event.dat", resolution.File);
+        Assert.Equal(FileMappingStates.EventName, resolution.MappingState);
+    }
+
+    [Fact]
+    public void FileIoAggregate_ExposesMixedMappingStateAndExactStateCounts()
+    {
+        var aggregate = new FileIoAnalysis.FileIoAggregate();
+        aggregate.AddRead(bytes: 100, FileMappingStates.EventName);
+        aggregate.AddWrite(bytes: 200, FileMappingStates.TemporalFileKey);
+        aggregate.AddWrite(bytes: 300, FileMappingStates.UnresolvedFileIdentity);
+
+        var row = aggregate.ToRow("same.dat");
+
+        Assert.Equal(FileMappingStates.Mixed, row.MappingState);
+        Assert.Equal(1, row.ReadCount);
+        Assert.Equal(2, row.WriteCount);
+        Assert.Equal(1, row.MappingStateEventCounts.EventNameEventCount);
+        Assert.Equal(1, row.MappingStateEventCounts.TemporalFileKeyEventCount);
+        Assert.Equal(0, row.MappingStateEventCounts.TemporalFileObjectEventCount);
+        Assert.Equal(0, row.MappingStateEventCounts.AmbiguousTemporalMappingEventCount);
+        Assert.Equal(1, row.MappingStateEventCounts.UnresolvedFileIdentityEventCount);
+    }
+
+    [Fact]
+    public void FileIoAggregate_TotalBytesFailsClosedOnOverflow()
+    {
+        var aggregate = new FileIoAnalysis.FileIoAggregate();
+        aggregate.AddRead(long.MaxValue, FileMappingStates.EventName);
+        aggregate.AddWrite(1, FileMappingStates.EventName);
+
+        Assert.Throws<OverflowException>(() => aggregate.TotalBytes);
+    }
+
+    [Fact]
+    public void FileIoRows_UseFileNameAsStableTieBreakerForEqualBytes()
+    {
+        var later = new FileIoAnalysis.FileIoAggregate();
+        later.AddRead(128, FileMappingStates.EventName);
+        var earlier = new FileIoAnalysis.FileIoAggregate();
+        earlier.AddWrite(128, FileMappingStates.EventName);
+
+        var rows = FileIoAnalysis.RankRows(
+            [
+                new KeyValuePair<string, FileIoAnalysis.FileIoAggregate>("z.dat", later),
+                new KeyValuePair<string, FileIoAnalysis.FileIoAggregate>("a.dat", earlier),
+            ],
+            top: 10);
+
+        Assert.Equal(["a.dat", "z.dat"], rows.Select(row => row.File));
     }
 
     [Fact]

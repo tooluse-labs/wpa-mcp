@@ -71,6 +71,7 @@ public static class GcHeapStatsAnalysis
         long scopedIdentityUnresolvedEventCount = 0;
         foreach (var observation in events)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var traceResolution = identities.Processes.Resolve(
                 observation.Pid,
                 observation.TimeUs,

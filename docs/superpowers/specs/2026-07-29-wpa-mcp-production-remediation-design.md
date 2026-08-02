@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29
 
-**Status:** Approved design baseline, including the thread-scoped CPU/wait amendment
+**Status:** Approved design baseline, including the thread-scoped CPU/wait amendment and the accepted 2026-08-01 capability-map/evidence-contract amendment
 **Target:** Move wpa-mcp from a strong ETL analysis assistant to a production-capable, bounded, evidence-driven headless WPA subset without claiming unsupported WPA parity.
 
 ## Background
@@ -27,6 +27,12 @@ The program must fix those issues without hiding the current product's useful be
 - Treat shared use of TraceEvent as proof that analysis quality matches PerfView.
 - Make an LLM benchmark the only correctness oracle. Deterministic analyzers, protocol tests, and golden invariants remain the primary CI gates.
 - Preserve incorrect numeric semantics merely to keep old snapshots unchanged. Intentional accounting changes are versioned and documented.
+
+## Accepted amendment: capability map and evidence contract
+
+The accepted direction in `docs/decisions/0002-capability-map-evidence-contract.md` and `docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md` extends this baseline with complete capability discovery and structured evidence boundaries. Unmodified path security, time/identity semantics, privacy, exact-frame budgeting, cancellation, worker isolation, and release requirements in this specification remain authoritative.
+
+Implementation must keep three states distinct: current runtime evidence, accepted target design, and implementation completion. The open choices listed in the amendment design §19 require their named ADR and owning-plan update; implementers must not infer them from the direction-level approval.
 
 ## Program-level decisions
 

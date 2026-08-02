@@ -1,55 +1,55 @@
-using System.Reflection;
 using System.Text.Json;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
+using WpaMcp.Core.Catalog;
 
 namespace WpaMcp.Core;
 
 internal static class ToolListPayload
 {
     public const int DefaultMaxPayloadBytes = 200_000;
-    public const int BaselineGuardPayloadBytes = 180_000;
+    // Immutable Phase 1 legacy-transition observation. Contract 2.0 intentionally
+    // exceeds this aggregate threshold because every tool exposes its closed output
+    // schema; tools/list page fitting is the transport bound and does not reduce the
+    // aggregate prompt cost reported by this measurement.
+    public const int BaselineGuardPayloadBytes = 185_000;
 
     public static ToolListPayloadStats MeasureCurrentAssembly(
-        IServiceProvider? services = null,
-        Assembly? assembly = null,
+        int maxPayloadBytes = DefaultMaxPayloadBytes)
+        => Measure(ActiveToolCatalog.LoadAndValidate(), maxPayloadBytes);
+
+    internal static ToolListPayloadStats Measure(
+        ActiveToolCatalog catalog,
         int maxPayloadBytes = DefaultMaxPayloadBytes)
     {
-        using var toolScope = CreateToolScope(services);
-        var tools = CurrentTools(toolScope.Services, assembly).ToList();
-        var result = new ListToolsResult { Tools = tools };
+        var tools = CurrentTools(catalog);
+        return Measure(tools, maxPayloadBytes);
+    }
+
+    internal static ToolListPayloadStats Measure(
+        IReadOnlyList<Tool> tools,
+        int maxPayloadBytes = DefaultMaxPayloadBytes)
+    {
+        var result = new ListToolsResult { Tools = tools.ToArray() };
         var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(result, McpJsonUtilities.DefaultOptions).Length;
         return new ToolListPayloadStats(tools.Count, payloadBytes, maxPayloadBytes);
     }
 
-    internal static IReadOnlyList<string> MeasureCurrentToolNames(
-        IServiceProvider? services = null,
-        Assembly? assembly = null)
-    {
-        using var toolScope = CreateToolScope(services);
-        return CurrentTools(toolScope.Services, assembly)
+    internal static IReadOnlyList<string> MeasureCurrentToolNames()
+        => CurrentTools(ActiveToolCatalog.LoadAndValidate())
             .Select(tool => tool.Name)
             .ToList();
-    }
 
-    internal static IReadOnlyList<Tool> MeasureCurrentTools(
-        IServiceProvider? services = null,
-        Assembly? assembly = null)
-    {
-        using var toolScope = CreateToolScope(services);
-        return CurrentTools(toolScope.Services, assembly);
-    }
+    internal static IReadOnlyList<Tool> MeasureCurrentTools()
+        => CurrentTools(ActiveToolCatalog.LoadAndValidate());
 
-    internal static IReadOnlyList<ToolPayloadStats> MeasureCurrentToolPayloads(
-        IServiceProvider? services = null,
-        Assembly? assembly = null)
-    {
-        using var toolScope = CreateToolScope(services);
-        return CurrentTools(toolScope.Services, assembly)
+    internal static IReadOnlyList<Tool> MeasureCurrentTools(ActiveToolCatalog catalog)
+        => CurrentTools(catalog);
+
+    internal static IReadOnlyList<ToolPayloadStats> MeasureCurrentToolPayloads()
+        => CurrentTools(ActiveToolCatalog.LoadAndValidate())
             .Select(tool => new ToolPayloadStats(
                 tool.Name,
                 JsonSerializer.SerializeToUtf8Bytes(
@@ -61,55 +61,9 @@ internal static class ToolListPayload
             .OrderByDescending(stats => stats.PayloadBytes)
             .ThenBy(stats => stats.ToolName, StringComparer.Ordinal)
             .ToList();
-    }
 
-    private static IReadOnlyList<Tool> CurrentTools(IServiceProvider services, Assembly? assembly)
-    {
-        assembly ??= typeof(Program).Assembly;
-        return BuildTools(assembly, services)
-            .Select(tool => tool.ProtocolTool)
-            .OrderBy(tool => tool.Name, StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static IEnumerable<McpServerTool> BuildTools(Assembly assembly, IServiceProvider services)
-    {
-        var options = new McpServerToolCreateOptions { Services = services };
-        foreach (var type in assembly.GetTypes()
-                     .Where(type => type.GetCustomAttribute<McpServerToolTypeAttribute>() is not null)
-                     .OrderBy(type => type.FullName, StringComparer.Ordinal))
-        {
-            object? target = null;
-            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
-                         .Where(method => method.GetCustomAttribute<McpServerToolAttribute>() is not null)
-                         .OrderBy(method => method.Name, StringComparer.Ordinal))
-            {
-                if (!method.IsStatic)
-                    target ??= ActivatorUtilities.CreateInstance(services, type);
-
-                yield return McpServerTool.Create(method, method.IsStatic ? null : target, options);
-            }
-        }
-    }
-
-    private static ToolScope CreateToolScope(IServiceProvider? services)
-    {
-        if (services is not null)
-            return new ToolScope(services, ownedProvider: null);
-
-        var collection = new ServiceCollection();
-        collection.AddSingleton(_ => new TraceCache());
-        collection.AddSingleton<SymbolService>();
-        var provider = collection.BuildServiceProvider();
-        return new ToolScope(provider, provider);
-    }
-
-    private sealed class ToolScope(IServiceProvider services, ServiceProvider? ownedProvider) : IDisposable
-    {
-        public IServiceProvider Services { get; } = services;
-
-        public void Dispose() => ownedProvider?.Dispose();
-    }
+    private static IReadOnlyList<Tool> CurrentTools(ActiveToolCatalog catalog)
+        => catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
 }
 
 internal sealed record ToolListPayloadStats(int ToolCount, int PayloadBytes, int MaxPayloadBytes)
@@ -127,11 +81,15 @@ internal sealed record ToolPayloadStats(
 
 internal sealed class ToolListPayloadHostedService(
     ToolTelemetry telemetry,
-    ILogger<ToolListPayloadHostedService> logger) : IHostedService
+    ILogger<ToolListPayloadHostedService> logger,
+    ToolsListPaginationFilters pagination,
+    ToolExecutionBudgetOptions budgets) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var stats = ToolListPayload.MeasureCurrentAssembly();
+        var stats = ToolListPayload.Measure(
+            pagination.ActiveTools,
+            budgets.ResponseWarningBytes);
         telemetry.RecordToolsListPayload(stats);
 
         if (stats.ExceedsLimit)
@@ -150,6 +108,16 @@ internal sealed class ToolListPayloadHostedService(
                 stats.ToolCount,
                 stats.MaxPayloadBytes);
         }
+
+        logger.LogInformation(
+            "MCP tools/list paging preflight: cap={MaxResponseFrameBytes} bytes, " +
+            "minimum={MinimumViableFrameBytes} bytes, largestTool={LargestSingleToolName} " +
+            "({LargestSingleToolFrameBytes} bytes), aggregateResult={AggregateCatalogResultBytes} bytes.",
+            pagination.Preflight.MaxResponseFrameBytes,
+            pagination.Preflight.MinimumViableFrameBytes,
+            pagination.Preflight.LargestSingleToolName,
+            pagination.Preflight.LargestSingleToolFrameBytes,
+            pagination.Preflight.AggregateCatalogResultBytes);
 
         return Task.CompletedTask;
     }

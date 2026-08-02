@@ -102,7 +102,7 @@ public static class CliRunner
         var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
         using var cache = new TraceCache(capacity: 1);
         var meta = new MetaTools(cache);
-        Emit(meta.ProcessCreateTiming(args[1], parentPid: parentPid, top: top));
+        Emit(meta.ProcessCreateTiming(args[1], parentPid: parentPid, pageSize: top));
         return 0;
     }
 
@@ -168,7 +168,7 @@ public static class CliRunner
         var top = args.Length >= 4 ? int.Parse(args[3]) : 100;
         using var cache = new TraceCache(capacity: 1);
         var tools = new ImageLoadTools(cache);
-        Emit(tools.ImageLoadTiming(args[1], pid: pid, top: top));
+        Emit(tools.ImageLoadTiming(args[1], pid: pid, pageSize: top));
         return 0;
     }
 

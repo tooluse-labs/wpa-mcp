@@ -42,19 +42,18 @@ public static class ClrAllocStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalBytesMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new ClrAllocStackRow(
-                Function: n.Name,
-                ExclusiveBytes: (long)n.ExclusiveMetric,
-                InclusiveBytes: (long)n.InclusiveMetric,
-                ExclusiveEventCount: (long)n.ExclusiveCount,
-                InclusiveEventCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveBytes: n.ExclusiveMetric,
+                InclusiveBytes: n.InclusiveMetric,
+                ExclusiveEventCount: n.ExclusiveCount,
+                InclusiveEventCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -68,7 +67,7 @@ public static class ClrAllocStackAnalysis
             TopTypes: ctx.TopTypes,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("bytes"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

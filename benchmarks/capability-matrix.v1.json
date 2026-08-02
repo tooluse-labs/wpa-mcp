@@ -1,0 +1,686 @@
+{
+  "schemaVersion": "capability-matrix.v1",
+  "capabilities": [
+    {
+      "capabilityId": "catalog.capability.list",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.catalog.capability.list",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/CapabilityDiscoveryTests.cs",
+          "member": "CapabilityDiscoveryTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "lifecycle.trace.load",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.lifecycle.trace.load",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceLifecycleProductionTests.cs",
+          "member": "ProductionTools_ReturnTraceIdAndNeverOwnedOrSourcePath"
+        }
+      ]
+    },
+    {
+      "capabilityId": "lifecycle.trace.unload",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.lifecycle.trace.unload",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceLifecycleProductionTests.cs",
+          "member": "LoadQueryUnloadReload_UsesOpaqueLifecycleAndRetainsArtifact"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.capability.inspect",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.capability.inspect",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/InspectTraceTests.cs",
+          "member": "InspectTraceTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.process.inventory",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.process.inventory",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/MetaToolsTests.cs",
+          "member": "MetaToolsTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.process.creation",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.process.creation",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ProcessCreateTimingAnalysisTests.cs",
+          "member": "ProcessCreateTimingAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.thread.lifetime",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.thread.lifetime",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ThreadLifetimeAnalysisTests.cs",
+          "member": "ThreadLifetimeAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.marker.search",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.marker.search",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/MarkerSearchTests.cs",
+          "member": "MarkerSearchTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "cpu.sampled.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.cpu.sampled.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/CpuAnalysisTests.cs",
+          "member": "CpuAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "scheduler.cpu_accounting",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.scheduler.cpu_accounting",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/CpuPreciseAnalysisTests.cs",
+          "member": "CpuPreciseAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "scheduler.blocked_time",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.scheduler.blocked_time",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/WaitAnalysisTests.cs",
+          "member": "WaitAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "scheduler.blocked_stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.scheduler.blocked_stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/BlockedTimeStackAnalysisTests.cs",
+          "member": "BlockedTimeStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "scheduler.ready.association",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.scheduler.ready.association",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ReadyThreadContractTests.cs",
+          "member": "ReadyThreadContractTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "io.file.aggregate",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.io.file.aggregate",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/FileIoAnalysisTests.cs",
+          "member": "FileIoAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "io.file.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.io.file.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/FileIoStackAnalysisTests.cs",
+          "member": "FileIoStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "io.disk.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.io.disk.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/DiskIoStackAnalysisTests.cs",
+          "member": "DiskIoStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "memory.hard_fault.files",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.memory.hard_fault.files",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/HardFaultByFileAnalysisTests.cs",
+          "member": "HardFaultByFileAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "memory.hard_fault.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.memory.hard_fault.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/PageFaultStackAnalysisTests.cs",
+          "member": "PageFaultStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "memory.virtual_alloc.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.memory.virtual_alloc.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/VirtualAllocPrecisionContractTests.cs",
+          "member": "VirtualAllocPrecisionContractTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "memory.resource.activity",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.memory.resource.activity",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/MemoryResourceAnalysisTests.cs",
+          "member": "MemoryResourceAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "image.load.timing",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.image.load.timing",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ImageLoadAnalysisTests.cs",
+          "member": "ImageLoadAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "image.load.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.image.load.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ImageLoadStackAnalysisTests.cs",
+          "member": "ImageLoadStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "network.io.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.network.io.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/RemainingStackCoverageContractTests.cs",
+          "member": "RemainingStackCoverageContractTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "network.connections",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.network.connections",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/NetConnectionAnalysisTests.cs",
+          "member": "NetConnectionAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "registry.activity.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.registry.activity.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/RemainingStackCoverageContractTests.cs",
+          "member": "RemainingStackCoverageContractTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "ipc.alpc.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.ipc.alpc.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/RemainingStackCoverageContractTests.cs",
+          "member": "RemainingStackCoverageContractTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "hardware.interrupt.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.hardware.interrupt.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/InterruptStackAnalysisTests.cs",
+          "member": "InterruptStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "provider.generic.stacks",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.provider.generic.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/GenericEventStackAnalysisTests.cs",
+          "member": "GenericEventStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "heap.alloc.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.heap.alloc.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/HeapAllocStackAnalysisTests.cs",
+          "member": "HeapAllocStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.gc.intervals",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.gc.intervals",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/GcAnalysisTests.cs",
+          "member": "GcAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.gc.heap_stats",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.gc.heap_stats",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/GcHeapStatsAnalysisTests.cs",
+          "member": "GcHeapStatsAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.jit.intervals",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.jit.intervals",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/JitAnalysisTests.cs",
+          "member": "JitAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.alloc.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.alloc.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ClrAllocStackAnalysisTests.cs",
+          "member": "ClrAllocStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.exception.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.exception.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ClrExceptionStackAnalysisTests.cs",
+          "member": "ClrExceptionStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.contention.stacks",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.contention.stacks",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ClrContentionStackAnalysisTests.cs",
+          "member": "ClrContentionStackAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "clr.finalizer.activity",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.clr.finalizer.activity",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/FinalizerAnalysisTests.cs",
+          "member": "FinalizerAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "symbols.configuration.path",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.symbols.configuration.path",
+          "kind": "reviewed_gap",
+          "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+          "member": "### 7. Secure-default surface and annotations"
+        }
+      ]
+    },
+    {
+      "capabilityId": "symbols.configuration.server",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.symbols.configuration.server",
+          "kind": "reviewed_gap",
+          "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+          "member": "### 7. Secure-default surface and annotations"
+        }
+      ]
+    },
+    {
+      "capabilityId": "symbols.diagnostics.metadata",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.symbols.diagnostics.metadata",
+          "kind": "reviewed_gap",
+          "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+          "member": "### 5. Explicit immutable symbol contexts"
+        }
+      ]
+    },
+    {
+      "capabilityId": "security.scan.heuristics",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.security.scan.heuristics",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+          "member": "SecurityScanAnalysisTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "diagnosis.window.composite",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.diagnosis.window.composite",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/DiagnoseToolsTests.cs",
+          "member": "DiagnoseToolsTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "diagnosis.wait.composite",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.diagnosis.wait.composite",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/DiagnoseToolsTests.cs",
+          "member": "DiagnoseToolsTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "diagnosis.startup.composite",
+      "productMaturity": "preview",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.diagnosis.startup.composite",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/SlowStartupWindowAcceptanceTests.cs",
+          "member": "SlowStartupWindowAcceptanceTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "scheduler.ready.causality",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.scheduler.ready.causality",
+          "kind": "reviewed_gap",
+          "path": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+          "member": "COR-CAUSAL-001"
+        }
+      ]
+    },
+    {
+      "capabilityId": "security.scanner.attribution",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.security.scanner.attribution",
+          "kind": "reviewed_gap",
+          "path": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+          "member": "COR-HEURISTIC-001"
+        }
+      ]
+    },
+    {
+      "capabilityId": "symbols.frame_resolution.measured",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.symbols.frame_resolution.measured",
+          "kind": "reviewed_gap",
+          "path": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+          "member": "COR-SYMBOL-001"
+        }
+      ]
+    },
+    {
+      "capabilityId": "trace.raw_event_count.external",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.trace.raw_event_count.external",
+          "kind": "reviewed_gap",
+          "path": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+          "member": "COR-COUNT-001"
+        }
+      ]
+    },
+    {
+      "capabilityId": "attribution.cross_domain.causal",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.attribution.cross_domain.causal",
+          "kind": "reviewed_gap",
+          "path": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+          "member": "COR-ATTRIBUTION-001"
+        }
+      ]
+    },
+    {
+      "capabilityId": "lifecycle.symbol.prepare",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.lifecycle.symbol.prepare",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/SymbolContextProductionTests.cs",
+          "member": "SymbolContextProductionTests"
+        }
+      ]
+    },
+    {
+      "capabilityId": "lifecycle.trace.handle",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.lifecycle.trace.handle",
+          "kind": "reviewed_gap",
+          "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+          "member": "### 3. Canonical load and generation single-flight"
+        }
+      ]
+    },
+    {
+      "capabilityId": "lifecycle.trace.artifact_peak_bound",
+      "productMaturity": "gap",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.lifecycle.trace.artifact_peak_bound",
+          "kind": "reviewed_gap",
+          "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+          "member": "#### Physical artifact peak bound (release-blocked)"
+        },
+        {
+          "evidenceId": "evidence.lifecycle.trace.artifact_checkpoint_budget",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceLifecycleProductionTests.cs",
+          "member": "TemporaryQuota_CountsInputAndDerivedArtifactAndFailsBeforePublication"
+        },
+        {
+          "evidenceId": "evidence.lifecycle.trace.materialization_serialization",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceLifecycleProductionTests.cs",
+          "member": "DifferentMaterializations_AreSerializedAcrossTemporarySpace"
+        }
+      ]
+    }
+  ],
+  "plannerAdmissions": [
+    {
+      "toolName": "inspect_trace",
+      "capabilityId": "trace.capability.inspect",
+      "operationVersion": "trace-facts.v1",
+      "admissionStatus": "approved",
+      "physicalPassLimit": 1,
+      "evidenceReferences": [
+        {
+          "evidenceId": "phase6.trace_facts.concurrent_single_pass",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceFactsSnapshotTests.cs",
+          "member": "ConcurrentConsumers_ShareOneGenerationPhysicalPass"
+        },
+        {
+          "evidenceId": "phase6.trace_facts.consumer_reuse",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/TraceFactsSnapshotTests.cs",
+          "member": "InspectListAndIdentity_ReuseSnapshotAndPreserveEstablishedFacts"
+        }
+      ],
+      "missingEvidence": []
+    },
+    {
+      "toolName": "diagnose_window",
+      "capabilityId": "diagnosis.window.composite",
+      "operationVersion": "current.v1",
+      "admissionStatus": "not_admitted_evidence_missing",
+      "physicalPassLimit": null,
+      "evidenceReferences": [],
+      "missingEvidence": [
+        "large_trace_before_after_physical_pass_and_elapsed_measurement"
+      ]
+    },
+    {
+      "toolName": "diagnose_high_wait",
+      "capabilityId": "diagnosis.wait.composite",
+      "operationVersion": "current.v1",
+      "admissionStatus": "not_admitted_evidence_missing",
+      "physicalPassLimit": null,
+      "evidenceReferences": [],
+      "missingEvidence": [
+        "large_trace_before_after_physical_pass_and_elapsed_measurement"
+      ]
+    },
+    {
+      "toolName": "diagnose_slow_startup",
+      "capabilityId": "diagnosis.startup.composite",
+      "operationVersion": "current.v1",
+      "admissionStatus": "not_admitted_evidence_missing",
+      "physicalPassLimit": null,
+      "evidenceReferences": [],
+      "missingEvidence": [
+        "large_trace_before_after_physical_pass_and_elapsed_measurement"
+      ]
+    }
+  ]
+}

@@ -52,19 +52,18 @@ public static class InterruptStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new InterruptStackRow(
-                Function: n.Name,
-                ExclusiveUs: (long)n.ExclusiveMetric,
-                InclusiveUs: (long)n.InclusiveMetric,
-                ExclusiveCount: (long)n.ExclusiveCount,
-                InclusiveCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveUs: n.ExclusiveMetric,
+                InclusiveUs: n.InclusiveMetric,
+                ExclusiveCount: n.ExclusiveCount,
+                InclusiveCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalUs, n.ExclusiveMetric),
@@ -79,7 +78,7 @@ public static class InterruptStackAnalysis
             TotalCount: ctx.TotalCount,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("microseconds"),
             StackCoverage: ctx.StackCoverage,
             ScopeMode: contract.ScopeMode,
             PidReuseObserved: contract.PidReuseObserved,

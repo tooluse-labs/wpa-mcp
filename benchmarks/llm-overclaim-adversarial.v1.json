@@ -1,0 +1,749 @@
+{
+  "schemaVersion": "llm-overclaim-adversarial.v1",
+  "suiteVersion": "1.0.0",
+  "evaluationKind": "deterministic_contract_proxy",
+  "modelExecution": "none",
+  "claimScope": "Offline deterministic checks of whether the active catalog and public output contract expose blockers for fixed overclaim risks. This is not a named-model quality evaluation.",
+  "scoringContract": {
+    "metricDefinitions": {
+      "wrongToolProxyRate": "Scenarios whose declared route references an inactive tool, omits an evidence-provider tool, or exceeds the frozen two-call route budget, divided by all scenarios.",
+      "overclaimProxyRate": "Forbidden conclusions for which at least one declared structured blocker is absent from the active contract, divided by all forbidden conclusions.",
+      "missingCaveatProxyRate": "Required caveats for which at least one declared structured evidence requirement is absent, divided by all required caveats.",
+      "meanDeclaredRouteCallsProxy": "Arithmetic mean of declared route tool counts. This is static route complexity, not observed model tool calls."
+    },
+    "thresholds": {
+      "maximumWrongToolProxyRate": 0.0,
+      "maximumOverclaimProxyRate": 0.0,
+      "maximumMissingCaveatProxyRate": 0.0,
+      "maximumMeanDeclaredRouteCallsProxy": 2.0
+    }
+  },
+  "scenarios": [
+    {
+      "scenarioId": "pid-reuse-process-instance",
+      "issueIds": ["COR-SCOPE-001"],
+      "condition": "One PID has multiple clean process lifetimes and the caller asks for a managed-heap trend.",
+      "expectedTools": ["inspect_trace", "clr_gc_heap_stats"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "pid.process-start-selector",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "input_parameter",
+          "selector": "processStartUs",
+          "expectedValues": [],
+          "requiredTerms": ["multiple lifetimes"]
+        },
+        {
+          "requirementId": "pid.scope-mode",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "output_property",
+          "selector": "scopeMode",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "pid.reuse-observed",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "output_property",
+          "selector": "pidReuseObserved",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "pid.included-processes",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "output_property",
+          "selector": "includedProcesses",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "pid.scope-status",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "output_property",
+          "selector": "scopeStatus",
+          "expectedValues": [],
+          "requiredTerms": ["process_start_required"]
+        },
+        {
+          "requirementId": "pid.no-data-reason",
+          "toolName": "clr_gc_heap_stats",
+          "surface": "output_property",
+          "selector": "noDataReason",
+          "expectedValues": [],
+          "requiredTerms": ["process_start_required"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "pid.single-lifetime-from-pid",
+          "text": "The numeric PID alone identifies one process lifetime.",
+          "blockedBy": ["pid.process-start-selector", "pid.reuse-observed", "pid.scope-status"]
+        },
+        {
+          "conclusionId": "pid.silent-cross-lifetime-trend",
+          "text": "The returned trend can be treated as one lifetime without checking its scope.",
+          "blockedBy": ["pid.scope-mode", "pid.reuse-observed", "pid.included-processes", "pid.no-data-reason"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "pid.exact-instance-or-explicit-aggregate",
+          "text": "State whether processStartUs selected one lifetime or the result explicitly aggregates disclosed lifetimes.",
+          "evidencedBy": ["pid.process-start-selector", "pid.scope-mode", "pid.included-processes"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "target-domain-no-stacks",
+      "issueIds": ["COR-STACK-001"],
+      "condition": "The trace has CPU stacks but FileIO events in the selected scope have no attached stacks.",
+      "expectedTools": ["inspect_trace", "file_io_top_stacks"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "stacks.file-domain-capability",
+          "toolName": "file_io_top_stacks",
+          "surface": "contract",
+          "selector": "capabilityIds",
+          "expectedValues": ["io.file.stacks"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "stacks.scoped-coverage-required",
+          "toolName": "file_io_top_stacks",
+          "surface": "contract",
+          "selector": "doesNotProve",
+          "expectedValues": ["SCOPED_STACK_COVERAGE_REQUIRED"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "stacks.coverage-object",
+          "toolName": "file_io_top_stacks",
+          "surface": "output_property",
+          "selector": "stackCoverage",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "stacks.total-events",
+          "toolName": "file_io_top_stacks",
+          "surface": "output_property",
+          "selector": "totalEventCount",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "stacks.stacked-events",
+          "toolName": "file_io_top_stacks",
+          "surface": "output_property",
+          "selector": "stackedEventCount",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "stacks.coverage-state",
+          "toolName": "file_io_top_stacks",
+          "surface": "output_property",
+          "selector": "coverageState",
+          "expectedValues": [],
+          "requiredTerms": ["no_stacks", "partial", "full"]
+        },
+        {
+          "requirementId": "stacks.synthetic-unknown",
+          "toolName": "file_io_top_stacks",
+          "surface": "output_property",
+          "selector": "unknownStackFrameIsSynthetic",
+          "expectedValues": [],
+          "requiredTerms": ["?!?", "synthetic", "rather than a captured call chain"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "stacks.global-implies-target",
+          "text": "Stacks observed in another event domain prove FileIO stacks are available.",
+          "blockedBy": ["stacks.file-domain-capability", "stacks.scoped-coverage-required", "stacks.coverage-object", "stacks.coverage-state"]
+        },
+        {
+          "conclusionId": "stacks.synthetic-is-captured-chain",
+          "text": "The ?!? bucket is a captured caller chain.",
+          "blockedBy": ["stacks.synthetic-unknown"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "stacks.same-domain-same-scope-coverage",
+          "text": "Report FileIO eligible and stacked counts and classify no_stacks or partial before interpreting call chains.",
+          "evidencedBy": ["stacks.total-events", "stacks.stacked-events", "stacks.coverage-state"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "symbol-frame-resolution-unmeasured",
+      "issueIds": ["COR-SYMBOL-001"],
+      "condition": "inspect_trace observes PDB identity metadata but performs no frame lookup.",
+      "expectedTools": ["inspect_trace"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "symbol.inspect-boundary",
+          "toolName": "inspect_trace",
+          "surface": "contract",
+          "selector": "doesNotProve",
+          "expectedValues": ["SYMBOLS_NOT_FRAME_RESOLUTION"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "symbol.inspect-description",
+          "toolName": "inspect_trace",
+          "surface": "tool_description",
+          "selector": "description",
+          "expectedValues": [],
+          "requiredTerms": ["does not", "run frame lookup", "prepare_symbols"]
+        },
+        {
+          "requirementId": "symbol.measurement-state",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "frameResolutionMeasurementState",
+          "expectedValues": [],
+          "requiredTerms": ["does not execute stack frame lookup"]
+        },
+        {
+          "requirementId": "symbol.measurement-value",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "frameResolution",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "symbol.local-readiness-state",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "localReadinessMeasurementState",
+          "expectedValues": [],
+          "requiredTerms": ["no local readiness probe", "prepare_symbols"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "symbol.pdb-identity-means-resolved",
+          "text": "PDB name/GUID/Age metadata proves stack frames were resolved.",
+          "blockedBy": ["symbol.inspect-boundary", "symbol.measurement-state", "symbol.measurement-value"]
+        },
+        {
+          "conclusionId": "symbol.unmeasured-means-zero",
+          "text": "An unmeasured frame-resolution rate can be reported as zero percent.",
+          "blockedBy": ["symbol.measurement-state", "symbol.measurement-value"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "symbol.inspect-is-metadata-only",
+          "text": "State that inspect_trace did not measure local readiness or frame resolution and name the explicit next step.",
+          "evidencedBy": ["symbol.inspect-description", "symbol.measurement-state", "symbol.local-readiness-state"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "symbol-frame-resolution-low",
+      "issueIds": ["COR-SYMBOL-001"],
+      "condition": "A context-bound stack query observes a low frame-name resolution rate.",
+      "expectedTools": ["inspect_trace", "cpu_top_functions"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "symbol.low-unique-rate",
+          "toolName": "cpu_top_functions",
+          "surface": "output_property",
+          "selector": "observedUniqueCodeFrameNameResolutionRate",
+          "expectedValues": [],
+          "requiredTerms": ["observed", "frame-name heuristic", "null when"]
+        },
+        {
+          "requirementId": "symbol.low-weighted-rate",
+          "toolName": "cpu_top_functions",
+          "surface": "output_property",
+          "selector": "observedMetricWeightedCodeFrameNameResolutionRate",
+          "expectedValues": [],
+          "requiredTerms": ["resolved-name share", "source sample metric"]
+        },
+        {
+          "requirementId": "symbol.lookup-state",
+          "toolName": "cpu_top_functions",
+          "surface": "output_property",
+          "selector": "lookupState",
+          "expectedValues": [],
+          "requiredTerms": ["executed", "does not mean every module"]
+        },
+        {
+          "requirementId": "symbol.unresolved-modules",
+          "toolName": "cpu_top_functions",
+          "surface": "output_property",
+          "selector": "topUnresolvedModules",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "symbol.resolution-evidence",
+          "toolName": "cpu_top_functions",
+          "surface": "output_property",
+          "selector": "resolutionEvidence",
+          "expectedValues": [],
+          "requiredTerms": []
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "symbol.low-rate-is-good-quality",
+          "text": "PDB metadata allows the low observed frame-name resolution rate to be described as good symbol quality.",
+          "blockedBy": ["symbol.low-unique-rate", "symbol.lookup-state", "symbol.unresolved-modules"]
+        },
+        {
+          "conclusionId": "symbol.lookup-executed-means-complete",
+          "text": "LookupState=executed proves every module and frame resolved.",
+          "blockedBy": ["symbol.lookup-state", "symbol.low-weighted-rate", "symbol.resolution-evidence"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "symbol.rate-denominator-and-heuristic",
+          "text": "Report which observed frame-name rate and denominator are used and retain unresolved-module evidence.",
+          "evidencedBy": ["symbol.low-unique-rate", "symbol.low-weighted-rate", "symbol.unresolved-modules"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "security-scan-heuristic",
+      "issueIds": ["COR-HEURISTIC-001"],
+      "condition": "A provider or event name contains scan/security terms without independent scanner identity evidence.",
+      "expectedTools": ["inspect_trace", "security_scan_analysis"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "security.heuristic-basis",
+          "toolName": "security_scan_analysis",
+          "surface": "contract",
+          "selector": "measurementBases",
+          "expectedValues": ["heuristic"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.association-ceiling",
+          "toolName": "security_scan_analysis",
+          "surface": "contract",
+          "selector": "maximumRelationship",
+          "expectedValues": ["association"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.not-attribution",
+          "toolName": "security_scan_analysis",
+          "surface": "contract",
+          "selector": "doesNotProve",
+          "expectedValues": ["HEURISTIC_NOT_ATTRIBUTION", "SECURITY_EVENT_NOT_SCANNER_IDENTITY", "ASSOCIATION_NOT_CAUSATION"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.evidence-kind",
+          "toolName": "security_scan_analysis",
+          "surface": "output_property",
+          "selector": "evidenceKind",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.provenance",
+          "toolName": "security_scan_analysis",
+          "surface": "output_property",
+          "selector": "provenance",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.confidence",
+          "toolName": "security_scan_analysis",
+          "surface": "output_property",
+          "selector": "confidence",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "security.description-boundary",
+          "toolName": "security_scan_analysis",
+          "surface": "tool_description",
+          "selector": "description",
+          "expectedValues": [],
+          "requiredTerms": ["low-confidence", "do not establish exact duration or root cause"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "security.name-means-confirmed-product",
+          "text": "A scan-like name confirms a specific AV or EDR product performed the work.",
+          "blockedBy": ["security.heuristic-basis", "security.not-attribution", "security.evidence-kind", "security.provenance"]
+        },
+        {
+          "conclusionId": "security.association-means-root-cause",
+          "text": "Associated security events prove the security product caused the slowdown.",
+          "blockedBy": ["security.association-ceiling", "security.not-attribution", "security.confidence", "security.description-boundary"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "security.state-heuristic-confidence-alternative",
+          "text": "Label name-based evidence as heuristic, include provenance/confidence, and retain alternative explanations.",
+          "evidencedBy": ["security.heuristic-basis", "security.evidence-kind", "security.provenance", "security.confidence"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "response-budget-partial-visible",
+      "issueIds": ["COR-PAGING-001"],
+      "condition": "A capability page omits rows because the response budget is exhausted.",
+      "expectedTools": ["list_capabilities"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "partial.cursor-contract",
+          "toolName": "list_capabilities",
+          "surface": "contract",
+          "selector": "paginationMode",
+          "expectedValues": ["cursor"],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.has-more",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "hasMore",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.next-cursor",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "nextCursor",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.truncation-reason",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "truncationReason",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.total-available",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "totalAvailable",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.total-state",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "totalState",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.returned",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "returned",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "partial.runtime-probe",
+          "toolName": "list_capabilities",
+          "surface": "runtime_probe",
+          "selector": "list_capabilities_budget_partial",
+          "expectedValues": [],
+          "requiredTerms": ["\"status\":\"succeeded\"", "\"hasMore\":true", "\"truncationReason\":\"response_budget\""]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "partial.first-page-is-complete",
+          "text": "The first response page is the complete capability map.",
+          "blockedBy": ["partial.cursor-contract", "partial.has-more", "partial.next-cursor", "partial.truncation-reason", "partial.runtime-probe"]
+        },
+        {
+          "conclusionId": "partial.omitted-means-unsupported",
+          "text": "Capabilities omitted by response-budget fitting are unsupported or absent.",
+          "blockedBy": ["partial.total-available", "partial.total-state", "partial.returned", "partial.truncation-reason", "partial.runtime-probe"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "partial.follow-cursor-and-report-budget",
+          "text": "Report response_budget truncation and follow nextCursor before claiming catalog completeness.",
+          "evidencedBy": ["partial.has-more", "partial.next-cursor", "partial.truncation-reason", "partial.runtime-probe"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "response-budget-terminal",
+      "issueIds": ["COR-PAGING-001"],
+      "condition": "The configured frame budget cannot fit one truthful list_capabilities success row.",
+      "expectedTools": ["list_capabilities"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "terminal.status",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "status",
+          "expectedValues": [],
+          "requiredTerms": ["failed"]
+        },
+        {
+          "requirementId": "terminal.error",
+          "toolName": "list_capabilities",
+          "surface": "output_property",
+          "selector": "error",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "terminal.runtime-probe",
+          "toolName": "list_capabilities",
+          "surface": "runtime_probe",
+          "selector": "list_capabilities_minimum_budget_terminal",
+          "expectedValues": [],
+          "requiredTerms": ["\"status\":\"failed\"", "\"code\":\"response_too_large\"", "\"data\":null", "\"hasMore\":false", "\"sections\":[]"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "terminal.failed-is-empty-success",
+          "text": "response_too_large is a successful empty catalog result.",
+          "blockedBy": ["terminal.status", "terminal.error", "terminal.runtime-probe"]
+        },
+        {
+          "conclusionId": "terminal.has-continuation",
+          "text": "A terminal response_too_large result has a valid continuation page.",
+          "blockedBy": ["terminal.runtime-probe"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "terminal-no-domain-conclusion",
+          "text": "Treat the result as delivery failure with no domain data and no continuation, not evidence about capabilities.",
+          "evidencedBy": ["terminal.status", "terminal.error", "terminal.runtime-probe"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "unsafe-64-bit-identifier",
+      "issueIds": ["COR-ID-001"],
+      "condition": "A connection identifier is ulong.MaxValue and cannot round-trip through a JavaScript number.",
+      "expectedTools": ["inspect_trace", "net_connections"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "id.authoritative-text",
+          "toolName": "net_connections",
+          "surface": "output_property",
+          "selector": "connIdText",
+          "expectedValues": [],
+          "requiredTerms": ["authoritative exact", "canonical unsigned decimal string"]
+        },
+        {
+          "requirementId": "id.legacy-number",
+          "toolName": "net_connections",
+          "surface": "output_property",
+          "selector": "connId",
+          "expectedValues": [],
+          "requiredTerms": ["9007199254740991", "required null for larger identifiers"]
+        },
+        {
+          "requirementId": "id.legacy-status",
+          "toolName": "net_connections",
+          "surface": "output_property",
+          "selector": "connIdLegacyStatus",
+          "expectedValues": [],
+          "requiredTerms": ["null_unsafe_integer_deprecated", "authoritative"]
+        },
+        {
+          "requirementId": "id.runtime-projection",
+          "toolName": "net_connections",
+          "surface": "runtime_probe",
+          "selector": "unsafe_connection_identifier",
+          "expectedValues": [],
+          "requiredTerms": ["\"connIdText\":\"18446744073709551615\"", "\"connId\":null", "\"connIdLegacyStatus\":\"null_unsafe_integer_deprecated\""]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "id.numeric-is-authoritative",
+          "text": "The numeric ConnId remains exact above Number.MAX_SAFE_INTEGER.",
+          "blockedBy": ["id.authoritative-text", "id.legacy-number", "id.legacy-status", "id.runtime-projection"]
+        },
+        {
+          "conclusionId": "id.null-means-no-connection-id",
+          "text": "A null legacy ConnId means the trace did not contain a connection identifier.",
+          "blockedBy": ["id.authoritative-text", "id.legacy-status", "id.runtime-projection"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "id-use-canonical-string",
+          "text": "Use ConnIdText for identity and explain why the deprecated numeric sibling is null.",
+          "evidencedBy": ["id.authoritative-text", "id.legacy-status", "id.runtime-projection"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "trace-without-mcp-self-attribution",
+      "issueIds": ["COR-ATTRIBUTION-001"],
+      "condition": "The trace process inventory contains no exact WpaMcp process instance.",
+      "expectedTools": ["inspect_trace"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "self-attribution.object",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "selfAttribution",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "self-attribution.status",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "status",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "self-attribution.selected-process",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "selectedProcess",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "self-attribution.conclusion",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "conclusionStatus",
+          "expectedValues": [],
+          "requiredTerms": ["not_concluded"]
+        },
+        {
+          "requirementId": "self-attribution.runtime-probe",
+          "toolName": "inspect_trace",
+          "surface": "runtime_probe",
+          "selector": "trace_without_mcp_process",
+          "expectedValues": [],
+          "requiredTerms": ["\"status\":\"not_concluded_exact_process_not_observed\"", "\"exactNameMatchCount\":0", "\"selectedProcess\":null", "\"conclusionStatus\":\"not_concluded\"", "absence_from_process_inventory_does_not_prove_mcp_performance"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "self-attribution-workload-is-mcp",
+          "text": "A system/workload trace without WpaMcp contains evidence of MCP server performance.",
+          "blockedBy": ["self-attribution.object", "self-attribution.selected-process", "self-attribution.conclusion", "self-attribution.runtime-probe"]
+        },
+        {
+          "conclusionId": "self-attribution-absence-proves-fast",
+          "text": "The absence of WpaMcp process evidence proves the MCP server had no performance problem.",
+          "blockedBy": ["self-attribution.status", "self-attribution.conclusion", "self-attribution.runtime-probe"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "self-attribution-not-concluded",
+          "text": "State that MCP self-performance is not concluded unless an exact server/worker process instance is observed and selected.",
+          "evidencedBy": ["self-attribution.selected-process", "self-attribution.conclusion", "self-attribution.runtime-probe"]
+        }
+      ]
+    },
+    {
+      "scenarioId": "empty-result-no-data-reason",
+      "issueIds": ["COR-NODATA-001"],
+      "condition": "A FileIO query returns no rows and the reason may be selector failure, capability absence, no scoped events, or unattributed source evidence.",
+      "expectedTools": ["inspect_trace", "file_io_top_files"],
+      "evidenceRequirements": [
+        {
+          "requirementId": "empty.scope-status",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "scopeStatus",
+          "expectedValues": [],
+          "requiredTerms": ["scope_not_found", "ambiguous_process_instance"]
+        },
+        {
+          "requirementId": "empty.capability-status",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "capabilityStatus",
+          "expectedValues": [],
+          "requiredTerms": ["observed", "not_observed", "unknown"]
+        },
+        {
+          "requirementId": "empty.matched-events",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "matchedEventCount",
+          "expectedValues": [],
+          "requiredTerms": ["before top-N"]
+        },
+        {
+          "requirementId": "empty.reason",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "noDataReason",
+          "expectedValues": [],
+          "requiredTerms": ["scope_not_found", "no_events_in_scope", "event_class_not_observed"]
+        },
+        {
+          "requirementId": "empty.envelope-no-data",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "noData",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "empty.envelope-error",
+          "toolName": "file_io_top_files",
+          "surface": "output_property",
+          "selector": "error",
+          "expectedValues": [],
+          "requiredTerms": []
+        },
+        {
+          "requirementId": "empty.analysis-guidance",
+          "toolName": "inspect_trace",
+          "surface": "output_property",
+          "selector": "analysisContract",
+          "expectedValues": [],
+          "requiredTerms": ["empty rows", "scope"]
+        }
+      ],
+      "forbiddenConclusions": [
+        {
+          "conclusionId": "empty-rows-means-no-io",
+          "text": "Rows=[] proves that no FileIO occurred.",
+          "blockedBy": ["empty.scope-status", "empty.capability-status", "empty.matched-events", "empty.reason"]
+        },
+        {
+          "conclusionId": "empty-rows-means-no-problem",
+          "text": "Rows=[] is sufficient evidence that there is no performance problem.",
+          "blockedBy": ["empty.envelope-no-data", "empty.envelope-error", "empty.analysis-guidance"]
+        }
+      ],
+      "requiredCaveats": [
+        {
+          "caveatId": "empty-name-structured-reason",
+          "text": "Name the structured scope, capability, matched-count, and no-data or error state instead of interpreting the empty array alone.",
+          "evidencedBy": ["empty.scope-status", "empty.capability-status", "empty.matched-events", "empty.reason", "empty.envelope-no-data", "empty.envelope-error"]
+        }
+      ]
+    }
+  ]
+}

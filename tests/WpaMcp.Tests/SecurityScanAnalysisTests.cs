@@ -58,6 +58,106 @@ public sealed class SecurityScanAnalysisTests
             Assert.Equal("known_defender_schema", row.Provenance);
             Assert.Equal("high", row.Confidence);
         });
+
+        var compositeEvidence = DiagnoseTools.BuildSecurityDurationEvidence(
+            response,
+            pid: null);
+        Assert.Equal(response.TotalDurationUs, compositeEvidence.MetricValue);
+        Assert.Null(compositeEvidence.ProcessName);
+        Assert.Null(compositeEvidence.ProcessStartUs);
+        Assert.Null(compositeEvidence.File);
+        Assert.Null(compositeEvidence.TimeUs);
+        Assert.DoesNotContain(compositeEvidence.Details, detail =>
+            detail.Contains("Sample", StringComparison.OrdinalIgnoreCase));
+        var sample = Assert.Single(compositeEvidence.Samples);
+        Assert.False(sample.Representative);
+        Assert.False(sample.MetricAttributable);
+        Assert.Equal("returned_rows_only", sample.SampleScope);
+        Assert.Null(compositeEvidence.DetailsBoundary);
+        Assert.Equal(compositeEvidence.Samples.Count, compositeEvidence.SamplesBoundary!.Returned);
+    }
+
+    [Fact]
+    public void SecurityDurationEvidence_TopDoesNotAttributeAggregateToOneTarget()
+    {
+        var emitter = new ProcessInstanceKey(4, 0);
+        var firstTarget = new ProcessInstanceKey(42, 0);
+        var secondTarget = new ProcessInstanceKey(43, 0);
+
+        PairedInterval<SecurityScanPairKey, SecurityScanStartData, SecurityScanStopData>
+            Pair(string id, ProcessInstanceKey targetProcess, string process, string path,
+                long startUs, long stopUs)
+        {
+            var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["__Source"] = "Microsoft Defender",
+                ["__ProviderName"] = "Microsoft-Antimalware-Engine",
+                ["__Id"] = id,
+                ["Path"] = path,
+                ["Process"] = process,
+                ["PID"] = targetProcess.Pid.ToString(),
+            };
+            var target = new SecurityScanAnalysis.ScanTarget(
+                "Microsoft Defender",
+                "Microsoft-Antimalware-Engine",
+                process,
+                targetProcess.Pid,
+                path);
+            return new(
+                new SecurityScanPairKey(emitter, "Microsoft-Antimalware-Engine", id),
+                startUs,
+                stopUs,
+                new SecurityScanStartData(
+                    fields, targetProcess, "payload_target_pid", target),
+                new SecurityScanStopData(
+                    fields, targetProcess, "payload_target_pid", target));
+        }
+
+        var pairs = new[]
+        {
+            Pair("scan-1", firstTarget, "first.exe", "c:\\first.dll", 10, 30),
+            Pair("scan-2", secondTarget, "second.exe", "c:\\second.dll", 40, 70),
+        };
+        var topOne = SecurityScanAnalysis.ProjectPairs(
+            pairs, new TimeWindow(0, 100), top: 1, pid: null,
+            processSubstring: null, pathSubstring: null, providerSubstring: null);
+        var topAll = SecurityScanAnalysis.ProjectPairs(
+            pairs, new TimeWindow(0, 100), top: 2, pid: null,
+            processSubstring: null, pathSubstring: null, providerSubstring: null);
+
+        var evidenceAtTopOne = DiagnoseTools.BuildSecurityDurationEvidence(
+            topOne, pid: 999);
+        var evidenceAtTopAll = DiagnoseTools.BuildSecurityDurationEvidence(
+            topAll, pid: 999);
+
+        Assert.Equal(50, evidenceAtTopOne.MetricValue);
+        Assert.Equal(evidenceAtTopOne.MetricValue, evidenceAtTopAll.MetricValue);
+        Assert.Null(evidenceAtTopOne.Pid);
+        Assert.Null(evidenceAtTopOne.ProcessStartUs);
+        Assert.Null(evidenceAtTopOne.ProcessName);
+        Assert.Null(evidenceAtTopOne.File);
+        Assert.Null(evidenceAtTopOne.TimeUs);
+        Assert.Null(evidenceAtTopAll.ProcessName);
+        Assert.Null(evidenceAtTopAll.File);
+        Assert.DoesNotContain(evidenceAtTopOne.Details, detail =>
+            detail.Contains("sample", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(ToolSectionTotalState.LowerBound,
+            evidenceAtTopOne.SamplesBoundary!.TotalState);
+        Assert.Equal(ToolSectionMoreState.Present,
+            evidenceAtTopOne.SamplesBoundary.MoreState);
+        Assert.True(evidenceAtTopOne.SamplesBoundary.HasMore);
+        Assert.False(evidenceAtTopOne.SamplesBoundary.ContinuationAvailable);
+        Assert.Equal(ToolSectionTotalState.Exact,
+            evidenceAtTopAll.SamplesBoundary!.TotalState);
+        Assert.True(evidenceAtTopAll.SamplesBoundary.HasMore);
+        Assert.All(evidenceAtTopOne.Samples, sample =>
+        {
+            Assert.False(sample.Representative);
+            Assert.False(sample.MetricAttributable);
+            Assert.Equal("returned_rows_only", sample.SampleScope);
+        });
+        Assert.Null(evidenceAtTopOne.DetailsBoundary);
+        Assert.Null(evidenceAtTopAll.DetailsBoundary);
     }
 
     [Fact]
@@ -192,6 +292,123 @@ public sealed class SecurityScanAnalysisTests
         Assert.Equal(2, response.Providers.Count);
         Assert.Contains(response.Warnings, warning =>
             warning.StartsWith("name_heuristic:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SecurityPresenceEvidence_UsesExactPrePaginationClassTotals()
+    {
+        var process = new ProcessInstanceKey(42, 0);
+        var pointEvents = Enumerable.Range(1, 3)
+            .Select(index => PointEvent(
+                pid: 42,
+                process,
+                identitySource: "payload_target_pid",
+                path: $"c:\\sample-{index}.dll"))
+            .ToArray();
+        var scope = ProcessAnalysisScope.Resolve(
+            new TimeWindow(0, 100),
+            pid: 42,
+            processStartUs: null,
+            Lifetimes((process, 100)));
+
+        var topOne = SecurityScanAnalysis.ProjectPointEventsDetailed(
+            pointEvents,
+            top: 1,
+            scope: scope);
+        var topAll = SecurityScanAnalysis.ProjectPointEventsDetailed(
+            pointEvents,
+            top: 3,
+            scope: scope);
+
+        Assert.True(topOne.Response.RowsHasMore);
+        Assert.Single(topOne.Response.Rows);
+        Assert.Equal(3, topOne.Response.MatchedEventCount);
+        var exactSummary = Assert.Single(topOne.EvidenceClassSummaries);
+        Assert.Equal(3, exactSummary.EventCount);
+        Assert.Equal("exact", exactSummary.TotalState);
+        Assert.Equal(
+            Assert.Single(topAll.EvidenceClassSummaries).EventCount,
+            exactSummary.EventCount);
+
+        var evidenceAtTopOne = Assert.Single(
+            DiagnoseTools.BuildSecurityPresenceEvidence(
+                topOne,
+                pid: 42));
+        var evidenceAtTopAll = Assert.Single(
+            DiagnoseTools.BuildSecurityPresenceEvidence(
+                topAll,
+                pid: 42));
+        Assert.Equal(3, evidenceAtTopOne.MetricValue);
+        Assert.Equal(evidenceAtTopAll.MetricValue, evidenceAtTopOne.MetricValue);
+        Assert.Equal("app.exe", evidenceAtTopOne.ProcessName);
+        Assert.Equal(process.StartUs, evidenceAtTopOne.ProcessStartUs);
+        Assert.Null(evidenceAtTopOne.File);
+        Assert.Null(evidenceAtTopOne.TimeUs);
+        Assert.Contains(evidenceAtTopOne.Details, detail =>
+            detail.Contains("eventCountTotalState=exact", StringComparison.Ordinal));
+        Assert.DoesNotContain(evidenceAtTopOne.Details, detail =>
+            detail.Contains("sampleScope", StringComparison.Ordinal));
+        var returnedSample = Assert.Single(evidenceAtTopOne.Samples);
+        Assert.False(returnedSample.Representative);
+        Assert.False(returnedSample.MetricAttributable);
+        Assert.Equal("returned_rows_only", returnedSample.SampleScope);
+        Assert.Equal(ToolSectionTotalState.Unknown,
+            evidenceAtTopOne.SamplesBoundary!.TotalState);
+        Assert.Equal(ToolSectionMoreState.Unknown,
+            evidenceAtTopOne.SamplesBoundary.MoreState);
+        Assert.False(evidenceAtTopOne.SamplesBoundary.HasMore);
+        Assert.False(evidenceAtTopOne.SamplesBoundary.ContinuationAvailable);
+        Assert.Equal(ToolSectionTotalState.Exact,
+            evidenceAtTopAll.SamplesBoundary!.TotalState);
+        Assert.Null(evidenceAtTopOne.DetailsBoundary);
+        Assert.Null(evidenceAtTopAll.DetailsBoundary);
+    }
+
+    [Fact]
+    public void SecurityPresenceEvidence_TopDoesNotTurnAggregateTotalIntoSampleAttribution()
+    {
+        var first = new ProcessInstanceKey(42, 0);
+        var second = new ProcessInstanceKey(43, 0);
+        var pointEvents = new[]
+        {
+            PointEvent(42, first, "payload_target_pid", "c:\\first.dll"),
+            PointEvent(43, second, "payload_target_pid", "c:\\second.dll"),
+        };
+        var topOne = SecurityScanAnalysis.ProjectPointEventsDetailed(
+            pointEvents,
+            top: 1);
+        var topAll = SecurityScanAnalysis.ProjectPointEventsDetailed(
+            pointEvents,
+            top: 2);
+
+        var evidenceAtTopOne = Assert.Single(
+            DiagnoseTools.BuildSecurityPresenceEvidence(
+                topOne,
+                // Hostile caller input: all_processes from the child response
+                // must prevent aggregate ownership attribution.
+                pid: 999));
+        var evidenceAtTopAll = Assert.Single(
+            DiagnoseTools.BuildSecurityPresenceEvidence(
+                topAll,
+                pid: 999));
+
+        Assert.Equal(2, evidenceAtTopOne.MetricValue);
+        Assert.Equal(evidenceAtTopOne.MetricValue, evidenceAtTopAll.MetricValue);
+        Assert.Null(evidenceAtTopOne.Pid);
+        Assert.Null(evidenceAtTopOne.ProcessStartUs);
+        Assert.Null(evidenceAtTopOne.ProcessName);
+        Assert.Null(evidenceAtTopOne.File);
+        Assert.Null(evidenceAtTopOne.TimeUs);
+        Assert.Null(evidenceAtTopAll.ProcessName);
+        Assert.Null(evidenceAtTopAll.File);
+        Assert.DoesNotContain(evidenceAtTopOne.Details, detail =>
+            detail.Contains("sample", StringComparison.OrdinalIgnoreCase));
+        Assert.All(evidenceAtTopOne.Samples, sample =>
+        {
+            Assert.False(sample.Representative);
+            Assert.False(sample.MetricAttributable);
+            Assert.Equal("returned_rows_only", sample.SampleScope);
+        });
     }
 
     [Fact]
@@ -620,14 +837,70 @@ public sealed class SecurityScanAnalysisTests
     }
 
     [Fact]
-    public void SecurityScanAnalysis_DescriptionExplainsThirdPartyDegradation()
+    public void SecurityRows_UseTheCompleteRowKeyForEqualMetrics()
+    {
+        var baseline = RankedTargetRow();
+        var cases = new (SecurityScanTargetRow Earlier, SecurityScanTargetRow Later)[]
+        {
+            (baseline with { Source = "a" }, baseline with { Source = "b" }),
+            (baseline with { ProviderName = "a" }, baseline with { ProviderName = "b" }),
+            (baseline with { Process = "a" }, baseline with { Process = "b" }),
+            (baseline with { Pid = 1 }, baseline with { Pid = 2 }),
+            (baseline with { Path = "a" }, baseline with { Path = "b" }),
+            (baseline with { ProcessStartUs = 1 }, baseline with { ProcessStartUs = 2 }),
+            (baseline with { TargetIdentitySource = "a" }, baseline with { TargetIdentitySource = "b" }),
+            (baseline with { EvidenceKind = "a" }, baseline with { EvidenceKind = "b" }),
+            (baseline with { Provenance = "a" }, baseline with { Provenance = "b" }),
+            (baseline with { Confidence = "a" }, baseline with { Confidence = "b" }),
+        };
+
+        foreach (var (earlier, later) in cases)
+        {
+            Assert.Equal(
+                [earlier, later],
+                SecurityScanAnalysis.OrderTargetRows([later, earlier]));
+        }
+    }
+
+    [Fact]
+    public void SecuritySlowScans_UseCompleteStableTieBreakersForEqualDuration()
+    {
+        var baseline = RankedRequestRow();
+        var cases = new (SecurityScanRequestRow Earlier, SecurityScanRequestRow Later)[]
+        {
+            (baseline with { StartUs = 1 }, baseline with { StartUs = 2 }),
+            (baseline with { Source = "a" }, baseline with { Source = "b" }),
+            (baseline with { ProviderName = "a" }, baseline with { ProviderName = "b" }),
+            (baseline with { Id = "a" }, baseline with { Id = "b" }),
+            (baseline with { Pid = 1 }, baseline with { Pid = 2 }),
+            (baseline with { ProcessStartUs = 1 }, baseline with { ProcessStartUs = 2 }),
+            (baseline with { Process = "a" }, baseline with { Process = "b" }),
+            (baseline with { Path = "a" }, baseline with { Path = "b" }),
+            (baseline with { StopUs = 20 }, baseline with { StopUs = 30 }),
+            (baseline with { EvidenceKind = "a" }, baseline with { EvidenceKind = "b" }),
+            (baseline with { Provenance = "a" }, baseline with { Provenance = "b" }),
+            (baseline with { Confidence = "a" }, baseline with { Confidence = "b" }),
+            (baseline with { TargetIdentitySource = "a" }, baseline with { TargetIdentitySource = "b" }),
+            (baseline with { Reason = "a" }, baseline with { Reason = "b" }),
+        };
+
+        foreach (var (earlier, later) in cases)
+        {
+            Assert.Equal(
+                [earlier, later],
+                SecurityScanAnalysis.OrderSlowScans([later, earlier]));
+        }
+    }
+
+    [Fact]
+    public void SecurityScanAnalysis_DescriptionExplainsThirdPartyDegradationWithoutClaimingExternalAccess()
     {
         var method = typeof(SecurityTools).GetMethod(nameof(SecurityTools.SecurityScanAnalysis));
         var tool = method?.GetCustomAttribute<McpServerToolAttribute>();
         var description = method?.GetCustomAttribute<DescriptionAttribute>()?.Description;
 
         Assert.NotNull(tool);
-        Assert.True(tool!.OpenWorld);
+        Assert.False(tool!.OpenWorld);
         Assert.Contains("third-party", description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("degrade", description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("confidence", description, StringComparison.OrdinalIgnoreCase);
@@ -673,6 +946,54 @@ public sealed class SecurityScanAnalysisTests
             TargetProcess: process,
             TargetIdentitySource: identitySource);
     }
+
+    private static SecurityScanTargetRow RankedTargetRow() => new(
+        Source: "source",
+        ProviderName: "provider",
+        Process: "process",
+        Pid: 42,
+        Path: "path",
+        PairedScanCount: 1,
+        TotalDurationUs: 100,
+        AvgDurationUs: 100,
+        MaxDurationUs: 100,
+        EventCount: 2,
+        StartEventCount: 1,
+        StopEventCount: 1,
+        ResultEventCount: 0,
+        EventNames: ["event:2"],
+        Reasons: [],
+        Statuses: [],
+        TotalFullDurationUs: 100,
+        TotalAccountedDurationUs: 100,
+        AvgAccountedDurationUs: 100,
+        MaxAccountedDurationUs: 100,
+        AccountingMode: DurationAccounting.ClippedOverlapMode,
+        EvidenceKind: "evidence",
+        Provenance: "provenance",
+        Confidence: "confidence",
+        ProcessStartUs: 10,
+        TargetIdentitySource: "identity");
+
+    private static SecurityScanRequestRow RankedRequestRow() => new(
+        Source: "source",
+        ProviderName: "provider",
+        Id: "id",
+        StartUs: 10,
+        StopUs: 110,
+        DurationUs: 100,
+        Process: "process",
+        Pid: 42,
+        Path: "path",
+        Reason: "reason",
+        FullDurationUs: 100,
+        AccountedDurationUs: 100,
+        AccountingMode: DurationAccounting.ClippedOverlapMode,
+        EvidenceKind: "evidence",
+        Provenance: "provenance",
+        Confidence: "confidence",
+        ProcessStartUs: 1,
+        TargetIdentitySource: "identity");
 
     private static IReadOnlyList<ProcessLifetime> Lifetimes(
         params (ProcessInstanceKey Key, long EndUs)[] values) =>

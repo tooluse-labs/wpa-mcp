@@ -84,8 +84,12 @@ internal sealed class IntervalPairAccumulator<TKey, TStart, TStop> where TKey : 
 
         foreach (var queue in _starts.Values)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             while (queue.Count > 0)
+            {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 _unmatchedStarts.Add(queue.Dequeue());
+            }
         }
         _starts.Clear();
 

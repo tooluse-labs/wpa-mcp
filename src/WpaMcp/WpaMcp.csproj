@@ -22,4 +22,33 @@
     <InternalsVisibleTo Include="WpaMcp.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\eng\capabilities.v1.json" Link="eng\capabilities.v1.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\eng\tool-contracts.v2.json" Link="eng\tool-contracts.v2.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\eng\privacy-taxonomy.v1.json" Link="eng\privacy-taxonomy.v1.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\benchmarks\capability-matrix.v1.json" Link="benchmarks\capability-matrix.v1.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+
+    <!-- Embedded fallbacks keep reviewed manifests available to bundled/single-file hosts. -->
+    <EmbeddedResource Include="..\..\eng\capabilities.v1.json"
+                      LogicalName="WpaMcp.Manifests.eng.capabilities.v1.json" />
+    <EmbeddedResource Include="..\..\eng\tool-contracts.v2.json"
+                      LogicalName="WpaMcp.Manifests.eng.tool-contracts.v2.json" />
+    <EmbeddedResource Include="..\..\eng\privacy-taxonomy.v1.json"
+                      LogicalName="WpaMcp.Manifests.eng.privacy-taxonomy.v1.json" />
+    <EmbeddedResource Include="..\..\benchmarks\capability-matrix.v1.json"
+                      LogicalName="WpaMcp.Manifests.benchmarks.capability-matrix.v1.json" />
+  </ItemGroup>
+
 </Project>

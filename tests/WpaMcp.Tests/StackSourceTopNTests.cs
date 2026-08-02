@@ -2,6 +2,7 @@ using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
 using Microsoft.Diagnostics.Symbols;
+using Microsoft.Diagnostics.Tracing.Stacks;
 using System.ComponentModel;
 using System.Reflection;
 using WpaMcp.Tools;
@@ -12,6 +13,27 @@ namespace WpaMcp.Tests;
 public class StackSourceTopNTests
 {
     [Fact]
+    public void TopByValue_UsesOrdinalKeyAsStableTieBreaker()
+    {
+        var source = new Dictionary<string, long>(StringComparer.Ordinal)
+        {
+            ["zeta"] = 7,
+            ["Alpha"] = 7,
+            ["alpha"] = 7,
+            ["larger"] = 8,
+        };
+
+        var rows = StackSourceTopN.TopByValue(
+            source,
+            4,
+            static (key, value) => (key, value));
+
+        Assert.Equal(
+            ["larger", "Alpha", "alpha", "zeta"],
+            rows.Select(row => row.key));
+    }
+
+    [Fact]
     public void AddInterval_SplitsMetricAcrossBuckets()
     {
         var histogram = StackSourceTopN.WhenHistogram.ForWindow(
@@ -19,7 +41,8 @@ public class StackSourceTopNTests
 
         histogram.AddDurationInterval(intervalStartUs: 25, intervalEndUs: 75);
 
-        var result = Assert.IsType<WpaMcp.Output.TimeHistogram>(histogram.Build());
+        var result = Assert.IsType<WpaMcp.Output.TimeHistogram>(histogram.Build("event_count"));
+        Assert.Equal("event_count", result.Unit);
         Assert.Equal(100, result.EndUs);
         Assert.Equal(new long[] { 25, 25 }, result.Buckets);
     }
@@ -32,7 +55,8 @@ public class StackSourceTopNTests
 
         histogram.AddDurationInterval(intervalStartUs: 28, intervalEndUs: 29);
 
-        var result = Assert.IsType<WpaMcp.Output.TimeHistogram>(histogram.Build());
+        var result = Assert.IsType<WpaMcp.Output.TimeHistogram>(histogram.Build("microseconds"));
+        Assert.Equal("microseconds", result.Unit);
         Assert.Equal(9, result.BucketWidthUs);
         Assert.Equal(
             new long[] { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0 },
@@ -163,6 +187,360 @@ public class StackSourceTopNTests
         Assert.Equal("exact_long", stats.MetricAccounting);
     }
 
+    [Theory]
+    [InlineData((1L << 24) - 1)]
+    [InlineData(1L << 24)]
+    [InlineData((1L << 24) + 1)]
+    [InlineData(1L << 53)]
+    [InlineData(long.MaxValue)]
+    public void ExactFrameAndCallerCalleeMetrics_DoNotRoundTripThroughFloat(long metric)
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        var callerFrame = raw.Source.Interner.FrameIntern("test!Caller");
+        var callerStack = raw.Source.Interner.CallStackIntern(
+            callerFrame,
+            StackSourceCallStackIndex.Invalid);
+        var leafFrame = raw.Source.Interner.FrameIntern("test!Leaf");
+        var leafStack = raw.Source.Interner.CallStackIntern(leafFrame, callerStack);
+        raw.AddSample(leafStack, hasStack: true, timeRelativeMSec: 0, metric);
+        raw.Source.DoneAddingSamples();
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+
+        var projection = StackSourceTopN.ComputeExactFrameMetrics(normalized);
+        var caller = Assert.Single(projection.Frames, frame => frame.Function == "test!Caller");
+        var leaf = Assert.Single(projection.Frames, frame => frame.Function == "test!Leaf");
+        Assert.Equal(metric, projection.TotalMetric);
+        Assert.Equal(metric, caller.InclusiveMetric);
+        Assert.Equal(0, caller.ExclusiveMetric);
+        Assert.Equal(metric, leaf.InclusiveMetric);
+        Assert.Equal(metric, leaf.ExclusiveMetric);
+
+        var response = StackSourceTopN.ComputeCallerCallee(
+            normalized,
+            focusFunction: "test!Leaf",
+            top: 5,
+            metricName: "bytes",
+            stats: new SymbolFrameMetricAccumulator("bytes").Snapshot(
+                SymbolLookupAttempt.Skipped()),
+            baseWarnings: [],
+            resultContract: ObservedContract(1));
+        Assert.Equal(metric, response.SourceTotalMetric);
+        Assert.Equal(metric, response.FocusExclusiveMetric);
+        Assert.Equal(metric, response.FocusInclusiveMetric);
+        Assert.Equal(metric, Assert.Single(response.Callers).InclusiveMetric);
+        Assert.Equal(metric, Assert.Single(response.Callees).InclusiveMetric);
+        Assert.Equal("exact_long", response.MetricPrecision);
+        Assert.Equal("exact_long", response.RowMetricAccounting);
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_ThrowsOnCheckedLongOverflow()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+
+        // Bypass the independently checked coverage accumulator so this test reaches the
+        // per-frame projection's own overflow boundary.
+        AddRawSampleWithoutCoverage(raw, long.MaxValue, timeRelativeMSec: 0);
+        AddRawSampleWithoutCoverage(raw, 1, timeRelativeMSec: 1);
+        raw.Source.DoneAddingSamples();
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+
+        Assert.Throws<OverflowException>(() =>
+            StackSourceTopN.ComputeExactFrameMetrics(normalized));
+        Assert.Throws<OverflowException>(() =>
+            StackSourceTopN.ComputeCallerCallee(
+                normalized,
+                focusFunction: "?!?",
+                top: 5,
+                metricName: "bytes",
+                stats: new SymbolFrameMetricAccumulator("bytes").Snapshot(
+                    SymbolLookupAttempt.Skipped()),
+                baseWarnings: []));
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_RecursionCountsInclusiveFrameOncePerSample()
+    {
+        const long metric = (1L << 24) + 1;
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        var recursiveFrame = raw.Source.Interner.FrameIntern("test!Recursive");
+        var rootOccurrence = raw.Source.Interner.CallStackIntern(
+            recursiveFrame,
+            StackSourceCallStackIndex.Invalid);
+        var middleFrame = raw.Source.Interner.FrameIntern("test!Middle");
+        var middleStack = raw.Source.Interner.CallStackIntern(middleFrame, rootOccurrence);
+        var leafOccurrence = raw.Source.Interner.CallStackIntern(recursiveFrame, middleStack);
+        raw.AddSample(leafOccurrence, hasStack: true, timeRelativeMSec: 0, metric);
+        raw.Source.DoneAddingSamples();
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+
+        var projection = StackSourceTopN.ComputeExactFrameMetrics(normalized);
+        var recursive = Assert.Single(
+            projection.Frames,
+            frame => frame.Function == "test!Recursive");
+        Assert.Equal(metric, recursive.ExclusiveMetric);
+        Assert.Equal(metric, recursive.InclusiveMetric);
+        Assert.Equal(1, recursive.ExclusiveCount);
+        Assert.Equal(1, recursive.InclusiveCount);
+
+        var response = StackSourceTopN.ComputeCallerCallee(
+            normalized,
+            focusFunction: "test!Recursive",
+            top: 5,
+            metricName: "bytes",
+            stats: new SymbolFrameMetricAccumulator("bytes").Snapshot(
+                SymbolLookupAttempt.Skipped()),
+            baseWarnings: [],
+            resultContract: ObservedContract(1));
+        Assert.Equal(metric, response.FocusExclusiveMetric);
+        Assert.Equal(metric, response.FocusInclusiveMetric);
+        Assert.Equal("test!Middle", Assert.Single(response.Callers).Function);
+        Assert.Equal("<self>", Assert.Single(response.Callees).Function);
+    }
+
+    [Fact]
+    public void ExactMetricTokens_SurviveRawAndNormalizedTimeSorting()
+    {
+        const long lateMetric = (1L << 24) + 1;
+        const long earlyMetric = 1L << 53;
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        var lateStack = Stack(raw.Source, "test!Late");
+        var earlyStack = Stack(raw.Source, "test!Early");
+
+        raw.AddSample(lateStack, hasStack: true, timeRelativeMSec: 20, lateMetric);
+        raw.AddSample(earlyStack, hasStack: true, timeRelativeMSec: 10, earlyMetric);
+        raw.Source.DoneAddingSamples();
+
+        Assert.Equal(10, raw.Source.GetSampleByIndex((StackSourceSampleIndex)0).TimeRelativeMSec);
+        AssertExactLeafMetric(raw.Source, "test!Early", earlyMetric);
+        AssertExactLeafMetric(raw.Source, "test!Late", lateMetric);
+
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+        Assert.Equal(10, normalized.GetSampleByIndex((StackSourceSampleIndex)0).TimeRelativeMSec);
+        AssertExactLeafMetric(normalized, "test!Early", earlyMetric);
+        AssertExactLeafMetric(normalized, "test!Late", lateMetric);
+    }
+
+    [Fact]
+    public void ExactMetricTokens_SurviveEqualTimeRawAndNormalizedSorting()
+    {
+        const long alphaMetric = (1L << 24) + 1;
+        const long zuluMetric = 1L << 53;
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        var zuluStack = Stack(raw.Source, "test!Zulu");
+        var alphaStack = Stack(raw.Source, "test!Alpha");
+
+        raw.AddSample(zuluStack, hasStack: true, timeRelativeMSec: 10, zuluMetric);
+        raw.AddSample(alphaStack, hasStack: true, timeRelativeMSec: 10, alphaMetric);
+        raw.Source.DoneAddingSamples();
+
+        AssertExactLeafMetric(raw.Source, "test!Alpha", alphaMetric);
+        AssertExactLeafMetric(raw.Source, "test!Zulu", zuluMetric);
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+        AssertExactLeafMetric(normalized, "test!Alpha", alphaMetric);
+        AssertExactLeafMetric(normalized, "test!Zulu", zuluMetric);
+    }
+
+    [Fact]
+    public void ExactFrameAndCallerCalleeTies_UseOrdinalFunctionOrder()
+    {
+        var projection = new ExactStackMetricProjection(
+            Frames:
+            [
+                new ExactStackFrameMetric("test!Zulu", 5, 5, 1, 1),
+                new ExactStackFrameMetric("test!Alpha", 5, 5, 1, 1),
+            ],
+            TotalMetric: 10,
+            TotalCount: 2);
+        Assert.Equal(
+            ["test!Alpha", "test!Zulu"],
+            StackSourceTopN.RankExactFrames(projection)
+                .Select(frame => frame.Function));
+        Assert.Equal(
+            "test!Alpha",
+            Assert.Single(StackSourceTopN.RankExactFrames(projection).Take(1)).Function);
+
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        var alphaFrame = raw.Source.Interner.FrameIntern("test!Alpha");
+        var alphaRoot = raw.Source.Interner.CallStackIntern(
+            alphaFrame,
+            StackSourceCallStackIndex.Invalid);
+        var zuluFrame = raw.Source.Interner.FrameIntern("test!Zulu");
+        var zuluRoot = raw.Source.Interner.CallStackIntern(
+            zuluFrame,
+            StackSourceCallStackIndex.Invalid);
+        var focusFrame = raw.Source.Interner.FrameIntern("test!Focus");
+        var focusWithAlphaCaller = raw.Source.Interner.CallStackIntern(focusFrame, alphaRoot);
+        var focusWithZuluCaller = raw.Source.Interner.CallStackIntern(focusFrame, zuluRoot);
+        var focusRoot = raw.Source.Interner.CallStackIntern(
+            focusFrame,
+            StackSourceCallStackIndex.Invalid);
+        var alphaWithFocusCaller = raw.Source.Interner.CallStackIntern(alphaFrame, focusRoot);
+        var zuluWithFocusCaller = raw.Source.Interner.CallStackIntern(zuluFrame, focusRoot);
+        raw.AddSample(focusWithZuluCaller, true, 10, 5);
+        raw.AddSample(focusWithAlphaCaller, true, 10, 5);
+        raw.AddSample(zuluWithFocusCaller, true, 10, 5);
+        raw.AddSample(alphaWithFocusCaller, true, 10, 5);
+        raw.Source.DoneAddingSamples();
+        var normalized = StackSourceTopN.BuildNormalized(
+            raw.Source,
+            trace,
+            excludeEtwSelfOverhead: false);
+
+        var response = StackSourceTopN.ComputeCallerCallee(
+            normalized,
+            focusFunction: "test!Focus",
+            top: 2,
+            metricName: "bytes",
+            stats: new SymbolFrameMetricAccumulator("bytes").Snapshot(
+                SymbolLookupAttempt.Skipped()),
+            baseWarnings: [],
+            resultContract: ObservedContract(4));
+        Assert.Equal(["<root>", "test!Alpha"], response.Callers.Select(node => node.Function));
+        Assert.Equal(["<self>", "test!Alpha"], response.Callees.Select(node => node.Function));
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_RejectsSourceWithoutExactParallelSeries()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var source = new MutableTraceEventStackSource(trace);
+        var frame = source.Interner.FrameIntern("test!Leaf");
+        var stack = source.Interner.CallStackIntern(
+            frame,
+            StackSourceCallStackIndex.Invalid);
+        var sample = new StackSourceSample(source)
+        {
+            StackIndex = stack,
+            Metric = (float)((1L << 24) + 1),
+        };
+        source.AddSample(sample);
+        source.DoneAddingSamples();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StackSourceTopN.ComputeExactFrameMetrics(source));
+        Assert.Contains("exact_stack_metrics_unavailable", exception.Message);
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_RejectsDuplicateExactTokens()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        AddRawSampleWithToken(raw, metric: 1, timeRelativeMSec: 0, token: 0);
+        AddRawSampleWithToken(raw, metric: 2, timeRelativeMSec: 1, token: 0);
+        raw.Source.DoneAddingSamples();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StackSourceTopN.ComputeExactFrameMetrics(raw.Source));
+        Assert.Contains("exact_stack_metric_token_duplicate", exception.Message);
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_RejectsOutOfRangeExactToken()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        AddRawSampleWithToken(raw, metric: 1, timeRelativeMSec: 0, token: 1);
+        raw.Source.DoneAddingSamples();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StackSourceTopN.ComputeExactFrameMetrics(raw.Source));
+        Assert.Contains("exact_stack_metric_token_out_of_range", exception.Message);
+    }
+
+    [Fact]
+    public void ExactFrameMetrics_RejectsIncompleteExactSeries()
+    {
+        var trace = new TraceCache(capacity: 2).Get("fixtures/small_cpu.etl");
+        var raw = StackSourceTopN.CreateRawSource(trace, "test", "bytes");
+        raw.AddSample(raw.NoStackCallStack, false, 0, 1);
+        raw.ExactSampleMetrics.Clear();
+        raw.Source.DoneAddingSamples();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            StackSourceTopN.ComputeExactFrameMetrics(raw.Source));
+        Assert.Contains("exact_stack_metrics_unavailable", exception.Message);
+    }
+
+    private static void AddRawSampleWithoutCoverage(
+        StackSourceTopN.RawStackSource raw,
+        long metric,
+        double timeRelativeMSec)
+        => AddRawSampleWithToken(
+            raw,
+            metric,
+            timeRelativeMSec,
+            raw.ExactSampleMetrics.Count);
+
+    private static void AddRawSampleWithToken(
+        StackSourceTopN.RawStackSource raw,
+        long metric,
+        double timeRelativeMSec,
+        int token)
+    {
+        raw.Sample.StackIndex = raw.NoStackCallStack;
+        raw.Sample.TimeRelativeMSec = timeRelativeMSec;
+        raw.Sample.Metric = (float)metric;
+        raw.Sample.Scenario = token;
+        raw.Source.AddSample(raw.Sample);
+        raw.ExactSampleMetrics.Add(metric);
+    }
+
+    private static StackSourceCallStackIndex Stack(
+        MutableTraceEventStackSource source,
+        string function)
+    {
+        var frame = source.Interner.FrameIntern(function);
+        return source.Interner.CallStackIntern(
+            frame,
+            StackSourceCallStackIndex.Invalid);
+    }
+
+    private static StackResultContract ObservedContract(long matchedEventCount) => new(
+        SelectedProcess: null,
+        ScopeMode: "all_processes",
+        PidReuseObserved: false,
+        IncludedProcesses: Array.Empty<ProcessInstanceKey>(),
+        ScopeStatus: "ok",
+        CapabilityStatus: "observed",
+        MatchedEventCount: matchedEventCount,
+        NoDataReason: null);
+
+    private static void AssertExactLeafMetric(
+        MutableTraceEventStackSource source,
+        string function,
+        long expected)
+    {
+        var projection = StackSourceTopN.ComputeExactFrameMetrics(source);
+        var frame = Assert.Single(
+            projection.Frames,
+            candidate => candidate.Function == function);
+        Assert.Equal(expected, frame.ExclusiveMetric);
+        Assert.Equal(expected, frame.InclusiveMetric);
+    }
+
     [Fact]
     public void TryLookupWarmSymbols_ReportsSkippedExecutedAndFailed()
     {
@@ -181,6 +559,12 @@ public class StackSourceTopNTests
         var failed = StackSourceTopN.TryLookupWarmSymbols(
             raw.Source, resolveSymbols: true, reader,
             (_, _, _) => throw new InvalidOperationException("lookup exploded"));
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            StackSourceTopN.TryLookupWarmSymbols(
+                raw.Source,
+                resolveSymbols: true,
+                reader,
+                (_, _, _) => throw new OperationCanceledException("lookup cancelled")));
 
         Assert.Equal("skipped", skipped.State);
         Assert.Equal("executed", executed.State);

@@ -105,7 +105,7 @@ public sealed class PointStackProcessScopeContractTests
         var noStacks = StackResultContract.From(
             processScope: null, filterSpecified: false, noStacksAccumulator.Snapshot());
         Assert.Equal("stacks_unavailable", noStacks.NoDataReason);
-        Assert.Equal("observed", noStacks.CapabilityStatus);
+        Assert.Equal("unavailable", noStacks.CapabilityStatus);
 
         var focusMissing = StackResultContract.From(
             processScope: null,

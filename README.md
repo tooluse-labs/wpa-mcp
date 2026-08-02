@@ -30,18 +30,27 @@ A C# MCP server that exposes Windows ETW (`.etl`) trace analyzers — CPU, sched
   <img src="assets/quickstart-demo.gif" alt="wpa-mcp Quickstart demo — load a trace, find slow processes, drill into a process-creation burst" width="800">
 </p>
 
-Once installed ([one-liner below](#install)), ask the agent in plain language and it picks the matching tools:
+Once installed ([one-liner below](#install)), ask the agent in plain language. The
+server exposes a complete, paged capability map so the model can choose without
+guessing or silently losing specialist tools:
 
 ```
+> What can this server analyze?
+(list_capabilities — 51 declared capabilities, including explicit gaps, joined
+ to 15 goals, 15 workflows, and the callable tools; follow every cursor page)
+
 > Load this trace: C:\path\to\trace.etl
-(load_trace — first call takes 30 s – 3 min while the .etlx index is built;
- subsequent calls reuse the cached index. Returns trace metadata plus a
- Capabilities map of event classes actually observed after materialization.)
+(load_trace — the only raw-source entry point; snapshots an allowed local trace
+ into the owned artifact store and returns a principal-scoped TraceId)
 
 > Inspect the trace and tell me what it can answer.
-(inspect_trace — observed capabilities, per-domain stack coverage, PDB
- identity metadata/configuration, quality warnings, and applicable next tools;
- use diagnose_symbols to probe verified local readiness)
+(inspect_trace — use the TraceId to obtain the trace evidence map, per-domain
+ stack coverage, PDB identity metadata, quality boundaries, workflows, and
+ applicable tools; this does not claim local symbol readiness or frame resolution)
+
+> Prepare the local symbols approved for this trace.
+(prepare_symbols — optional; returns an immutable SymbolContextId after exact
+ PDB identity verification, but still does not claim frames were resolved)
 
 > Diagnose high wait in PID <X> between <t0> and <t1>.
 (diagnose_high_wait — one window-consistent call returning candidates,
@@ -82,8 +91,8 @@ Both routes do the same thing: download the latest self-contained `wpa-mcp-win-x
 Forward extra flags through the one-liner:
 
 ```powershell
-# PowerShell — pin tag, force a single client, set custom symbol path
-iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.24 -Client claude-desktop -SymbolPath 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols'"
+# PowerShell — pin tag, force a client, and approve a local PDB candidate root
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag v0.2.24 -Client claude-desktop -SymbolLocalRoot 'C:\Symbols' -SymbolStoreRoot '$env:LOCALAPPDATA\WpaMcp\symbol-store'"
 ```
 
 ```bash
@@ -103,13 +112,13 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/uninstall.sh | bash
 ```
 
-This removes the `wpa-mcp` entry from every detected MCP client and deletes `%USERPROFILE%\.local\bin\wpa-mcp.exe`. The symbol cache stays (delete `%LocalAppData%\WpaMcp\Symbols\` to remove it).
+This removes the `wpa-mcp` entry from every detected MCP client and deletes `%USERPROFILE%\.local\bin\wpa-mcp.exe`. The approved candidate directory and private verified-symbol store are retained.
 
 ### Requirements
 
 - Windows 10 / 11 (TraceEvent kernel APIs are Windows-only)
 - No .NET runtime is required for the one-line installer; releases ship a self-contained Windows executable.
-- For symbol resolution: pass `-SymbolPath` at install time, set `_NT_SYMBOL_PATH`, or use the symbol tools at runtime (see [Configuration → Symbols](#symbols)).
+- For verified symbol readiness: place trusted PDB candidates under the startup-approved local root, then call `prepare_symbols` for a loaded TraceId (see [Symbol configuration](#symbol-configuration)). The secure profile does not consult `_NT_SYMBOL_PATH` or fetch remote symbols, and this build does not yet resolve frames from the returned context.
 
 <details>
 <summary><strong>Install from a clone (developers)</strong></summary>
@@ -132,7 +141,7 @@ Common flags:
 
 ```powershell
 .\scripts\setup.ps1 -Client claude-desktop                    # force a specific client
-.\scripts\setup.ps1 -SymbolPath "SRV*C:\Symbols*https://..." # custom _NT_SYMBOL_PATH
+.\scripts\setup.ps1 -SymbolLocalRoot "C:\Symbols" -SymbolStoreRoot "$env:LOCALAPPDATA\WpaMcp\symbol-store"
 .\scripts\setup.ps1 -SkipBuild                                # use existing DLL
 ```
 
@@ -179,8 +188,10 @@ Then register with your MCP client.  The command path must be **absolute**. For 
     "wpa-mcp": {
       "command": "C:/Users/me/.local/bin/wpa-mcp.exe",
       "args": [
-        "--symbol-path",
-        "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols",
+        "--symbol-local-root",
+        "C:\\Symbols",
+        "--symbol-store-root",
+        "C:\\Users\\me\\AppData\\Local\\WpaMcp\\symbol-store",
         "--cache-size",
         "2"
       ]
@@ -192,14 +203,14 @@ Then register with your MCP client.  The command path must be **absolute**. For 
 Or via the CLI helper:
 
 ```powershell
-claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symbol-path "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols" --cache-size 2
+claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symbol-local-root "C:\Symbols" --symbol-store-root "C:\Users\me\AppData\Local\WpaMcp\symbol-store" --cache-size 2
 ```
 
 **Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json`, same shape as above.
 
 **Codex / Cursor / other MCP-compatible clients** — the server speaks stdio MCP; any client that accepts a `command + args` config works.  Use the same JSON snippet.
 
-**Verify** — after restart, the client exposes the tools as `mcp__wpa-mcp__load_trace`, etc.  First call to `load_trace` on a fresh `.etl` takes 30 s – 3 min while the `.etlx` index is built (logged to stderr).
+**Verify** — after restart, the client exposes the tools as `mcp__wpa-mcp__load_trace`, etc. First call to `load_trace` on a fresh `.etl` can take 30 s–3 min while the index is materialized in the owned artifact store (logged to stderr).
 
 </details>
 
@@ -207,44 +218,86 @@ claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symb
 
 ## Tools
 
-The MCP surface covers multiple ETW analysis domains and is built on the same `Microsoft.Diagnostics.Tracing.TraceEvent` library PerfView uses. The shared parser does not by itself guarantee view-for-view parity: each analyzer reports its scope, observed capabilities, coverage, and no-data state so callers can judge what the trace supports.
+The validated development surface contains **60 active tools**, **51 declared
+capabilities**, **15 goals**, and **15 workflows**. The capability count includes
+explicit declared gaps; it is exhaustive for this server catalog, not for the
+complete WPA/ETW universe. Clients must follow every `tools/list` and
+`list_capabilities` cursor page rather than treating page one or these snapshot
+counts as the catalog.
+
+The server is built on the same `Microsoft.Diagnostics.Tracing.TraceEvent`
+library PerfView uses. A shared parser does not imply view-for-view parity. Every
+analyzer publishes the scope, source capability evidence, completeness,
+precision, and conclusion boundary needed to decide what the result proves.
+
+Capability-first clients can use `list_capabilities`; Resource-capable clients
+can start from `wpa://capabilities/server`, `wpa://tools/server`, and
+`wpa://workflows/server`. After selecting a tool, follow
+`wpa://tools/{toolName}/sections` and all linked pages for its complete
+per-section ordering, truncation-proof, evidence, measurement, relationship, and
+conclusion contract. Resources lower selection cost; they do not authorize a
+client to hide tools or skip `tools/list` pages.
 
 ### What wpa-mcp adds vs PerfView
 
 * **Agent-driven, not UI-driven.** PerfView is a Windows GUI you click through; wpa-mcp is a stdio MCP server you talk to in plain language. Same data, no UI fatigue, easy to compose into CI / regression scripts.
 * **Composite tools.** `diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`, `process_create_timing`, `image_load_top_gaps` fold multi-step PerfView workflows into one call.
-* **Capabilities-aware.** `load_trace` reports event classes actually observed after ETLX materialization, while individual responses distinguish `scope_not_found`, `event_class_not_observed`, `no_events_in_scope`, and `stacks_unavailable`. Observing no events does not prove which capture keyword was disabled.
-* **Per-trace symbol recommendations.** `load_trace` recommends servers only for matching modules with a complete PDB name/GUID/age lookup identity; incomplete identity gets recapture/merge guidance instead. PerfView leaves symbol setup to the user.
+* **Two-level capability map.** `list_capabilities` exposes what the server declares; `inspect_trace` evaluates what one loaded trace actually supports. Missing parsed evidence is not silently upgraded into a claim about capture keywords.
+* **Explicit symbol evidence.** Trace PDB identity, verified local artifact readiness, and observed frame-name resolution are separate states. `prepare_symbols` may establish the second. The current build has no context-bound TraceEvent frame resolver, so the third remains a declared gap instead of being inferred from readiness.
 
 ### Design philosophy
 
-wpa-mcp is built to **avoid misleading the model without constraining what the model can infer**.
+wpa-mcp follows one governing rule: **fully expose capability so a capability
+map lowers selection cost; fully expose evidence boundaries so a structured
+contract prevents LLM over-interpretation**.
 
-* **Orientation tools** (`load_trace`, `inspect_trace`) expose capabilities, enabled-signal lists, quality gaps, recommended diagnostic flows, and symbol health up front, so the model picks the next call from real signals instead of inferring from empty results.
+* **Orientation tools** (`list_capabilities`, `load_trace`, `inspect_trace`) expose the declared server map, trace evidence map, quality gaps, and workflows before drill-down, so the model selects from facts instead of inferring from an empty result.
 * **Diagnostic composites** (`diagnose_window`, `diagnose_high_wait`, `diagnose_slow_startup`) shorten the call path but preserve the evidence chain through `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools`. They deliberately do not return a synthesized "root cause" field.
 * **Per-domain row and stack tools** stay close to the PerfView shape. Process-targeted tools expose the selected `(Pid, ProcessStartUs)` lifetime (or explicitly label PID aggregation), and stack tools report event-domain coverage instead of inferring stack support from unrelated events.
 
-### 0.3.0 result-contract migration
+### Contract 2.0 evidence envelope
 
-Clients must interpret the structured contract before interpreting `Rows`:
+All 60 active tools return the same closed structured envelope. Interpret it
+before interpreting domain rows:
 
 | Field | Contract |
 |---|---|
-| `ScopeStatus` / `ScopeMode` | Whether the requested process/thread instance resolved, and whether the result is exact, all-process, or an explicit PID aggregate. A non-`ok` scope is not an empty successful analysis. |
-| `CapabilityStatus` | `observed` means the resolved requested scope matched the tool's source evidence; `not_observed` is reserved for established whole-trace absence; filtered uncertainty remains `unknown`. |
-| `MatchedEventCount` / `MatchedIntervalCount` | Scoped raw source events/endpoints versus completed projected intervals. Neither is a trace-wide denominator or necessarily the row count after aggregation/top-N. |
-| `NoDataReason` / `Warnings` | Distinguish missing or ambiguous scope, `event_class_not_observed`, `no_events_in_scope`, `source_events_unattributed`, `no_completed_intervals_in_scope`, `stacks_unavailable`, and `focus_not_found`. An empty array alone has no stable meaning. |
-| `MetricPrecision` / `RowMetricAccounting` / `ExactTotalAccounting` | Stack-row metrics accumulated through TraceEvent call trees can be `float32_per_sample_approximate` even when serialized as `long`; source totals and coverage counters marked `exact_long` remain exact. Do not require approximate rows to sum exactly to exact totals. |
+| `status`, `data`, `error`, `noData` | Separate successful data, successful no-data, partial results, and execution/delivery failure. Empty domain data has no meaning without the structured state. |
+| `toolRef`, `traceRef`, `scope` | Identify the exact tool/contract, immutable trace generation and optional symbol context, and resolved process/thread/window scope. A non-`ok` selector is not an empty successful analysis. |
+| `capabilityEvidence` | Separates whole-trace and scoped availability/counts, completion, and capture integrity. Scoped and trace-wide values are not interchangeable denominators. |
+| `completeness`, `sections`, `hasMore` | Report each result section independently: role, returned/total state, exact sort/tie-breakers, omitted-data state, proof mode, and a cursor only when continuation really exists. |
+| `evidenceBoundary` | Declares evidence IDs, measurement basis, relationship strength, conclusion status, provenance, and `doesNotProve`. Association or heuristic evidence is not causal attribution. |
+| `precision` | Declares identifier and metric precision, rounding, accounting, and denominator. Public stack metrics use a checked parallel Int64 accumulator; TraceEvent's float sample metric is not projected back as an exact integer. |
 
-Fields prefixed `Trace*` describe the materialized whole trace; fields prefixed `Scoped*` describe the selected instance/window. Do not combine them as numerator and denominator unless the field description explicitly defines that ratio. Always replay a process row with `pid + processStartUs`. For a thread row preserve `pid + processStartUs + tid + threadStartUs + threadGeneration`; generation remains exact even when capture-boundary inference gives two lifetimes the same start timestamp.
+Each tool's complete section contract is also published at
+`wpa://tools/{toolName}/sections`. Do not apply a tool-wide order or proof claim
+to heterogeneous composite sections.
 
-`inspect_trace` returns the same rules in its non-null `AnalysisContract`, and that compact contract is exported through the tool's real MCP `outputSchema`. This gives an MCP client machine-visible guidance without duplicating every large response schema across the complete tool catalog and overrunning the guarded `tools/list` budget.
+If even the smallest valid success envelope cannot fit the exact frame budget,
+the server returns a terminal `response_too_large` failure with `data=null`,
+`scope=null`, empty `sections`/`failedSections`, and `hasMore=false`. This means
+delivery failed; it does not mean the requested scope had no events, and it does
+not contain a continuation.
 
-All tools are advertised as `ReadOnly=false` in the 0.3.0 MCP metadata because calls can change server state or filesystem state: the first `TraceLog.OpenOrConvert` may create/replace an adjacent `.etlx`, cache unload can retire resident state, symbol configuration is process-wide, and `resolveSymbols=true` may download/write PDBs. Caller-supplied trace/cache paths can also be UNC, mapped, or reparse-point targets, so raw-path tools are conservatively `OpenWorld=true` even without symbol lookup; only `set_symbol_path` is `OpenWorld=false`. `Destructive=true` conservatively covers sidecar replacement/refresh, cache retirement, and global symbol-path replacement; incremental `add_symbol_server` is the sole `Destructive=false` tool. All tools are idempotent except `set_symbol_path`. These flags describe operational risk, not mutation of the ETL's logical event stream.
+Opaque IDs are JSON strings and must never pass through a JavaScript `number`.
+Always replay a process row with `pid + processStartUs`; for a thread preserve
+`pid + processStartUs + tid + threadStartUs + threadGeneration`.
+
+In the secure ID-only profile, 57 analysis/discovery tools are advertised
+read-only, idempotent, closed-world, and non-destructive. `load_trace` writes the
+owned artifact store, `prepare_symbols` may populate the private verified-symbol
+store, and `unload_trace` retires a handle. The selected startup profile and its
+projected annotations are authoritative; inspect `wpa://runtime/profile` rather
+than assuming every profile has the same side effects.
 
 ### Usage pattern
 
-**Always call `load_trace` first.** It opens the `.etl`, builds (or reuses) the `.etlx` index, and returns a `Capabilities` map showing which supported event classes were observed in the materialized TraceLog. These flags are evidence about parsed events, not proof of the original capture-keyword configuration. The map covers:
+Call `list_capabilities` first when the server surface is unfamiliar. For trace
+analysis, **always call `load_trace` before a trace query** and use the returned
+TraceId. It snapshots an allowed local source into the server-owned artifact
+store and returns parsed evidence; those observations are not proof of the
+original capture-keyword configuration. `inspect_trace` then projects the
+trace-specific evidence map. The parsed domains include:
 
 * **CPU sampling and scheduling** — `HasCpuSamples`, `HasCSwitch`, `HasReadyThread`, `HasStackWalks`
 * **File / disk / mmap I/O and loader** — `HasFileIo`, `HasDiskIo`, `HasHardFaults`, `HasImageLoad`
@@ -258,13 +311,18 @@ All tools are advertised as `ReadOnly=false` in the 0.3.0 MCP metadata because c
 The full call flow:
 
 ```
-.etl trace
-    │
-    ▼
-load_trace  ──►  returns Capabilities map
-    │
-    │  (optional: inspect_trace if capture profile / path unclear)
-    ▼
+list_capabilities ──► declared capabilities + goals + workflows
+
+.etl source ──► load_trace ──► TraceId ──► inspect_trace evidence map
+                              │
+                              ├────► composite / domain query (unsymbolized)
+                              │
+                              └────► optional prepare_symbols
+                                          │
+                                          ▼
+                                  SymbolContextId (readiness only)
+                                  resolveSymbols=true currently
+                                  fails symbol_resolution_unavailable
 
   Composite  (recommended for known workflows)
   ─────────────────────────────────────────────
@@ -280,12 +338,22 @@ load_trace  ──►  returns Capabilities map
   top-N         top-N         focus-frame
   rows          call chains   drill
 
-  Example: cpu_top_functions  ──►  cpu_top_stacks  ──►  cpu_caller_callee
+  Example: file_io_top_files  ──►  file_io_top_stacks  ──►  file_io_caller_callee
 ```
 
-If the capture profile or investigation path is unclear, call `inspect_trace` next. For common workflows, prefer composites such as `diagnose_window`, `diagnose_high_wait`, and `diagnose_slow_startup` before manually stitching individual calls together — their `Evidence`, `NotConcluded`, `ExecutedToolCalls`, and `NextTools` fields show what was run, what could not be concluded, and where to drill down.
+For common workflows, prefer composites such as `diagnose_window`,
+`diagnose_high_wait`, and `diagnose_slow_startup` before manually stitching
+individual calls together. Their section and evidence contracts show what ran,
+what could not be concluded, and where to drill down. Composites are currently
+directly executed and are not evidence of a single shared planner dispatch.
 
-Most stack-oriented groups follow the same three-tool shape: a **summary** (top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric), and a **caller-callee drill-down** (given a focus frame, returns its caller / callee neighbors weighted by the same metric — same shape as PerfView's "Callers" / "Callees" tabs).
+Where a domain exposes all three layers, it follows this shape: a **summary**
+(top-N flat rows), a **stacks** view (top-N call stacks weighted by the metric),
+and a **caller-callee drill-down** (given a focus frame, returns its caller /
+callee neighbors weighted by the same metric — the same shape as PerfView's
+"Callers" / "Callees" tabs). CPU is different: drill directly from
+`cpu_top_functions` to `cpu_caller_callee`; there is no active
+`cpu_top_stacks` tool.
 
 In the tables below, "PerfView equivalent" is the matching view in PerfView's GUI. Entries tagged **[Composite]** combine multiple PerfView views into one call, **[Manual filter]** expose raw events that PerfView's Events view shows but doesn't pre-aggregate, and **[Programmatic]** replace a GUI dialog with structured JSON. Most other tools are 1:1 mappings of PerfView views.
 
@@ -299,7 +367,9 @@ For CPU/Wait tools that also accept `tid`, reuse is resolved with `threadStartUs
 
 Tools without `startUs` / `endUs` operate on intentionally different scopes; each tool's MCP description states which:
 
-* **Whole-trace orientation / configuration** — `load_trace`, `inspect_trace`, `list_processes`, `find_marker`, `diagnose_symbols`, `set_symbol_path`, `add_symbol_server`.
+* **Server catalog** — `list_capabilities` has no trace scope.
+* **Trace/symbol lifecycle** — `load_trace` accepts the raw source and returns a TraceId; `prepare_symbols` accepts that TraceId and returns a SymbolContextId; `unload_trace` retires only the public handle.
+* **Whole-trace orientation/query** — `inspect_trace`, `list_processes`, and `find_marker` operate on the loaded immutable trace generation.
 * **Lifecycle views** — `process_create_timing`, `thread_lifetime`, `image_load_timing`, `image_load_top_gaps`, and `diagnose_slow_startup` use process-start or lifecycle-relative windows instead of an arbitrary trace window.
 * **Whole-trace or windowed by-file summaries** — `file_io_top_files` and `hard_fault_by_file` aggregate over file names and support explicit `startUs` / `endUs` windows. Use the corresponding stack tools for event-associated call-chain evidence.
 
@@ -307,10 +377,11 @@ Tools without `startUs` / `endUs` operate on intentionally different scopes; eac
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| **`load_trace`** | Opens / caches a `.etl`. Returns trace metadata, observed-event capabilities, and per-trace symbol-server recommendations. `EventCount` is the ETLX-materialized logical-event count; raw ETW record count and a parser-coverage ratio are reported as not measured rather than inferred. First call may take 30 s–3 min while `.etlx` builds; subsequent calls reuse it. | Open a trace file (no `Capabilities` equivalent) |
-| **`unload_trace`** | Retires the in-memory entry without interrupting active leases. For a raw `.etl`, it registers a sidecar-refresh request in the current server process; the next successful load attempts the refresh. The request does not survive restart, so call it after an in-place rewrite and call it again after any restart before loading that path. | Close and reopen after invalidating the derived index |
-| **`inspect_trace`** | One-shot orientation: observed capabilities, system metadata, provider counts, per-domain stack coverage, PDB identity metadata/configuration, quality warnings, and supported next-tool hints. It does not probe local PDB candidates or readiness; run `diagnose_symbols` for that, then a stack tool for observed frame resolution. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
-| `list_processes` | Lists process lifetimes (sortable by `cpu` / `wall` / `wait_ratio`). `WaitRatio = WallUs / CpuUs` ranks "high wall, low CPU" candidates; the ratio does not identify what they waited on. PID 0 (Idle) and PID 4 (System) are hidden by default. | Processes view |
+| **`list_capabilities`** | Paged Server Capability Map: declared capabilities (including explicit gaps), goals, workflows, callable tools, cost/scope/symbol requirements, and evidence boundaries. It is exhaustive for this server catalog, not for WPA. | **[Programmatic]** — no direct GUI equivalent |
+| **`load_trace`** | The only raw trace-source entry point. Validates an allowed local `.etl`/`.etlx`, snapshots an opened handle into the owned immutable artifact store, and returns a canonical principal-scoped TraceId. Parsed event count is not the raw ETW record count. | Open a trace file (no TraceId equivalent) |
+| **`unload_trace`** | Retires a TraceId, rejects new acquisitions, and optionally waits for leases. It does not delete the immutable artifact and does not claim physical cleanup. | Close a trace handle |
+| **`inspect_trace`** | Paged Trace Evidence Map: parsed capability assessments, system metadata, provider counts, same-domain stack coverage, trace PDB identities, quality boundaries, self-attribution state, applicable tools, and workflows. It neither probes local PDB files nor measures frame resolution; use `prepare_symbols` only for verified local readiness. Context-bound frame lookup remains unavailable in this build. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
+| `list_processes` | Cursor-pages the complete process-lifetime inventory (sortable by `cpu` / `wall` / `wait_ratio`); follow every `nextCursor` with the same query. `WaitRatio = WallUs / CpuUs` ranks "high wall, low CPU" candidates; the ratio does not identify what they waited on. PID 0 (Idle) and PID 4 (System) are hidden by default. | Processes view |
 | `process_create_timing` | Per-child timing for a parent process lifetime. `FirstImageLoadOffsetUs` is the observed interval between `ProcessStart` and the first DLL load. It can include callbacks, scanning, suspension, scheduling, and other work; the interval alone does not identify a mechanism or root cause. | **[Composite]** — Processes + Events + Excel; see [`docs/CASE_STUDIES.md`](docs/CASE_STUDIES.md) |
 | `thread_lifetime` | Per-PID chronological thread lifecycle: every `ThreadStart` / `ThreadStop` with `StartTimeUs`, `EndTimeUs`, `LifetimeUs`, and `PeakConcurrentThreads`. Catches thread-pool thrash and fork-bomb patterns. `TraceResidentStart/End` flags threads bounded by trace capture rather than real spawn / exit. | **[Manual filter]** — Events view, filter on `Thread/Start` + `Thread/Stop`, pair by hand |
 
@@ -442,19 +513,70 @@ For minimal JIT-only traces, run `tests/WpaMcp.Tests/fixtures/Capture-JitOnly.ps
 
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
-| `set_symbol_path` | Sets `_NT_SYMBOL_PATH` for the running server (replaces or appends). | File → Set Symbol Path… |
-| `add_symbol_server` | Appends a symbol server URL with optional local cache (defaults to `%LocalAppData%\WpaMcp\Symbols`). | File → Set Symbol Path… (single entry) |
-| `diagnose_symbols` | Reports module PDB identity/local-candidate state and suggests symbol-path fixes. It does not label a module ready/resolved merely because a PDB file or name exists. Frame counts and resolution rates are null/not measured until a stack lookup observes real code frames. | **[Programmatic]** — replaces Modules tab + Set Symbol Path dialog with structured JSON + auto-recommendations |
+| `prepare_symbols` | For an already-loaded TraceId, evaluates the complete trace-native PDB identity set against startup-approved local candidate roots, verifies exact name/GUID/age, pins matching artifacts in a private store, and returns an immutable SymbolContextId. It performs no network access and does not claim frame resolution. The current context-bound frame resolver is unavailable. | **[Programmatic]** — explicit local symbol preparation lifecycle |
 
 ---
 
 ## Configuration
 
+### Contract and trace-reference profile
+
+The result contract and trace-reference policy are selected once, before the
+stdio transport reads requests. A tool call cannot change either mode. The
+selected profile and all deprecation/release blockers are available to MCP
+clients at `wpa://runtime/profile`.
+
+```json
+{
+  "env": {
+    "WPAMCP_CONTRACT_MODE": "2.0",
+    "WPAMCP_TRACE_REFERENCE_MODE": "id_only"
+  }
+}
+```
+
+Equivalent command-line options are `--contract-mode 2.0` and
+`--trace-reference-mode id_only`; command-line values override environment
+values. Accepted contract values are exactly `legacy` and `2.0`. Accepted trace
+reference values are `compatibility` and `id_only`.
+
+The source tree is currently version `0.3.0`: it runs the implemented Contract
+2.0 + ID-only development profile, but ADR 0005 intentionally marks this
+pre-0.4 release line as `releaseStatus=blocked`. The `legacy` value is parsed so
+the release matrix is explicit, but startup fails closed because a reviewed
+legacy result adapter does not exist. Raw-path compatibility remains available
+only through an explicit startup switch and emits a removal warning for 1.0.0.
+See [contract migration](docs/CONTRACT_MIGRATION.md) and
+[client compatibility](docs/CLIENT_COMPATIBILITY.md) before pinning a profile.
+
+For diagnostics, `--runtime-profile` prints the default profile as JSON;
+`--validate-release-profile` returns exit code 78 while an ADR rollout gate is
+blocked. These commands do not start MCP or read stdin.
+
 ### Trace cache
 
-LRU, default capacity 2 traces. Override with `WPAMCP_CACHE_SIZE=N`. A query holds a cache lease for its entire use of the trace; eviction, unload, or shutdown retires an entry and disposes it only after the final active lease ends. Failed native/mmap cleanup remains centrally owned and is retried by a later cache shutdown call instead of becoming unreachable after a `using` scope exits. Concurrent first access uses one winning Lazy open rather than converting the same large ETL multiple times.
+LRU, default capacity 2 materialized trace generations. Override with
+`WPAMCP_CACHE_SIZE=N`. `load_trace` snapshots an allowed source handle and
+materializes only inside the owned artifact store; query tools accept TraceId in
+the secure profile and never create an adjacent caller-owned `.etlx`. A query
+holds a generation lease for its complete use. Eviction, unload, or shutdown
+retires the handle and disposes the backend only after the final lease drains.
+Concurrent construction and trace-facts extraction are single-flight per
+generation.
 
-Cache keys use the canonical full path and, on Windows, case-insensitive comparison, so path-casing aliases share one entry and `unload_trace` invalidates the same entry through either spelling. Freshness uses last-write time, creation time, length, and—when Windows exposes it—volume/file identity. Replacement and most rewrites therefore retire the old entry. Residual boundary: an in-place rewrite that preserves the same file identity, length, and timestamps cannot be detected automatically; call `unload_trace` before querying that path again. For a raw `.etl`, this registers a current-server refresh request; the next successful load attempts to regenerate the adjacent `.etlx`. A restart clears the request, so call `unload_trace` again after restart and before loading the rewritten ETL. Active queries finish on their existing lease.
+Repeated loads of the same observed generation return the same canonical handle.
+`forceRefresh=true` exists for a deliberate in-place rewrite that preserved
+observable identity, length, and timestamps. `unload_trace` retires the public
+handle; it does not immediately delete the immutable artifact. Unpinned trace
+artifacts expire seven days after their last store access by default. Set
+`WPAMCP_TRACE_ARTIFACT_RETENTION_MINUTES` or
+`--trace-artifact-retention-minutes` at startup to a value from 1 minute through
+365 days. A live handle pins its object, so TTL cannot invalidate an active
+generation; an expired object is removed after the last pin drains and is not
+silently resurrected by the generation cache. Retained-store quotas and
+materialization checkpoints are enforced, but the converter's transient
+physical disk peak remains an explicit release blocker rather than a claimed
+hard bound.
 
 ### Capturing your own traces
 
@@ -466,39 +588,44 @@ wpr.exe -start tests\WpaMcp.Tests\fixtures\MmapCapture.wprp -filemode
 wpr.exe -stop C:\path\to\my_capture.etl
 ```
 
-### Symbols
+### Symbol configuration
 
-> **Judge symbol quality from the stack tool that actually ran lookup.** Keep four layers separate: trace PDB identity (name + GUID + age), a locally discovered PDB candidate, verified local readiness, and actual observed frame-name resolution. `diagnose_symbols` directly opens discovered candidate paths and sets readiness only for an exact GUID/age match; it does not actively access remote SRV/UNC entries or download symbols. A configured local-looking root can still be redirected by Windows through a mapped drive or reparse point. A lookup-executing stack query is still required to measure frame resolution. A null rate means no eligible code frames were measured, not 0% resolution.
+> **Keep readiness separate from resolution.** The four states are trace PDB
+> identity (name + GUID + age), local candidate discovery, verified local
+> readiness, and observed frame-name resolution. `prepare_symbols` can establish
+> readiness and intentionally reports resolution as unmeasured. The current
+> context-bound TraceEvent frame resolver is not available, so no active query
+> may upgrade readiness into measured resolution. A null rate is not 0%.
 
-#### Where to set the path
+#### Startup policy
 
-`_NT_SYMBOL_PATH` accepts semicolon-separated entries: `SRV*<cache>*<url>` for symbol servers, bare folder paths for local PDBs, mix and match. Three setup paths:
+The secure policy is local-only. It does not read `_NT_SYMBOL_PATH`, inspect the
+trace directory, search arbitrary paths, contact a symbol server, or accept roots
+inside a tool call. Configure one or more absolute local candidate roots and a
+disjoint private verified store before startup:
 
-1. **Pre-launch env var** (cleanest, survives restarts):
-   ```powershell
-   [Environment]::SetEnvironmentVariable("_NT_SYMBOL_PATH",
-       "SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols", "User")
-   ```
-2. **Per-MCP-server `--symbol-path` arg** in the config JSON/TOML (see manual install above).  Easiest to share between teammates.
-3. **Runtime via tool calls** — ask the agent: *"set the symbol path to SRV\*C:\Symbols\*https://msdl.microsoft.com/download/symbols, then run `diagnose_symbols` on this trace."*
+```powershell
+wpa-mcp.exe --symbol-local-root "C:\Symbols" `
+  --symbol-store-root "$env:LOCALAPPDATA\WpaMcp\symbol-store"
+```
 
-When `add_symbol_server` is called without `cacheDir`, its fallback cache is `%LocalAppData%\WpaMcp\Symbols` (separate from PerfView's `C:\Symbols` to avoid PDB-lock contention). In `diagnose_symbols`, `DefaultCacheDir` reports only that fallback; legacy `CacheDir` is its compatibility alias, not proof that the current `ConfiguredSymbolPath` uses it. Per-trace recommendations come back inside `load_trace`'s `SymbolStatus.Recommendations` field, telling you which servers to add for the modules actually present in this trace.
+Equivalent environment variables are `WPAMCP_SYMBOL_LOCAL_ROOTS` (semicolon-
+separated on Windows) and `WPAMCP_SYMBOL_STORE_ROOT`. If candidate roots are
+enabled, a store root is required. UNC/device/alternate-stream paths are denied,
+and the candidate roots and store may not contain one another. The installer
+configures `%LocalAppData%\WpaMcp\symbol-candidates` and
+`%LocalAppData%\WpaMcp\symbol-store` by default.
 
-#### Beyond Microsoft modules
-
-The auto-recommendation in `load_trace` only knows the public servers it has patterns for (Microsoft, Chromium). For your own DLLs, third-party SDKs, or internal builds, append entries explicitly — common shapes:
-
-| What you have | Entry to append |
-|---|---|
-| Internal team symbol server | `SRV*C:\Symbols*https://internal-symsrv.example.com/symbols` |
-| Team shared drop on a UNC share | `SRV*C:\Symbols*\\fileserver\symbols` |
-| Local dev build output (your own PDBs) | `C:\src\myapp\out\Default` (bare folder, no `SRV*`) |
-
-Order matters — entries are tried left-to-right, first signature match wins. Put the local dev folder **first** when iterating on a build so your fresh PDB beats the public one.
+Place PDBs at either `<root>\<pdbName>` or the symbol-store-shaped
+`<root>\<pdbName>\<GUIDAge>\<pdbName>`. Acquire public/private PDBs outside
+wpa-mcp and copy them into an approved root; the MCP server itself performs no
+remote fetch. Each candidate is opened and must match the trace's complete PDB
+name/GUID/age identity before it is copied into and pinned from the private
+verified store.
 
 #### Build prerequisites for your own DLLs
 
-A symbol server doesn't help if the build never produced a PDB, or if PDB and deployed DLL are from different builds.
+An approved local root cannot help if the build never produced a PDB, or if the PDB and deployed DLL are from different builds.
 
 - **.NET / C#**: `<DebugType>portable</DebugType>` + `<DebugSymbols>true</DebugSymbols>`. Check that Release configurations don't disable PDB output.
 - **C++ (MSVC)**: `/Zi` + `/DEBUG:FULL`, even in Release. Keep PDB next to DLL.
@@ -507,11 +634,22 @@ A symbol server doesn't help if the build never produced a PDB, or if PDB and de
 #### Verifying it worked
 
 ```
-> load_trace C:\my\trace.etl
-> diagnose_symbols C:\my\trace.etl
-> cpu_top_functions C:\my\trace.etl
+> Load C:\my\trace.etl and keep the returned TraceId.
+> Run prepare_symbols for that TraceId and keep the returned SymbolContextId.
+> Inspect prepare_symbols readiness; do not interpret it as resolved functions.
 ```
 
-`diagnose_symbols` lists PDB identity and local candidate state with configuration hints. A bare path entry is checked only as `<root>\<pdbName>`; only non-UNC filesystem roots declared by `SRV`/`SYMSRV`/`CACHE` are checked as `<root>\<pdbName>\<GUIDAge>\<pdbName>`. Every discovered candidate is validated before the displayed list is capped at 10; `LocalSymbolCandidateCount` and `LocalSymbolCandidatesTruncated` disclose the total, and any exact match is shown first. A recognizable container or symbol-store placement alone is not proof of identity: the tool reports `exact_identity_match`, `identity_mismatch`, `invalid_local_pdb_candidate`, or `candidate_identity_unverified`. Windows DIA failures that cannot distinguish candidate incompatibility from reader failure remain `candidate_identity_unverified`; they are not labeled corrupt. `LocalPdbReady=true` requires an exact GUID/age match from the format-appropriate reader. Run the relevant stack tool with `resolveSymbols=true` to measure actual observed code-frame resolution. Queries use a query-local effective symbol path and do not mutate `_NT_SYMBOL_PATH`; only `set_symbol_path` and `add_symbol_server` intentionally change that process setting. `diagnose_symbols` does not actively access remote SRV/UNC entries or download PDBs, but Windows may redirect a local-looking root through a mapped drive or reparse point; loading the trace may also write an `.etlx` sidecar as described above.
+The SymbolContextId is bound to the principal, trace generation, policy,
+resolver, privacy/contract profile, module identities, and verified artifacts.
+The intended lookup contract requires stack queries to supply it explicitly with
+`resolveSymbols=true`; there is no ambient fallback. In this build that request
+fails closed with `symbol_resolution_unavailable` /
+`context_bound_frame_resolution_unavailable` because the context-bound
+TraceEvent adapter is not implemented. `symbols.frame_resolution.measured`
+therefore remains a declared gap; unsymbolized results and preparation metadata
+must not be presented as a measured resolution rate.
 
-For full recipes (UNC paths, private vendors, Chromium-family browsers, cache management, troubleshooting), see [`docs/SYMBOL_RECIPES.md`](docs/SYMBOL_RECIPES.md) ([中文](docs/SYMBOL_RECIPES.zh-CN.md)). Architecture overview and contribution invariants live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Architecture and compatibility boundaries are documented in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/CONTRACT_MIGRATION.md`](docs/CONTRACT_MIGRATION.md), and
+[`docs/CLIENT_COMPATIBILITY.md`](docs/CLIENT_COMPATIBILITY.md).

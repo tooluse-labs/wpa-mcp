@@ -20,6 +20,17 @@ public class HardFaultByFileAnalysisTests
         Assert.Equal("observed", resp.CapabilityStatus);
         Assert.True(resp.MatchedEventCount > 0);
         Assert.Null(resp.NoDataReason);
+        Assert.All(resp.Rows, row =>
+        {
+            var counts = row.MappingStateEventCounts;
+            Assert.Equal(
+                row.PageInCount,
+                counts.EventNameEventCount +
+                counts.TemporalFileKeyEventCount +
+                counts.TemporalFileObjectEventCount +
+                counts.AmbiguousTemporalMappingEventCount +
+                counts.UnresolvedFileIdentityEventCount);
+        });
     }
 
     [Fact]
@@ -175,6 +186,22 @@ public class HardFaultByFileAnalysisTests
     }
 
     [Fact]
+    public void ResolveFileMapping_ReportsTemporalFileKeyBasis()
+    {
+        var names = new TemporalFileNameMap<ulong>();
+        names.Add(0x20, timestampUs: 100, "mapped.dat");
+
+        var resolution = HardFaultByFileAnalysis.ResolveFileMapping(
+            eventFileName: null,
+            fileKey: 0x20,
+            timestampUs: 200,
+            names);
+
+        Assert.Equal("mapped.dat", resolution.File);
+        Assert.Equal(FileMappingStates.TemporalFileKey, resolution.MappingState);
+    }
+
+    [Fact]
     public void ResolveFileName_PrefersTheNameCarriedByTheFaultEvent()
     {
         var names = new TemporalFileNameMap<ulong>();
@@ -187,6 +214,22 @@ public class HardFaultByFileAnalysisTests
                 fileKey: 0x20,
                 timestampUs: 200,
                 names));
+    }
+
+    [Fact]
+    public void ResolveFileMapping_EventNameWinsAndReportsItsBasis()
+    {
+        var names = new TemporalFileNameMap<ulong>();
+        names.Add(0x20, timestampUs: 100, "mapped.dat");
+
+        var resolution = HardFaultByFileAnalysis.ResolveFileMapping(
+            eventFileName: "event.dat",
+            fileKey: 0x20,
+            timestampUs: 200,
+            names);
+
+        Assert.Equal("event.dat", resolution.File);
+        Assert.Equal(FileMappingStates.EventName, resolution.MappingState);
     }
 
     [Fact]
@@ -203,5 +246,68 @@ public class HardFaultByFileAnalysisTests
             names);
 
         Assert.StartsWith("<unmapped:0x", name);
+    }
+
+    [Fact]
+    public void ResolveFileMapping_DeletedKeyHasTypedUnresolvedState()
+    {
+        var names = new TemporalFileNameMap<ulong>();
+        names.Add(0x20, timestampUs: 100, "deleted.dat");
+        names.End(0x20, timestampUs: 200);
+
+        var resolution = HardFaultByFileAnalysis.ResolveFileMapping(
+            eventFileName: null,
+            fileKey: 0x20,
+            timestampUs: 300,
+            names);
+
+        Assert.Equal(FileMappingStates.UnresolvedFileIdentity, resolution.MappingState);
+        Assert.StartsWith("<unmapped:0x", resolution.File);
+    }
+
+    [Fact]
+    public void HardFaultAggregate_ExposesMixedMappingStateAndExactStateCounts()
+    {
+        var aggregate = new HardFaultByFileAnalysis.HardFaultFileAggregate();
+        aggregate.Add(bytes: 4_096, latencyUs: 50, timestampUs: 100, FileMappingStates.EventName);
+        aggregate.Add(bytes: 8_192, latencyUs: 75, timestampUs: 200, FileMappingStates.TemporalFileKey);
+        aggregate.Add(bytes: 4_096, latencyUs: 25, timestampUs: 300, FileMappingStates.UnresolvedFileIdentity);
+
+        var row = aggregate.ToRow("same.dat");
+
+        Assert.Equal(FileMappingStates.Mixed, row.MappingState);
+        Assert.Equal(3, row.PageInCount);
+        Assert.Equal(75, row.MaxLatencyUs);
+        Assert.Equal(200, row.MaxLatencyTimeUs);
+        Assert.Equal(1, row.MappingStateEventCounts.EventNameEventCount);
+        Assert.Equal(1, row.MappingStateEventCounts.TemporalFileKeyEventCount);
+        Assert.Equal(0, row.MappingStateEventCounts.TemporalFileObjectEventCount);
+        Assert.Equal(0, row.MappingStateEventCounts.AmbiguousTemporalMappingEventCount);
+        Assert.Equal(1, row.MappingStateEventCounts.UnresolvedFileIdentityEventCount);
+    }
+
+    [Fact]
+    public void HardFaultRows_UseFileNameAsStableFinalTieBreaker()
+    {
+        static WpaMcp.Output.HardFaultFileRow Row(string file)
+        {
+            var aggregate = new HardFaultByFileAnalysis.HardFaultFileAggregate();
+            aggregate.Add(
+                bytes: 4_096,
+                latencyUs: 50,
+                timestampUs: 100,
+                FileMappingStates.EventName);
+            return aggregate.ToRow(file);
+        }
+
+        foreach (var orderBy in new[] { "bytes", "count", "max_latency" })
+        {
+            var rows = HardFaultByFileAnalysis.RankRows(
+                [Row("z.dat"), Row("a.dat")],
+                orderBy,
+                top: 10);
+
+            Assert.Equal(["a.dat", "z.dat"], rows.Select(row => row.File));
+        }
     }
 }

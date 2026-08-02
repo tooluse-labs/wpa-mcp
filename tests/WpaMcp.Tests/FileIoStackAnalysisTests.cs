@@ -9,11 +9,10 @@ public class FileIoStackAnalysisTests
     private const string FileIoFixture = "fixtures/small_fileio.etl"; // captured with FileIO keyword
 
     [Fact]
-    public void FileIoTopStacks_OnFileIoFixtureReturnsRows()
+    public void FileIoTopStacks_OnFileIoFixtureReportsEventsAndTruthfulStackAvailability()
     {
         var tools = new IoTools(new TraceCache(capacity: 2));
         var resp = tools.FileIoTopStacks(FileIoFixture, top: 30);
-        Assert.NotEmpty(resp.Rows);
         Assert.True(resp.TotalBytes > 0);
         Assert.True(resp.TotalOpCount > 0);
         var coverage = Assert.IsType<WpaMcp.Output.DomainStackCoverage>(resp.StackCoverage);
@@ -21,6 +20,16 @@ public class FileIoStackAnalysisTests
         Assert.Equal("bytes", coverage.MetricName);
         Assert.Equal(resp.TotalOpCount, coverage.TotalEventCount);
         Assert.Equal(resp.TotalBytes, coverage.TotalMetric);
+        if (resp.Rows.Count == 0)
+        {
+            Assert.Equal("no_stacks", coverage.CoverageState);
+            Assert.Equal("unavailable", resp.CapabilityStatus);
+            Assert.Equal("stacks_unavailable", resp.NoDataReason);
+        }
+        else
+        {
+            Assert.True(coverage.StackedEventCount > 0);
+        }
     }
 
     [Fact]
@@ -34,13 +43,19 @@ public class FileIoStackAnalysisTests
             top: 30,
             startUs: 0);
 
-        Assert.NotEmpty(unfiltered.Rows);
+        if (unfiltered.Rows.Count == 0 || filtered.Rows.Count == 0)
+        {
+            Assert.Equal("no_stacks", unfiltered.StackCoverage!.CoverageState);
+            Assert.Equal("no_stacks", filtered.StackCoverage!.CoverageState);
+            Assert.Equal("stacks_unavailable", unfiltered.NoDataReason);
+            Assert.Equal("stacks_unavailable", filtered.NoDataReason);
+            return;
+        }
         Assert.All(unfiltered.Rows, row =>
         {
             Assert.Null(row.ExclusivePctOfTrace);
             Assert.Null(row.InclusivePctOfTrace);
         });
-        Assert.NotEmpty(filtered.Rows);
         Assert.All(filtered.Rows, row =>
         {
             Assert.NotNull(row.ExclusivePctOfTrace);

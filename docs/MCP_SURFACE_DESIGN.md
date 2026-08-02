@@ -1,8 +1,10 @@
 # wpa-mcp — MCP surface design (review draft)
 
+> **Historical snapshot (2026-05; reconciled 2026-08-01):** This body is not current implementation evidence. The validated development surface now contains 60 active tools, 51 declared capabilities, 15 goals, and 15 workflows. Capability discovery is implemented through `list_capabilities` plus paged capability/tool/workflow and per-section contract Resources; all active tools expose Contract 2.0 envelopes. The old `diagnose_symbols`, `set_symbol_path`, and `add_symbol_server` names below are no longer active and have been replaced by the explicit local `prepare_symbols` lifecycle. Current architecture/status lives in [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md), `ARCHITECTURE.md`, and ADRs 0002–0005. The body is retained only for its historical design rationale against hiding specialist tools, mega-tools, and trace-dependent `tools/list` filtering.
+
 > Working notes, not an RFC. How to organize a broad and growing tool surface so that LLM consumers don't drown in decision fatigue, without throwing away analytical power.
 >
-> **Document-set logic** — three active docs in a sequential pipeline:
+> **Document-set logic as of May 2026** — three historical planning docs in a sequential pipeline:
 >
 > - **`CAPABILITY_GAPS.md`** — **what to add** (the inventory)
 > - **`MCP_SURFACE_DESIGN.md` (this)** — **how to add it** (Tool / Resource / Prompt, three-layer architecture, annotation tiers)

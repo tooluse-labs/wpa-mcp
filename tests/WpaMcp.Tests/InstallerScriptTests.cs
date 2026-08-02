@@ -310,7 +310,8 @@ public class InstallerScriptTests
 
         Assert.DoesNotMatch(@"-e\s+_NT_SYMBOL_PATH", content);
         Assert.DoesNotContain("$env:_NT_SYMBOL_PATH", content);
-        Assert.Contains("$serverArgs = @($dllPath, '--symbol-path', $SymbolPath, '--cache-size', \"$CacheSize\")", content);
+        Assert.Contains("'--symbol-local-root', $SymbolLocalRoot", content);
+        Assert.Contains("'--symbol-store-root', $SymbolStoreRoot", content);
         Assert.Contains("function New-ClaudeServerJson", content);
         Assert.Contains("ConvertTo-Json -Compress", content);
         Assert.Contains("claude mcp add-json --scope user $ServerName $serverJson", content);
@@ -318,6 +319,21 @@ public class InstallerScriptTests
         Assert.Contains("claude mcp add $ServerName --scope user -- $dotnetCommand @serverArgs", content);
         Assert.Contains("args = [$argsToml]", content);
         Assert.DoesNotContain("[mcp_servers.$ServerName.env]", content);
+    }
+
+    [Theory]
+    [InlineData("install.ps1")]
+    [InlineData("setup.ps1")]
+    public void InstallerScriptsRegisterOnlyTheSecureLocalSymbolPolicy(string scriptName)
+    {
+        var content = File.ReadAllText(LocateScript(scriptName));
+
+        Assert.DoesNotContain("--symbol-path", content);
+        Assert.Contains("[string]$SymbolLocalRoot", content);
+        Assert.Contains("[string]$SymbolStoreRoot", content);
+        Assert.Contains("'--symbol-local-root', $SymbolLocalRoot", content);
+        Assert.Contains("'--symbol-store-root', $SymbolStoreRoot", content);
+        Assert.Contains("prepare_symbols", content);
     }
 
     [Fact]

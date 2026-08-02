@@ -1,0 +1,38 @@
+{
+  "formatVersion": "tool-list-payload-budget.v1",
+  "baselineKind": "reviewed_correctness_growth_transition",
+  "measuredAt": "2026-08-02",
+  "serializer": "ModelContextProtocol.McpJsonUtilities.DefaultOptions",
+  "legacyActiveSnapshot": {
+    "artifact": "tests/WpaMcp.Tests/ContractBaselines/legacy-active-tools.v1.json",
+    "toolCount": 61,
+    "structuredToolCount": 5,
+    "catalogBytes": 179107
+  },
+  "correctedPhase1Observation": {
+    "toolCount": 61,
+    "structuredToolCount": 5,
+    "catalogBytes": 182198,
+    "deltaBytes": 3091,
+    "reason": "COR-FILEMAP-001 adds typed temporal mapping state/counts and the Phase 1 evidence-boundary descriptions preserve truthful scope, precision, and attribution semantics. The production Active Catalog is the single measured source."
+  },
+  "activeContract2Observation": {
+    "artifactTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
+    "toolCount": 60,
+    "structuredToolCount": 60,
+    "aggregateCatalogResultBytes": 2498170,
+    "aggregateCatalogSha256": "916a478f403a773e3535941195bcdb2aa241614872d6d1a67112e067e7dedd10",
+    "aggregatePromptCostState": "full_cost_not_reduced_by_paging",
+    "pageFrameLimitBytes": 100000,
+    "singleToolSchemasRemainIndivisible": true
+  },
+  "legacyTransitionGuardBytes": 185000,
+  "aggregateWarningThresholdBytes": 200000,
+  "reviewDisposition": {
+    "toolsHidden": false,
+    "schemasRemoved": false,
+    "typedFieldsReplacedWithOpenDictionary": false,
+    "correctnessFieldsPreserved": true
+  },
+  "successor": "eng/contract-baselines/tools-list-pagination.v1.json records exact per-frame fitting separately; neither paging nor a warning threshold is evidence of lower aggregate prompt cost."
+}

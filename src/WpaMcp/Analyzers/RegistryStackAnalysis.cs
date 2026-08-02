@@ -11,8 +11,8 @@ namespace WpaMcp.Analyzers;
 // "who's pounding the registry on every hot-path call" / "where are these lookups
 // coming from" questions.
 //
-// Sample weight = 1 per operation (no natural byte metric for registry).  CallTree.
-// ExclusiveMetric reads as "exclusive ops by this frame".  We count the "interesting"
+// Sample weight = 1 per operation (no natural byte metric for registry). The exact frame
+// projection reads as "exclusive ops by this frame". We count the "interesting"
 // operations (Query, Open, Create, SetValue, DeleteValue, Delete, EnumerateKey,
 // EnumerateValueKey) and skip the housekeeping events (KCB rundown, Flush, Close).
 //
@@ -40,17 +40,16 @@ public static class RegistryStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new RegistryStackRow(
-                Function: n.Name,
-                ExclusiveOps: (long)n.ExclusiveMetric,
-                InclusiveOps: (long)n.InclusiveMetric,
+                Function: n.Function,
+                ExclusiveOps: n.ExclusiveMetric,
+                InclusiveOps: n.InclusiveMetric,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalOps, n.ExclusiveMetric),
@@ -62,7 +61,7 @@ public static class RegistryStackAnalysis
             TotalOps: ctx.TotalOps,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("operation_count"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

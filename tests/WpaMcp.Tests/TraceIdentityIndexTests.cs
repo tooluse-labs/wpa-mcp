@@ -527,6 +527,56 @@ public sealed class TraceIdentityIndexTests
     }
 
     [Fact]
+    public void For_CancelledBuildIsNotCachedAndCanRetry()
+    {
+        using var trace = OpenFixture();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            TraceIdentityIndex.For(trace, cancellation.Token));
+
+        var retry = TraceIdentityIndex.For(trace, CancellationToken.None);
+        Assert.NotEmpty(retry.Processes.Lifetimes);
+        Assert.Same(retry, TraceIdentityIndex.For(trace, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task For_CancelledWaiterDoesNotWaitForAnotherBuild()
+    {
+        using var trace = OpenFixture();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        var expected = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 1,
+            processes: Array.Empty<ProcessLifetime>(),
+            threads: Array.Empty<ThreadLifecycleEvent>());
+        var builder = Task.Run(() => TraceIdentityIndex.For(trace, _ =>
+        {
+            entered.Set();
+            release.Wait();
+            return expected;
+        }));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+
+        try
+        {
+            var waiter = Task.Run(() => Record.Exception(() =>
+                TraceIdentityIndex.For(trace, cancellation.Token)));
+            await Task.Delay(75);
+            cancellation.Cancel();
+            var failure = await waiter.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsAssignableFrom<OperationCanceledException>(failure);
+        }
+        finally
+        {
+            release.Set();
+        }
+        Assert.Same(expected, await builder.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
     public async Task For_ConcurrentCalls_InvokeInjectedBuilderOnce()
     {
         using var trace = OpenFixture();

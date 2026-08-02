@@ -104,6 +104,7 @@ internal sealed class StartupImageLoadAccumulator
         long? previousTimeUs = null;
         foreach (var imageLoad in bucket.FirstLoads)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             rows.Add(new ImageLoadRow(
                 imageLoad.TimeUs,
                 checked(imageLoad.TimeUs - process.StartUs),
@@ -196,7 +197,7 @@ internal static class StartupImageLoadAnalysis
         ArgumentNullException.ThrowIfNull(events);
         var accumulator = new StartupImageLoadAccumulator(
             processes, maxRowsPerProcess);
-        foreach (var imageLoad in events)
+        foreach (var imageLoad in AnalysisEvents.Enumerate(events))
             accumulator.OnImageLoad(imageLoad);
         return accumulator.Complete();
     }

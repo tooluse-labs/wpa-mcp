@@ -8,6 +8,12 @@
 
 **Tech Stack:** C#; the exact TFM, SDK, `ModelContextProtocol`, and NuGet graph selected by Child 11A; xUnit; `System.Text.Json`; `Microsoft.Extensions.AI` JSON-schema utilities already supplied transitively by the MCP SDK; Windows stdio MCP.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+This plan owns the contract work assigned to Phases 0, 2, and 4 of [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](../../MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md), under [ADR 0002](../../decisions/0002-capability-map-evidence-contract.md). Phase 0 must first freeze the exact active tool catalog, DTO surface, legacy schemas/structured-output set, observed errors, and wire-size baseline before registration or response wrapping changes. Legacy mode must preserve that observed public contract exactly; it is a compatibility snapshot, not a newly inferred schema.
+
+The final envelope version/name, normative top-level property order, and cursor codec/wire format remain follow-up ADR gates. The concrete v2/order/cursor shapes below are implementation candidates until those decisions are accepted; do not silently make them the final public contract or widen a budget to accommodate them.
+
 ## Global Constraints
 
 - Preserve all typed tool method return types, names, parameters, defaults, descriptions, and risk annotations. MCP-only wrapping belongs in `McpToolCatalog`; `CliRunner` and analyzer/unit callers must not deserialize MCP envelopes.

@@ -33,6 +33,58 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void SlowStartupDiscovery_BoundsExclusionEvidenceAndKeepsExactTotals()
+    {
+        var exclusions = Enumerable.Range(0, 25)
+            .Select(index => new StartupProcessExclusion(
+                new ProcessInstanceKey(index + 1, index * 10L),
+                $"resident-{index}",
+                "startup_start_not_observed",
+                "ProcessStart was not observed."))
+            .ToArray();
+        var catalog = new StartupProcessCatalogResult(
+            Eligible: Array.Empty<StartupProcessObservation>(),
+            TotalEligibleCount: 0,
+            EligibleHasMore: false,
+            Excluded: exclusions,
+            TotalUnobservedStartCount: exclusions.Length,
+            TotalOtherExcludedCount: 0,
+            ExcludedHasMore: false,
+            ExplicitNameTarget: false);
+        var response = DiagnoseTools.ComposeSlowStartup(
+            TraceIdentityIndex.BuildFromEvents(
+                traceEndUs: 1_000,
+                processes: Array.Empty<ProcessLifetime>(),
+                threads: Array.Empty<ThreadLifecycleEvent>()),
+            catalog,
+            new Dictionary<ProcessInstanceKey, StartupSchedulerMetrics>(),
+            Array.Empty<string>(),
+            new StartupImageLoadResult(
+                new Dictionary<ProcessInstanceKey, StartupImageLoadBucket>(),
+                UnresolvedProcessInstanceCount: 0,
+                AmbiguousProcessInstanceCount: 0),
+            nameSubstring: null,
+            maxCandidates: 1,
+            minWaitRatio: 0,
+            topImageLoads: 1,
+            topCpu: 1,
+            slowFirstImageLoadThresholdUs: 0,
+            topWindowEvidence: 1,
+            analyzeCpu: _ => throw new InvalidOperationException("No candidate expected."),
+            diagnoseWindow: (_, _, _) => throw new InvalidOperationException("No candidate expected."));
+
+        Assert.NotNull(response.Discovery);
+        Assert.Equal(25, response.Discovery!.ExcludedStartupInstanceCount);
+        Assert.Equal(25, response.Discovery.ExcludedUnobservedStartCount);
+        Assert.Equal(0, response.Discovery.OtherExcludedStartupInstanceCount);
+        Assert.Equal(
+            StartupDiscoverySummary.ExcludedSampleLimit,
+            response.Discovery.ExcludedSamples.Count);
+        Assert.True(response.Discovery.ExcludedSamplesHasMore);
+        CompositeResultContractValidator.Validate(response);
+    }
+
+    [Fact]
     public void DiagnoseSlowStartup_TopInputsEnforceSharedBoundary()
     {
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
@@ -55,7 +107,11 @@ public class DiagnoseToolsTests
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
         // Aggressive threshold = many candidates; fall through to "no candidates" warning if not.
         var resp = tools.DiagnoseSlowStartup(FixturePath, minWaitRatio: 1.0, maxCandidates: 3);
+        AssertPlannerNotAdmitted(resp.PlannerExecution, "diagnose_slow_startup");
         Assert.NotNull(resp.Warnings);
+        Assert.Equal(resp.Candidates.Count, resp.CandidateBoundary.Returned);
+        Assert.False(resp.CandidateBoundary.ContinuationAvailable);
+        Assert.Equal(ToolSectionTotalState.Exact, resp.CandidateBoundary.TotalState);
         if (resp.Candidates.Count == 0)
             Assert.Contains(resp.Warnings, w => w.Contains("No processes matched"));
         else
@@ -144,6 +200,7 @@ public class DiagnoseToolsTests
         }
         Assert.NotEmpty(resp.FirstImageLoadGapEvidence!);
         var gap = resp.FirstImageLoadGapEvidence![0];
+        AssertPlannerNotAdmitted(gap.Window.PlannerExecution, "diagnose_window");
         Assert.True(gap.FirstImageLoadTimeUs >= gap.ProcessStartUs);
         Assert.Equal(gap.FirstImageLoadTimeUs - gap.ProcessStartUs, gap.FirstImageLoadOffsetUs);
         Assert.Equal(gap.Pid, gap.Window.Pid);
@@ -181,6 +238,203 @@ public class DiagnoseToolsTests
     }
 
     [Fact]
+    public void DiagnoseSlowStartup_ExposesNestedDiagnosticsOnceWithoutDanglingReferences()
+    {
+        const string schedulerWarning = "scheduler warning";
+        const string cpuWarning = "cpu warning";
+        const string childWarning = "child window warning";
+        var key = new ProcessInstanceKey(42, 100);
+        var lifetime = new ProcessLifetime(
+            key,
+            EndUs: 900,
+            StartObserved: true,
+            EndObserved: true);
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 1_000,
+            processes: [lifetime],
+            threads: Array.Empty<ThreadLifecycleEvent>());
+        var catalog = StartupProcessCatalog.Build(
+            [new StartupProcessMetadata(
+                lifetime,
+                ParentPid: 1,
+                Name: "deterministic.exe",
+                LifetimeCpuUs: 200,
+                LifetimeImageLoadCount: 1)],
+            startupWindowUs: 500,
+            traceDurationUs: 1_000,
+            nameSubstring: null,
+            maxCollectionItems: 8);
+        IReadOnlyDictionary<ProcessInstanceKey, StartupSchedulerMetrics> scheduler =
+            new Dictionary<ProcessInstanceKey, StartupSchedulerMetrics>
+            {
+                [key] = new(
+                    StartupCpuUs: 100,
+                    StartupBlockedUs: 400,
+                    BlockedUsByReason: new Dictionary<string, long>
+                    {
+                        ["WrUserRequest"] = 400,
+                    },
+                    RunningIntervalCount: 1,
+                    BlockedIntervalCount: 1,
+                    BlockedCountByReason: new Dictionary<string, long>
+                    {
+                        ["WrUserRequest"] = 1,
+                    }),
+            };
+        var firstLoad = new ImageLoadRow(
+            TimeUs: 300,
+            TimeFromProcessStartUs: 200,
+            FileName: "fixture.dll",
+            ImageSize: 1,
+            GapFromPrevUs: null);
+        var imageLoads = new StartupImageLoadResult(
+            new Dictionary<ProcessInstanceKey, StartupImageLoadBucket>
+            {
+                [key] = new(
+                    TotalAvailable: 1,
+                    FirstLoads: [firstLoad],
+                    HasMore: false),
+            },
+            UnresolvedProcessInstanceCount: 0,
+            AmbiguousProcessInstanceCount: 0);
+        var childCall = new CompositeToolCall(
+            CallId: "child.file-io",
+            ToolName: "file_io_top_files",
+            Pid: key.Pid,
+            AwakenedPid: null,
+            StartUs: key.StartUs,
+            EndUs: firstLoad.TimeUs,
+            Top: 1,
+            CompactStacks: null,
+            SummaryOnly: null,
+            WhenBuckets: null,
+            Warnings: Array.Empty<string>(),
+            ProcessStartUs: key.StartUs);
+        var childNextTool = new CompositeNextTool(
+            ToolName: "wait_top_stacks",
+            Reason: "Inspect associated blocking stacks.",
+            Pid: key.Pid,
+            AwakenedPid: null,
+            StartUs: key.StartUs,
+            EndUs: firstLoad.TimeUs,
+            CompactStacks: false,
+            SummaryOnly: false,
+            TestsHypothesis: "Check whether the wait maps to a captured code path.",
+            ProcessStartUs: key.StartUs);
+        var childWindow = new DiagnoseWindowResponse(
+            WindowStartUs: key.StartUs,
+            WindowEndUs: firstLoad.TimeUs,
+            DurationUs: firstLoad.TimeUs - key.StartUs,
+            Pid: key.Pid,
+            HardFaultsByBytes: Array.Empty<HardFaultFileRow>(),
+            HardFaultsByMaxLatency: Array.Empty<HardFaultFileRow>(),
+            FileIoTopFiles: Array.Empty<FileIoRow>(),
+            Pressure: null,
+            SecurityScanTargets: Array.Empty<SecurityScanTargetRow>(),
+            SlowScans: Array.Empty<SecurityScanRequestRow>(),
+            SecurityMatchedEventCount: 0,
+            SecurityPairedScanCount: 0,
+            SecurityTotalDurationUs: 0,
+            Waits: Array.Empty<WaitAnalysisRow>(),
+            Evidence:
+            [
+                new WindowEvidenceRow(
+                    EvidenceType: "file_io_top_file",
+                    Label: "fixture",
+                    MetricName: "bytes",
+                    MetricValue: 1,
+                    Unit: "bytes",
+                    Pid: key.Pid,
+                    ProcessName: "deterministic.exe",
+                    File: "fixture.dll",
+                    TimeUs: null,
+                    Details: Array.Empty<string>(),
+                    Samples: Array.Empty<WindowEvidenceSample>(),
+                    SamplesBoundary: null,
+                    ProcessStartUs: key.StartUs,
+                    ScopeMode: "single_process",
+                    EvidenceId: "child.evidence.file-io",
+                    CallId: childCall.CallId),
+            ],
+            NotConcluded: Array.Empty<CompositeNotConcluded>(),
+            NextTools: [childNextTool],
+            ExecutedToolCalls: [childCall],
+            Warnings: [childWarning],
+            SelectedProcess: key,
+            ScopeMode: "single_process",
+            IncludedProcesses: [key],
+            CapabilityStatus: "observed",
+            MatchedEventCount: 1);
+
+        var response = DiagnoseTools.ComposeSlowStartup(
+            identities,
+            catalog,
+            scheduler,
+            schedulerWarnings: [schedulerWarning],
+            imageLoads,
+            nameSubstring: null,
+            maxCandidates: 1,
+            minWaitRatio: 0,
+            topImageLoads: 1,
+            topCpu: 1,
+            slowFirstImageLoadThresholdUs: 100,
+            topWindowEvidence: 1,
+            analyzeCpu: _ => new CpuTopFunctionsResponse(
+                Rows: Array.Empty<CpuFunctionRow>(),
+                Stats: new SymbolStats(
+                    Resolved: 0,
+                    Unresolved: 0,
+                    ResolutionRate: 1,
+                    TopUnresolvedModules: Array.Empty<UnresolvedModule>()),
+                Warnings: [cpuWarning],
+                SelectedProcess: key),
+            diagnoseWindow: (_, _, _) => childWindow);
+
+        var gap = Assert.Single(response.FirstImageLoadGapEvidence!);
+        var outerGapCall = Assert.Single(response.ExecutedToolCalls!, call =>
+            call.CallId == gap.CallId);
+        Assert.Empty(outerGapCall.Warnings);
+        Assert.Contains("maxWindowDurationUs", outerGapCall.InternalNote);
+        Assert.Contains("FirstImageLoadGapEvidence[].Window", outerGapCall.InternalNote);
+        Assert.Empty(response.NextTools!);
+        Assert.Same(childWindow, gap.Window);
+
+        var reachableWarnings = response.Warnings
+            .Concat(response.ExecutedToolCalls!.SelectMany(call => call.Warnings))
+            .Concat(gap.Window.Warnings)
+            .Concat(gap.Window.ExecutedToolCalls.SelectMany(call => call.Warnings))
+            .ToArray();
+        Assert.Equal(1, reachableWarnings.Count(warning => warning.Contains(
+            schedulerWarning, StringComparison.Ordinal)));
+        Assert.Equal(1, reachableWarnings.Count(warning => warning.Contains(
+            cpuWarning, StringComparison.Ordinal)));
+        Assert.Equal(1, reachableWarnings.Count(warning => warning.Contains(
+            childWarning, StringComparison.Ordinal)));
+        Assert.Single(gap.Window.NextTools, tool => tool == childNextTool);
+
+        var executedToolCalls = Assert.IsAssignableFrom<IReadOnlyList<CompositeToolCall>>(
+            response.ExecutedToolCalls);
+        var cpuCall = Assert.Single(executedToolCalls, call =>
+            call.ToolName == "cpu_top_functions");
+        Assert.Empty(cpuCall.Warnings);
+        Assert.Contains("outer Warnings", cpuCall.InternalNote);
+        var waitCall = Assert.Single(executedToolCalls, call =>
+            call.ToolName == "wait_analysis");
+        Assert.Empty(waitCall.Warnings);
+        Assert.Contains("outer Warnings", waitCall.InternalNote);
+
+        CompositeResultContractValidator.Validate(response);
+        var childCallIds = gap.Window.ExecutedToolCalls
+            .Select(call => call.CallId)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.All(gap.Window.Evidence, item =>
+        {
+            Assert.NotNull(item.CallId);
+            Assert.Contains(item.CallId!, childCallIds);
+        });
+    }
+
+    [Fact]
     public void DiagnoseSlowStartup_ExcludesTraceResidentProcessesFromCandidates()
     {
         var cache = new TraceCache(capacity: 2);
@@ -213,7 +467,7 @@ public class DiagnoseToolsTests
             item.Code == "startup_start_not_observed" &&
             item.Pid == target.Pid &&
             item.ProcessStartUs.HasValue &&
-            item.EvidenceId ==
+            item.BoundaryId ==
                 $"slow-startup.pid-{target.Pid}.start-{item.ProcessStartUs}.startup-start");
     }
 
@@ -241,8 +495,8 @@ public class DiagnoseToolsTests
         var evidenceIds = response.Candidates.Select(candidate => candidate.EvidenceId)
             .Concat((response.Evidence ?? []).Select(item => item.EvidenceId))
             .Concat((response.NotConcluded ?? [])
-                .Where(item => item.EvidenceId is not null)
-                .Select(item => item.EvidenceId!))
+                .Where(item => item.BoundaryId is not null)
+                .Select(item => item.BoundaryId!))
             .Concat((response.FirstImageLoadGapEvidence ?? [])
                 .Select(item => item.EvidenceId))
             .Concat((response.Discovery?.ExcludedSamples ?? [])
@@ -258,6 +512,73 @@ public class DiagnoseToolsTests
                 .Select(call => call.CallId)
                 .Distinct(StringComparer.Ordinal)
                 .Count() ?? 0);
+
+        var callIds = (response.ExecutedToolCalls ?? [])
+            .Select(call => call.CallId)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.All(response.Candidates, candidate =>
+            Assert.Contains(candidate.CallId, callIds));
+        Assert.All(response.Discovery?.ExcludedSamples ?? [], exclusion =>
+            Assert.Contains(exclusion.CallId, callIds));
+        Assert.NotNull(response.Discovery);
+        Assert.Contains(response.Discovery!.CallId, callIds);
+        Assert.Equal(
+            response.Discovery.ConsideredStartupInstanceCount,
+            response.Discovery.CandidateInputBoundary.Returned);
+        Assert.Equal(
+            response.Discovery.EligibleStartupInstanceCount,
+            response.Discovery.CandidateInputBoundary.TotalAvailable);
+        Assert.Equal(
+            response.Discovery.CandidateInputHasMore,
+            response.Discovery.CandidateInputBoundary.HasMore);
+        Assert.All(response.Candidates, candidate =>
+        {
+            Assert.Equal(candidate.TopStartupWaitReasons.Count,
+                candidate.TopStartupWaitReasonsBoundary.Returned);
+            Assert.Equal(candidate.FirstStartupImageLoads.Count,
+                candidate.FirstStartupImageLoadsBoundary.Returned);
+            Assert.Equal(candidate.TopStartupCpuFunctions?.Count ?? 0,
+                candidate.TopStartupCpuFunctionsBoundary.Returned);
+        });
+        Assert.All(response.FirstImageLoadGapEvidence ?? [], gap =>
+        {
+            Assert.Equal(8, gap.WindowSectionBoundaries.Count);
+            Assert.Equal(8, gap.WindowSectionBoundaries
+                .Select(boundary => boundary.SectionPointer)
+                .Distinct(StringComparer.Ordinal).Count());
+        });
+        Assert.Single(response.ExecutedToolCalls ?? [], call =>
+            call.ToolName == "startup_candidate_discovery" && !call.Replayable);
+        CompositeResultContractValidator.Validate(response);
+
+        if (response.Candidates.Count > 0)
+        {
+            var broken = response with
+            {
+                Candidates = response.Candidates
+                    .Select((candidate, index) => index == 0
+                        ? candidate with { CallId = "missing-projection-call" }
+                        : candidate)
+                    .ToArray(),
+            };
+            Assert.Throws<InvalidOperationException>(() =>
+                CompositeResultContractValidator.Validate(broken));
+        }
+
+        if ((response.Discovery?.ExcludedSamples.Count ?? 0) > 0)
+        {
+            var discovery = response.Discovery! with
+            {
+                ExcludedSamples = response.Discovery!.ExcludedSamples
+                    .Select((exclusion, index) => index == 0
+                        ? exclusion with { CallId = "missing-discovery-call" }
+                        : exclusion)
+                    .ToArray(),
+            };
+            var broken = response with { Discovery = discovery };
+            Assert.Throws<InvalidOperationException>(() =>
+                CompositeResultContractValidator.Validate(broken));
+        }
     }
 
     [Fact]
@@ -274,6 +595,118 @@ public class DiagnoseToolsTests
             1,
             response.Warnings.Count(warning =>
                 warning == $"slow-startup.discovery: {schedulerWarning}"));
+    }
+
+    [Fact]
+    public void DiagnoseSlowStartup_TruncatedInputNeverClaimsGlobalNoCandidates()
+    {
+        const int retainedCount = 128;
+        var lifetimes = Enumerable.Range(1, retainedCount + 1)
+            .Select(index => new ProcessLifetime(
+                new ProcessInstanceKey(10_000 + index, index * 10L),
+                EndUs: 5_000,
+                StartObserved: true,
+                EndObserved: true))
+            .ToArray();
+        var metadata = lifetimes
+            .Select(lifetime => new StartupProcessMetadata(
+                lifetime,
+                ParentPid: 1,
+                Name: "candidate.exe",
+                LifetimeCpuUs: 100,
+                LifetimeImageLoadCount: 0))
+            .ToArray();
+        var catalog = StartupProcessCatalog.Build(
+            metadata,
+            startupWindowUs: 500,
+            traceDurationUs: 5_000,
+            nameSubstring: "candidate",
+            maxCollectionItems: retainedCount);
+        var fullEligible = metadata
+            .Select(process => new StartupProcessObservation(
+                process,
+                StartupWindow.Create(
+                    process.Lifetime,
+                    startupWindowUs: 500,
+                    traceDurationUs: 5_000)))
+            .ToArray();
+        var omittedProcess = lifetimes[^1].Key;
+        var scheduler = fullEligible.ToDictionary(
+            process => process.Process,
+            process => new StartupSchedulerMetrics(
+                StartupCpuUs: process.Process == omittedProcess ? 100 : 0,
+                StartupBlockedUs: 100,
+                BlockedUsByReason: new Dictionary<string, long>
+                {
+                    ["WrUserRequest"] = 100,
+                },
+                RunningIntervalCount: 0,
+                BlockedIntervalCount: 1,
+                BlockedCountByReason: new Dictionary<string, long>
+                {
+                    ["WrUserRequest"] = 1,
+                }));
+        var imageLoads = new StartupImageLoadResult(
+            fullEligible.ToDictionary(
+                process => process.Process,
+                _ => new StartupImageLoadBucket(
+                    TotalAvailable: 0,
+                    FirstLoads: Array.Empty<ImageLoadRow>(),
+                    HasMore: false)),
+            UnresolvedProcessInstanceCount: 0,
+            AmbiguousProcessInstanceCount: 0);
+        var identities = TraceIdentityIndex.BuildFromEvents(
+            traceEndUs: 5_000,
+            processes: lifetimes,
+            threads: Array.Empty<ThreadLifecycleEvent>());
+        var qualifier = Assert.Single(SlowStartupProjection.Rank(
+            fullEligible,
+            scheduler,
+            imageLoads.ByProcess,
+            nameSubstring: "candidate",
+            minWaitRatio: 0,
+            maxCandidates: 1));
+        Assert.Equal(omittedProcess, qualifier.Process);
+
+        var response = DiagnoseTools.ComposeSlowStartup(
+            identities,
+            catalog,
+            scheduler,
+            schedulerWarnings: Array.Empty<string>(),
+            imageLoads,
+            nameSubstring: "candidate",
+            maxCandidates: 1,
+            minWaitRatio: 0,
+            topImageLoads: 1,
+            topCpu: 1,
+            slowFirstImageLoadThresholdUs: 0,
+            topWindowEvidence: 1,
+            analyzeCpu: _ => throw new InvalidOperationException(
+                "No candidate should reach CPU analysis."),
+            diagnoseWindow: (_, _, _) => throw new InvalidOperationException(
+                "No candidate should reach window analysis."));
+
+        Assert.Empty(response.Candidates);
+        Assert.NotNull(response.Discovery);
+        Assert.True(response.Discovery!.CandidateInputHasMore);
+        Assert.Equal(ToolSectionTotalState.Unknown, response.CandidateBoundary.TotalState);
+        Assert.Equal(ToolSectionMoreState.Unknown, response.CandidateBoundary.MoreState);
+        Assert.False(response.CandidateBoundary.HasMore);
+        Assert.False(response.CandidateBoundary.ContinuationAvailable);
+        Assert.Equal(retainedCount + 1, response.Discovery.EligibleStartupInstanceCount);
+        Assert.Equal(retainedCount, response.Discovery.ConsideredStartupInstanceCount);
+        Assert.DoesNotContain(response.NotConcluded!, item => item.Code == "no_candidates");
+        var truncation = Assert.Single(response.NotConcluded!, item =>
+            item.Code == "upstream_candidate_input_truncated");
+        Assert.Equal("partial", truncation.CapabilityStatus);
+        Assert.Equal("upstream_candidate_input_truncated", truncation.NoDataReason);
+        Assert.Equal("qualifiedCandidateCountLowerBound", truncation.MetricName);
+        Assert.Equal(0, truncation.MetricValue);
+        Assert.Contains(response.NotConcluded!, item =>
+            item.Code == "no_candidates_in_retained_input" &&
+            item.CapabilityStatus == "partial");
+        Assert.Contains(response.Warnings, warning =>
+            warning.Contains("totalState=lower_bound", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -304,6 +737,125 @@ public class DiagnoseToolsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1, maxWindowDurationUs: 0));
         Assert.Throws<ArgumentException>(() => tools.DiagnoseWindow(
             "nonexistent.etl", startUs: 0, endUs: 1, processStartUs: 1));
+    }
+
+    [Fact]
+    public void DiagnoseWindow_WaitSummaryUsesExactTotalNotReturnedRows()
+    {
+        var waits = new WaitAnalysisResponse(
+            Rows:
+            [
+                new WaitAnalysisRow(
+                    Pid: 42,
+                    ProcessName: "sample.exe",
+                    Tid: 7,
+                    CpuUs: 10,
+                    BlockedUs: 100,
+                    WaitRatio: 10,
+                    ContextSwitches: 1,
+                    TopWaitReasons:
+                    [
+                        new WaitReasonBucket("WrUserRequest", 100, 1),
+                    ],
+                    ProcessStartUs: 5),
+            ],
+            TotalCSwitches: 1,
+            Warnings: Array.Empty<string>(),
+            TotalBlockedUs: 350,
+            SelectedProcess: new ProcessInstanceKey(42, 5),
+            ScopeMode: "single_process");
+
+        var evidence = DiagnoseTools.BuildWaitSummaryEvidence(
+            waits,
+            pid: 42);
+
+        Assert.NotNull(evidence);
+        Assert.Equal(350, evidence!.MetricValue);
+        Assert.Equal("sample.exe", evidence.ProcessName);
+        Assert.Equal(42, evidence.Pid);
+        Assert.Equal(5, evidence.ProcessStartUs);
+        Assert.NotEqual(waits.Rows.Sum(row => row.BlockedUs), evidence.MetricValue);
+        Assert.NotNull(evidence.DetailsBoundary);
+        Assert.Equal("/details", evidence.DetailsBoundary!.SectionPointer);
+        Assert.Equal(ToolSectionTotalState.Unknown, evidence.DetailsBoundary.TotalState);
+        Assert.Equal(ToolSectionMoreState.Unknown, evidence.DetailsBoundary.MoreState);
+        Assert.Equal("returned_rows_sample", evidence.DetailsBoundary.TruncationReason);
+    }
+
+    [Fact]
+    public void WindowEvidenceSchemaDescriptionsForbidAggregateSampleAttribution()
+    {
+        var properties = TypeDescriptor.GetProperties(typeof(WindowEvidenceRow));
+
+        Assert.Contains(
+            "pid_aggregate",
+            properties[nameof(WindowEvidenceRow.Pid)]!.Description,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Null for all_processes, pid_aggregate",
+            properties[nameof(WindowEvidenceRow.ProcessName)]!.Description,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "do not own MetricValue",
+            properties[nameof(WindowEvidenceRow.File)]!.Description,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Null for aggregate metrics",
+            properties[nameof(WindowEvidenceRow.TimeUs)]!.Description,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("all_processes")]
+    [InlineData("pid_aggregate")]
+    public void DiagnoseWindow_WaitSummaryDoesNotAttributeAggregateTotalToFirstReturnedProcess(
+        string scopeMode)
+    {
+        var firstRow = new WaitAnalysisRow(
+            Pid: 42,
+            ProcessName: "first-returned.exe",
+            Tid: 7,
+            CpuUs: 10,
+            BlockedUs: 100,
+            WaitRatio: 10,
+            ContextSwitches: 1,
+            TopWaitReasons: [],
+            ProcessStartUs: 5);
+        var secondRow = firstRow with
+        {
+            Pid = scopeMode == "pid_aggregate" ? 42 : 43,
+            ProcessName = "second-returned.exe",
+            ProcessStartUs = 25,
+        };
+        var topOne = new WaitAnalysisResponse(
+            Rows: [firstRow],
+            TotalCSwitches: 1,
+            Warnings: Array.Empty<string>(),
+            TotalBlockedUs: 350,
+            // Deliberately hostile legacy-looking value: aggregate scopes must
+            // ignore it rather than turn the first top-N row into an owner.
+            SelectedProcess: new ProcessInstanceKey(42, 5),
+            ScopeMode: scopeMode);
+        var topAll = topOne with { Rows = [firstRow, secondRow] };
+
+        var evidenceAtTopOne = DiagnoseTools.BuildWaitSummaryEvidence(
+            topOne,
+            // Hostile caller input: response ScopeMode remains authoritative.
+            pid: 42);
+        var evidenceAtTopAll = DiagnoseTools.BuildWaitSummaryEvidence(
+            topAll,
+            pid: 42);
+
+        Assert.NotNull(evidenceAtTopOne);
+        Assert.NotNull(evidenceAtTopAll);
+        Assert.Equal(350, evidenceAtTopOne!.MetricValue);
+        Assert.Equal(evidenceAtTopOne.MetricValue, evidenceAtTopAll!.MetricValue);
+        Assert.Null(evidenceAtTopOne.ProcessName);
+        Assert.Null(evidenceAtTopAll.ProcessName);
+        Assert.Null(evidenceAtTopOne.ProcessStartUs);
+        Assert.Null(evidenceAtTopAll.ProcessStartUs);
+        Assert.Equal(scopeMode == "pid_aggregate" ? 42 : null, evidenceAtTopOne.Pid);
+        Assert.Equal(evidenceAtTopOne.Pid, evidenceAtTopAll.Pid);
     }
 
     [Fact]
@@ -416,6 +968,7 @@ public class DiagnoseToolsTests
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
         var resp = tools.DiagnoseWindow("nonexistent.etl", startUs: 0, endUs: 1_000_000, maxWindowDurationUs: 999_999);
+        AssertPlannerNotAdmitted(resp.PlannerExecution, "diagnose_window");
 
         Assert.Empty(resp.ExecutedToolCalls);
         Assert.Null(resp.Pressure);
@@ -451,6 +1004,13 @@ public class DiagnoseToolsTests
             item.EvidenceType == "hard_fault_max_latency" &&
             item.MetricValue == slowest.MaxLatencyUs &&
             item.TimeUs == slowest.MaxLatencyTimeUs);
+        var aggregateBytes = Assert.Single(resp.Evidence, item =>
+            item.EvidenceType == "hard_fault_bytes");
+        Assert.Null(aggregateBytes.TimeUs);
+        Assert.Contains(aggregateBytes.Details, detail =>
+            detail.StartsWith(
+                "nonRepresentativePointOnly:",
+                StringComparison.Ordinal));
         Assert.Contains(resp.NextTools, tool =>
             tool.ToolName == "diagnose_window" &&
             tool.StartUs <= slowest.MaxLatencyTimeUs &&
@@ -613,8 +1173,14 @@ public class DiagnoseToolsTests
         var tools = new DiagnoseTools(new TraceCache(capacity: 2));
 
         var resp = tools.DiagnoseHighWait(FixturePath, maxCandidates: 3);
+        AssertPlannerNotAdmitted(resp.PlannerExecution, "diagnose_high_wait");
 
         Assert.NotEmpty(resp.Candidates);
+        Assert.Equal(resp.Candidates.Count, resp.CandidateBoundary.Returned);
+        Assert.Equal(ToolSectionTotalState.Exact, resp.CandidateBoundary.TotalState);
+        Assert.NotNull(resp.CandidateBoundary.TotalAvailable);
+        Assert.True(resp.CandidateBoundary.TotalAvailable >= resp.Candidates.Count);
+        Assert.False(resp.CandidateBoundary.ContinuationAvailable);
         Assert.Contains(resp.ExecutedToolCalls, call =>
             call.ToolName == "wait_analysis" &&
             !call.Replayable &&
@@ -639,6 +1205,25 @@ public class DiagnoseToolsTests
         });
         Assert.NotEmpty(resp.NextTools);
         Assert.All(resp.NextTools, item => Assert.False(string.IsNullOrWhiteSpace(item.TestsHypothesis)));
+    }
+
+    private static void AssertPlannerNotAdmitted(
+        PlannerExecutionTelemetry? telemetry,
+        string toolName)
+    {
+        var planner = Assert.IsType<PlannerExecutionTelemetry>(telemetry);
+        Assert.Equal(toolName, planner.ToolName);
+        Assert.Equal("not_admitted_evidence_missing", planner.AdmissionStatus);
+        Assert.Equal("direct_tool_execution_planner_not_admitted", planner.ExecutionStatus);
+        Assert.NotEmpty(planner.MissingEvidence);
+        Assert.Empty(planner.LogicalAnalyzersExecuted);
+        Assert.Null(planner.PhysicalTracePassCount);
+        Assert.Null(planner.ScannedEventCount);
+        Assert.Null(planner.MatchedEventCount);
+        Assert.Equal("unavailable_not_admitted", planner.PhysicalTracePassCountState);
+        Assert.Equal("unavailable_not_admitted", planner.ScannedEventCountState);
+        Assert.Equal("unavailable_not_admitted", planner.MatchedEventCountState);
+        Assert.Contains("no_single_dispatch_claim", planner.EvidenceBoundaries);
     }
 
     [Fact]
@@ -717,21 +1302,26 @@ public class DiagnoseToolsTests
         var resp = tools.DiagnoseHighWait(FixturePath, maxCandidates: 5);
 
         var trace = cache.Get(FixturePath);
-        var expected = WaitAnalysis.Analyze(trace, top: int.MaxValue, pid: null, startUs: null, endUs: null)
+        var allExpected = WaitAnalysis.Analyze(trace, top: int.MaxValue, pid: null, startUs: null, endUs: null)
             .Rows
             .Where(row => row.Pid > 0 && row.Pid != 4)
-            .GroupBy(row => row.Pid)
+            .GroupBy(row => new ProcessInstanceKey(row.Pid, row.ProcessStartUs))
             .Select(group => new
             {
-                Pid = group.Key,
+                Pid = group.Key.Pid,
+                ProcessStartUs = group.Key.StartUs,
                 BlockedUs = group.Sum(row => row.BlockedUs),
             })
             .Where(row => row.BlockedUs > 0)
             .OrderByDescending(row => row.BlockedUs)
-            .Take(5)
             .ToList();
+        var expected = allExpected.Take(5).ToList();
 
-        Assert.Equal(expected.Select(row => row.Pid), resp.Candidates.Select(candidate => candidate.Pid));
+        Assert.Equal(
+            expected.Select(row => (row.Pid, row.ProcessStartUs)),
+            resp.Candidates.Select(candidate => (candidate.Pid, candidate.ProcessStartUs)));
+        Assert.Equal(allExpected.Count, resp.CandidateBoundary.TotalAvailable);
+        Assert.Equal(ToolSectionTotalState.Exact, resp.CandidateBoundary.TotalState);
         foreach (var candidate in resp.Candidates)
         {
             var expectedBlockedUs = expected.Single(row => row.Pid == candidate.Pid).BlockedUs;

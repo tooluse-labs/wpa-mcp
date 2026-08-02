@@ -59,21 +59,21 @@ public sealed class VirtualAllocPrecisionContractTests
         var responseTypes = new Dictionary<Type, string>
         {
             [typeof(CpuTopFunctionsResponse)] = "exact_integer_count",
-            [typeof(WaitTopStacksResponse)] = "float32_per_sample_approximate",
-            [typeof(FileIoStacksResponse)] = "float32_per_sample_approximate",
-            [typeof(DiskIoStacksResponse)] = "float32_per_sample_approximate",
-            [typeof(HardFaultStacksResponse)] = "float32_per_sample_approximate",
+            [typeof(WaitTopStacksResponse)] = "exact_long",
+            [typeof(FileIoStacksResponse)] = "exact_long",
+            [typeof(DiskIoStacksResponse)] = "exact_long",
+            [typeof(HardFaultStacksResponse)] = "exact_long",
             [typeof(ImageLoadStacksResponse)] = "exact_integer_count",
-            [typeof(VirtualAllocStacksResponse)] = "float32_per_sample_approximate",
-            [typeof(NetIoStacksResponse)] = "float32_per_sample_approximate",
+            [typeof(VirtualAllocStacksResponse)] = "exact_long",
+            [typeof(NetIoStacksResponse)] = "exact_long",
             [typeof(RegistryStacksResponse)] = "exact_integer_count",
             [typeof(ReadyThreadStacksResponse)] = "exact_integer_count",
-            [typeof(InterruptStacksResponse)] = "float32_per_sample_approximate",
+            [typeof(InterruptStacksResponse)] = "exact_long",
             [typeof(AlpcStacksResponse)] = "exact_integer_count",
-            [typeof(ClrAllocStacksResponse)] = "float32_per_sample_approximate",
+            [typeof(ClrAllocStacksResponse)] = "exact_long",
             [typeof(ClrExceptionStacksResponse)] = "exact_integer_count",
-            [typeof(ClrContentionStacksResponse)] = "float32_per_sample_approximate",
-            [typeof(HeapAllocStacksResponse)] = "float32_per_sample_approximate",
+            [typeof(ClrContentionStacksResponse)] = "exact_long",
+            [typeof(HeapAllocStacksResponse)] = "exact_long",
             [typeof(GenericEventStacksResponse)] = "exact_integer_count",
         };
 
@@ -101,9 +101,9 @@ public sealed class VirtualAllocPrecisionContractTests
     [InlineData("count", "exact_integer_count")]
     [InlineData("samples", "exact_integer_count")]
     [InlineData("readyEvents", "exact_integer_count")]
-    [InlineData("bytes", "float32_per_sample_approximate")]
-    [InlineData("us", "float32_per_sample_approximate")]
-    [InlineData("virtualMemoryOperationBytes", "float32_per_sample_approximate")]
+    [InlineData("bytes", "exact_long")]
+    [InlineData("us", "exact_long")]
+    [InlineData("virtualMemoryOperationBytes", "exact_long")]
     public void PrecisionClassifier_SeparatesUnitCountsFromWeightedMetrics(
         string metricName,
         string expected)

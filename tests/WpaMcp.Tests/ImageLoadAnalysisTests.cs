@@ -22,7 +22,7 @@ public class ImageLoadAnalysisTests
 
         var cache = new TraceCache(capacity: 2);
         var meta = new MetaTools(cache);
-        var procResp = meta.ListProcesses(MmapFixture);
+        var procResp = meta.ListProcesses(MmapFixture, top: 1000);
 
         // Iterate candidates ordered by ImageLoadCount desc; first one with >0 *events* wins.
         var tools = new ImageLoadTools(cache);
@@ -30,7 +30,7 @@ public class ImageLoadAnalysisTests
         foreach (var row in procResp.Rows.OrderByDescending(r => r.ImageLoadCount))
         {
             if (row.ImageLoadCount == 0) break;
-            var resp = tools.ImageLoadTiming(MmapFixture, pid: row.Pid, top: 50);
+            var resp = tools.ImageLoadTiming(MmapFixture, pid: row.Pid, pageSize: 50);
             if (resp.TotalImageLoads > 0)
             {
                 success = resp;
@@ -56,14 +56,14 @@ public class ImageLoadAnalysisTests
 
         var cache = new TraceCache(capacity: 2);
         var meta = new MetaTools(cache);
-        var procResp = meta.ListProcesses(MmapFixture, top: 100);
+        var procResp = meta.ListProcesses(MmapFixture, top: 1000);
         var tools = new ImageLoadTools(cache);
 
         ImageLoadTimingResponse? hit = null;
         foreach (var row in procResp.Rows.OrderByDescending(r => r.ImageLoadCount))
         {
             if (row.ImageLoadCount == 0) break;
-            var resp = tools.ImageLoadTiming(MmapFixture, pid: row.Pid, top: 200);
+            var resp = tools.ImageLoadTiming(MmapFixture, pid: row.Pid, pageSize: 200);
             if (resp.TotalImageLoads >= 2) { hit = resp; break; }
         }
         Assert.NotNull(hit);
@@ -87,7 +87,7 @@ public class ImageLoadAnalysisTests
 
         var cache = new TraceCache(capacity: 2);
         var meta = new MetaTools(cache);
-        var procResp = meta.ListProcesses(MmapFixture, top: 100);
+        var procResp = meta.ListProcesses(MmapFixture, top: 1000);
         var tools = new ImageLoadTools(cache);
 
         ImageLoadTopGapsResponse? hit = null;
@@ -135,7 +135,7 @@ public class ImageLoadAnalysisTests
         var meta = new MetaTools(new TraceCache(capacity: 2));
         var pid = meta.ListProcesses(FixturePath).Rows.First().Pid;
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
-        var resp = tools.ImageLoadTiming(FixturePath, pid: pid, top: 10);
+        var resp = tools.ImageLoadTiming(FixturePath, pid: pid, pageSize: 10);
         Assert.True(resp.TotalImageLoads >= 0);
         Assert.NotNull(resp.Loads);
     }
@@ -144,8 +144,8 @@ public class ImageLoadAnalysisTests
     public void ImageLoadTiming_RejectsBadTop()
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
-        Assert.Throws<ArgumentOutOfRangeException>(() => tools.ImageLoadTiming("nonexistent.etl", pid: 1, top: 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => tools.ImageLoadTiming("nonexistent.etl", pid: 1, top: 1001));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.ImageLoadTiming("nonexistent.etl", pid: 1, pageSize: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => tools.ImageLoadTiming("nonexistent.etl", pid: 1, pageSize: 1001));
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public class ImageLoadAnalysisTests
     {
         var tools = new ImageLoadTools(new TraceCache(capacity: 2));
         var response = tools.ImageLoadTiming(
-            FixturePath, pid: 999_999, top: 10, processStartUs: 123);
+            FixturePath, pid: 999_999, pageSize: 10, processStartUs: 123);
 
         Assert.Empty(response.Loads);
         Assert.Equal("scope_not_found", response.ScopeStatus);
@@ -216,5 +216,59 @@ public class ImageLoadAnalysisTests
             new ProcessInstanceKey(42, 300),
             ImageLoadAnalysis.SelectProcessInstance(
                 lifetimes, pid: 42, processStartUs: 300).Key);
+    }
+
+    [Fact]
+    public void ProjectLoads_InferredProcessStartSuppressesStartupRelativeOffsets()
+    {
+        var inferred = new ProcessLifetime(
+            new ProcessInstanceKey(42, 100),
+            EndUs: 200,
+            StartObserved: false,
+            EndObserved: false);
+        var loads = ImageLoadAnalysis.ProjectLoads(
+            [new ImageLoadObservation(42, 110, "a.dll", 1, EventIndex: 7)],
+            inferred);
+
+        var row = Assert.Single(loads);
+        Assert.Equal(110, row.TimeUs);
+        Assert.Null(row.TimeFromProcessStartUs);
+    }
+
+    [Fact]
+    public void ProjectLoads_UsesEventIndexToOrderDuplicateTimestamps()
+    {
+        var process = new ProcessLifetime(
+            new ProcessInstanceKey(42, 100),
+            EndUs: 200,
+            StartObserved: true,
+            EndObserved: true);
+        var loads = ImageLoadAnalysis.ProjectLoads(
+            [
+                new ImageLoadObservation(42, 110, "later.dll", 1, EventIndex: 9),
+                new ImageLoadObservation(42, 110, "earlier.dll", 1, EventIndex: 3),
+            ],
+            process);
+
+        Assert.Equal([3L, 9L], loads.Select(row => row.EventIndex));
+        Assert.Equal(["earlier.dll", "later.dll"], loads.Select(row => row.FileName));
+    }
+
+    [Fact]
+    public void TopGaps_UsesTimeAndEventIndexAsStableTieBreakers()
+    {
+        var rows = ImageLoadAnalysis.RankTopGaps(
+            [
+                new ImageLoadRow(300, 300, "time-later.dll", 1, 50, EventIndex: 1),
+                new ImageLoadRow(200, 200, "event-later.dll", 1, 50, EventIndex: 9),
+                new ImageLoadRow(200, 200, "event-earlier.dll", 1, 50, EventIndex: 3),
+                new ImageLoadRow(400, 400, "largest-gap.dll", 1, 60, EventIndex: 12),
+                new ImageLoadRow(100, 100, "no-gap.dll", 1, null, EventIndex: 0),
+            ],
+            top: 10);
+
+        Assert.Equal(
+            ["largest-gap.dll", "event-earlier.dll", "event-later.dll", "time-later.dll"],
+            rows.Select(row => row.FileName));
     }
 }

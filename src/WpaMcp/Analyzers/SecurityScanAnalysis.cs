@@ -22,6 +22,17 @@ internal sealed record SecurityScanStopData(
     string TargetIdentitySource = "unresolved",
     SecurityScanAnalysis.ScanTarget? Target = null);
 
+internal sealed record SecurityEvidenceClassSummary(
+    string EvidenceKind,
+    string Provenance,
+    string Confidence,
+    long EventCount,
+    string TotalState);
+
+internal sealed record SecurityScanDetailedResult(
+    SecurityScanAnalysisResponse Response,
+    IReadOnlyList<SecurityEvidenceClassSummary> EvidenceClassSummaries);
+
 public static class SecurityScanAnalysis
 {
     private const string DefenderSource = "Microsoft Defender";
@@ -143,6 +154,27 @@ public static class SecurityScanAnalysis
         string? processSubstring,
         string? pathSubstring,
         string? providerSubstring,
+        long? targetProcessStartUs = null) =>
+        AnalyzeDetailed(
+            trace,
+            top,
+            pid,
+            startUs,
+            endUs,
+            processSubstring,
+            pathSubstring,
+            providerSubstring,
+            targetProcessStartUs).Response;
+
+    internal static SecurityScanDetailedResult AnalyzeDetailed(
+        TraceLog trace,
+        int top,
+        int? pid,
+        long? startUs,
+        long? endUs,
+        string? processSubstring,
+        string? pathSubstring,
+        string? providerSubstring,
         long? targetProcessStartUs = null)
     {
         if (targetProcessStartUs.HasValue && !pid.HasValue)
@@ -165,7 +197,7 @@ public static class SecurityScanAnalysis
         long scopedUnattributedTargetEventCount = 0;
         var eventClassObserved = false;
 
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             var nowUs = TraceTime.FromMilliseconds(ev.TimeStampRelativeMSec);
             var providerName = ev.ProviderName ?? string.Empty;
@@ -356,7 +388,7 @@ public static class SecurityScanAnalysis
                 providerSubstring) &&
             MatchesTargetScope(scope, interval.StartData.TargetProcess));
 
-        var response = Project(
+        var result = Project(
             pairResult.Pairs,
             window,
             top,
@@ -375,7 +407,7 @@ public static class SecurityScanAnalysis
         var unresolvedIdentityCount = unresolvedStartCount + unresolvedStopCount;
         var missingPairIdCount = missingPairIdStartCount + missingPairIdStopCount;
         if (unresolvedIdentityCount == 0 && missingPairIdCount == 0)
-            return response;
+            return result;
 
         var extraWarnings = new List<string>();
         if (unresolvedIdentityCount > 0)
@@ -389,11 +421,14 @@ public static class SecurityScanAnalysis
                 $"pair_key_missing: retained point-event evidence for {missingPairIdCount} recognized Defender stream endpoint(s) whose Id field was absent, but no duration pairing was attempted.");
         }
 
-        return response with
+        return result with
         {
-            Warnings = response.Warnings
-                .Concat(extraWarnings)
-                .ToArray(),
+            Response = result.Response with
+            {
+                Warnings = result.Response.Warnings
+                    .Concat(extraWarnings)
+                    .ToArray(),
+            },
         };
     }
 
@@ -424,9 +459,20 @@ public static class SecurityScanAnalysis
             invalidIntervalCount: 0,
             scope,
             eventClassObserved,
-            scopedUnattributedTargetEventCount: 0);
+            scopedUnattributedTargetEventCount: 0).Response;
 
     internal static SecurityScanAnalysisResponse ProjectPointEvents(
+        IReadOnlyList<SecurityScanPointEvent> pointEvents,
+        int top,
+        ProcessAnalysisScope? scope = null,
+        bool eventClassObserved = true) =>
+        ProjectPointEventsDetailed(
+            pointEvents,
+            top,
+            scope,
+            eventClassObserved).Response;
+
+    internal static SecurityScanDetailedResult ProjectPointEventsDetailed(
         IReadOnlyList<SecurityScanPointEvent> pointEvents,
         int top,
         ProcessAnalysisScope? scope = null,
@@ -447,7 +493,7 @@ public static class SecurityScanAnalysis
             eventClassObserved,
             scopedUnattributedTargetEventCount: 0);
 
-    private static SecurityScanAnalysisResponse Project(
+    private static SecurityScanDetailedResult Project(
         IReadOnlyList<PairedInterval<
             SecurityScanPairKey,
             SecurityScanStartData,
@@ -482,6 +528,7 @@ public static class SecurityScanAnalysis
 
         foreach (var pointEvent in pointEvents)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!PassesFilters(
                     pointEvent.Target,
                     pid,
@@ -539,6 +586,7 @@ public static class SecurityScanAnalysis
 
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var projected = DurationAccounting.Project(pair, window);
             if (!projected.HasValue)
                 continue;
@@ -634,13 +682,26 @@ public static class SecurityScanAnalysis
                 TargetIdentitySource: pair.StartData.TargetIdentitySource));
         }
 
-        var completeRows = rowsByKey
-            .Select(kv => ToRow(kv.Key, kv.Value))
-            .OrderByDescending(row => row.TotalAccountedDurationUs)
-            .ThenByDescending(row => row.EventCount)
-            .ThenByDescending(row => row.PairedScanCount)
-            .ThenBy(row => row.Source, StringComparer.Ordinal)
-            .ThenBy(row => row.ProviderName, StringComparer.Ordinal)
+        var completeRows = OrderTargetRows(
+            rowsByKey.Select(kv => ToRow(kv.Key, kv.Value)));
+        var evidenceClassSummaries = completeRows
+            .Where(row => row.EventCount > 0)
+            .GroupBy(row => new
+            {
+                EvidenceKind = row.EvidenceKind ?? "unknown",
+                Provenance = row.Provenance ?? "unknown",
+                Confidence = row.Confidence ?? "unknown",
+            })
+            .Select(group => new SecurityEvidenceClassSummary(
+                group.Key.EvidenceKind,
+                group.Key.Provenance,
+                group.Key.Confidence,
+                group.Sum(row => row.EventCount),
+                TotalState: "exact"))
+            .OrderByDescending(summary => summary.EventCount)
+            .ThenBy(summary => summary.EvidenceKind, StringComparer.Ordinal)
+            .ThenBy(summary => summary.Provenance, StringComparer.Ordinal)
+            .ThenBy(summary => summary.Confidence, StringComparer.Ordinal)
             .ToArray();
         var rows = completeRows.Take(top).ToArray();
 
@@ -652,7 +713,6 @@ public static class SecurityScanAnalysis
                 EventNames: kv.Value.EventNames
                     .OrderByDescending(item => item.Value)
                     .ThenBy(item => item.Key, StringComparer.Ordinal)
-                    .Take(10)
                     .Select(item => $"{item.Key}:{item.Value}")
                     .ToArray(),
                 EvidenceKind: kv.Key.EvidenceKind,
@@ -660,13 +720,14 @@ public static class SecurityScanAnalysis
                 Confidence: kv.Key.Confidence))
             .OrderByDescending(row => row.EventCount)
             .ThenBy(row => row.Source, StringComparer.Ordinal)
+            .ThenBy(row => row.ProviderName, StringComparer.Ordinal)
+            .ThenBy(row => row.EvidenceKind, StringComparer.Ordinal)
+            .ThenBy(row => row.Provenance, StringComparer.Ordinal)
+            .ThenBy(row => row.Confidence, StringComparer.Ordinal)
             .ToArray();
         var providers = completeProviders.Take(top).ToArray();
 
-        var completeSlowScans = slowScans
-            .OrderByDescending(row => row.AccountedDurationUs)
-            .ThenBy(row => row.StartUs)
-            .ToArray();
+        var completeSlowScans = OrderSlowScans(slowScans);
         var slowRows = completeSlowScans.Take(top).ToArray();
 
         var warnings = BuildWarnings(
@@ -697,7 +758,7 @@ public static class SecurityScanAnalysis
             _ => "mixed",
         };
 
-        return new SecurityScanAnalysisResponse(
+        var response = new SecurityScanAnalysisResponse(
             Rows: rows,
             SlowScans: slowRows,
             Providers: providers,
@@ -731,6 +792,53 @@ public static class SecurityScanAnalysis
             UnresolvedTargetIdentityCount: unresolvedTargetIdentityCount,
             TargetIdentityMismatchCount: targetIdentityMismatchCount,
             ScopedUnattributedEventCount: scopedUnattributedTargetEventCount);
+        return new SecurityScanDetailedResult(
+            response,
+            evidenceClassSummaries);
+    }
+
+    internal static SecurityScanRequestRow[] OrderSlowScans(
+        IEnumerable<SecurityScanRequestRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rows
+            .OrderByDescending(row => row.AccountedDurationUs)
+            .ThenBy(row => row.StartUs)
+            .ThenBy(row => row.Source, StringComparer.Ordinal)
+            .ThenBy(row => row.ProviderName, StringComparer.Ordinal)
+            .ThenBy(row => row.Id, StringComparer.Ordinal)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.ProcessStartUs)
+            .ThenBy(row => row.Process, StringComparer.Ordinal)
+            .ThenBy(row => row.Path, StringComparer.Ordinal)
+            .ThenBy(row => row.StopUs)
+            .ThenBy(row => row.EvidenceKind, StringComparer.Ordinal)
+            .ThenBy(row => row.Provenance, StringComparer.Ordinal)
+            .ThenBy(row => row.Confidence, StringComparer.Ordinal)
+            .ThenBy(row => row.TargetIdentitySource, StringComparer.Ordinal)
+            .ThenBy(row => row.Reason, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static SecurityScanTargetRow[] OrderTargetRows(
+        IEnumerable<SecurityScanTargetRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rows
+            .OrderByDescending(row => row.TotalAccountedDurationUs)
+            .ThenByDescending(row => row.EventCount)
+            .ThenByDescending(row => row.PairedScanCount)
+            .ThenBy(row => row.Source, StringComparer.Ordinal)
+            .ThenBy(row => row.ProviderName, StringComparer.Ordinal)
+            .ThenBy(row => row.Process, StringComparer.Ordinal)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.Path, StringComparer.Ordinal)
+            .ThenBy(row => row.ProcessStartUs)
+            .ThenBy(row => row.TargetIdentitySource, StringComparer.Ordinal)
+            .ThenBy(row => row.EvidenceKind, StringComparer.Ordinal)
+            .ThenBy(row => row.Provenance, StringComparer.Ordinal)
+            .ThenBy(row => row.Confidence, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static IReadOnlyList<string> BuildWarnings(
@@ -824,11 +932,10 @@ public static class SecurityScanAnalysis
             EventNames: stats.EventNames
                 .OrderByDescending(item => item.Value)
                 .ThenBy(item => item.Key, StringComparer.Ordinal)
-                .Take(10)
                 .Select(item => $"{item.Key}:{item.Value}")
                 .ToList(),
-            Reasons: stats.Reasons.OrderBy(value => value, StringComparer.Ordinal).Take(10).ToList(),
-            Statuses: stats.Statuses.OrderBy(value => value, StringComparer.Ordinal).Take(10).ToList(),
+            Reasons: stats.Reasons.OrderBy(value => value, StringComparer.Ordinal).ToList(),
+            Statuses: stats.Statuses.OrderBy(value => value, StringComparer.Ordinal).ToList(),
             TotalFullDurationUs: stats.TotalFullDurationUs,
             TotalAccountedDurationUs: stats.TotalAccountedDurationUs,
             AvgAccountedDurationUs: stats.PairedScanCount > 0

@@ -250,6 +250,7 @@ public static class CpuAnalysis
                 perPid: new Dictionary<int, CpuTopFunctionsResponse>(),
                 warnings,
                 skippedPids: Array.Empty<int>(),
+                top,
                 traceHasCpuSamples: traceHasCpuSamples);
         }
 
@@ -272,7 +273,7 @@ public static class CpuAnalysis
         var eventCount = 0;
         if (scanCompleted)
         {
-            foreach (var ev in trace.Events)
+            foreach (var ev in AnalysisEvents.Enumerate(trace))
             {
                 if ((++eventCount & 0x3fff) == 0 && ShouldStop())
                 {
@@ -321,6 +322,7 @@ public static class CpuAnalysis
                 perPid: new Dictionary<int, CpuTopFunctionsResponse>(),
                 warnings,
                 skipped,
+                top,
                 traceHasCpuSamples: traceHasCpuSamples);
         }
 
@@ -365,6 +367,7 @@ public static class CpuAnalysis
             perPid,
             warnings,
             projectionSkipped,
+            top,
             sampleCountByPid,
             traceHasCpuSamples);
     }
@@ -374,6 +377,7 @@ public static class CpuAnalysis
         IReadOnlyDictionary<int, CpuTopFunctionsResponse> perPid,
         IReadOnlyList<string> warnings,
         IReadOnlyCollection<int> skippedPids,
+        int top,
         IReadOnlyDictionary<int, long>? sampleCountByPid = null,
         bool? traceHasCpuSamples = null)
     {
@@ -427,6 +431,33 @@ public static class CpuAnalysis
                 noDataReason = null;
             }
 
+            perPid.TryGetValue(pid, out var completed);
+            static EmbeddedTopNBoundary Boundary(
+                string pointer,
+                int requested,
+                int returned,
+                string sortKey,
+                IReadOnlyList<string> tieBreakers,
+                bool unavailable)
+            {
+                var saturated = !unavailable && returned == requested;
+                var unknown = unavailable || saturated;
+                return new EmbeddedTopNBoundary(
+                    pointer,
+                    requested,
+                    returned,
+                    unknown ? null : returned,
+                    unknown ? ToolSectionTotalState.Unknown : ToolSectionTotalState.Exact,
+                    unknown ? ToolSectionMoreState.Unknown : ToolSectionMoreState.Absent,
+                    HasMore: false,
+                    ContinuationAvailable: false,
+                    TruncationReason: unavailable ? "analysis_unavailable" :
+                        saturated ? "source_limit_saturated" : null,
+                    sortKey,
+                    ToolSortDirection.Descending,
+                    tieBreakers);
+            }
+
             return new CpuBatchScopeResult(
                 pid,
                 item.Selector.ProcessStartUs,
@@ -442,14 +473,50 @@ public static class CpuAnalysis
                 perPid.ContainsKey(pid)
                     ? sampleContract.CapabilityStatus
                     : "unknown",
-                noDataReason);
+                noDataReason,
+                RowsBoundary: Boundary(
+                    "/perPid/result/rows",
+                    top,
+                    completed?.Rows.Count ?? 0,
+                    "exclusive_metric_desc",
+                    ["function_ordinal_asc"],
+                    unavailable: completed is null),
+                TopUnresolvedModulesBoundary: completed is null
+                    ? Boundary(
+                        "/perPid/result/stats/topUnresolvedModules",
+                        10,
+                        0,
+                        "unresolved_frame_count_desc",
+                        ["module_name_ordinal_asc"],
+                        unavailable: true)
+                    : new EmbeddedTopNBoundary(
+                        "/perPid/result/stats/topUnresolvedModules",
+                        10,
+                        completed.Stats.TopUnresolvedModules.Count,
+                        completed.Stats.UnresolvedModuleCount,
+                        ToolSectionTotalState.Exact,
+                        completed.Stats.UnresolvedModuleCount >
+                            completed.Stats.TopUnresolvedModules.Count
+                            ? ToolSectionMoreState.Present
+                            : ToolSectionMoreState.Absent,
+                        HasMore: completed.Stats.UnresolvedModuleCount >
+                            completed.Stats.TopUnresolvedModules.Count,
+                        ContinuationAvailable: false,
+                        TruncationReason: completed.Stats.UnresolvedModuleCount >
+                            completed.Stats.TopUnresolvedModules.Count
+                            ? "fixed_source_limit"
+                            : null,
+                        "unresolved_frame_count_desc",
+                        ToolSortDirection.Descending,
+                        ["module_name_ordinal_asc"]));
         }).ToArray();
-        var hasAnalysisFailure = scopeResults.Any(item => item.ResultStatus == "analysis_failed");
+        var hasIncompleteSelector = scopeResults.Any(item => item.ResultStatus is
+            "scope_not_found" or "ambiguous_process_instance" or "budget_skipped" or "analysis_failed");
 
         return new BatchExecution(
             perPid,
             warnings,
-            Partial: skippedSet.Count > 0 || hasAnalysisFailure,
+            Partial: perPid.Count > 0 && hasIncompleteSelector,
             SkippedPids: skippedPids.ToArray(),
             CompletedPids: completedPids,
             PidsNotFound: pidsNotFound,
@@ -476,7 +543,7 @@ public static class CpuAnalysis
         bool? traceHasCpuSamples = null)
     {
         var result = new Dictionary<int, CpuTopFunctionsResponse>();
-        foreach (var (pid, raw) in rawByPid)
+        foreach (var (pid, raw) in AnalysisEvents.Enumerate(rawByPid))
         {
             if (shouldStop?.Invoke() == true)
             {
@@ -500,6 +567,10 @@ public static class CpuAnalysis
                         pidsWithSampledProfileStacks?.Contains(pid) == true,
                     processScope: processScopes?.GetValueOrDefault(pid),
                     traceHasCpuSamples: traceHasCpuSamples);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -559,8 +630,8 @@ public static class CpuAnalysis
         ProcessAnalysisScope? processScope = null,
         bool? traceHasCpuSamples = null)
     {
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = normalized };
-        var sourceTotalSamples = filteredSamples ?? (long)callTree.Root.InclusiveCount;
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(normalized);
+        var sourceTotalSamples = filteredSamples ?? exact.TotalCount;
         var totalSamples = (double)Math.Max(1, sourceTotalSamples);
         var hasThreadScopeContract = scope?.IncludedProcesses is not null;
         var scopeResolved = !hasThreadScopeContract || scope!.Value.IsResolved;
@@ -576,14 +647,13 @@ public static class CpuAnalysis
                     ? processScope.ScopeStatus
                     : null);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact, rankByCount: true)
             .Where(n => n.ExclusiveCount > 0 || n.InclusiveCount > 0)
-            .OrderByDescending(n => n.ExclusiveCount)
             .Take(top)
             .Select(n => new CpuFunctionRow(
-                Function: n.Name,
-                ExclusiveSamples: (long)n.ExclusiveCount,
-                InclusiveSamples: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveSamples: n.ExclusiveCount,
+                InclusiveSamples: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalSamples, n.ExclusiveCount),
                 InclusivePct: StackSourceTopN.Pct(totalSamples, n.InclusiveCount),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(hasFilter, traceTotalSamples, n.ExclusiveCount),
@@ -671,8 +741,17 @@ public static class CpuAnalysis
             ScopeStatus: hasThreadScopeContract
                 ? scope!.Value.ScopeStatus
                 : processScope?.ScopeStatus ?? ProcessAnalysisScope.ResolvedStatus,
-            NoDataReason: sampleContract.NoDataReason,
-            CapabilityStatus: sampleContract.CapabilityStatus,
+            NoDataReason: sampleContract.NoDataReason ??
+                (stackCoverage is { TotalEventCount: > 0, StackedEventCount: 0 }
+                    ? "stacks_unavailable"
+                    : null),
+            CapabilityStatus: stackCoverage is { TotalEventCount: > 0 } measuredCoverage
+                ? measuredCoverage.StackedEventCount == 0
+                    ? "unavailable"
+                    : measuredCoverage.StackedEventCount < measuredCoverage.TotalEventCount
+                        ? "partial"
+                        : "observed"
+                : sampleContract.CapabilityStatus,
             MatchedEventCount: scopeResolved
                 ? stackCoverage?.TotalEventCount ?? sourceTotalSamples
                 : 0,
@@ -779,13 +858,14 @@ public static class CpuAnalysis
             hasFilter,
             traceHasCpuSamples,
             contract.NoDataReason);
-        contract = contract with
+        if (stackCoverage.TotalEventCount == 0)
         {
-            CapabilityStatus = sampleContract.CapabilityStatus,
-            NoDataReason = filteredSamples == 0
-                ? sampleContract.NoDataReason
-                : contract.NoDataReason,
-        };
+            contract = contract with
+            {
+                CapabilityStatus = sampleContract.CapabilityStatus,
+                NoDataReason = sampleContract.NoDataReason,
+            };
+        }
 
         return StackSourceTopN.ComputeCallerCallee(
             normalized,
@@ -832,7 +912,7 @@ public static class CpuAnalysis
         long traceTotalSamples = 0;
         long filteredSamples = 0;
         var hasSampledProfileStacks = false;
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             var usSinceStart = TraceTime.FromMilliseconds(ev.TimeStampRelativeMSec);
             if (!countTraceTotalSamples && usSinceStart >= scope.Window.EndUs) break;

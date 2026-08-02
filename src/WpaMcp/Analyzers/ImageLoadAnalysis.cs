@@ -10,7 +10,8 @@ internal readonly record struct ImageLoadObservation(
     int Pid,
     long TimeUs,
     string FileName,
-    long ImageSize);
+    long ImageSize,
+    long EventIndex = 0);
 
 // Per-process DLL/image-load sequence with timestamps relative to process start.
 //
@@ -47,17 +48,20 @@ public static class ImageLoadAnalysis
             pid => pid,
             _ => new List<ImageLoadObservation>());
 
+        long eventIndex = 0;
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ImageLoad += data =>
             {
+                var sourceEventIndex = eventIndex++;
                 if (!pidSet.Contains(data.ProcessID)) return;
                 var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
                 observations[data.ProcessID].Add(new ImageLoadObservation(
                     data.ProcessID,
                     tsUs,
                     data.FileName ?? "<unknown>",
-                    data.ImageSize));
+                    data.ImageSize,
+                    sourceEventIndex));
             };
         });
 
@@ -72,13 +76,43 @@ public static class ImageLoadAnalysis
         int top,
         long? processStartUs = null)
     {
-        if (top <= 0) throw new ArgumentOutOfRangeException(nameof(top));
+        var query = TimelinePagination.CanonicalQuery(
+            TimelinePagination.ImageLoadTimingTool,
+            ("pid", TimelinePagination.Number(pid)),
+            ("processStartUs", TimelinePagination.OptionalNumber(processStartUs)),
+            ("pageSize", TimelinePagination.Number(top)));
+        return PerProcessPage(
+            trace,
+            pid,
+            top,
+            processStartUs,
+            new QueryResultCursorPosition(TimelinePagination.Phase, 0, null),
+            TimelinePagination.DirectContext(
+                TimelinePagination.ImageLoadTimingTool,
+                query,
+                TimelinePagination.ImageLoadTimingOrdering));
+    }
+
+    internal static ImageLoadTimingResponse PerProcessPage(
+        TraceLog trace,
+        int pid,
+        int pageSize,
+        long? processStartUs,
+        QueryResultCursorPosition pagePosition,
+        TimelineQueryContext queryContext)
+    {
+        if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
         var identities = TraceIdentityIndex.For(trace);
         var scope = ResolveSingleProcessScope(
             identities, pid, processStartUs);
         if (!scope.IsResolved)
         {
+            var emptyPage = TimelinePagination.Slice(
+                Array.Empty<ImageLoadRow>(),
+                pagePosition,
+                pageSize,
+                TimelinePagination.ImageLoadKey);
             return new ImageLoadTimingResponse(
                 Pid: pid,
                 ProcessName: string.Empty,
@@ -98,14 +132,26 @@ public static class ImageLoadAnalysis
                 ScopeStatus: scope.ScopeStatus,
                 CapabilityStatus: "unknown",
                 MatchedEventCount: 0,
-                NoDataReason: scope.ScopeStatus);
+                NoDataReason: scope.ScopeStatus,
+                PageContext: queryContext.PageContext(
+                    emptyPage.StartIndex,
+                    pageSize,
+                    emptyPage.TotalCount,
+                    emptyPage.Rows.Count),
+                ReturnedCount: emptyPage.Rows.Count,
+                HasMore: false,
+                NextCursor: null);
         }
 
         var process = ExactLifetime(identities, scope.SelectedProcess!.Value);
         var collected = CollectAndSortLoads(trace, process);
         var withGaps = collected.Loads;
         var totalLoads = withGaps.Count;
-        var truncated = withGaps.Take(top).ToList();
+        var page = TimelinePagination.Slice(
+            withGaps,
+            pagePosition,
+            pageSize,
+            TimelinePagination.ImageLoadKey);
 
         long? firstLoadOffset = withGaps.Count > 0 ? withGaps[0].TimeFromProcessStartUs : (long?)null;
         // MaxGapUs requires at least 2 loads (first row's GapFromPrevUs is null by definition).
@@ -114,6 +160,11 @@ public static class ImageLoadAnalysis
             : (long?)null;
 
         var warnings = new List<string>();
+        if (!process.StartObserved && totalLoads > 0)
+        {
+            warnings.Add(
+                "startup_relative_offsets_unavailable: ProcessStart was not observed; ProcessStartUs, FirstLoadOffsetUs, and per-row TimeFromProcessStartUs are null. Absolute TimeUs and inter-load gaps remain usable.");
+        }
         if (totalLoads == 0)
         {
             warnings.Add(collected.GlobalEventCount == 0
@@ -124,11 +175,11 @@ public static class ImageLoadAnalysis
         return new ImageLoadTimingResponse(
             Pid: pid,
             ProcessName: ProcessName(trace, process.Key),
-            ProcessStartUs: process.Key.StartUs,
+            ProcessStartUs: process.StartObserved ? process.Key.StartUs : null,
             TotalImageLoads: totalLoads,
             FirstLoadOffsetUs: firstLoadOffset,
             MaxGapUs: maxGap,
-            Loads: truncated,
+            Loads: page.Rows,
             Warnings: warnings,
             SelectedProcess: scope.SelectedProcess,
             ScopeMode: scope.ScopeMode,
@@ -145,7 +196,20 @@ public static class ImageLoadAnalysis
                 ? null
                 : collected.GlobalEventCount == 0
                     ? "event_class_not_observed"
-                    : "no_events_in_scope");
+                    : "no_events_in_scope",
+            PageContext: queryContext.PageContext(
+                page.StartIndex,
+                pageSize,
+                page.TotalCount,
+                page.Rows.Count),
+            ReturnedCount: page.Rows.Count,
+            HasMore: page.HasMore,
+            NextCursor: page.HasMore
+                ? QueryResultCursorRegistry.PendingDeliveryToken
+                : null,
+            ProcessStartEvidenceState: process.StartObserved
+                ? "observed_process_start"
+                : "inferred_start_boundary");
     }
 
     // Returns the top-N loads with the largest GapFromPrevUs (the "where did the loader
@@ -191,14 +255,14 @@ public static class ImageLoadAnalysis
         var totalLoads = withGaps.Count;
         long? firstLoadOffset = withGaps.Count > 0 ? withGaps[0].TimeFromProcessStartUs : (long?)null;
 
-        // Skip the first row (no prior, GapFromPrevUs=null). Sort the rest by gap descending.
-        var topGaps = withGaps.Skip(1)
-            .Where(r => r.GapFromPrevUs.HasValue)
-            .OrderByDescending(r => r.GapFromPrevUs!.Value)
-            .Take(top)
-            .ToList();
+        var topGaps = RankTopGaps(withGaps, top);
 
         var warnings = new List<string>();
+        if (!process.StartObserved && totalLoads > 0)
+        {
+            warnings.Add(
+                "startup_relative_offsets_unavailable: ProcessStart was not observed; ProcessStartUs, FirstLoadOffsetUs, and per-row TimeFromProcessStartUs are null. Absolute TimeUs and inter-load gaps remain usable.");
+        }
         if (totalLoads == 0)
         {
             warnings.Add(collected.GlobalEventCount == 0
@@ -213,7 +277,7 @@ public static class ImageLoadAnalysis
         return new ImageLoadTopGapsResponse(
             Pid: pid,
             ProcessName: ProcessName(trace, process.Key),
-            ProcessStartUs: process.Key.StartUs,
+            ProcessStartUs: process.StartObserved ? process.Key.StartUs : null,
             TotalImageLoads: totalLoads,
             FirstLoadOffsetUs: firstLoadOffset,
             TopGaps: topGaps,
@@ -233,7 +297,24 @@ public static class ImageLoadAnalysis
                 ? null
                 : collected.GlobalEventCount == 0
                     ? "event_class_not_observed"
-                    : "no_events_in_scope");
+                    : "no_events_in_scope",
+            ProcessStartEvidenceState: process.StartObserved
+                ? "observed_process_start"
+                : "inferred_start_boundary");
+    }
+
+    internal static IReadOnlyList<ImageLoadRow> RankTopGaps(
+        IEnumerable<ImageLoadRow> loads,
+        int top)
+    {
+        ArgumentNullException.ThrowIfNull(loads);
+        return loads
+            .Where(row => row.GapFromPrevUs.HasValue)
+            .OrderByDescending(row => row.GapFromPrevUs!.Value)
+            .ThenBy(row => row.TimeUs)
+            .ThenBy(row => row.EventIndex)
+            .Take(top)
+            .ToList();
     }
 
     internal static ProcessLifetime SelectProcessInstance(
@@ -284,12 +365,16 @@ public static class ImageLoadAnalysis
                 observation.Pid == process.Key.Pid &&
                 process.Contains(observation.TimeUs))
             .OrderBy(observation => observation.TimeUs)
+            .ThenBy(observation => observation.EventIndex)
             .Select(observation => new ImageLoadRow(
                 TimeUs: observation.TimeUs,
-                TimeFromProcessStartUs: observation.TimeUs - process.Key.StartUs,
+                TimeFromProcessStartUs: process.StartObserved
+                    ? observation.TimeUs - process.Key.StartUs
+                    : null,
                 FileName: observation.FileName,
                 ImageSize: observation.ImageSize,
-                GapFromPrevUs: null))
+                GapFromPrevUs: null,
+                EventIndex: observation.EventIndex))
             .ToList();
         return FillGaps(ordered);
     }
@@ -300,18 +385,21 @@ public static class ImageLoadAnalysis
     {
         var loads = new List<ImageLoadObservation>();
         long globalEventCount = 0;
+        long eventIndex = 0;
         KernelEventWalker.Walk(trace, kernel =>
         {
             kernel.ImageLoad += data =>
             {
                 globalEventCount++;
+                var sourceEventIndex = eventIndex++;
                 if (data.ProcessID != process.Key.Pid) return;
                 var tsUs = (long)(data.TimeStampRelativeMSec * 1000);
                 loads.Add(new ImageLoadObservation(
                     data.ProcessID,
                     tsUs,
                     data.FileName ?? "<unknown>",
-                    data.ImageSize));
+                    data.ImageSize,
+                    sourceEventIndex));
             };
         });
         return (ProjectLoads(loads, process), globalEventCount);
@@ -337,7 +425,7 @@ public static class ImageLoadAnalysis
             .First();
 
     private static string ProcessName(TraceLog trace, ProcessInstanceKey key) =>
-        trace.Processes
+        AnalysisEvents.Enumerate(trace.Processes)
             .Where(process => process.ProcessID == key.Pid)
             .FirstOrDefault(process =>
                 TraceTime.FromMilliseconds(process.StartTimeRelativeMsec) == key.StartUs)
@@ -349,6 +437,7 @@ public static class ImageLoadAnalysis
         var result = new List<ImageLoadRow>(ordered.Count) { ordered[0] };
         for (var i = 1; i < ordered.Count; i++)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var prev = ordered[i - 1];
             var cur = ordered[i];
             result.Add(cur with { GapFromPrevUs = cur.TimeUs - prev.TimeUs });

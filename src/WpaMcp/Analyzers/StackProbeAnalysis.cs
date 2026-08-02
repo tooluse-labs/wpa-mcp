@@ -1,6 +1,7 @@
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
+using WpaMcp.Core;
 using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
@@ -17,7 +18,7 @@ public static class StackProbeAnalysis
         long readyThreadEvents = 0;
         long readyThreadEventsWithCallStacks = 0;
 
-        var source = trace.Events.GetSource();
+        var source = AnalysisEvents.CreateDispatcher(trace);
         var kernel = new KernelTraceEventParser(source);
 
         kernel.StackWalkStack += _ => explicitStackWalkEvents++;
@@ -34,10 +35,10 @@ public static class StackProbeAnalysis
                 readyThreadEventsWithCallStacks++;
         };
 
-        source.Process();
+        AnalysisEvents.Process(source);
 
         long eventsWithCallStacks = 0;
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             if (trace.GetCallStackIndexForEvent(ev) != CallStackIndex.Invalid)
                 eventsWithCallStacks++;

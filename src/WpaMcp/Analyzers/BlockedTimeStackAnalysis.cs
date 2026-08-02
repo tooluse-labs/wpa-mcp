@@ -146,20 +146,16 @@ public static class BlockedTimeStackAnalysis
         StackAnalysisRequest request)
     {
         var context = BuildNormalized(trace, request);
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData)
-        {
-            StackSource = context.Normalized,
-        };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(context.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => context.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(node => node.ExclusiveMetric)
             .Take(top)
             .Select(node => new WaitStackRow(
-                Function: node.Name,
-                ExclusiveBlockedUs: (long)node.ExclusiveMetric,
-                InclusiveBlockedUs: (long)node.InclusiveMetric,
+                Function: node.Function,
+                ExclusiveBlockedUs: node.ExclusiveMetric,
+                InclusiveBlockedUs: node.InclusiveMetric,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, node.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, node.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(
@@ -183,7 +179,7 @@ public static class BlockedTimeStackAnalysis
             SampleCount: context.SampleCount,
             Stats: context.Stats,
             Warnings: context.Warnings,
-            When: request.When.Build(),
+            When: request.When.Build("microseconds"),
             UnmatchedBlockedIntervalCount: context.TraceUnmatchedBlockedIntervalCount,
             SelectedProcess: request.ThreadScope?.Process?.Key,
             SelectedThread: request.ThreadScope?.Thread?.Key,
@@ -335,14 +331,22 @@ public static class BlockedTimeStackAnalysis
                 traceIdentityUnresolvedCSwitchSideCount = checked(
                     traceIdentityUnresolvedCSwitchSideCount +
                     oldIdentityUnresolved + newIdentityUnresolved);
-                if (oldIdentityUnresolved > 0 && scope.MatchesPoint(
-                        data.OldProcessID, data.OldThreadID, timestampUs))
+                if (oldIdentityUnresolved > 0 && IsScopedUnresolvedSide(
+                        scope,
+                        identities,
+                        data.OldProcessID,
+                        data.OldThreadID,
+                        timestampUs))
                 {
                     scopedIdentityUnresolvedCSwitchSideCount = checked(
                         scopedIdentityUnresolvedCSwitchSideCount + 1);
                 }
-                if (newIdentityUnresolved > 0 && scope.MatchesPoint(
-                        data.NewProcessID, data.NewThreadID, timestampUs))
+                if (newIdentityUnresolved > 0 && IsScopedUnresolvedSide(
+                        scope,
+                        identities,
+                        data.NewProcessID,
+                        data.NewThreadID,
+                        timestampUs))
                 {
                     scopedIdentityUnresolvedCSwitchSideCount = checked(
                         scopedIdentityUnresolvedCSwitchSideCount + 1);
@@ -452,6 +456,15 @@ public static class BlockedTimeStackAnalysis
             coverage,
             warnings);
     }
+
+    internal static bool IsScopedUnresolvedSide(
+        ThreadAnalysisScope scope,
+        TraceIdentityIndex identities,
+        int pid,
+        int tid,
+        long timestampUs) =>
+        scope.MatchesRawUnresolvedCandidate(
+            identities, pid, tid, timestampUs);
 
     internal static StackResultContract BuildEndpointContract(
         ThreadAnalysisScope? scope,

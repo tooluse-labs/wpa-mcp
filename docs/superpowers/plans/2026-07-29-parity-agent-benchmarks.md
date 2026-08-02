@@ -8,6 +8,12 @@
 
 **Tech Stack:** C# and xUnit; exact TFM/SDK/package graph from Child 11A; Child 9 raw stdio harness; `System.Text.Json`; TraceEvent internal raw-event cross-check; real WPAExporter/PerfView external exports; HTTP Responses-style model adapter without an additional vendor SDK; PowerShell policy entry points; Windows CI.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+This plan owns deterministic evidence that the active capability manifest, catalog/schema hashes, trace capability map, and supported/preview/gap claims are truthful. A claim that exceeds capture evidence, analyzer support, current symbol environment, scoped event/stack coverage, or a completed result must fail the golden/release gate; manifest expectations cannot turn an unmeasured capability into support.
+
+Add adversarial golden and agent scenarios for partial domain-specific stack coverage, response truncation with explicit omitted sections/continuation, and unsafe or ambiguous identifiers (including stale/unknown opaque IDs and numeric identities that cannot be represented losslessly). The scorer must reject conclusions that treat these cases as complete evidence, resolved symbols, unique process instances, or established causality.
+
 ## Global Constraints
 
 - Deterministic golden/invariant tests run on every PR and never call an external model or symbol/network service.

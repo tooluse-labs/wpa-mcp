@@ -53,7 +53,8 @@ public static class JitAnalysis
                     !process.Value.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -93,7 +94,9 @@ public static class JitAnalysis
                     !process.Value.HasValue)
                 {
                     traceIdentityUnresolvedEndpointCount++;
-                    if (MatchesRawScope(scope, data.ProcessID, timestampUs))
+                    if (MatchesRawScope(
+                            scope, identities, data.ProcessID, timestampUs,
+                            atEndpoint: true))
                         scopedIdentityUnresolvedEndpointCount++;
                     return;
                 }
@@ -318,6 +321,7 @@ public static class JitAnalysis
 
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!matchesProcess(pair.Key.Process))
                 continue;
 
@@ -343,6 +347,11 @@ public static class JitAnalysis
         var rows = completed
             .OrderByDescending(row => row.AccountedDurationUs)
             .ThenBy(row => row.StartUs)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.ProcessStartUs)
+            .ThenBy(row => row.Method, StringComparer.Ordinal)
+            .ThenBy(row => row.EndUs)
+            .ThenBy(row => row.MethodIlSize)
             .Take(top)
             .ToArray();
 
@@ -370,7 +379,7 @@ public static class JitAnalysis
                  scopedUsableSourceEventCount == 0)
         {
             warnings.Add(
-                "source_events_unattributed: JIT endpoints with matching raw PID/time were observed, but process or CLR instance identity was unresolved; no method interval attribution was guessed.");
+                "source_events_unattributed: JIT endpoints matched the lifetime-aware raw process selector and half-open query window, but process or CLR instance identity was unresolved; no method interval attribution was guessed.");
         }
         else if (completed.Count == 0)
         {
@@ -451,6 +460,7 @@ public static class JitAnalysis
         long count = 0;
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!matchesProcess(pair.Key.Process))
                 continue;
             if (window.ContainsPoint(pair.StartUs)) count++;
@@ -459,11 +469,12 @@ public static class JitAnalysis
         return count;
     }
 
-    private static bool MatchesRawScope(
+    internal static bool MatchesRawScope(
         ProcessAnalysisScope scope,
+        TraceIdentityIndex identities,
         int pid,
-        long timestampUs) =>
-        scope.IsResolved &&
-        scope.Window.ContainsPoint(timestampUs) &&
-        (!scope.Pid.HasValue || scope.Pid.Value == pid);
+        long timestampUs,
+        bool atEndpoint = false) =>
+        scope.MatchesRawUnresolvedCandidate(
+            identities, pid, timestampUs, atEndpoint);
 }

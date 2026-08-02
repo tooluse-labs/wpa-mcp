@@ -155,6 +155,7 @@ internal sealed class SchedulerIntervalAccumulator
                      .OrderBy(item => item.Key)
                      .ToArray())
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             _runningByCore.Remove(item.Key);
             var candidate = CloseRunning(item.Value, timestampUs, item.Key);
             if (candidate.HasValue && !closedRunning.HasValue)
@@ -187,14 +188,15 @@ internal sealed class SchedulerIntervalAccumulator
         RequireTimestamp(traceEndUs);
 
         var closedAtTraceEnd = new List<RunningInterval>();
-        foreach (var item in _runningByCore.OrderBy(item => item.Key))
+        foreach (var item in AnalysisEvents.Enumerate(_runningByCore)
+                     .OrderBy(item => item.Key))
         {
             var interval = CloseRunning(item.Value, traceEndUs, item.Key);
             if (interval.HasValue)
                 closedAtTraceEnd.Add(interval.Value);
         }
 
-        foreach (var item in _blocked)
+        foreach (var item in AnalysisEvents.Enumerate(_blocked))
         {
             _unmatchedBlockedIntervals.Add(new IncompleteBlockedInterval(
                 item.Key,
@@ -242,6 +244,7 @@ internal sealed class SchedulerIntervalAccumulator
                      .Select(item => item.Key)
                      .ToArray())
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             _runningByCore.Remove(duplicateCore);
             _unmatchedRunningIntervalCount++;
             _identityMismatchCount++;

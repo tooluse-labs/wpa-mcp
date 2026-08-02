@@ -139,6 +139,7 @@ internal sealed class ThreadInstanceCatalog
         EnsureMutable();
         foreach (var active in _active.Values)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var inferredEndUs = active.RundownEndUs ?? (_processEndUs.TryGetValue(
                 active.Key.Process,
                 out var processEndUs)
@@ -327,6 +328,7 @@ internal sealed class ThreadInstanceCatalog
             var maxEndUs = long.MinValue;
             for (var index = 0; index < _byStart.Length; index++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 if (_byStart[index].Lifetime.EndUs > maxEndUs)
                     maxEndUs = _byStart[index].Lifetime.EndUs;
                 _prefixMaxEndUs[index] = maxEndUs;
@@ -351,6 +353,7 @@ internal sealed class ThreadInstanceCatalog
             var count = 0;
             for (var index = lowerExclusive + 1; index < upperExclusive; index++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 var entry = _byStart[index];
                 if (timestampUs >= entry.Lifetime.EndUs)
                     continue;
@@ -367,6 +370,7 @@ internal sealed class ThreadInstanceCatalog
             var candidateIndex = 0;
             for (var index = lowerExclusive + 1; index < upperExclusive; index++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 var entry = _byStart[index];
                 if (timestampUs < entry.Lifetime.EndUs)
                     candidates[candidateIndex++] = entry.Lifetime.Key;
@@ -417,6 +421,7 @@ internal sealed class ThreadInstanceCatalog
             var count = 0;
             for (var index = start; index < end; index++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 var entry = _byEnd[index];
                 if (requireProvenance && entry.Lifetime.EndObserved != endObserved)
                     continue;
@@ -433,6 +438,7 @@ internal sealed class ThreadInstanceCatalog
             var candidateIndex = 0;
             for (var index = start; index < end; index++)
             {
+                AnalysisEvents.ThrowIfCancellationRequested();
                 var entry = _byEnd[index];
                 if (requireProvenance && entry.Lifetime.EndObserved != endObserved)
                     continue;

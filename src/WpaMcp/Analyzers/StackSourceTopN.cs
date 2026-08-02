@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.Diagnostics.Symbols;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -15,18 +16,29 @@ namespace WpaMcp.Analyzers;
 internal static class StackMetricAccounting
 {
     public const string ExactIntegerCount = "exact_integer_count";
-    public const string Float32PerSampleApproximate = "float32_per_sample_approximate";
     public const string ExactLong = "exact_long";
 
-    // TraceEvent's StackSourceSample.Metric is a float. Unit-weight samples remain exact
-    // integer counts; byte and duration weights can round before per-frame aggregation.
+    // StackSourceSample.Metric remains float for TraceEvent call-tree compatibility, but
+    // public rows are projected from the parallel checked Int64 metric series below.
     public static string ForMetric(string metricName) => metricName.ToLowerInvariant() switch
     {
         "count" or "samples" or "loads" or "alpcevents" or "exceptions" or
         "providerevents" or "readyevents" or "regops" => ExactIntegerCount,
-        _ => Float32PerSampleApproximate,
+        _ => ExactLong,
     };
 }
+
+internal sealed record ExactStackFrameMetric(
+    string Function,
+    long ExclusiveMetric,
+    long InclusiveMetric,
+    long ExclusiveCount,
+    long InclusiveCount);
+
+internal sealed record ExactStackMetricProjection(
+    IReadOnlyList<ExactStackFrameMetric> Frames,
+    long TotalMetric,
+    long TotalCount);
 
 internal sealed class DomainStackCoverageAccumulator
 {
@@ -55,6 +67,11 @@ internal sealed class DomainStackCoverageAccumulator
 
     public void Observe(bool hasStack, long metric)
     {
+        if (metric < 0)
+        {
+            throw new InvalidDataException(
+                $"Negative '{_metricName}' evidence is invalid for domain '{_domain}'.");
+        }
         _totalEventCount = checked(_totalEventCount + 1);
         _totalMetric = checked(_totalMetric + metric);
         if (!hasStack)
@@ -182,12 +199,14 @@ internal sealed class SymbolFrameMetricAccumulator
             WarmSymbolThreshold: StackSourceTopN.WarmSymbolThreshold,
             ResolutionEvidence: "post_lookup_frame_name_heuristic",
             LookupFailure: lookupAttempt.Failure,
-            MetricAccounting: metricAccounting);
+            MetricAccounting: metricAccounting,
+            UnresolvedModuleCount: _unresolvedByModule.Count);
     }
 }
 
-// Shared "stack source → CallTree → top-N" pipeline used by both CpuAnalysis (metric=1
-// per CPU sample) and BlockedTimeStackAnalysis (metric=blocked μs per CSwitch resume).
+// Shared stack-source normalization and exact top-N projection pipeline used by CpuAnalysis
+// (metric=1 per CPU sample), BlockedTimeStackAnalysis (metric=blocked μs per CSwitch resume),
+// and the remaining stack-backed analyzers.
 //
 // Two analyzers ago I would have left this duplicated; the second use-site (BlockedTime)
 // was the rule-of-two trigger. Encapsulates the PerfView-parity invariants that are easy
@@ -205,9 +224,9 @@ internal sealed class SymbolFrameMetricAccumulator
 //      are no longer recoverable. Broad MCP calls default to skipping symbol lookup to avoid
 //      remote PDB latency; callers can opt in after narrowing pid/window.
 //
-// What this helper does NOT do: build the raw source, decide the metric, run the CallTree.
-// Those are analyzer-specific. Callers fill rawSource themselves (one sample per CPU sample,
-// or one sample per CSwitch resume), then hand it here for stats + normalization.
+// Callers decide the source events and metric. They fill rawSource themselves (one sample per
+// CPU sample or CSwitch resume), then hand it here for stats, normalization, and exact frame
+// projection.
 /// <summary>
 /// Common per-call inputs to a stack analyzer's BuildNormalized stage.  The 5-tuple
 /// (pid, startUs, endUs, symbolLog, when) was repeated in every analyzer's signature
@@ -336,7 +355,11 @@ internal readonly record struct StackResultContract(
         var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
             ? "unknown"
             : coverage.TotalEventCount > 0
-                ? "observed"
+                ? coverage.StackedEventCount == 0
+                    ? "unavailable"
+                    : coverage.StackedEventCount < coverage.TotalEventCount
+                        ? "partial"
+                        : "observed"
                 : traceEventCount switch
                 {
                     0 => "not_observed",
@@ -444,8 +467,12 @@ internal readonly record struct StackResultContract(
             return contract with { MatchedEventCount = 0 };
 
         var hasCompletedInterval = coverage.TotalEventCount > 0;
-        var capabilityStatus = hasCompletedInterval || scopedSourceEndpointCount > 0
-            ? "observed"
+        var capabilityStatus = hasCompletedInterval
+            ? coverage.StackedEventCount == 0
+                ? "unavailable"
+                : coverage.StackedEventCount < coverage.TotalEventCount
+                    ? "partial"
+                    : "observed"
             : traceSourceEndpointCount == 0
                 ? "not_observed"
                 : "unknown";
@@ -511,6 +538,31 @@ internal readonly record struct StackResultContract(
 
 internal static class StackSourceTopN
 {
+    private sealed record ExactSampleMetricSeries(List<long> Values);
+
+    private sealed class MutableExactStackFrameMetric(string function)
+    {
+        public string Function { get; } = function;
+        public long ExclusiveMetric { get; set; }
+        public long InclusiveMetric { get; set; }
+        public long ExclusiveCount { get; set; }
+        public long InclusiveCount { get; set; }
+
+        public ExactStackFrameMetric Snapshot() => new(
+            Function,
+            ExclusiveMetric,
+            InclusiveMetric,
+            ExclusiveCount,
+            InclusiveCount);
+    }
+
+    // A normalized StackSource must retain the exact Int64 weight for every sample. The
+    // ConditionalWeakTable gives the series the same lifetime as its source and avoids a
+    // process-global cache of trace data.
+    private static readonly ConditionalWeakTable<
+        MutableTraceEventStackSource,
+        ExactSampleMetricSeries> ExactMetricsBySource = new();
+
     // PerfView's threshold for "warm" symbol resolution: modules with ≥50 inclusive samples
     // get their PDBs fetched. Below that, a symbol-server round trip per cold module would
     // dominate analysis time on traces with hundreds of seldom-touched DLLs.
@@ -568,9 +620,14 @@ internal static class StackSourceTopN
             long metric)
         {
             Coverage.Observe(hasStack, metric);
+            var exactToken = ExactSampleMetrics.Count;
             Sample.StackIndex = hasStack ? stackIndex : NoStackCallStack;
             Sample.TimeRelativeMSec = timeRelativeMSec;
             Sample.Metric = (float)metric;
+            // Scenario is otherwise unused by this repository. Reserve it as a stable
+            // per-source ordinal so DoneAddingSamples time sorting cannot detach the exact
+            // Int64 weight from its sample.
+            Sample.Scenario = exactToken;
             Source.AddSample(Sample);
             ExactSampleMetrics.Add(metric);
         }
@@ -585,12 +642,14 @@ internal static class StackSourceTopN
         var src = new MutableTraceEventStackSource(trace) { ShowUnknownAddresses = true };
         var noStackFrame = src.Interner.FrameIntern("?!?");
         var noStack = src.Interner.CallStackIntern(noStackFrame, StackSourceCallStackIndex.Invalid);
+        var exactMetrics = new List<long>();
+        ExactMetricsBySource.Add(src, new ExactSampleMetricSeries(exactMetrics));
         return new RawStackSource(
             src,
             noStack,
             new StackSourceSample(src),
             new DomainStackCoverageAccumulator(domain, metricName, stackSemantics),
-            new List<long>());
+            exactMetrics);
     }
 
     public static void AddCoverageWarning(
@@ -635,6 +694,98 @@ internal static class StackSourceTopN
     }
 
     /// <summary>
+    /// Projects exact per-frame metrics from the normalized stack topology. TraceEvent's
+    /// float sample metric is intentionally ignored: it exists only so CallTree can still
+    /// be used for topology/display compatibility. Inclusive values use the same recursion
+    /// guard as CallTree.ByID, so a frame identity contributes at most once per sample.
+    /// Every integer accumulation is checked and fails rather than wrapping.
+    /// </summary>
+    public static ExactStackMetricProjection ComputeExactFrameMetrics(
+        MutableTraceEventStackSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
+        var exactMetrics = RequireExactSampleMetrics(source);
+        var frames = new Dictionary<int, MutableExactStackFrameMetric>();
+        var lastInclusiveSampleByFrame = new Dictionary<int, int>();
+        long totalMetric = 0;
+        long totalCount = 0;
+
+        MutableExactStackFrameMetric GetFrame(StackSourceFrameIndex frameIndex)
+        {
+            var identity = (int)frameIndex;
+            if (frames.TryGetValue(identity, out var existing))
+                return existing;
+
+            var created = new MutableExactStackFrameMetric(
+                source.GetFrameName(frameIndex, fullModulePath: false));
+            frames.Add(identity, created);
+            return created;
+        }
+
+        for (var sampleIndex = 0; sampleIndex < (int)source.SampleIndexLimit; sampleIndex++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sample = source.GetSampleByIndex((StackSourceSampleIndex)sampleIndex);
+            var metric = exactMetrics.Values[sample.Scenario];
+            totalMetric = checked(totalMetric + metric);
+            totalCount = checked(totalCount + 1);
+
+            var walk = sample.StackIndex;
+            if (walk == StackSourceCallStackIndex.Invalid)
+                continue;
+
+            var leaf = GetFrame(source.GetFrameIndex(walk));
+            leaf.ExclusiveMetric = checked(leaf.ExclusiveMetric + metric);
+            leaf.ExclusiveCount = checked(leaf.ExclusiveCount + 1);
+
+            while (walk != StackSourceCallStackIndex.Invalid)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                var frameIndex = source.GetFrameIndex(walk);
+                var identity = (int)frameIndex;
+                if (!lastInclusiveSampleByFrame.TryGetValue(identity, out var lastSample) ||
+                    lastSample != sampleIndex)
+                {
+                    lastInclusiveSampleByFrame[identity] = sampleIndex;
+                    var frame = GetFrame(frameIndex);
+                    frame.InclusiveMetric = checked(frame.InclusiveMetric + metric);
+                    frame.InclusiveCount = checked(frame.InclusiveCount + 1);
+                }
+                walk = source.GetCallerIndex(walk);
+            }
+        }
+
+        return new ExactStackMetricProjection(
+            frames.Values.Select(frame => frame.Snapshot()).ToArray(),
+            totalMetric,
+            totalCount);
+    }
+
+    public static IReadOnlyList<ExactStackFrameMetric> RankExactFrames(
+        ExactStackMetricProjection projection,
+        bool rankByCount = false)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        // ?!? accounts for events without a captured call stack.  Coverage exposes
+        // that remainder explicitly; publishing it as a ranked frame would let a
+        // consumer mistake synthetic unknown evidence for a real call chain.
+        cancellation.ThrowIfCancellationRequested();
+        var capturedFrames = AnalysisEvents.Enumerate(projection.Frames).Where(frame =>
+            !string.Equals(frame.Function, "?!?", StringComparison.Ordinal));
+        var ranked = rankByCount
+            ? capturedFrames.OrderByDescending(frame => frame.ExclusiveCount)
+            : capturedFrames.OrderByDescending(frame => frame.ExclusiveMetric);
+        var result = ranked
+            .ThenBy(frame => frame.Function, StringComparer.Ordinal)
+            .ToArray();
+        cancellation.ThrowIfCancellationRequested();
+        return result;
+    }
+
+    /// <summary>
     /// Caller/callee drill-down: scan every sample in <paramref name="normalized"/>, locate
     /// stacks containing <paramref name="focusFunction"/>, and aggregate the immediate caller
     /// (frame one step toward root) and callee (frame one step toward leaf) by name.
@@ -666,30 +817,36 @@ internal static class StackSourceTopN
         DomainStackCoverage? stackCoverage = null,
         StackResultContract? resultContract = null)
     {
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
+        var exactMetrics = RequireExactSampleMetrics(normalized);
         long focusExclusive = 0;
         long focusInclusive = 0;
         long totalMetric = 0;
         var focusFound = false;
+        var syntheticUnknownFocus = string.Equals(focusFunction, "?!?", StringComparison.Ordinal);
         var callers = new Dictionary<string, (long excl, long incl)>();
         var callees = new Dictionary<string, (long excl, long incl)>();
 
         for (var s = 0; s < normalized.SampleIndexLimit; s++)
         {
+            cancellation.ThrowIfCancellationRequested();
             var sample = normalized.GetSampleByIndex((StackSourceSampleIndex)s);
-            var metric = (long)sample.Metric;
-            totalMetric += metric;
+            var metric = exactMetrics.Values[sample.Scenario];
+            totalMetric = checked(totalMetric + metric);
 
             var walk = sample.StackIndex;
             string? childOfFocus = null;
             while (walk != StackSourceCallStackIndex.Invalid)
             {
+                cancellation.ThrowIfCancellationRequested();
                 var frameIdx = normalized.GetFrameIndex(walk);
                 var name = normalized.GetFrameName(frameIdx, fullModulePath: false);
 
-                if (name == focusFunction)
+                if (!syntheticUnknownFocus && name == focusFunction)
                 {
                     focusFound = true;
-                    focusInclusive += metric;
+                    focusInclusive = checked(focusInclusive + metric);
 
                     // Caller = frame one step toward root. "<root>" when focus has no caller
                     // (e.g., focus IS the entry point or stack walk truncated).
@@ -707,7 +864,8 @@ internal static class StackSourceTopN
 
                     // Exclusive: focus is the leaf. childOfFocus is null only on the first
                     // iteration before we've passed through any frame.
-                    if (childOfFocus is null) focusExclusive += metric;
+                    if (childOfFocus is null)
+                        focusExclusive = checked(focusExclusive + metric);
 
                     // Stop after leaf-most match (recursion-safe).
                     break;
@@ -724,26 +882,38 @@ internal static class StackSourceTopN
                    Pct(totalDouble, kv.Value.excl),
                    Pct(totalDouble, kv.Value.incl));
 
-        var topCallers = callers.OrderByDescending(kv => kv.Value.incl).Take(top).Select(Project).ToList();
-        var topCallees = callees.OrderByDescending(kv => kv.Value.incl).Take(top).Select(Project).ToList();
+        var topCallers = callers
+            .OrderByDescending(kv => kv.Value.incl)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Take(top)
+            .Select(Project)
+            .ToList();
+        var topCallees = callees
+            .OrderByDescending(kv => kv.Value.incl)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Take(top)
+            .Select(Project)
+            .ToList();
 
         var warnings = new List<string>(baseWarnings);
-        var contract = resultContract ?? (stackCoverage is null
-            ? new StackResultContract(
-                selectedProcess,
-                selectedProcess.HasValue ? "single_process" : "all_processes",
-                PidReuseObserved: false,
-                IncludedProcesses: selectedProcess.HasValue ? [selectedProcess.Value] : [],
-                ScopeStatus: "ok",
-                CapabilityStatus: totalMetric > 0 ? "observed" : "unknown",
-                MatchedEventCount: 0,
-                NoDataReason: null)
-            : StackResultContract.From(
-                processScope: null,
-                filterSpecified: false,
-                stackCoverage));
+        // Every public caller/callee path must carry the source analyzer's reviewed
+        // scope and event/stack classification. Reconstructing it from the projected
+        // tree loses trace-absence and process-instance evidence.
+        var contract = resultContract ?? throw new InvalidOperationException(
+            "caller_callee_result_contract_required");
         if (!focusFound && contract.NoDataReason is null)
-            contract = contract with { NoDataReason = "focus_not_found" };
+        {
+            contract = contract with
+            {
+                NoDataReason = "focus_not_found",
+            };
+        }
+        if (syntheticUnknownFocus)
+        {
+            warnings.Add(
+                "synthetic_unknown_focus_not_stack_evidence: ?!? represents events without a captured call stack; " +
+                "it cannot be used as a caller/callee focus or as evidence of a real call chain.");
+        }
         if (contract.NoDataReason == "focus_not_found")
         {
             warnings.Add(
@@ -813,18 +983,21 @@ internal static class StackSourceTopN
         // same value: it's the metric flowing through this single edge to/from focus. PerfView
         // shows both columns for symmetry with the main top-N view; we keep the convention.
         var prev = map.GetValueOrDefault(name);
-        map[name] = (prev.excl + metric, prev.incl + metric);
+        map[name] = (
+            checked(prev.excl + metric),
+            checked(prev.incl + metric));
     }
 
     /// <summary>
-    /// Constructs a SymbolReader from a configured-path snapshot. The TraceLog overload also
-    /// adds the original ETL directory to that reader only, without mutating _NT_SYMBOL_PATH.
+    /// Constructs a closed-world SymbolReader with no path, trace-directory, environment,
+    /// cache-search, or server fallback. Production MCP calls with resolveSymbols=true are
+    /// rejected before analyzer dispatch until a pinned-context TraceEvent adapter exists.
     /// </summary>
     public static SymbolReader OpenSymbolReader(TextWriter symbolLog)
-        => new(symbolLog, SymbolPathState.CurrentPath);
+        => new(symbolLog, string.Empty);
 
     public static SymbolReader OpenSymbolReader(TraceLog trace, TextWriter symbolLog)
-        => new(symbolLog, TraceSymbolContext.GetEffectivePath(trace));
+        => new(symbolLog, string.Empty);
 
     public static SymbolLookupAttempt TryLookupWarmSymbols(
         MutableTraceEventStackSource source,
@@ -832,6 +1005,8 @@ internal static class StackSourceTopN
         SymbolReader symbolReader,
         Action<MutableTraceEventStackSource, int, SymbolReader>? lookup = null)
     {
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
         if (!resolveSymbols)
             return SymbolLookupAttempt.Skipped();
 
@@ -841,7 +1016,12 @@ internal static class StackSourceTopN
                 source.LookupWarmSymbols(WarmSymbolThreshold, symbolReader);
             else
                 lookup(source, WarmSymbolThreshold, symbolReader);
+            cancellation.ThrowIfCancellationRequested();
             return SymbolLookupAttempt.Executed();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -912,6 +1092,8 @@ internal static class StackSourceTopN
 
         public void AddDurationInterval(long intervalStartUs, long intervalEndUs)
         {
+            var cancellation = AnalysisEvents.EffectiveCancellationToken();
+            cancellation.ThrowIfCancellationRequested();
             if (_buckets is null || intervalEndUs <= intervalStartUs)
                 return;
 
@@ -927,6 +1109,7 @@ internal static class StackSourceTopN
 
             for (var bucket = firstBucket; bucket <= lastBucket; bucket++)
             {
+                cancellation.ThrowIfCancellationRequested();
                 var bucketStartUs = checked(_startUs + bucket * _bucketWidthUs);
                 var bucketEndUs = checked(bucketStartUs + _bucketWidthUs);
                 bucketEndUs = TimeWindow.ClipEnd(bucketEndUs, _endUs);
@@ -937,10 +1120,10 @@ internal static class StackSourceTopN
             }
         }
 
-        public TimeHistogram? Build()
+        public TimeHistogram? Build(string unit)
             => _buckets is null
                 ? null
-                : new TimeHistogram(_startUs, _endUs, _bucketWidthUs, _buckets);
+                : new TimeHistogram(_startUs, _endUs, _bucketWidthUs, _buckets, unit);
     }
 
     /// <summary>
@@ -956,35 +1139,39 @@ internal static class StackSourceTopN
         SymbolLookupAttempt lookupAttempt)
         => ComputeSymbolStats(
             raw.Source,
-            raw.ExactSampleMetrics,
             raw.Coverage.MetricName,
             lookupAttempt);
 
     public static SymbolStats ComputeSymbolStats(MutableTraceEventStackSource rawSource)
         => ComputeSymbolStats(
             rawSource,
-            exactSampleMetrics: null,
             metricName: "count",
             SymbolLookupAttempt.Unknown());
 
     private static SymbolStats ComputeSymbolStats(
         MutableTraceEventStackSource rawSource,
-        IReadOnlyList<long>? exactSampleMetrics,
         string metricName,
         SymbolLookupAttempt lookupAttempt)
     {
-        var hasExactMetrics = exactSampleMetrics?.Count == (int)rawSource.SampleIndexLimit;
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
+        var hasExactMetrics = ExactMetricsBySource.TryGetValue(rawSource, out _);
+        var exactMetrics = hasExactMetrics
+            ? RequireExactSampleMetrics(rawSource)
+            : null;
         var accumulator = new SymbolFrameMetricAccumulator(metricName);
 
         for (var sampleIndex = 0; sampleIndex < (int)rawSource.SampleIndexLimit; sampleIndex++)
         {
+            cancellation.ThrowIfCancellationRequested();
             var sample = rawSource.GetSampleByIndex((StackSourceSampleIndex)sampleIndex);
             var metric = hasExactMetrics
-                ? exactSampleMetrics![sampleIndex]
+                ? exactMetrics!.Values[sample.Scenario]
                 : checked((long)sample.Metric);
             var stackIndex = sample.StackIndex;
             while (stackIndex != StackSourceCallStackIndex.Invalid)
             {
+                cancellation.ThrowIfCancellationRequested();
                 var frameIndex = rawSource.GetFrameIndex(stackIndex);
                 var frameIdentity = (int)frameIndex;
                 if (rawSource.GetFrameCodeAddress(frameIndex) == CodeAddressIndex.Invalid)
@@ -1025,8 +1212,25 @@ internal static class StackSourceTopN
     /// top allocated types, top unresolved modules, top marker-event names.
     /// </summary>
     public static List<TRow> TopByValue<TKey, TRow>(
-        IDictionary<TKey, long> source, int n, Func<TKey, long, TRow> project) where TKey : notnull =>
-        source.OrderByDescending(kv => kv.Value).Take(n).Select(kv => project(kv.Key, kv.Value)).ToList();
+        IDictionary<TKey, long> source,
+        int n,
+        Func<TKey, long, TRow> project,
+        IComparer<TKey>? keyComparer = null) where TKey : notnull
+    {
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
+        keyComparer ??= typeof(TKey) == typeof(string)
+            ? (IComparer<TKey>)(object)StringComparer.Ordinal
+            : Comparer<TKey>.Default;
+        var result = AnalysisEvents.Enumerate(source)
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, keyComparer)
+            .Take(n)
+            .Select(kv => project(kv.Key, kv.Value))
+            .ToList();
+        cancellation.ThrowIfCancellationRequested();
+        return result;
+    }
 
     /// <summary>
     /// Builds a second <see cref="MutableTraceEventStackSource"/> that mirrors
@@ -1041,8 +1245,12 @@ internal static class StackSourceTopN
         TraceLog trace,
         bool excludeEtwSelfOverhead)
     {
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
         var normalized = new MutableTraceEventStackSource(trace) { ShowUnknownAddresses = true };
         var sample = new StackSourceSample(normalized);
+        var rawExactMetrics = RequireExactSampleMetrics(rawSource);
+        var normalizedExactMetrics = new List<long>(rawExactMetrics.Values);
         // Per-stack and per-frame caches keep cost O(unique frames) rather than O(all frames
         // across all samples). On large traces this is the difference between seconds and
         // minutes.
@@ -1051,15 +1259,68 @@ internal static class StackSourceTopN
 
         for (var s = 0; s < rawSource.SampleIndexLimit; s++)
         {
+            cancellation.ThrowIfCancellationRequested();
             var src = rawSource.GetSampleByIndex((StackSourceSampleIndex)s);
             sample.StackIndex = NormalizeStack(rawSource, normalized, src.StackIndex,
-                stackCache, frameCache, excludeEtwSelfOverhead);
+                stackCache, frameCache, excludeEtwSelfOverhead, cancellation);
             sample.TimeRelativeMSec = src.TimeRelativeMSec;
-            sample.Metric = src.Metric;
+            sample.Scenario = src.Scenario;
+            sample.Metric = (float)rawExactMetrics.Values[src.Scenario];
             normalized.AddSample(sample);
         }
         normalized.DoneAddingSamples();
+        ExactMetricsBySource.Add(
+            normalized,
+            new ExactSampleMetricSeries(normalizedExactMetrics));
+        _ = RequireExactSampleMetrics(normalized);
         return normalized;
+    }
+
+    private static ExactSampleMetricSeries RequireExactSampleMetrics(
+        MutableTraceEventStackSource source)
+    {
+        var cancellation = AnalysisEvents.EffectiveCancellationToken();
+        cancellation.ThrowIfCancellationRequested();
+        if (!ExactMetricsBySource.TryGetValue(source, out var exactMetrics) ||
+            exactMetrics.Values.Count != (int)source.SampleIndexLimit)
+        {
+            throw new InvalidOperationException(
+                "exact_stack_metrics_unavailable: the StackSource has no complete parallel " +
+                "Int64 metric series; refusing to expose float-projected values as exact integers.");
+        }
+
+        var seen = new bool[exactMetrics.Values.Count];
+        for (var sampleIndex = 0; sampleIndex < (int)source.SampleIndexLimit; sampleIndex++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sample = source.GetSampleByIndex((StackSourceSampleIndex)sampleIndex);
+            var token = sample.Scenario;
+            if ((uint)token >= (uint)exactMetrics.Values.Count)
+            {
+                throw new InvalidOperationException(
+                    $"exact_stack_metric_token_out_of_range: sample {sampleIndex} has token " +
+                    $"{token}, but the exact series contains {exactMetrics.Values.Count} value(s).");
+            }
+            if (seen[token])
+            {
+                throw new InvalidOperationException(
+                    $"exact_stack_metric_token_duplicate: token {token} is attached to more " +
+                    "than one sample.");
+            }
+            seen[token] = true;
+        }
+
+        for (var token = 0; token < seen.Length; token++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (!seen[token])
+            {
+                throw new InvalidOperationException(
+                    $"exact_stack_metric_token_missing: token {token} has no sample.");
+            }
+        }
+
+        return exactMetrics;
     }
 
     private static StackSourceCallStackIndex NormalizeStack(
@@ -1068,13 +1329,15 @@ internal static class StackSourceTopN
         StackSourceCallStackIndex orig,
         Dictionary<StackSourceCallStackIndex, StackSourceCallStackIndex> stackCache,
         Dictionary<StackSourceFrameIndex, StackSourceFrameIndex> frameCache,
-        bool excludeEtwSelfOverhead)
+        bool excludeEtwSelfOverhead,
+        CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         if (orig == StackSourceCallStackIndex.Invalid) return StackSourceCallStackIndex.Invalid;
         if (stackCache.TryGetValue(orig, out var cached)) return cached;
 
         var callerIdx = NormalizeStack(src, dst, src.GetCallerIndex(orig), stackCache, frameCache,
-            excludeEtwSelfOverhead);
+            excludeEtwSelfOverhead, cancellation);
         var srcFrameIdx = src.GetFrameIndex(orig);
         if (!frameCache.TryGetValue(srcFrameIdx, out var dstFrameIdx))
         {

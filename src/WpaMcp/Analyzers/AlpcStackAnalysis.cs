@@ -41,17 +41,16 @@ public static class AlpcStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new AlpcStackRow(
-                Function: n.Name,
-                ExclusiveEvents: (long)n.ExclusiveMetric,
-                InclusiveEvents: (long)n.InclusiveMetric,
+                Function: n.Function,
+                ExclusiveEvents: n.ExclusiveMetric,
+                InclusiveEvents: n.InclusiveMetric,
                 ExclusivePct: StackSourceTopN.Pct(totalMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalCount, n.ExclusiveMetric),
@@ -65,7 +64,7 @@ public static class AlpcStackAnalysis
             ReceiveCount: ctx.ReceiveCount,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("event_count"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

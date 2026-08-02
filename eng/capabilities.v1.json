@@ -1,0 +1,2792 @@
+{
+  "schemaVersion": "capabilities.v1",
+  "contractVersion": "2.0",
+  "catalogScope": "wpa_mcp_declared_capabilities",
+  "exhaustiveForWpa": false,
+  "unlistedCapabilityMeaning": "unknown_not_catalogued",
+  "catalogVersionPolicy": "sha256_validated_active_model",
+  "goals": [
+    { "goalId": "capability_discovery", "title": "Discover server and trace capabilities", "summary": "Choose callable analysis capabilities without treating this catalog as the complete WPA universe." },
+    { "goalId": "trace_lifecycle", "title": "Manage trace lifecycle", "summary": "Load, reuse, and retire principal-scoped immutable trace generations." },
+    { "goalId": "execution_inventory", "title": "Inventory execution", "summary": "Orient by process, thread, and marker evidence before narrowing analysis scope." },
+    { "goalId": "cpu_hotspots", "title": "Find CPU hotspots", "summary": "Measure sampled CPU stacks and scheduler CPU accounting." },
+    { "goalId": "waits", "title": "Explain waits and readiness", "summary": "Measure blocked time and associated scheduler stack evidence without overstating causality." },
+    { "goalId": "startup", "title": "Investigate startup", "summary": "Correlate process creation, image loading, I/O, scheduling, and heuristic scan evidence." },
+    { "goalId": "storage_io", "title": "Investigate storage I/O", "summary": "Measure file, disk, and hard-fault activity with explicit stack boundaries." },
+    { "goalId": "memory", "title": "Investigate memory", "summary": "Measure memory resources, faults, virtual allocation traffic, and heap allocations." },
+    { "goalId": "network", "title": "Investigate network activity", "summary": "Measure connection lifecycle and network I/O stack evidence." },
+    { "goalId": "dotnet_runtime", "title": "Investigate .NET runtime", "summary": "Measure CLR GC, JIT, allocation, exception, contention, and finalizer evidence." },
+    { "goalId": "system_activity", "title": "Investigate system activity", "summary": "Inspect registry, ALPC, interrupt, and caller-selected provider stacks." },
+    { "goalId": "security", "title": "Investigate security activity", "summary": "Inspect heuristic scan-like activity while preserving scanner-attribution boundaries." },
+    { "goalId": "symbols", "title": "Prepare and assess symbols", "summary": "Separate trace PDB identity, verified local readiness, and measured frame resolution." },
+    { "goalId": "window_correlation", "title": "Correlate a time window", "summary": "Join bounded cross-domain observations without manufacturing causal conclusions." },
+    { "goalId": "capture_validation", "title": "Validate capture evidence", "summary": "Assess parser-observed evidence and preserve uncertainty about raw capture completeness." }
+  ],
+  "workflows": [
+    {
+      "workflowId": "workflow.capability_discovery",
+      "title": "Capability-first orientation",
+      "summary": "Read the declared server map, then evaluate the loaded trace before selecting an analyzer.",
+      "goalIds": ["capability_discovery"],
+      "capabilityIds": ["catalog.capability.list", "trace.capability.inspect"]
+    },
+    {
+      "workflowId": "workflow.trace_lifecycle",
+      "title": "Secure trace lifecycle",
+      "summary": "Load one immutable generation, run bounded queries, then retire its public handle.",
+      "goalIds": ["trace_lifecycle"],
+      "capabilityIds": ["lifecycle.trace.load", "lifecycle.trace.unload", "lifecycle.trace.handle", "lifecycle.trace.artifact_peak_bound"]
+    },
+    {
+      "workflowId": "workflow.execution_inventory",
+      "title": "Execution inventory",
+      "summary": "Resolve process and thread instances and locate marker anchors before scoped analysis.",
+      "goalIds": ["execution_inventory"],
+      "capabilityIds": ["trace.process.inventory", "trace.process.creation", "trace.thread.lifetime", "trace.marker.search"]
+    },
+    {
+      "workflowId": "workflow.cpu_hotspots",
+      "title": "CPU hotspot analysis",
+      "summary": "Use sampled stacks for code attribution and scheduler events for CPU accounting.",
+      "goalIds": ["cpu_hotspots"],
+      "capabilityIds": ["cpu.sampled.stacks", "scheduler.cpu_accounting"]
+    },
+    {
+      "workflowId": "workflow.waits",
+      "title": "Wait and readiness analysis",
+      "summary": "Measure blocked intervals and related readier evidence while keeping causality not concluded.",
+      "goalIds": ["waits"],
+      "capabilityIds": ["scheduler.blocked_time", "scheduler.blocked_stacks", "scheduler.ready.association", "scheduler.ready.causality", "diagnosis.wait.composite"]
+    },
+    {
+      "workflowId": "workflow.startup",
+      "title": "Startup investigation",
+      "summary": "Correlate creation, image, file, scheduler, and scan-like evidence in bounded startup windows.",
+      "goalIds": ["startup"],
+      "capabilityIds": ["trace.process.creation", "image.load.timing", "image.load.stacks", "io.file.aggregate", "io.file.stacks", "security.scan.heuristics", "diagnosis.startup.composite"]
+    },
+    {
+      "workflowId": "workflow.storage_io",
+      "title": "Storage I/O investigation",
+      "summary": "Measure file and disk activity and distinguish hard-fault file attribution from stack evidence.",
+      "goalIds": ["storage_io"],
+      "capabilityIds": ["io.file.aggregate", "io.file.stacks", "io.disk.stacks", "memory.hard_fault.files", "memory.hard_fault.stacks"]
+    },
+    {
+      "workflowId": "workflow.memory",
+      "title": "Memory investigation",
+      "summary": "Combine resource snapshots and operation traffic with fault and allocation stack evidence.",
+      "goalIds": ["memory"],
+      "capabilityIds": ["memory.hard_fault.files", "memory.hard_fault.stacks", "memory.virtual_alloc.stacks", "memory.resource.activity", "heap.alloc.stacks"]
+    },
+    {
+      "workflowId": "workflow.network",
+      "title": "Network investigation",
+      "summary": "Separate connection lifecycle evidence from byte-weighted network stack evidence.",
+      "goalIds": ["network"],
+      "capabilityIds": ["network.io.stacks", "network.connections"]
+    },
+    {
+      "workflowId": "workflow.dotnet_runtime",
+      "title": ".NET runtime investigation",
+      "summary": "Select only CLR evidence classes actually observed in the trace.",
+      "goalIds": ["dotnet_runtime"],
+      "capabilityIds": ["clr.gc.intervals", "clr.gc.heap_stats", "clr.jit.intervals", "clr.alloc.stacks", "clr.exception.stacks", "clr.contention.stacks", "clr.finalizer.activity"]
+    },
+    {
+      "workflowId": "workflow.system_activity",
+      "title": "System activity investigation",
+      "summary": "Inspect registry, IPC, interrupt, and explicit provider event evidence.",
+      "goalIds": ["system_activity"],
+      "capabilityIds": ["registry.activity.stacks", "ipc.alpc.stacks", "hardware.interrupt.stacks", "provider.generic.stacks"]
+    },
+    {
+      "workflowId": "workflow.security",
+      "title": "Security activity investigation",
+      "summary": "Use heuristic scan evidence as a hypothesis and require authoritative evidence for scanner attribution.",
+      "goalIds": ["security"],
+      "capabilityIds": ["security.scan.heuristics", "security.scanner.attribution"]
+    },
+    {
+      "workflowId": "workflow.symbols",
+      "title": "Immutable symbol preparation",
+      "summary": "Prepare a policy-bound context and never equate PDB identity or local readiness with frame resolution.",
+      "goalIds": ["symbols"],
+      "capabilityIds": ["symbols.configuration.path", "symbols.configuration.server", "symbols.diagnostics.metadata", "symbols.frame_resolution.measured", "lifecycle.symbol.prepare"]
+    },
+    {
+      "workflowId": "workflow.window_correlation",
+      "title": "Bounded window correlation",
+      "summary": "Correlate available evidence classes in one window and keep unsupported causality explicit.",
+      "goalIds": ["window_correlation"],
+      "capabilityIds": ["trace.marker.search", "diagnosis.window.composite", "attribution.cross_domain.causal"]
+    },
+    {
+      "workflowId": "workflow.capture_validation",
+      "title": "Capture and parser validation",
+      "summary": "Distinguish materialized logical events from unavailable raw-record completeness evidence.",
+      "goalIds": ["capture_validation"],
+      "capabilityIds": ["trace.capability.inspect", "trace.raw_event_count.external"]
+    }
+  ],
+  "evaluators": [
+    {
+      "evaluatorId": "evaluator.server_lifecycle",
+      "kind": "server",
+      "capabilityIds": ["lifecycle.trace.load", "lifecycle.trace.unload", "lifecycle.symbol.prepare"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "not_applicable",
+      "provenance": "server_lifecycle_result"
+    },
+    {
+      "evaluatorId": "evaluator.trace_metadata",
+      "kind": "logical_events",
+      "capabilityIds": ["trace.capability.inspect"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "metadata",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "immutable_trace_facts_snapshot"
+    },
+    {
+      "evaluatorId": "evaluator.server_catalog",
+      "kind": "server",
+      "capabilityIds": ["catalog.capability.list"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "metadata",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "validated_active_catalog_entries",
+      "provenance": "validated_active_catalog"
+    },
+    {
+      "evaluatorId": "evaluator.process_inventory",
+      "kind": "process_inventory",
+      "capabilityIds": ["trace.process.inventory"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "derived",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "resolved_process_instances",
+      "provenance": "trace_identity_index"
+    },
+    {
+      "evaluatorId": "evaluator.process_creation",
+      "kind": "event_count",
+      "capabilityIds": ["trace.process.creation"],
+      "eventFlags": [],
+      "eventCountProperty": "ObservedProcessStartEventCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_observed_process_start_events",
+      "provenance": "kernel_process_start_typed_callback"
+    },
+    {
+      "evaluatorId": "evaluator.thread_events",
+      "kind": "evidence_completion",
+      "capabilityIds": ["trace.thread.lifetime"],
+      "eventFlags": [],
+      "eventCountProperty": "ThreadLifecycleSourceEventCount",
+      "completedCountProperty": "ThreadCompletedObservedLifetimeCount",
+      "unmatchedCountProperty": "ThreadUnmatchedLifecycleEndpointCount",
+      "boundaryCountProperty": "ThreadInferredBoundaryCount",
+      "stackDomain": null,
+      "measurementBasis": "derived",
+      "relationship": "descriptive",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "materialized_observed_plus_rundown_thread_endpoints",
+      "provenance": "thread_lifetime_exact_typed_endpoint_set"
+    },
+    {
+      "evaluatorId": "evaluator.cpu_samples",
+      "kind": "event",
+      "capabilityIds": ["cpu.sampled.stacks"],
+      "eventFlags": ["HasCpuSamples"],
+      "stackDomain": "cpu",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "cpu_domain_stack_coverage"
+    },
+    {
+      "evaluatorId": "evaluator.context_switch",
+      "kind": "event",
+      "capabilityIds": ["scheduler.cpu_accounting", "scheduler.blocked_time", "scheduler.blocked_stacks", "diagnosis.wait.composite"],
+      "eventFlags": ["HasCSwitch"],
+      "stackDomain": "cswitch",
+      "measurementBasis": "direct",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "cswitch_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.ready_thread",
+      "kind": "event",
+      "capabilityIds": ["scheduler.ready.association"],
+      "eventFlags": ["HasReadyThread"],
+      "stackDomain": "ready_thread",
+      "measurementBasis": "direct",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "ready_thread_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.file_io",
+      "kind": "event",
+      "capabilityIds": ["io.file.aggregate", "io.file.stacks"],
+      "eventFlags": ["HasFileIo"],
+      "stackDomain": "file_io",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "file_io_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.disk_io",
+      "kind": "event",
+      "capabilityIds": ["io.disk.stacks"],
+      "eventFlags": ["HasDiskIo"],
+      "stackDomain": "disk_io",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "disk_io_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.hard_fault",
+      "kind": "event",
+      "capabilityIds": ["memory.hard_fault.files", "memory.hard_fault.stacks"],
+      "eventFlags": ["HasHardFaults"],
+      "stackDomain": "hard_fault",
+      "measurementBasis": "direct",
+      "relationship": "attribution",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "hard_fault_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.virtual_alloc",
+      "kind": "event",
+      "capabilityIds": ["memory.virtual_alloc.stacks"],
+      "eventFlags": ["HasVirtualAlloc"],
+      "stackDomain": "virtual_alloc",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "virtual_alloc_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.memory_resources",
+      "kind": "event_requirements",
+      "capabilityIds": ["memory.resource.activity"],
+      "eventFlags": ["HasMemoryProcessInfo", "HasMemorySystemInfo", "HasHandleEvents", "HasPoolEvents"],
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "mixed_memory_resource_events",
+      "provenance": "memory_resource_event_flags"
+    },
+    {
+      "evaluatorId": "evaluator.image_load",
+      "kind": "event",
+      "capabilityIds": ["image.load.timing", "image.load.stacks"],
+      "eventFlags": ["HasImageLoad"],
+      "stackDomain": "image_load",
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "image_load_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.network_io",
+      "kind": "event",
+      "capabilityIds": ["network.io.stacks"],
+      "eventFlags": ["HasNetIo"],
+      "stackDomain": "net_io",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "network_io_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.network_connections",
+      "kind": "evidence_completion",
+      "capabilityIds": ["network.connections"],
+      "eventFlags": [],
+      "eventCountProperty": "NetworkConnectionLifecycleEndpointEventCount",
+      "completedCountProperty": "NetworkConnectionCompletedLifecycleCount",
+      "unmatchedCountProperty": "NetworkConnectionUnmatchedEndpointCount",
+      "boundaryCountProperty": "NetworkConnectionBoundaryEvidenceCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_tcp_lifecycle_endpoint_events",
+      "provenance": "net_connection_analyzer_exact_typed_endpoint_set"
+    },
+    {
+      "evaluatorId": "evaluator.registry",
+      "kind": "event",
+      "capabilityIds": ["registry.activity.stacks"],
+      "eventFlags": ["HasRegistry"],
+      "stackDomain": "registry",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "registry_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.alpc",
+      "kind": "event",
+      "capabilityIds": ["ipc.alpc.stacks"],
+      "eventFlags": ["HasAlpc"],
+      "stackDomain": "alpc",
+      "measurementBasis": "direct",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "alpc_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.interrupt",
+      "kind": "event",
+      "capabilityIds": ["hardware.interrupt.stacks"],
+      "eventFlags": ["HasInterrupt"],
+      "stackDomain": "interrupt",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "interrupt_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.heap_alloc",
+      "kind": "event",
+      "capabilityIds": ["heap.alloc.stacks"],
+      "eventFlags": ["HasNtHeap"],
+      "stackDomain": "heap_alloc",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "heap_alloc_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.clr_gc_intervals",
+      "kind": "evidence_completion",
+      "capabilityIds": ["clr.gc.intervals"],
+      "eventFlags": [],
+      "eventCountProperty": "ClrGcIntervalEndpointEventCount",
+      "completedCountProperty": "ClrGcCompletedIntervalCount",
+      "unmatchedCountProperty": "ClrGcUnmatchedEndpointCount",
+      "boundaryCountProperty": "ClrGcBoundaryEvidenceCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_clr_gc_and_pause_interval_endpoint_events",
+      "provenance": "gc_analysis_exact_typed_endpoint_set"
+    },
+    {
+      "evaluatorId": "evaluator.clr_gc_heap_stats",
+      "kind": "event_count",
+      "capabilityIds": ["clr.gc.heap_stats"],
+      "eventFlags": [],
+      "eventCountProperty": "ClrGcHeapStatsEventCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_gc_heap_stats_snapshot_events",
+      "provenance": "gc_heap_stats_analysis_exact_typed_event"
+    },
+    {
+      "evaluatorId": "evaluator.clr_jit",
+      "kind": "evidence_completion",
+      "capabilityIds": ["clr.jit.intervals"],
+      "eventFlags": [],
+      "eventCountProperty": "ClrJitIntervalEndpointEventCount",
+      "completedCountProperty": "ClrJitCompletedIntervalCount",
+      "unmatchedCountProperty": "ClrJitUnmatchedEndpointCount",
+      "boundaryCountProperty": "ClrJitBoundaryEvidenceCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_clr_jit_interval_endpoint_events",
+      "provenance": "jit_analysis_exact_typed_endpoint_pairing"
+    },
+    {
+      "evaluatorId": "evaluator.clr_alloc",
+      "kind": "event",
+      "capabilityIds": ["clr.alloc.stacks"],
+      "eventFlags": ["HasClrAlloc"],
+      "stackDomain": "clr_alloc",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "clr_alloc_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.clr_exception",
+      "kind": "event",
+      "capabilityIds": ["clr.exception.stacks"],
+      "eventFlags": ["HasClrException"],
+      "stackDomain": "clr_exception",
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "tracelog_etlx_materialized_logical_events",
+      "provenance": "clr_exception_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.clr_contention",
+      "kind": "event",
+      "capabilityIds": ["clr.contention.stacks"],
+      "eventFlags": ["HasClrContention"],
+      "stackDomain": "clr_contention",
+      "measurementBasis": "direct",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "paired_clr_contention_intervals",
+      "provenance": "clr_contention_domain_facts"
+    },
+    {
+      "evaluatorId": "evaluator.marker_query",
+      "kind": "query_dependent",
+      "capabilityIds": ["trace.marker.search", "provider.generic.stacks"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "descriptive",
+      "observedConclusion": "observed",
+      "countRepresentation": "caller_selected_event_predicate",
+      "provenance": "query_parameters_required_for_trace_assessment"
+    },
+    {
+      "evaluatorId": "evaluator.clr_finalizer_activity",
+      "kind": "event_count",
+      "capabilityIds": ["clr.finalizer.activity"],
+      "eventFlags": [],
+      "eventCountProperty": "ClrFinalizerSourceEventCount",
+      "stackDomain": null,
+      "measurementBasis": "direct",
+      "relationship": "temporal",
+      "observedConclusion": "observed",
+      "countRepresentation": "materialized_finalizer_object_plus_batch_endpoint_events",
+      "provenance": "finalizer_analysis_exact_typed_event_set"
+    },
+    {
+      "evaluatorId": "evaluator.security_heuristic",
+      "kind": "query_dependent",
+      "capabilityIds": ["security.scan.heuristics"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "heuristic",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "heuristic_name_and_payload_matches",
+      "provenance": "security_scan_heuristic_rules"
+    },
+    {
+      "evaluatorId": "evaluator.composite",
+      "kind": "query_dependent",
+      "capabilityIds": ["diagnosis.window.composite", "diagnosis.startup.composite"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "derived",
+      "relationship": "association",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "composite_dependent_on_selected_scope",
+      "provenance": "composite_subanalysis_results"
+    },
+    {
+      "evaluatorId": "evaluator.declared_gap",
+      "kind": "gap",
+      "capabilityIds": ["symbols.configuration.path", "symbols.configuration.server", "symbols.diagnostics.metadata", "scheduler.ready.causality", "security.scanner.attribution", "symbols.frame_resolution.measured", "trace.raw_event_count.external", "attribution.cross_domain.causal", "lifecycle.trace.handle", "lifecycle.trace.artifact_peak_bound"],
+      "eventFlags": [],
+      "stackDomain": null,
+      "measurementBasis": "unmeasured",
+      "relationship": "descriptive",
+      "observedConclusion": "not_concluded",
+      "countRepresentation": "not_measured",
+      "provenance": "reviewed_product_gap"
+    }
+  ],
+  "capabilities": [
+    {
+      "capabilityId": "catalog.capability.list",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "catalog",
+      "title": "List the declared server capability map",
+      "summary": "Projects stable goals, workflows, callable tools, evidence boundaries, and evaluators from one validated Active Catalog with principal-bound cursor pagination.",
+      "questionsAnswered": [
+        "Which capabilities, workflows, and tools does this validated wpa-mcp build declare?",
+        "Which evidence and conclusion boundaries govern each declared capability?"
+      ],
+      "questionsNotAnswered": [
+        "Is this the complete capability universe of WPA, ETW, or every external analyzer?",
+        "Does an unlisted capability definitely not exist outside this server?"
+      ],
+      "conclusionBoundaryCodes": [
+        "CATALOG_DECLARED_NOT_WPA_EXHAUSTIVE",
+        "UNLISTED_CAPABILITY_UNKNOWN"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Validated tool contracts",
+        "Stable goal and workflow joins",
+        "Benchmark evidence references"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "server"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Core/Catalog/ActiveToolCatalog.cs",
+        "src/WpaMcp/Core/CapabilityDiscovery.cs",
+        "src/WpaMcp/Tools/CapabilityDiscoveryTools.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "lifecycle.trace.load",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "lifecycle",
+      "title": "Load an immutable trace generation",
+      "summary": "Validates and snapshots an allowed ETL/ETLX source into the server-owned artifact store, then returns the canonical principal-scoped TraceId for its immutable generation.",
+      "questionsAnswered": [
+        "Which canonical principal-scoped TraceId names the loaded immutable trace generation?",
+        "Was an existing active handle reused, and what source-generation assurance was applied?"
+      ],
+      "questionsNotAnswered": [
+        "What other active handles or leases exist for this principal?",
+        "Is the retained artifact quota a hard bound on converter-time or whole-root physical peak bytes?"
+      ],
+      "conclusionBoundaryCodes": [
+        "LOAD_RESULT_NOT_HANDLE_STATUS_INSPECTION",
+        "RAW_PATH_NOT_QUERY_REFERENCE",
+        "RETAINED_QUOTA_NOT_WHOLE_ROOT_PEAK"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Opened-handle source snapshot content hash",
+        "Owned immutable ETLX artifact",
+        "Canonical active TraceId registry binding"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "owned_trace_artifact_write",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Core/TraceLifecycleService.cs",
+        "src/WpaMcp/Core/TraceHandleRegistry.cs",
+        "src/WpaMcp/Core/OwnedTraceArtifactStore.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "lifecycle.trace.unload",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "lifecycle",
+      "title": "Retire a principal-scoped trace handle",
+      "summary": "Idempotently retires one canonical TraceId for the current principal, rejects new acquisitions, and optionally waits for active query leases to drain without deleting the independently retained artifact.",
+      "questionsAnswered": [
+        "Was this principal-scoped TraceId retired or already unloaded, and did its active leases drain?"
+      ],
+      "questionsNotAnswered": [
+        "Was an immutable trace artifact deleted?",
+        "What other active handles, leases, or retained artifacts exist?"
+      ],
+      "conclusionBoundaryCodes": [
+        "UNLOAD_NOT_ARTIFACT_DELETION",
+        "UNLOAD_RESULT_NOT_HANDLE_STATUS_INSPECTION"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Trace handle retirement status",
+        "Lease drain status",
+        "Independent artifact retention state"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "trace_handle_retirement",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Core/TraceHandleRegistry.cs",
+        "src/WpaMcp/Core/TraceLifecycleService.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "trace.capability.inspect",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "Inspect parsed trace evidence",
+      "summary": "Reports parsed trace metadata, provider/event observations, domain stack coverage, and explicit evidence limitations.",
+      "questionsAnswered": [
+        "Which event domains and stack evidence did the parser observe in this trace?"
+      ],
+      "questionsNotAnswered": [
+        "What was the raw capture event count outside TraceEvent parsing?",
+        "Do PDB identities prove that frames were resolved?",
+        "Does an unobserved event prove its keyword was disabled?"
+      ],
+      "conclusionBoundaryCodes": [
+        "PARSED_COUNT_NOT_RAW_CAPTURE_TOTAL",
+        "SYMBOLS_NOT_FRAME_RESOLUTION",
+        "EVENT_CLASS_OBSERVED_NOT_CAPTURE_CONFIG"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Provider counts",
+        "domain event and metric stack coverage",
+        "PDB identity metadata"
+      ],
+      "symbolRequirement": "metadata_only",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Analyzers/TraceCapabilitiesDetector.cs",
+        "src/WpaMcp/Analyzers/TraceMetadataAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "trace.process.inventory",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "List process instances",
+      "summary": "Lists resolved process lifetimes for selector orientation, including process-table/rundown backfill that does not prove an observed ProcessStart event.",
+      "questionsAnswered": [
+        "Which parsed process lifetimes can be used to scope later analysis?"
+      ],
+      "questionsNotAnswered": [
+        "Does a PID alone uniquely identify one lifetime?",
+        "Are rows beyond the requested top value included?"
+      ],
+      "conclusionBoundaryCodes": [
+        "PROCESS_INSTANCE_SCOPE_REQUIRED",
+        "INVENTORY_ROW_NOT_OBSERVED_PROCESS_START",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process/Start and Process/Stop lifecycle endpoints",
+        "TraceLog process-table and rundown backfill",
+        "CPU and lifetime projections"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Analyzers/ProcessProjection.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "trace.process.creation",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "Process creation timing",
+      "summary": "Measures observed child starts for one safely selected parent process lifetime.",
+      "questionsAnswered": [
+        "When were child ProcessStart events observed relative to the selected parent lifetime?"
+      ],
+      "questionsNotAnswered": [
+        "Which mechanism caused a child-start or first-image gap?",
+        "Can a reused parent PID be safely analyzed without its start time?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "OBSERVED_PROCESS_START_REQUIRED",
+        "IMAGE_LOAD_OPTIONAL_NOT_CREATION_PREDICATE",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "Process/Start"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Image/Load events and first-image-load offsets"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "process"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Analyzers/ProcessCreateTimingAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "trace.thread.lifetime",
+      "definitionVersion": 3,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "Thread lifetime inventory",
+      "summary": "Lists thread generations within a safely selected process lifetime. Whole-trace availability requires at least one fully observed ThreadStart-to-ThreadStop lifetime and no unmatched or inferred-boundary evidence; source-only and rundown-bounded evidence is partial.",
+      "questionsAnswered": [
+        "Which thread generations and observed lifetimes belong to the selected process instance?"
+      ],
+      "questionsNotAnswered": [
+        "Does a TID alone uniquely identify a thread lifetime?",
+        "Does a rundown-only lifetime prove an observed thread creation or termination?",
+        "Does lifetime duration explain CPU or wait causality?"
+      ],
+      "conclusionBoundaryCodes": [
+        "THREAD_INSTANCE_SCOPE_REQUIRED",
+        "RUNDOWN_ENDPOINT_NOT_OBSERVED_LIFECYCLE",
+        "INFERRED_BOUNDARY_NOT_EXACT_INTERVAL",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "requiredEvents": [
+        "Thread/Start",
+        "Thread/Stop"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process instance identity",
+        "Thread/DCStart and Thread/DCStop rundown boundary evidence",
+        "Structured source, completed, unmatched, and inferred-boundary counts"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "process"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Analyzers/ThreadLifetimeAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "trace.marker.search",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "Search trace markers",
+      "summary": "Searches parsed event names and payload fields using explicit text filters and bounded output.",
+      "questionsAnswered": [
+        "Which parsed marker-like events match the supplied search mode and text?"
+      ],
+      "questionsNotAnswered": [
+        "Does a text match establish the marker's application semantics?",
+        "Are results complete beyond the requested bound?"
+      ],
+      "conclusionBoundaryCodes": [
+        "MARKER_MATCH_NOT_SEMANTICS",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Parsed dynamic events"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Selected payload fields"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MarkerTools.cs",
+        "src/WpaMcp/Analyzers/MarkerSearch.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "cpu.sampled.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "cpu",
+      "title": "Sampled CPU stack attribution",
+      "summary": "Aggregates sampled-profile stack metrics for explicit trace, process, thread, and time scopes.",
+      "questionsAnswered": [
+        "Which frames account for observed sampled CPU events in the selected scope?"
+      ],
+      "questionsNotAnswered": [
+        "Does sample share equal exact CPU time?",
+        "Are unresolved or unstacked samples attributable to a named function?",
+        "Does a top-N list contain every function?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SAMPLED_CPU_NOT_EXACT_TIME",
+        "STACKS_REQUIRED",
+        "TOP_N_NOT_COMPLETE",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED",
+        "THREAD_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "PerfInfo/SampledProfile"
+      ],
+      "requiredEventStacks": [
+        "PerfInfo/SampledProfile"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context",
+        "per-domain stack coverage"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/CpuTools.cs",
+        "src/WpaMcp/Analyzers/CpuAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "scheduler.cpu_accounting",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "scheduler",
+      "title": "CSwitch CPU accounting",
+      "summary": "Derives per-thread on-CPU duration from CSwitch intervals; ready latency is exposed only when ReadyThread evidence is present.",
+      "questionsAnswered": [
+        "How much scheduled CPU time was derived from scoped CSwitch evidence, and—when ReadyThread exists—what ready latency was observed?"
+      ],
+      "questionsNotAnswered": [
+        "Does scheduler time identify the code responsible without stacks?",
+        "Can unresolved thread identities be safely assigned?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCHEDULER_TIME_NOT_STACK_ATTRIBUTION",
+        "THREAD_INSTANCE_SCOPE_REQUIRED",
+        "READY_LATENCY_REQUIRES_READY_THREAD",
+        "EVENT_CLASS_OBSERVED_NOT_CAPTURE_CONFIG"
+      ],
+      "requiredEvents": [
+        "Thread/CSwitch"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Thread/ReadyThread for ready-latency accounting",
+        "Thread lifetime catalog"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/CpuTools.cs",
+        "src/WpaMcp/Analyzers/CpuPreciseAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "scheduler.blocked_time",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "scheduler",
+      "title": "Blocked-time accounting",
+      "summary": "Projects CSwitch blocking intervals and wait reasons into the selected process/thread/window scope.",
+      "questionsAnswered": [
+        "How much completed blocked time and which wait reasons were observed in scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do trace-wide CSwitch counts describe the selected process?",
+        "Does a wait reason prove the application root cause?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCOPED_DENOMINATOR_REQUIRED",
+        "ASSOCIATION_NOT_CAUSATION",
+        "THREAD_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "Thread/CSwitch"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Thread lifetime identity",
+        "blocking stacks"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/WaitTools.cs",
+        "src/WpaMcp/Analyzers/WaitAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "scheduler.blocked_stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "scheduler",
+      "title": "Blocking-stack association",
+      "summary": "Ranks switch-out stacks associated with completed blocked intervals in the selected scope.",
+      "questionsAnswered": [
+        "Which switch-out frames are associated with observed scoped blocked duration?"
+      ],
+      "questionsNotAnswered": [
+        "Does the associated stack prove the causal root of the wait?",
+        "Do stacks from another thread establish scoped stack availability?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Thread/CSwitch"
+      ],
+      "requiredEventStacks": [
+        "Thread/CSwitch switch-out"
+      ],
+      "optionalEvidence": [
+        "ReadyThread association",
+        "explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/WaitTools.cs",
+        "src/WpaMcp/Analyzers/BlockedTimeStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "scheduler.ready.association",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "scheduler",
+      "title": "ReadyThread readier-stack association",
+      "summary": "Ranks stacks recorded on ReadyThread events associated with an awakened process scope.",
+      "questionsAnswered": [
+        "Which readier stacks are associated with ReadyThread events for the selected awakened process?"
+      ],
+      "questionsNotAnswered": [
+        "Who causally unblocked the target thread?",
+        "Does temporal/readier association prove the blocking resource or root cause?"
+      ],
+      "conclusionBoundaryCodes": [
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Thread/ReadyThread"
+      ],
+      "requiredEventStacks": [
+        "Thread/ReadyThread"
+      ],
+      "optionalEvidence": [
+        "Awakened process identity",
+        "explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ReadyThreadTools.cs",
+        "src/WpaMcp/Analyzers/ReadyThreadStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "io.file.aggregate",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "io",
+      "title": "File I/O aggregation",
+      "summary": "Aggregates parsed file read/write byte traffic by temporally resolved file identity.",
+      "questionsAnswered": [
+        "Which resolved file identities account for observed scoped FileIO byte traffic?"
+      ],
+      "questionsNotAnswered": [
+        "Is every FileObject/FileKey mapping unambiguous?",
+        "Does byte traffic equal disk traffic or application latency?"
+      ],
+      "conclusionBoundaryCodes": [
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED",
+        "FILE_IO_NOT_DISK_IO",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "FileIO/Read",
+        "FileIO/Write",
+        "FileIO/FileCreate",
+        "FileIO/FileDelete"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Temporal FileObject/FileKey mappings"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/IoTools.cs",
+        "src/WpaMcp/Analyzers/FileIoAnalysis.cs",
+        "src/WpaMcp/Analyzers/FileObjectResolver.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "io.file.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "io",
+      "title": "File I/O stack attribution",
+      "summary": "Ranks stacks carried by scoped FileIO events using exact integer byte metrics.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked FileIO byte traffic in scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do stacks exist for all FileIO events?",
+        "Does file I/O imply physical disk access?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "FILE_IO_NOT_DISK_IO",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "FileIO/Read",
+        "FileIO/Write"
+      ],
+      "requiredEventStacks": [
+        "FileIO/Read",
+        "FileIO/Write"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/IoTools.cs",
+        "src/WpaMcp/Analyzers/FileIoStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "io.disk.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "io",
+      "title": "Disk I/O stack attribution",
+      "summary": "Ranks stacks carried by physical disk I/O events using exact byte metrics.",
+      "questionsAnswered": [
+        "Which frames are associated with observed stacked disk byte traffic?"
+      ],
+      "questionsNotAnswered": [
+        "Do stacks exist for every disk event?",
+        "Does association identify the ultimate performance cause?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "DiskIO/Read",
+        "DiskIO/Write"
+      ],
+      "requiredEventStacks": [
+        "DiskIO/Read",
+        "DiskIO/Write"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/IoTools.cs",
+        "src/WpaMcp/Analyzers/DiskIoStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "memory.hard_fault.files",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "memory",
+      "title": "Hard faults by file",
+      "summary": "Aggregates observed hard faults by temporally resolved file identity.",
+      "questionsAnswered": [
+        "Which resolved files account for observed scoped hard faults?"
+      ],
+      "questionsNotAnswered": [
+        "Is every historical FileKey mapping unambiguous?",
+        "Do hard faults prove a memory leak or storage root cause?"
+      ],
+      "conclusionBoundaryCodes": [
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Memory/HardFault",
+        "FileIO/FileCreate",
+        "FileIO/FileDelete"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Temporal FileKey mappings"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/HardFaultTools.cs",
+        "src/WpaMcp/Analyzers/HardFaultByFileAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "memory.hard_fault.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "memory",
+      "title": "Hard-fault stack attribution",
+      "summary": "Ranks stacks carried by observed hard-fault events.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked hard-fault events and bytes?"
+      ],
+      "questionsNotAnswered": [
+        "Do stacks exist for every hard fault?",
+        "Does a stack prove the cause of memory pressure?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Memory/HardFault"
+      ],
+      "requiredEventStacks": [
+        "Memory/HardFault"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/HardFaultTools.cs",
+        "src/WpaMcp/Analyzers/PageFaultStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "memory.virtual_alloc.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "memory",
+      "title": "VirtualAlloc operation stacks",
+      "summary": "Ranks VirtualAlloc/VirtualFree operation stacks and separates allocation, free, and operation-volume metrics.",
+      "questionsAnswered": [
+        "Which frames are associated with virtual-memory allocation and free operation volume?"
+      ],
+      "questionsNotAnswered": [
+        "Does total operation volume equal net committed growth?",
+        "Do observed operations prove retained memory?"
+      ],
+      "conclusionBoundaryCodes": [
+        "OPERATION_VOLUME_NOT_NET_GROWTH",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "VirtualAlloc",
+        "VirtualFree"
+      ],
+      "requiredEventStacks": [
+        "VirtualAlloc",
+        "VirtualFree"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/VirtualMemoryTools.cs",
+        "src/WpaMcp/Analyzers/VirtualAllocStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "memory.resource.activity",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "memory",
+      "title": "Memory resource activity",
+      "summary": "Aggregates four independent facets: per-process memory samples, system-memory snapshots, handle events, and pool events. Any subset is partial; only observation of all four event families makes the aggregate capability available.",
+      "questionsAnswered": [
+        "What memory-resource activity was observed for the selected process instances and window?"
+      ],
+      "questionsNotAnswered": [
+        "Does event activity equal a point-in-time working set or leak?",
+        "Can missing event classes be treated as zero usage?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ACTIVITY_NOT_STATE_SNAPSHOT",
+        "PARTIAL_MEMORY_FACETS_NOT_COMPLETE_RESOURCE_VIEW",
+        "EVENT_CLASS_OBSERVED_NOT_CAPTURE_CONFIG",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "Memory/ProcessMemInfo",
+        "Memory/SystemMemInfo or Memory/MemInfo",
+        "Object/CreateHandle, CloseHandle, or DuplicateHandle",
+        "Pool allocation or free events"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process lifetime identity",
+        "Per-facet event requirements and missing-event warnings"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/VirtualMemoryTools.cs",
+        "src/WpaMcp/Analyzers/MemoryResourceAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "image.load.timing",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "image",
+      "title": "Image-load timing",
+      "summary": "Lists image-load events and observed timing gaps for one process lifetime.",
+      "questionsAnswered": [
+        "When were image loads observed and what gaps separate them for the selected process instance?"
+      ],
+      "questionsNotAnswered": [
+        "Did the image load itself consume the preceding gap?",
+        "Can reused PID lifetimes be merged safely?"
+      ],
+      "conclusionBoundaryCodes": [
+        "TEMPORAL_GAP_NOT_CAUSATION",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Image/Load"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process start time"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "process"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ImageLoadTools.cs",
+        "src/WpaMcp/Analyzers/ImageLoadAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "image.load.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "image",
+      "title": "Image-load stack association",
+      "summary": "Ranks stacks carried by scoped image-load events.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked image-load events?"
+      ],
+      "questionsNotAnswered": [
+        "Do stacks exist for every image load?",
+        "Does association prove startup delay causality?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Image/Load"
+      ],
+      "requiredEventStacks": [
+        "Image/Load"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ImageLoadTools.cs",
+        "src/WpaMcp/Analyzers/ImageLoadStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "network.io.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "network",
+      "title": "Network I/O stack association",
+      "summary": "Ranks stacks carried by scoped TCP/UDP send and receive events.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked network byte events?"
+      ],
+      "questionsNotAnswered": [
+        "Does event association prove remote latency or connection causality?",
+        "Do stacks cover every network event?"
+      ],
+      "conclusionBoundaryCodes": [
+        "NETWORK_EVENT_NOT_CONNECTION_CAUSALITY",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "TcpIp/Send",
+        "TcpIp/Recv",
+        "UdpIp/Send",
+        "UdpIp/Recv"
+      ],
+      "requiredEventStacks": [
+        "Network send/receive events"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/NetIoTools.cs",
+        "src/WpaMcp/Analyzers/NetIoStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "network.connections",
+      "definitionVersion": 3,
+      "lifecycleStatus": "active",
+      "domain": "network",
+      "title": "Network connection event inventory",
+      "summary": "Reconstructs parsed TCP connection lifecycles from Connect/Accept and Disconnect/Reconnect endpoints with exact string connection identifiers. Source-only, unmatched, identity-unresolved, or trace/process-bounded lifecycles are partial; it does not consume Send/Recv byte events.",
+      "questionsAnswered": [
+        "Which connection identifiers and endpoints were observed in the selected scope?"
+      ],
+      "questionsNotAnswered": [
+        "How many bytes were sent or received?",
+        "What throughput was achieved?",
+        "Does connection activity prove remote service latency or causality?",
+        "Can a deprecated unsafe numeric identifier be treated as authoritative?"
+      ],
+      "conclusionBoundaryCodes": [
+        "NETWORK_EVENT_NOT_CONNECTION_CAUSALITY",
+        "CONNECTION_LIFECYCLE_NOT_BYTE_TRANSFER",
+        "UNMATCHED_ENDPOINTS_NOT_CONNECTION_LIFECYCLES",
+        "STRING_IDENTIFIER_AUTHORITATIVE",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "TcpIp/Connect or TcpIp/Accept (IPv4/IPv6)",
+        "TcpIp/Disconnect or TcpIp/Reconnect (IPv4/IPv6)"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process lifetime identity",
+        "Structured source, completed, unmatched, and bounded lifecycle counts",
+        "Separate network.io.stacks capability for Send/Recv byte evidence"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/NetIoTools.cs",
+        "src/WpaMcp/Analyzers/NetConnectionAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "registry.activity.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "registry",
+      "title": "Registry event stack association",
+      "summary": "Ranks stacks carried by registry operation events in the selected scope.",
+      "questionsAnswered": [
+        "Which frames are associated with observed stacked registry operations?"
+      ],
+      "questionsNotAnswered": [
+        "Does stack association establish policy or root-cause attribution?",
+        "Do stacks cover every registry event?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Registry operations"
+      ],
+      "requiredEventStacks": [
+        "Registry operations"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/RegistryTools.cs",
+        "src/WpaMcp/Analyzers/RegistryStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "ipc.alpc.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "ipc",
+      "title": "ALPC event stack association",
+      "summary": "Ranks stacks carried by observed ALPC send/receive events.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked ALPC operations?"
+      ],
+      "questionsNotAnswered": [
+        "Does stack association identify the peer or causal blocker?",
+        "Do stacks cover every ALPC event?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "ALPC send/receive"
+      ],
+      "requiredEventStacks": [
+        "ALPC send/receive"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/AlpcTools.cs",
+        "src/WpaMcp/Analyzers/AlpcStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "hardware.interrupt.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "hardware",
+      "title": "Interrupt/DPC stack association",
+      "summary": "Ranks stacks carried by observed ISR and DPC events over a trace window.",
+      "questionsAnswered": [
+        "Which frames are associated with stacked ISR/DPC activity?"
+      ],
+      "questionsNotAnswered": [
+        "Does stack association prove a device or driver root cause?",
+        "Can interrupt events be attributed to a process PID?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "INTERRUPT_NOT_PROCESS_SCOPED",
+        "SCOPED_STACK_COVERAGE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "PerfInfo/ISR",
+        "PerfInfo/DPC"
+      ],
+      "requiredEventStacks": [
+        "PerfInfo/ISR",
+        "PerfInfo/DPC"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/InterruptTools.cs",
+        "src/WpaMcp/Analyzers/InterruptStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "provider.generic.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "provider",
+      "title": "Generic provider stack association",
+      "summary": "Filters one explicitly named provider/event family and ranks stacks carried by matching events.",
+      "questionsAnswered": [
+        "Which frames are associated with matching events from the explicitly selected provider?"
+      ],
+      "questionsNotAnswered": [
+        "Does name filtering establish event semantics or causality?",
+        "Does the parser cover every provider payload?"
+      ],
+      "conclusionBoundaryCodes": [
+        "GENERIC_PROVIDER_FILTER_REQUIRED",
+        "MARKER_MATCH_NOT_SEMANTICS",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "requiredEvents": [
+        "Caller-selected provider events"
+      ],
+      "requiredEventStacks": [
+        "Caller-selected provider events"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "provider",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/GenericProviderTools.cs",
+        "src/WpaMcp/Analyzers/GenericEventStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "heap.alloc.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "heap",
+      "title": "Heap allocation stack association",
+      "summary": "Ranks stacks carried by heap allocation events and exact allocation byte metrics.",
+      "questionsAnswered": [
+        "Which frames are associated with observed heap allocation traffic?"
+      ],
+      "questionsNotAnswered": [
+        "Do allocation bytes equal retained bytes or a leak?",
+        "Do stacks cover every allocation?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Heap allocation events"
+      ],
+      "requiredEventStacks": [
+        "Heap allocation events"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/HeapTools.cs",
+        "src/WpaMcp/Analyzers/HeapAllocStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "clr.gc.intervals",
+      "definitionVersion": 3,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR GC interval accounting",
+      "summary": "Pairs GCStart/GCStop and GCSuspendEEStart/GCRestartEEStop streams. Source-only, unmatched, identity-unresolved, or invalid endpoint evidence is partial; GCHeapStats snapshots do not enable this capability.",
+      "questionsAnswered": [
+        "What GC wall and pause durations were derived from paired CLR endpoints in scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do unmatched endpoints form complete intervals?",
+        "Does a projected interval equal full interval duration?"
+      ],
+      "conclusionBoundaryCodes": [
+        "GC_HEAP_STATS_NOT_INTERVAL_EVIDENCE",
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL",
+        "UNMATCHED_ENDPOINTS_NOT_INTERVALS",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "GCStart + GCStop or GCSuspendEEStart + GCRestartEEStop"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "CLR instance identity",
+        "Structured source, completed, unmatched, and boundary counts"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/GcAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "clr.gc.heap_stats",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR GC heap statistics",
+      "summary": "Uses only GCHeapStats events to report heap snapshots for selected process instances and windows; GC interval endpoints do not enable this capability.",
+      "questionsAnswered": [
+        "Which GC heap-stat values were observed in the selected scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do sparse snapshots prove continuous heap growth or a leak?",
+        "Does absence prove the event keyword was disabled?"
+      ],
+      "conclusionBoundaryCodes": [
+        "GC_INTERVAL_ENDPOINTS_NOT_HEAP_STATS",
+        "SNAPSHOTS_NOT_CONTINUOUS_TREND",
+        "EVENT_CLASS_OBSERVED_NOT_CAPTURE_CONFIG",
+        "PROCESS_INSTANCE_SCOPE_REQUIRED"
+      ],
+      "requiredEvents": [
+        "GCHeapStats"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process and CLR instance identity"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/GcHeapStatsAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "clr.jit.intervals",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR JIT interval accounting",
+      "summary": "Pairs JIT start/load endpoints and reports complete method-compilation intervals projected into scope. A lone start/load, unmatched endpoints, unresolved identities, or invalid ordering yields partial evidence rather than availability.",
+      "questionsAnswered": [
+        "Which completed JIT intervals and durations were observed in scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do unmatched endpoints represent completed compilations?",
+        "Does projected duration equal the full interval?"
+      ],
+      "conclusionBoundaryCodes": [
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL",
+        "UNMATCHED_ENDPOINTS_NOT_INTERVALS",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "MethodJittingStarted",
+        "MethodLoadVerbose"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process and CLR instance identity",
+        "Structured source, completed, unmatched, and boundary counts"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/JitAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "clr.alloc.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR allocation stack association",
+      "summary": "Ranks stacks carried by CLR allocation-tick events using exact byte metrics.",
+      "questionsAnswered": [
+        "Which frames and managed types are associated with observed CLR allocation traffic?"
+      ],
+      "questionsNotAnswered": [
+        "Do sampled allocation ticks equal all allocations or retained memory?",
+        "Do stacks cover every allocation event?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ALLOCATION_TRAFFIC_NOT_RETENTION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "GCAllocationTick"
+      ],
+      "requiredEventStacks": [
+        "GCAllocationTick"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/ClrAllocStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "clr.exception.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR exception stack association",
+      "summary": "Ranks stacks carried by CLR exception events and reports exception-type observations.",
+      "questionsAnswered": [
+        "Which frames and exception types are associated with observed CLR exception events?"
+      ],
+      "questionsNotAnswered": [
+        "Does an exception event prove failure impact or causal root?",
+        "Do stacks cover every exception?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "ExceptionStart"
+      ],
+      "requiredEventStacks": [
+        "ExceptionStart"
+      ],
+      "optionalEvidence": [
+        "Explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/ClrExceptionStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "clr.contention.stacks",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR contention stack association",
+      "summary": "Pairs managed contention intervals and ranks associated start stacks with full/projected duration accounting.",
+      "questionsAnswered": [
+        "Which frames are associated with completed CLR contention duration in scope?"
+      ],
+      "questionsNotAnswered": [
+        "Does an associated contention stack prove the owner or causal blocker?",
+        "Do unmatched endpoints form completed contention?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "UNMATCHED_ENDPOINTS_NOT_INTERVALS",
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL"
+      ],
+      "requiredEvents": [
+        "ContentionStart",
+        "ContentionStop"
+      ],
+      "requiredEventStacks": [
+        "ContentionStart"
+      ],
+      "optionalEvidence": [
+        "Thread instance identity",
+        "explicit symbol context"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "focus_frame"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "raw_trace_stack_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/ClrContentionStackAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "clr.finalizer.activity",
+      "definitionVersion": 2,
+      "lifecycleStatus": "active",
+      "domain": "clr",
+      "title": "CLR finalizer activity",
+      "summary": "Uses the fixed GCFinalizeObject and GCFinalizersStart/Stop event set, reporting object points, batch endpoints, and valid completed batch pairs as distinct evidence in a process/window scope.",
+      "questionsAnswered": [
+        "How many GCFinalizeObject point events were observed in scope?",
+        "How many GCFinalizersStart/Stop endpoints were observed in scope?",
+        "Which valid completed finalizer batches could be paired and projected into scope?"
+      ],
+      "questionsNotAnswered": [
+        "Do finalizer counts prove a leak?",
+        "Do unmatched endpoints represent a completed batch?"
+      ],
+      "conclusionBoundaryCodes": [
+        "FINALIZATION_NOT_LEAK_PROOF",
+        "FINALIZER_OBJECT_EVENTS_NOT_BATCH_ENDPOINTS",
+        "BATCH_ENDPOINT_COUNT_NOT_COMPLETED_PAIR_COUNT",
+        "UNMATCHED_ENDPOINTS_NOT_INTERVALS",
+        "WINDOW_PROJECTION_NOT_FULL_INTERVAL"
+      ],
+      "requiredEvents": [
+        "GCFinalizeObject",
+        "GCFinalizersStart",
+        "GCFinalizersStop"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process and CLR instance identity"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ClrTools.cs",
+        "src/WpaMcp/Analyzers/FinalizerAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "temporal"
+    },
+    {
+      "capabilityId": "symbols.configuration.path",
+      "definitionVersion": 1,
+      "lifecycleStatus": "deprecated",
+      "domain": "symbols",
+      "title": "Configure process symbol path",
+      "summary": "Mutates the process-wide _NT_SYMBOL_PATH legacy configuration.",
+      "questionsAnswered": [
+        "What opaque symbol path string is configured after the mutation?"
+      ],
+      "questionsNotAnswered": [
+        "Are PDB files reachable, trusted, or correct?",
+        "Were any stack frames resolved?"
+      ],
+      "conclusionBoundaryCodes": [
+        "CONFIGURATION_NOT_SYMBOL_RESOLUTION",
+        "PROCESS_GLOBAL_STATE_MUTATION"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Process environment state"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "server"
+      ],
+      "costClass": "process_state_mutation",
+      "sideEffectClass": "symbol_path_configuration",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/SymbolTools.cs",
+        "src/WpaMcp/Core/SymbolPathState.cs"
+      ],
+      "replacedBy": "lifecycle.symbol.prepare",
+      "removalContractVersion": "2.0",
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "symbols.configuration.server",
+      "definitionVersion": 1,
+      "lifecycleStatus": "deprecated",
+      "domain": "symbols",
+      "title": "Add a symbol server configuration",
+      "summary": "Creates or reuses a cache directory and appends a trusted server entry to process-wide symbol configuration.",
+      "questionsAnswered": [
+        "What symbol-path configuration is in effect after adding the server entry?"
+      ],
+      "questionsNotAnswered": [
+        "Was the remote server contacted now?",
+        "Are symbols correct or frames resolved?"
+      ],
+      "conclusionBoundaryCodes": [
+        "CONFIGURATION_NOT_SYMBOL_RESOLUTION",
+        "EXTERNAL_STORAGE_SIDE_EFFECT_POSSIBLE"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Cache directory creation",
+        "process environment state"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "server"
+      ],
+      "costClass": "process_state_mutation",
+      "sideEffectClass": "symbol_server_configuration",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/SymbolTools.cs",
+        "src/WpaMcp/Core/SymbolService.cs"
+      ],
+      "replacedBy": "lifecycle.symbol.prepare",
+      "removalContractVersion": "2.0",
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "symbols.diagnostics.metadata",
+      "definitionVersion": 1,
+      "lifecycleStatus": "deprecated",
+      "domain": "symbols",
+      "title": "Local symbol metadata diagnostics",
+      "summary": "Reports trace PDB identities and direct local PDB candidate-read evidence without resolving frames.",
+      "questionsAnswered": [
+        "Which modules carry PDB identity and which eligible local candidate PDB files pass direct format/GUID/Age checks?"
+      ],
+      "questionsNotAnswered": [
+        "What percentage of stack frames resolve to function names?",
+        "Are remote symbols available?"
+      ],
+      "conclusionBoundaryCodes": [
+        "LOCAL_METADATA_NOT_SYMBOL_RESOLUTION",
+        "SYMBOLS_NOT_FRAME_RESOLUTION",
+        "RAW_PATH_SIDE_EFFECTS"
+      ],
+      "requiredEvents": [
+        "Image/module metadata"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Direct local PDB reads"
+      ],
+      "symbolRequirement": "metadata_only",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "local_probe",
+      "sideEffectClass": "diagnose_local_symbols",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/SymbolTools.cs",
+        "src/WpaMcp/Core/SymbolService.cs"
+      ],
+      "replacedBy": "lifecycle.symbol.prepare",
+      "removalContractVersion": "2.0",
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "security.scan.heuristics",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "security",
+      "title": "Scan-like security event heuristics",
+      "summary": "Classifies supported security-provider events and explicit scan-like name patterns with provenance and confidence.",
+      "questionsAnswered": [
+        "Which recognized or heuristic scan-like observations matched the requested filters?"
+      ],
+      "questionsNotAnswered": [
+        "Was a specific antivirus product certainly scanning the target?",
+        "Did scan-like activity cause a performance delay?"
+      ],
+      "conclusionBoundaryCodes": [
+        "HEURISTIC_NOT_ATTRIBUTION",
+        "SECURITY_EVENT_NOT_SCANNER_IDENTITY",
+        "ASSOCIATION_NOT_CAUSATION"
+      ],
+      "requiredEvents": [
+        "Supported security provider events or explicit scan-like names"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Payload target identity",
+        "paired start/stop intervals"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window",
+        "provider"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/SecurityTools.cs",
+        "src/WpaMcp/Analyzers/SecurityScanAnalysis.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "diagnosis.window.composite",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "diagnosis",
+      "title": "Bounded window evidence composite",
+      "summary": "Combines scoped CPU, wait, and related observations for one bounded time window with per-section evidence.",
+      "questionsAnswered": [
+        "What selected CPU/wait evidence was observed in this bounded process/window scope?"
+      ],
+      "questionsNotAnswered": [
+        "Does the composite prove one causal root?",
+        "Are skipped, failed, or top-N sections complete?"
+      ],
+      "conclusionBoundaryCodes": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Sampled profile and scheduler events when available"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "CPU stacks",
+        "blocking stacks"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "composite",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/DiagnoseTools.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "diagnosis.wait.composite",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "diagnosis",
+      "title": "High-wait candidate composite",
+      "summary": "Selects process-lifetime wait candidates and conditionally gathers blocking and ReadyThread stack associations within a budget.",
+      "questionsAnswered": [
+        "Which considered process instances have high observed wait ratios and what associated evidence was gathered?"
+      ],
+      "questionsNotAnswered": [
+        "Does a candidate or readier stack prove causal responsibility?",
+        "Were candidates outside bounded input evaluated?"
+      ],
+      "conclusionBoundaryCodes": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Thread/CSwitch"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Blocking stacks",
+        "ReadyThread stacks"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "composite",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/DiagnoseTools.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "diagnosis.startup.composite",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "diagnosis",
+      "title": "Slow-startup evidence composite",
+      "summary": "Ranks a bounded set of observed startup process instances and gathers CPU, wait, image-load, and window evidence.",
+      "questionsAnswered": [
+        "Which considered startup instances have the largest observed startup wall/wait evidence?"
+      ],
+      "questionsNotAnswered": [
+        "Does the selected evidence prove a startup root cause?",
+        "Were startup instances beyond the candidate-input cap evaluated?"
+      ],
+      "conclusionBoundaryCodes": [
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "TEMPORAL_GAP_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "Process/Start",
+        "Image/Load",
+        "scheduler events"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Sampled CPU stacks"
+      ],
+      "symbolRequirement": "optional",
+      "supportedScopes": [
+        "trace",
+        "process"
+      ],
+      "costClass": "composite",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Analyzers/SlowStartupProjection.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "scheduler.ready.causality",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "scheduler",
+      "title": "Mechanistic unblock causality",
+      "summary": "A future capability requiring paired mechanistic evidence before identifying a causal unblock source.",
+      "questionsAnswered": [
+        "Can mechanistic paired evidence establish who caused an unblock?"
+      ],
+      "questionsNotAnswered": [
+        "Can a ReadyThread readier stack alone establish causality?"
+      ],
+      "conclusionBoundaryCodes": [
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE"
+      ],
+      "requiredEvents": [
+        "ReadyThread plus mechanism-specific paired evidence"
+      ],
+      "requiredEventStacks": [
+        "ReadyThread and mechanism endpoints"
+      ],
+      "optionalEvidence": [],
+      "symbolRequirement": "explicit_context_required",
+      "supportedScopes": [
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "costClass": "composite",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "causal"
+    },
+    {
+      "capabilityId": "security.scanner.attribution",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "security",
+      "title": "Verified scanner attribution",
+      "summary": "A future capability requiring authoritative provider/product identity and target linkage.",
+      "questionsAnswered": [
+        "Can evidence authoritatively attribute a scan to a named scanner and target?"
+      ],
+      "questionsNotAnswered": [
+        "Can event-name heuristics prove scanner identity?"
+      ],
+      "conclusionBoundaryCodes": [
+        "HEURISTIC_NOT_ATTRIBUTION",
+        "SECURITY_EVENT_NOT_SCANNER_IDENTITY"
+      ],
+      "requiredEvents": [
+        "Authoritative scanner identity and target linkage"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "process",
+        "time_window",
+        "provider"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "attribution"
+    },
+    {
+      "capabilityId": "symbols.frame_resolution.measured",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "symbols",
+      "title": "Measured frame resolution",
+      "summary": "A future explicit symbol-context capability that measures successful frame-to-function lookup.",
+      "questionsAnswered": [
+        "What fraction of eligible stack frames actually resolved under one immutable symbol context?"
+      ],
+      "questionsNotAnswered": [
+        "Can PDB identity or local-file presence substitute for frame lookup?"
+      ],
+      "conclusionBoundaryCodes": [
+        "SYMBOLS_NOT_FRAME_RESOLUTION"
+      ],
+      "requiredEvents": [
+        "Stack frames and module identity"
+      ],
+      "requiredEventStacks": [
+        "Capability-selected stack domain"
+      ],
+      "optionalEvidence": [
+        "Immutable symbol context"
+      ],
+      "symbolRequirement": "explicit_context_required",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "stack_scan",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "trace.raw_event_count.external",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "trace",
+      "title": "External raw capture count",
+      "summary": "A future capability that reports a raw capture count with provenance distinct from parser-observed events.",
+      "questionsAnswered": [
+        "How many raw records does an external capture-level counter report, and under which counting basis?"
+      ],
+      "questionsNotAnswered": [
+        "Can TraceEvent parsed-event counts be relabeled as raw capture totals?"
+      ],
+      "conclusionBoundaryCodes": [
+        "PARSED_COUNT_NOT_RAW_CAPTURE_TOTAL"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "External capture-level counter"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "attribution.cross_domain.causal",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "attribution",
+      "title": "Cross-domain causal attribution",
+      "summary": "A future conclusion-rule capability requiring mechanistic, scoped, complete cross-domain evidence.",
+      "questionsAnswered": [
+        "Does named mechanistic evidence support a causal cross-domain conclusion?"
+      ],
+      "questionsNotAnswered": [
+        "Can temporal correlation or shared PID alone establish causality?"
+      ],
+      "conclusionBoundaryCodes": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "COMPOSITE_PARTIAL_EVIDENCE"
+      ],
+      "requiredEvents": [
+        "Mechanism-specific paired evidence"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [],
+      "symbolRequirement": "explicit_context_required",
+      "supportedScopes": [
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "costClass": "composite",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "causal"
+    },
+    {
+      "capabilityId": "lifecycle.symbol.prepare",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "lifecycle",
+      "title": "Prepare immutable symbol context",
+      "summary": "Prepares or reuses a principal-scoped immutable SymbolContextId from startup-approved local policy and verified pinned artifacts.",
+      "questionsAnswered": [
+        "Which immutable symbol context can be referenced by later analysis without hidden symbol I/O?"
+      ],
+      "questionsNotAnswered": [
+        "Can process-global symbol path mutation substitute for an immutable context?"
+      ],
+      "conclusionBoundaryCodes": [
+        "CONFIGURATION_NOT_SYMBOL_RESOLUTION",
+        "LOAD_NOT_REGISTRY_LIFECYCLE",
+        "SYMBOLS_NOT_FRAME_RESOLUTION"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Authorized symbol artifacts"
+      ],
+      "symbolRequirement": "explicit_context_required",
+      "supportedScopes": [
+        "server",
+        "trace"
+      ],
+      "costClass": "local_probe",
+      "sideEffectClass": "symbol_context_preparation",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+        "src/WpaMcp/Tools/SymbolLifecycleTools.cs",
+        "src/WpaMcp/Core/SymbolPreparation.cs",
+        "src/WpaMcp/Core/SymbolContextRegistry.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "lifecycle.trace.handle",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "lifecycle",
+      "title": "Principal-scoped trace handle",
+      "summary": "Registry-backed TraceId creation, acquisition, and retirement are implemented through load/query/unload operations; this remains a gap because no independent callable handle-status or inventory surface exposes a capability-keyed runtime outcome.",
+      "questionsAnswered": [
+        "Can the current MCP surface independently inspect the state of a principal-scoped TraceId?"
+      ],
+      "questionsNotAnswered": [
+        "Which handles, leases, expiry states, and immutable generations are currently active for this principal?",
+        "Can load_trace or unload_trace results substitute for an independent handle-status snapshot?"
+      ],
+      "conclusionBoundaryCodes": [
+        "HANDLE_OPERATIONS_NOT_STATUS_INSPECTION",
+        "RAW_PATH_NOT_QUERY_REFERENCE"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Trace registry generation identity"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "server",
+        "trace"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+        "src/WpaMcp/Core/TraceHandleRegistry.cs",
+        "src/WpaMcp/Core/TraceLifecycleService.cs",
+        "src/WpaMcp/Tools/MetaTools.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    },
+    {
+      "capabilityId": "lifecycle.trace.artifact_peak_bound",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "lifecycle",
+      "title": "Trace artifact physical peak hard bound",
+      "summary": "Release-blocked gap: retained quotas and serialized materialization checkpoint budgets are enforced, but the whole-root physical peak is not hard-bounded because TraceLog converter transient space is opaque.",
+      "questionsAnswered": [
+        "Is the configured artifact-store byte limit a proven hard bound on the whole artifact root's physical peak?"
+      ],
+      "questionsNotAnswered": [
+        "What exact maximum transient space can TraceLog.OpenOrConvert consume between observable checkpoints?",
+        "Can MaxArtifactStoreBytes be presented as a whole-operation or whole-root physical peak cap?"
+      ],
+      "conclusionBoundaryCodes": [
+        "RETAINED_QUOTA_NOT_WHOLE_ROOT_PEAK",
+        "CONVERTER_TRANSIENT_PEAK_NOT_HARD_BOUNDED",
+        "RELEASE_BLOCKED_PHYSICAL_PEAK_UNPROVEN"
+      ],
+      "requiredEvents": [],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Retained byte and object quota enforcement",
+        "Serialized single-materialization checkpoint budget",
+        "Independent worker or filesystem quota proof"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "server",
+        "trace"
+      ],
+      "costClass": "bootstrap",
+      "sideEffectClass": "none",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "docs/decisions/0004-trace-and-symbol-lifecycle.md",
+        "src/WpaMcp/Core/OwnedTraceArtifactStore.cs",
+        "tests/WpaMcp.Tests/TraceLifecycleProductionTests.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
+    }
+  ]
+}

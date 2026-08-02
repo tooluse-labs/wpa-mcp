@@ -13,7 +13,7 @@ public sealed class MarkerTools
     private readonly TraceCache _cache;
     public MarkerTools(TraceCache cache) => _cache = cache;
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Searches all events whose name or task contains the given substring (case-insensitive). " +
         "Default mode 'count_by_event' returns a histogram, which avoids dumping every matching row " +
         "for broad queries like 'Process'. Switch to 'rows' for full event detail. " +
@@ -21,7 +21,7 @@ public sealed class MarkerTools
         "to choose windows for downstream analyzers. An empty result returns no_name_match; it " +
         "does not establish that a provider or capture keyword was disabled.")]
     public MarkerSearchResponse FindMarker(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Substring to match against event/task names")] string nameSubstring,
         [Description("Top N rows (counts: top buckets; rows: max events) (default 50, max 1000)")] int top = 50,
         [Description("'count_by_event' (default), 'count_by_process', or 'rows'")] string mode = ModeCountByEvent,

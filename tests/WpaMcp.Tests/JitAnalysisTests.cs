@@ -250,6 +250,54 @@ public class JitAnalysisTests
     }
 
     [Fact]
+    public void JitRows_UseCompleteStableTieBreakersForEqualAccountedDuration()
+    {
+        static PairedInterval<JitPairKey, JitStartData, JitStopData> RankedPair(
+            int pid,
+            long processStartUs,
+            long methodId,
+            string method,
+            int ilSize,
+            long endUs) =>
+            new(
+                new JitPairKey(
+                    new ProcessInstanceKey(pid, processStartUs),
+                    ClrInstanceId: 1,
+                    MethodId: methodId),
+                StartUs: 90,
+                EndUs: endUs,
+                new JitStartData(method, ilSize),
+                new JitStopData());
+
+        var response = JitAnalysis.ProjectPairs(
+            [
+                RankedPair(20, 200, 7, "A", 10, 160),
+                RankedPair(10, 300, 6, "A", 10, 160),
+                RankedPair(10, 100, 5, "B", 1, 155),
+                RankedPair(10, 100, 4, "A", 5, 170),
+                RankedPair(10, 100, 3, "A", 20, 160),
+                RankedPair(10, 100, 2, "A", 10, 160),
+            ],
+            new TimeWindow(100, 150),
+            pid: null,
+            top: 10);
+
+        Assert.All(response.TopMethods, row => Assert.Equal(50, row.AccountedDurationUs));
+        Assert.Equal(
+            new[]
+            {
+                (10, 100L, "A", 160L, 10),
+                (10, 100L, "A", 160L, 20),
+                (10, 100L, "A", 170L, 5),
+                (10, 100L, "B", 155L, 1),
+                (10, 300L, "A", 160L, 10),
+                (20, 200L, "A", 160L, 10),
+            },
+            response.TopMethods.Select(row =>
+                (row.Pid, row.ProcessStartUs, row.Method, row.EndUs, row.MethodIlSize)));
+    }
+
+    [Fact]
     public void ClrJitAnalysis_NoMatchingEvents_ReturnsZeroMetricsAndWarns()
     {
         var tools = new ClrTools(new TraceCache(capacity: 2));

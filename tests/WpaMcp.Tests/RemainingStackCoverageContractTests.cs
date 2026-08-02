@@ -129,14 +129,14 @@ public sealed class RemainingStackCoverageContractTests
         Assert.Equal(top.AllocatedBytes - top.FreedBytes, top.NetObservedOperationBytes);
         Assert.Equal(top.TotalOperationBytes, top.TotalBytes);
         Assert.Equal(top.TotalOperationCount, top.TotalOpCount);
-        Assert.Equal("float32_per_sample_approximate", top.MetricPrecision);
-        Assert.Equal("float32_per_sample_approximate", top.RowMetricAccounting);
+        Assert.Equal("exact_long", top.MetricPrecision);
+        Assert.Equal("exact_long", top.RowMetricAccounting);
         Assert.Equal("exact_long", top.ExactTotalAccounting);
         var callerCallee = tools.VirtualAllocCallerCallee(CpuFixture, Pick(top.Rows, row => row.Function), top: 5);
         AssertSameCoverage(top.StackCoverage, callerCallee.StackCoverage);
         Assert.Equal("virtualMemoryOperationBytes", callerCallee.MetricName);
-        Assert.Equal("float32_per_sample_approximate", callerCallee.MetricPrecision);
-        Assert.Equal("float32_per_sample_approximate", callerCallee.RowMetricAccounting);
+        Assert.Equal("exact_long", callerCallee.MetricPrecision);
+        Assert.Equal("exact_long", callerCallee.RowMetricAccounting);
         Assert.Equal("exact_long", callerCallee.ExactTotalAccounting);
     }
 

@@ -41,19 +41,16 @@ public static class ImageLoadStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        // Metric=1 per load means ExclusiveCount and ExclusiveMetric are equal — pick
-        // ExclusiveCount for parity with CpuAnalysis.
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalSamples = (double)Math.Max(1, callTree.Root.InclusiveCount);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalSamples = Math.Max(1L, exact.TotalCount);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact, rankByCount: true)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveCount)
             .Take(top)
             .Select(n => new ImageLoadStackRow(
-                Function: n.Name,
-                ExclusiveLoads: (long)n.ExclusiveCount,
-                InclusiveLoads: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveLoads: n.ExclusiveCount,
+                InclusiveLoads: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalSamples, n.ExclusiveCount),
                 InclusivePct: StackSourceTopN.Pct(totalSamples, n.InclusiveCount),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalLoads, n.ExclusiveCount),
@@ -65,7 +62,7 @@ public static class ImageLoadStackAnalysis
             TotalLoads: ctx.TotalLoads,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("load_count"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

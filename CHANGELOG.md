@@ -9,56 +9,84 @@ GitHub Releases and the git tag history.
 
 ### Migration notes
 
-- Process identity is now `(Pid, ProcessStartUs)`, and exact replayable thread
-  identity adds `(Tid, ThreadStartUs, ThreadGeneration)`. Consumers must
-  preserve these selectors from process/thread rows instead of treating PID,
-  TID, or an inferred capture-boundary start timestamp as globally unique.
-- Empty-result consumers must inspect `ScopeStatus`, `CapabilityStatus`,
-  `MatchedEventCount`, `NoDataReason`, and `Warnings`. An empty `Rows` array no
-  longer has a standalone meaning; `not_observed` is reserved for established
-  whole-trace absence, while filtered uncertainty is `unknown`.
-- Whole-trace and scoped evidence are now explicitly separated through
-  `Trace*` and `Scoped*` fields. Legacy unmatched-interval fields remain as
-  deprecated trace-global aliases; do not attribute them to the selected PID,
-  TID, or window.
-- Interval-backed tools separate scoped raw `MatchedEventCount` endpoints from
-  completed `MatchedIntervalCount` projections. `source_events_unattributed`
-  and `no_completed_intervals_in_scope` prevent identity loss or lone endpoints
-  from being mislabeled as event-class absence.
-- All tools use `ReadOnly=false` MCP metadata because calls may change server
-  or filesystem state. Raw trace/cache paths are conservatively
-  `OpenWorld=true` because caller-supplied paths may be UNC, mapped, or
-  reparse-point targets; only `set_symbol_path` is `OpenWorld=false`.
-  `Destructive=true` conservatively covers ETLX replacement/refresh, cache
-  retirement, and process-wide symbol-path replacement; incremental
-  `add_symbol_server` is the sole `Destructive=false` tool. All tools are
-  idempotent except `set_symbol_path`. These flags do not claim mutation of the
-  ETL's logical event stream or active remote access by `diagnose_symbols`.
-- Symbol consumers must distinguish trace PDB identity, local candidate
-  discovery, verified local readiness, and actual observed frame-name
-  resolution. `LookupStatus` now distinguishes exact GUID/age match, identity
-  mismatch, invalid data, and `candidate_identity_unverified`; its failure
-  reason separates unreadable input from unavailable native-reader support.
-  Deprecated module-resolution fields may be null.
-- `load_trace.SymbolStatus.CacheDir`, `inspect_trace.SymbolQuality.CacheDir`,
-  and `diagnose_symbols.CacheDir` are documented as the fallback used by
-  `add_symbol_server` when no cache is supplied, not the cache currently
-  configured in `_NT_SYMBOL_PATH`; the diagnose field remains a deprecated
-  compatibility alias of `DefaultCacheDir`.
-- Stack row metrics marked `float32_per_sample_approximate` remain approximate
-  even when serialized as `long`; source totals/coverage marked `exact_long`
-  are exact and are not required to equal the sum of approximate top rows.
+- Contract and trace-reference modes are now immutable startup settings.
+  Configure `WPAMCP_CONTRACT_MODE=2.0|legacy` / `--contract-mode` and
+  `WPAMCP_TRACE_REFERENCE_MODE=id_only|compatibility` /
+  `--trace-reference-mode`; command-line values win. The active runtime has no
+  reviewed legacy result adapter, so `legacy` fails closed instead of returning
+  a mislabeled Contract 2.0 envelope. Raw-path compatibility is deprecated and
+  removed in 1.0.0. Read `wpa://runtime/profile` for the selected pair and
+  blockers; see `docs/CONTRACT_MIGRATION.md`.
+
+- The validated development catalog is now 60 active tools joined to 51
+  declared capabilities, 15 goals, and 15 workflows. The capability map is
+  exhaustive for this server surface, not for the complete WPA/ETW universe;
+  clients must follow every `tools/list` and `list_capabilities` cursor page.
+- All active tools now use the closed Contract 2.0 envelope. Consumers must
+  interpret `scope`, `capabilityEvidence`, `completeness`, per-section state,
+  `evidenceBoundary`, `precision`, `noData`, and `error` before domain data.
+  Each tool's complete section semantics are available at
+  `wpa://tools/{toolName}/sections` and linked pages.
+- A `response_too_large` result is a terminal delivery failure with
+  `data=null`, `scope=null`, empty sections, and `hasMore=false`. It neither
+  proves that the requested scope was empty nor provides continuation.
+- Process identity is `(Pid, ProcessStartUs)`; exact replayable thread identity
+  adds `(Tid, ThreadStartUs, ThreadGeneration)`. Opaque trace, symbol,
+  connection, file, handle, and address identifiers are JSON strings and must
+  not pass through a JavaScript `number`.
+- Secure-default trace queries require the canonical TraceId from `load_trace`.
+  The raw source is snapshotted into the owned artifact store; `unload_trace`
+  retires a handle but does not claim artifact deletion.
+- Symbol consumers must keep trace PDB identity, local candidate discovery,
+  verified readiness, and observed frame-name resolution separate.
+  `prepare_symbols` is the sole local preparation boundary, returns an immutable
+  SymbolContextId, and performs no network access. Queries never fall back to
+  `_NT_SYMBOL_PATH`, the trace directory, arbitrary disk search, or a server.
+  This build has no context-bound TraceEvent frame adapter, so
+  `resolveSymbols=true` fails closed with `symbol_resolution_unavailable` rather
+  than relabeling readiness or unsymbolized stacks as measured resolution.
+- In the ID-only profile, 57 discovery/analysis tools are read-only,
+  idempotent, closed-world, and non-destructive. The three stateful boundaries
+  are `load_trace`, `prepare_symbols`, and `unload_trace`; profile-projected
+  annotations remain authoritative in compatibility mode.
+- Public stack rows now use checked Int64 metrics retained in parallel with the
+  TraceEvent topology. The library's float sample field is no longer cast back
+  to `long` and exposed as exact.
 
 ### Added
 
-- Added `unload_trace` so MCP clients can retire a resident trace explicitly and
-  register an adjacent-ETLX refresh for the next raw-ETL load in the current
-  server process. The response explicitly states that the request does not
-  survive restart and is not proof that regeneration has already succeeded.
-- Added `inspect_trace.AnalysisContract` and verified its descriptions through
-  the real MCP output schema, giving LLM clients compact machine-visible scope,
-  count, empty-result, stack, symbol, replay, and causality rules without
-  unbounded `tools/list` schema duplication.
+- Added `list_capabilities`, the paged Server Capability Map, plus
+  `wpa://capabilities/server`, per-domain capability pages,
+  `wpa://tools/server`, per-domain tool pages, workflow resources, and complete
+  per-tool section-contract resources. Tools-only clients retain full discovery
+  through `tools/list` plus `list_capabilities`.
+- Added the paged Trace Evidence Map to `inspect_trace`, including runtime
+  capability evaluators, same-domain stack coverage, capture/symbol boundaries,
+  self-attribution status, applicable tools, and workflows.
+- Added closed output schemas and synchronized structured/text Contract 2.0
+  envelopes for all 60 active tools, with section-local order, tie-breakers,
+  total/more state, proof mode, continuation, evidence IDs, measurement basis,
+  relationship, and conclusion status.
+- Added exact full-frame fitting and terminal structured budget failure.
+  `list_processes` plus admitted timeline queries use cursor paging bound to the
+  principal, trace generation, contract, query, scope, symbol context, and
+  privacy profile; clients must follow every page for a complete inventory.
+- Added explicit trace and symbol lifecycles: canonical principal-scoped TraceId,
+  immutable owned artifacts, lease-safe `unload_trace`, startup-approved local
+  symbol roots, a private verified store, and immutable SymbolContextId.
+- Added a generation-level single-flight `TraceFactsSnapshot` and typed
+  `QueryPlanner` admission for `inspect_trace`. Direct composites continue to
+  disclose that they do not prove a single shared planner dispatch.
+- Added a version-aware ADR 0005 rollout policy for the 0.4, 0.5, and 1.0
+  default/removal windows. The current 0.3.0 development profile remains
+  runnable as Contract 2.0 + ID-only but is machine-marked release-blocked.
+- Added `wpa://runtime/profile`, privacy-safe runtime-profile telemetry, and
+  `--runtime-profile` / `--validate-release-profile`. `tools/list` cursors now
+  receive the selected startup contract mode from the same profile.
+- Added release gates that compare the exact published executable's runtime
+  profile with its project version, commit-bound package stdio evidence,
+  corrected active snapshots, manifests, and uploaded artifact hashes.
+
 - Added consistent process/thread scope metadata, capability status,
   matched-event counts, stable no-data reasons, and replayable candidates across
   process-oriented analysis tools.
@@ -68,11 +96,9 @@ GitHub Releases and the git tag history.
 - Added explicit trace/scoped scheduler and interval-completeness counters,
   including scoped CSwitch stack coverage and replayable `ThreadStartUs` plus
   `ThreadGeneration` on CPU precise and wait rows.
-- Added pure-local PDB GUID/age validation through direct TraceEvent
-  `OpenSymbolFile` calls. `diagnose_symbols` does not actively access remote
-  SRV/UNC entries or download symbols and does not claim that identity
-  readiness is observed frame-name resolution; OS redirection of a
-  local-looking root remains possible.
+- Added exact local PDB name/GUID/age validation before a candidate is copied to
+  and pinned from the private verified-symbol store. Preparation reports frame
+  resolution as unmeasured; context-bound lookup remains a declared gap.
 
 ### Fixed
 
@@ -108,32 +134,37 @@ GitHub Releases and the git tag history.
   bytes instead of implying that every weighted byte is retained allocation.
 - Resolved FileObject/FileKey names in trace order so pointer/key reuse or later
   rundown mappings cannot rename historical File I/O or hard-fault evidence.
-- Restricted symbol-server recommendations to modules with complete PDB
-  name/GUID/age identity; incomplete identity now leads to recapture/merge
-  guidance rather than an unusable server recommendation.
-- Fixed local symbol-candidate aggregation so a corrupt symbol-store entry
-  cannot hide an exact matching flat PDB, and directory placement alone is no
-  longer treated as identity evidence.
-- Restricted bare-path diagnosis to direct `<root>\<pdbName>` candidates and
-  symbol-store-layout probing to roots declared through `SRV`/`SYMSRV`/`CACHE`.
-  All configured candidates are now verified before the 10-path display cap;
-  total/truncation fields expose omitted paths and exact matches display first.
-- Made PDB failure classification conservative: ambiguous Windows DIA/candidate
-  failures remain `candidate_identity_unverified`, while invalid status requires
-  a rejecting container probe or an explicit portable-PDB data error. The
-  no-remote-I/O contract now disclaims OS-redirection through mapped drives and
-  reparse points.
-- Hardened trace caching with canonical Windows case-insensitive keys, a single
-  winning concurrent open, lease-safe retirement, unload invalidation, and a
-  freshness stamp containing timestamps, length, and Windows volume/file ID;
-  failed last-lease native cleanup remains centrally retryable.
+- Corrected wait denominators and stack evidence so trace-wide CSwitch counts,
+  scoped CSwitch counts, scoped blocking-stack coverage, and rows retain their
+  own scopes.
+- Replaced ambient symbol-path mutation and query-time discovery with a
+  startup-approved local policy. Candidate and store roots must be local and
+  disjoint; candidate reparse traversal, identity mismatch, and unverified
+  artifacts fail closed.
+- Hardened trace loading with allowlisted local roots, opened-handle snapshots,
+  immutable owned artifacts, generation single-flight, lease-safe retirement,
+  and principal-scoped opaque handles.
+- Made Top-N and budget omission observable through per-section exact/lower-
+  bound/unknown totals, more state, concrete comparators, and continuation state.
+- Prevented ready-thread association evidence and heuristic security-scan
+  matches from being presented as mechanistic unblock or scanner attribution.
 
 ### Known boundary
 
-- A same-file in-place rewrite that preserves file identity, length, and all
-  tracked timestamps is indistinguishable from the cached input. Explicitly
-  call `unload_trace` before querying the rewritten trace; restarting alone does
-  not invalidate a newer stale ETLX sidecar.
+- The current 0.3.0 Contract 2.0 + ID-only profile is runnable for development
+  but release-blocked. A reviewed legacy result adapter does not exist and
+  `legacy` fails closed.
+- Corrected active baseline files may exist without being release-approved.
+  Release still requires a same-commit package/profile/manifests/baselines/hash
+  evidence set and the supported-client paging/token/cache matrix where required.
+- Retained artifact quotas do not prove the opaque converter's transient
+  physical disk peak; the independent materialization-budget gate remains open.
+- `inspect_trace` uses the typed planner and generation snapshot. Composites not
+  admitted by the manifest still execute directly and do not claim one physical
+  shared dispatch; large-trace performance/cancellation evidence remains a gate.
+- `symbols.frame_resolution.measured` remains a declared gap. The current
+  SymbolContextId lifecycle proves local readiness but cannot yet resolve frames;
+  real-trace context-bound resolver evidence is required before that claim changes.
 
 ## v0.2.24 - 2026-07-31
 

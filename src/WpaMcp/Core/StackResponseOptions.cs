@@ -10,7 +10,7 @@ internal static class StackResponseOptions
     public const string SummaryOnlyDescription =
         "Return a lossy smaller leaf/metric summary by capping row count at the documented compact limit regardless of the requested top. Rerun with summaryOnly=false, optionally with a larger top, when long-tail detail matters.";
     public const string ResolveSymbolsDescription =
-        "Resolve warm native symbols through _NT_SYMBOL_PATH. Default false for stack-heavy MCP tools so broad whole-trace calls do not block on remote PDB downloads; rerun with resolveSymbols=true after narrowing pid/startUs/endUs when exact function names matter. Enabling it may download and write PDBs into the configured local symbol cache.";
+        "Requires a valid same-generation symbolContextId prepared by prepare_symbols. Queries never fall back to _NT_SYMBOL_PATH, the trace directory, disk search, or network. This build exposes verified immutable readiness but does not yet provide context-bound TraceEvent frame lookup, so resolveSymbols=true fails explicitly instead of returning an unsymbolized result as if resolution succeeded.";
 
     // Approximate Claude Code's 10k/25k token response budgets for ASCII-heavy JSON
     // as serialized bytes. The guard is byte-based, not a tokenizer estimate.

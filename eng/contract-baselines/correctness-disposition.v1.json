@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 1,
+  "baselineDate": "2026-08-01",
+  "design": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
+  "acceptedDecision": "docs/decisions/0002-capability-map-evidence-contract.md",
+  "dispositionSemantics": "The disposition records the reviewed legacy migration treatment. currentImplementationStatus records later implementation evidence without erasing the original defect classification.",
+  "unresolvedProgramGates": [
+    {
+      "id": "third_party_client_matrix",
+      "status": "external_validation_pending"
+    },
+    {
+      "id": "opaque_converter_physical_peak",
+      "status": "release_blocked_measurement_pending"
+    },
+    {
+      "id": "contract_0_5_deprecation_telemetry",
+      "status": "rollout_telemetry_pending"
+    },
+    {
+      "id": "release_approval_tag_and_assets",
+      "status": "release_approval_pending"
+    }
+  ],
+  "dispositions": [
+    {
+      "issueId": "COR-SCOPE-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_process_instance_scoping_and_lifetime_aware_unresolved_diagnostics_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "ProcessInstanceKey",
+        "ProcessStartUs",
+        "ScopeStatus",
+        "ScopeMode",
+        "SelectedProcess",
+        "IncludedProcesses",
+        "PidReuseObserved"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/ProcessAnalysisScope.cs",
+        "src/WpaMcp/Analyzers/TraceIdentityIndex.cs",
+        "src/WpaMcp/Analyzers/ThreadAnalysisScope.cs",
+        "src/WpaMcp/Analyzers/MemoryResourceAnalysis.cs",
+        "src/WpaMcp/Analyzers/GcAnalysis.cs",
+        "src/WpaMcp/Analyzers/GcHeapStatsAnalysis.cs",
+        "src/WpaMcp/Analyzers/JitAnalysis.cs",
+        "src/WpaMcp/Analyzers/FinalizerAnalysis.cs",
+        "src/WpaMcp/Analyzers/ClrContentionStackAnalysis.cs",
+        "src/WpaMcp/Analyzers/NetConnectionAnalysis.cs",
+        "src/WpaMcp/Analyzers/WaitAnalysis.cs",
+        "src/WpaMcp/Analyzers/BlockedTimeStackAnalysis.cs",
+        "src/WpaMcp/Analyzers/CpuPreciseAnalysis.cs",
+        "tests/WpaMcp.Tests/ProcessAnalysisScopeTests.cs",
+        "tests/WpaMcp.Tests/PointStackProcessScopeContractTests.cs",
+        "tests/WpaMcp.Tests/GcHeapStatsAnalysisTests.cs",
+        "tests/WpaMcp.Tests/FinalizerAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ClrContentionStackAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ScopedUnresolvedLifetimeTests.cs"
+      ],
+      "migrationRule": "Process-scoped tools must not regress to PID-only aggregation."
+    },
+    {
+      "issueId": "COR-SCOPE-002",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_instance_key_grouping_and_replay_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "HighWaitCandidate.ProcessStartUs",
+        "ProcessInstanceKey"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "tests/WpaMcp.Tests/DiagnoseToolsTests.cs"
+      ],
+      "migrationRule": "High-wait candidates and follow-up calls must propagate exact process-instance identity."
+    },
+    {
+      "issueId": "COR-STACK-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_domain_scoped_coverage_and_recommendation_gating_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "DomainStackCoverage.EventCoveragePct",
+        "DomainStackCoverage.MetricCoveragePct",
+        "StackCoverageState",
+        "StackSemantics",
+        "SyntheticUnknownState"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/TraceCapabilitiesDetector.cs",
+        "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+        "tests/WpaMcp.Tests/StackCoverageContractTests.cs",
+        "tests/WpaMcp.Tests/RemainingStackCoverageContractTests.cs"
+      ],
+      "migrationRule": "Recommendations must use scoped per-domain stack coverage; global HasStackWalks is compatibility-only."
+    },
+    {
+      "issueId": "COR-SYMBOL-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_pdb_identity_separated_from_observed_frame_resolution",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "FrameResolutionMeasurementState",
+        "FrameResolution"
+      ],
+      "deprecatedProjections": [
+        "ResolvedModuleCount",
+        "ModuleResolutionRate",
+        "TopUnresolvedModules",
+        "ModuleSymbolStatus.FrameCount",
+        "ModuleSymbolStatus.Resolved"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Tools/SymbolTools.cs",
+        "tests/WpaMcp.Tests/MetaToolsTests.cs",
+        "tests/WpaMcp.Tests/SymbolServiceTests.cs"
+      ],
+      "migrationRule": "PDB identity is not frame resolution; absent explicit measurement remains not_measured/null."
+    },
+    {
+      "issueId": "COR-WAIT-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_scoped_denominators_stack_coverage_and_lifetime_aware_unresolved_diagnostics_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "TraceCSwitches",
+        "WindowCSwitches",
+        "ScopedCSwitches",
+        "ScopedStackedCSwitches",
+        "HasScopedBlockingStacks",
+        "ScopedStackCoveragePct"
+      ],
+      "deprecatedProjections": [
+        "TotalCSwitches"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/WaitAnalysis.cs",
+        "src/WpaMcp/Analyzers/BlockedTimeStackAnalysis.cs",
+        "tests/WpaMcp.Tests/WaitAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ThreadScopedCpuWaitTests.cs",
+        "tests/WpaMcp.Tests/ScopedUnresolvedLifetimeTests.cs"
+      ],
+      "migrationRule": "Wait denominators and stack availability must remain explicitly trace-, window-, and scope-qualified."
+    },
+    {
+      "issueId": "COR-NODATA-001",
+      "disposition": "normalize_only",
+      "currentImplementationStatus": "fixed_contract2_structured_scope_capability_no_data_and_partial_failure_envelope_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "ScopeStatus",
+        "CapabilityStatus",
+        "MatchedEventCount",
+        "MatchedIntervalCount",
+        "NoDataReason",
+        "Warnings"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/FileIoAnalysis.cs",
+        "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/FileIoAnalysisTests.cs",
+        "tests/WpaMcp.Tests/CpuAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "migrationRule": "The vNext envelope may normalize placement, but must preserve the distinction between selector failure, capability absence, scoped no-data, and budget partial."
+    },
+    {
+      "issueId": "COR-VM-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_directional_operation_accounting_and_non_live_semantics_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "AllocatedBytes",
+        "FreedBytes",
+        "TotalOperationBytes",
+        "NetObservedOperationBytes"
+      ],
+      "deprecatedProjections": [
+        "TotalBytes",
+        "TotalOpCount"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/VirtualAllocStackAnalysis.cs",
+        "tests/WpaMcp.Tests/VirtualAllocPrecisionContractTests.cs"
+      ],
+      "migrationRule": "Operation traffic and observed net operation bytes must never be presented as live size, commit, or leak."
+    },
+    {
+      "issueId": "COR-FILEMAP-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_typed_temporal_resolution_and_aggregate_state_counts_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "TemporalFileNameMap",
+        "EventIndex",
+        "MappingState"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/FileObjectResolver.cs",
+        "src/WpaMcp/Analyzers/FileIoAnalysis.cs",
+        "src/WpaMcp/Analyzers/HardFaultByFileAnalysis.cs",
+        "src/WpaMcp/Output/Records.cs",
+        "tests/WpaMcp.Tests/FileObjectResolverTests.cs",
+        "tests/WpaMcp.Tests/FileIoAnalysisTests.cs",
+        "tests/WpaMcp.Tests/HardFaultByFileAnalysisTests.cs"
+      ],
+      "migrationRule": "FileObject/FileKey resolution remains time-ordered and lifetime-aware. MappingState and MappingStateEventCounts are authoritative; canonical display sentinels are presentation only. Conflicting valid FileKey/FileObject names remain ambiguous and neither candidate may be selected."
+    },
+    {
+      "issueId": "COR-PRECISION-001",
+      "disposition": "known_incorrect_must_change",
+      "currentImplementationStatus": "fixed_targeted_and_stack_regression_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "MetricPrecision",
+        "RowMetricAccounting",
+        "ExactTotalAccounting"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+        "tests/WpaMcp.Tests/StackSourceTopNTests.cs",
+        "tests/WpaMcp.Tests/VirtualAllocPrecisionContractTests.cs"
+      ],
+      "migrationRule": "No public long may be reconstructed from binary32 StackSourceSample.Metric and described as exact."
+    },
+    {
+      "issueId": "COR-SIDEFX-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_active_secure_query_path_trace_id_and_immutable_symbol_context_no_environment_mutation_verified_legacy_symbol_mutators_inactive",
+      "targetPhase": 3,
+      "authoritativeFacts": [
+        "QueryLocalSymbolPathSnapshot",
+        "RiskAnnotations"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Core/TraceCache.cs",
+        "src/WpaMcp/Core/SymbolPathState.cs",
+        "src/WpaMcp/Core/TraceSymbolContext.cs",
+        "src/WpaMcp/Core/TraceQueryExecutionContext.cs",
+        "src/WpaMcp/Core/SymbolQueryExecutionFilters.cs",
+        "src/WpaMcp/Core/Catalog/ActiveToolCatalog.cs",
+        "eng/contract-baselines/side-effect-inventory.v1.json",
+        "tests/WpaMcp.Tests/SymbolServiceTests.cs",
+        "tests/WpaMcp.Tests/SideEffectInventoryTests.cs",
+        "tests/WpaMcp.Tests/SymbolContextProductionTests.cs",
+        "tests/WpaMcp.Tests/TraceQueryExecutionFiltersTests.cs"
+      ],
+      "migrationRule": "Queries must not mutate process _NT_SYMBOL_PATH; lifecycle refactoring must preserve query-local isolation and truthful worst-case annotations."
+    },
+    {
+      "issueId": "COR-CACHE-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_single_flight_leases_and_file_stamp_verified",
+      "targetPhase": 3,
+      "authoritativeFacts": [
+        "SingleFlightTraceOpen",
+        "TraceLease",
+        "FileStamp"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Core/LruCache.cs",
+        "src/WpaMcp/Core/TraceCache.cs",
+        "tests/WpaMcp.Tests/LruCacheTests.cs",
+        "tests/WpaMcp.Tests/TraceCacheTests.cs"
+      ],
+      "migrationRule": "Expensive trace open/conversion remains single-flight without moving it under a global LRU lock."
+    },
+    {
+      "issueId": "COR-CAUSAL-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_contract2_association_ceiling_and_structured_does_not_prove_boundary_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "MeasurementBasis",
+        "Relationship",
+        "DoesNotProve"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Tools/ReadyThreadTools.cs",
+        "src/WpaMcp/Analyzers/ReadyThreadStackAnalysis.cs",
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/ReadyThreadContractTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "migrationRule": "Readier stacks are associations and cannot alone establish the unblock root cause."
+    },
+    {
+      "issueId": "COR-HEURISTIC-001",
+      "disposition": "preserve",
+      "currentImplementationStatus": "fixed_contract2_heuristic_basis_provenance_and_not_concluded_boundary_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "EvidenceKind",
+        "Provenance",
+        "Confidence",
+        "DoesNotProve"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/SecurityScanAnalysis.cs",
+        "src/WpaMcp/Tools/SecurityTools.cs",
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "migrationRule": "Known-provider schema evidence and name heuristics remain distinct; heuristic matches cannot be stated as confirmed malware scanning."
+    },
+    {
+      "issueId": "COR-COUNT-001",
+      "disposition": "normalize_only",
+      "currentImplementationStatus": "fixed_contract2_parsed_raw_and_parser_measurement_provenance_boundary_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "ParsedEventCount",
+        "RawEventCountMeasurementState",
+        "ParserCoverageState"
+      ],
+      "deprecatedProjections": [
+        "EventCount"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Analyzers/TraceMetadataAnalysis.cs",
+        "src/WpaMcp/Core/Catalog/TraceEvidenceMapBuilder.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/MetaToolsTests.cs",
+        "tests/WpaMcp.Tests/InspectTraceTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "migrationRule": "TraceLog/ETLX logical event count must remain distinct from raw ETL records and parser coverage."
+    },
+    {
+      "issueId": "COR-PAGING-001",
+      "disposition": "known_incorrect_must_change",
+      "currentImplementationStatus": "fixed_contract2_section_and_reachable_collection_completeness_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "TotalState",
+        "HasMore",
+        "Sort",
+        "TieBreaker",
+        "TruncationReason",
+        "Continuation"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Core/StackResponseOptions.cs",
+        "src/WpaMcp/Analyzers/FileIoAnalysis.cs",
+        "src/WpaMcp/Analyzers/MemoryResourceAnalysis.cs",
+        "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+        "src/WpaMcp/Analyzers/WaitAnalysis.cs",
+        "src/WpaMcp/Analyzers/SecurityScanAnalysis.cs",
+        "src/WpaMcp/Analyzers/SlowStartupProjection.cs",
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/CompositeResultContractValidator.cs",
+        "src/WpaMcp/Core/ToolOpaqueLocatorInputOverlay.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Core/ToolResponseFrameFitter.cs",
+        "src/WpaMcp/Output/Records.cs",
+        "src/WpaMcp/Output/StartupRecords.cs",
+        "eng/tool-contracts.v2.json",
+        "tests/WpaMcp.Tests/ActiveReachableCollectionClosureTests.cs",
+        "tests/WpaMcp.Tests/ContractBaselines/active-reachable-collection-closure.v1.json",
+        "tests/WpaMcp.Tests/ActiveToolCatalogTests.cs",
+        "tests/WpaMcp.Tests/StackResponseOptionsTests.cs",
+        "tests/WpaMcp.Tests/WaitAnalysisTests.cs",
+        "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+        "tests/WpaMcp.Tests/DiagnoseToolsTests.cs",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "knownRemainingGaps": [],
+      "remainingGapSemantics": "The active Contract 2.0 implementation closure is verified for the current catalog: exact-requested histogram buckets, per-selector CPU batch boundaries, row-local bounded collections, opaque locator schema constraints, manifest pageable sections, reachable collection dispositions, and reviewed source-cap sites are covered by focused tests plus the deterministic fail-closed reachable-collection gate. This implementation fact does not close third-party client, rollout telemetry, large-trace, packaging, approval, tag, or release-asset gates.",
+      "migrationRule": "Prefer exact pre-truncation totals when the full aggregate cardinality is measured. When it is not measured, publish only an honest lower_bound or unknown/source_limit_saturated state; never fabricate exact, terminal, or continuation. Every bounded collection and full response frame must make omissions, ordering, totals, more-state, and continuation availability observable, and composite fitting must preserve cross-section reference integrity."
+    },
+    {
+      "issueId": "COR-TRUNCATION-001",
+      "disposition": "known_incorrect_must_change",
+      "currentImplementationStatus": "fixed_contract2_typed_nested_samples_boundary_verified",
+      "targetPhase": 4,
+      "authoritativeFacts": [
+        "WindowEvidenceSample",
+        "SamplesBoundary",
+        "Representative",
+        "MetricAttributable",
+        "SampleScope"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Output/Records.cs",
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Core/CompositeResultContractValidator.cs",
+        "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+        "tests/WpaMcp.Tests/CompositeResultContractValidatorTests.cs",
+        "tests/WpaMcp.Tests/ActiveReachableCollectionClosureTests.cs",
+        "tests/WpaMcp.Tests/ContractBaselines/active-reachable-collection-closure.v1.json"
+      ],
+      "knownRemainingGaps": [],
+      "remainingGapSemantics": "Verified for the current active implementation: Details contains only exhaustive annotations; bounded examples are emitted only as WindowEvidenceSample rows; each row declares Representative=false, MetricAttributable=false, and SampleScope=returned_rows_only; /samples has a typed SamplesBoundary; hostile validator and reachable-collection closure tests fail closed. This implementation fact does not claim causality, performance impact, product identity outside the known schema, external-client compatibility, large-trace performance, packaging, approval, or release readiness.",
+      "migrationRule": "A bounded or non-representative nested sample must be separated from annotations, carry an authoritative typed boundary, and state representativeness, metric attribution, and sample scope in machine-readable fields."
+    },
+    {
+      "issueId": "COR-ID-001",
+      "disposition": "known_incorrect_must_change",
+      "currentImplementationStatus": "fixed_contract2_canonical_string_and_safe_legacy_projection_live_schema_verified",
+      "targetPhase": 1,
+      "authoritativeFacts": [
+        "CanonicalStringIdentifier",
+        "LegacyNumericSafetyState"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Analyzers/NetConnectionAnalysis.cs",
+        "src/WpaMcp/Output/Records.cs",
+        "src/WpaMcp/Core/ToolExactIntegerInputOverlay.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/NetConnectionAnalysisTests.cs",
+        "tests/WpaMcp.Tests/NetConnectionIdentifierContractTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ],
+      "migrationRule": "Opaque 64-bit identifiers use canonical strings; an unsafe numeric compatibility projection is null and explicitly deprecated."
+    },
+    {
+      "issueId": "COR-ATTRIBUTION-001",
+      "disposition": "known_incorrect_must_change",
+      "currentImplementationStatus": "fixed_contract2_exact_process_instance_self_attribution_guard_and_not_concluded_boundary_verified",
+      "targetPhase": 5,
+      "authoritativeFacts": [
+        "ObservedWorkloads",
+        "ObservedProcessInstances",
+        "SelfPerformanceConclusionStatus"
+      ],
+      "sourcePaths": [
+        "src/WpaMcp/Tools/MetaTools.cs",
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Core/Catalog/TraceEvidenceMapBuilder.cs",
+        "src/WpaMcp/Output/CapabilityDiscoveryRecords.cs",
+        "tests/WpaMcp.Tests/InspectTraceTests.cs"
+      ],
+      "migrationRule": "MCP self-performance conclusions require an exact observed server/worker process instance; otherwise the result is not_concluded and emits no self-performance recommendation."
+    }
+  ]
+}

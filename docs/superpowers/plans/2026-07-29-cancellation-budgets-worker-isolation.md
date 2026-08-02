@@ -8,6 +8,12 @@
 
 **Tech Stack:** The C# version, TFM, MCP SDK, and TraceEvent package selected by Child 11A; the current baseline is C# 12, .NET 8, ModelContextProtocol 1.2.0, and TraceEvent 3.2.2. Windows isolation uses `STARTUPINFOEX`, `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`, `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`, AppContainer SIDs, Job Objects, anonymous pipes, source-generated `System.Text.Json`, TraceEvent/DIA native assets, and xUnit process/concurrency tests.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+The Phase 6 planner defined by [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](../../MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md) must reuse this plan's `AnalysisOperationContext`, cancellation/deadline/work/output budgets, progress channel, operation catalog, worker isolation, and shared prerequisite scans. It is an orchestration layer over declared operations, not a second execution engine, private stopwatch, unbounded discovery scan, or alternate cache.
+
+Planner output must preserve the same partial/failure, budget-exhaustion, provenance, and section-level evidence boundaries as direct tool calls. Any planner step that cannot be represented by the registered bounded operation/manifest mechanisms is an explicit capability gap rather than hidden work.
+
 ## Global Constraints
 
 - This plan starts after Child 6 and Child 7. It preserves `TraceAccessPolicy`, immutable artifacts, symbol allowlists, trace IDs, `ITraceReferenceResolver`, entry state, artifact leases, `IRuntimeQuotaManager`, and caller-side `await using TraceLease`.

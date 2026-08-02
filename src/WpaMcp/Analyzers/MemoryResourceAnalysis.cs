@@ -39,10 +39,11 @@ public static class MemoryResourceAnalysis
         long traceIdentityUnresolvedEventCount = 0;
         long scopedIdentityUnresolvedEventCount = 0;
         long globalProcessSampleCount = 0;
+        long globalSystemSampleCount = 0;
         long globalHandleEventCount = 0;
         long globalPoolEventCount = 0;
 
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             if (!IsPoolEventName(ev.EventName)) continue;
             if (!TryReadPoolEvent(ev, out var poolEvent, out var rawPoolEvent)) continue;
@@ -60,7 +61,7 @@ public static class MemoryResourceAnalysis
             if (!process.HasValue && isAllocation)
             {
                 traceIdentityUnresolvedEventCount++;
-                if (RawSelectorMatches(scope, ev.ProcessID, nowUs))
+                if (RawSelectorMatches(scope, identities, ev.ProcessID, nowUs))
                     scopedIdentityUnresolvedEventCount++;
             }
 
@@ -76,7 +77,8 @@ public static class MemoryResourceAnalysis
                 rawPid: ev.ProcessID);
         }
 
-        var poolProjection = instances.ProjectPoolObservations(window, scope);
+        var poolProjection = instances.ProjectPoolObservations(
+            window, scope, identities);
         poolEventCount = poolProjection.EventCount;
         rawPoolEventCount = poolProjection.RawEventCount;
         traceIdentityUnresolvedEventCount +=
@@ -111,6 +113,7 @@ public static class MemoryResourceAnalysis
 
             kernel.MemorySystemMemInfo += data =>
             {
+                globalSystemSampleCount++;
                 if (!scope.IsResolved) return;
                 var nowUs = ToUs(data);
                 if (!window.ContainsPoint(nowUs)) return;
@@ -128,6 +131,7 @@ public static class MemoryResourceAnalysis
 
             kernel.MemoryMemInfo += data =>
             {
+                globalSystemSampleCount++;
                 if (!scope.IsResolved) return;
                 var nowUs = ToUs(data);
                 if (!window.ContainsPoint(nowUs)) return;
@@ -222,17 +226,20 @@ public static class MemoryResourceAnalysis
         var pressureSummary = instances.PressureSummary(top);
         var matchedEventCount = checked(processSampleCount + handleEventCount + poolEventCount);
         var eventClassObserved =
-            globalProcessSampleCount > 0 || globalHandleEventCount > 0 || globalPoolEventCount > 0;
+            globalProcessSampleCount > 0 || globalSystemSampleCount > 0 ||
+            globalHandleEventCount > 0 || globalPoolEventCount > 0;
         var contract = ClassifyDataContract(
             scope,
             eventClassObserved,
             matchedEventCount,
-            scopedIdentityUnresolvedEventCount);
+            scopedIdentityUnresolvedEventCount,
+            hasWindowGlobalSystemEvidence: systemRows.Count > 0);
         var warnings = BuildWarnings(
             processSampleCount,
             handleEventCount,
             poolEventCount,
             globalProcessSampleCount,
+            globalSystemSampleCount,
             globalHandleEventCount,
             globalPoolEventCount,
             rawPoolEventCount,
@@ -252,7 +259,7 @@ public static class MemoryResourceAnalysis
         if (traceIdentityUnresolvedEventCount > 0)
         {
             warnings.Add(
-                $"process_instance_unresolved: {traceIdentityUnresolvedEventCount} source event-side identity observation(s) were unresolved trace-wide; {scopedIdentityUnresolvedEventCount} had a selected raw PID and in-window timestamp and were not attributed.");
+                $"process_instance_unresolved: {traceIdentityUnresolvedEventCount} source event-side identity observation(s) were unresolved trace-wide; {scopedIdentityUnresolvedEventCount} matched the lifetime-aware raw process selector and half-open query window but were not attributed.");
         }
         var boundedSystemRows = systemRows
             .OrderBy(row => row.TimeUs)
@@ -291,6 +298,7 @@ public static class MemoryResourceAnalysis
         long handleEventCount,
         long poolEventCount,
         long globalProcessSampleCount,
+        long globalSystemSampleCount,
         long globalHandleEventCount,
         long globalPoolEventCount,
         long rawPoolEventCount,
@@ -313,7 +321,7 @@ public static class MemoryResourceAnalysis
         if (noDataReason == "source_events_unattributed")
         {
             warnings.Add(
-                "source_events_unattributed: supported memory/handle/pool source evidence had the selected raw PID and an in-window timestamp, but required process identity was unresolved; no process lifetime attribution was guessed.");
+                "source_events_unattributed: supported memory/handle/pool source evidence matched the lifetime-aware raw process selector and half-open query window, but required process identity was unresolved; no process lifetime attribution was guessed.");
             AddMemorySemanticsWarnings(warnings);
             return warnings;
         }
@@ -324,6 +332,16 @@ public static class MemoryResourceAnalysis
                 ? "no_events_in_scope: Memory/ProcessMemInfo entries were observed elsewhere in the trace, but none matched the selected process lifetimes and half-open window."
                 : "event_class_not_observed: " +
                   WarningBuilder.MissingKeyword("Memory/ProcessMemInfo", "MemoryInfoWS"));
+        }
+
+        if (pressure.SystemSampleCount == 0)
+        {
+            warnings.Add(globalSystemSampleCount > 0
+                ? "no_events_in_scope: Memory/SystemMemInfo or Memory/MemInfo snapshots were observed elsewhere in the trace, but none matched the requested half-open window."
+                : "event_class_not_observed: " +
+                  WarningBuilder.MissingKeyword(
+                      "Memory/SystemMemInfo or Memory/MemInfo",
+                      "MemoryInfo"));
         }
 
         if (handleEventCount == 0)
@@ -388,13 +406,16 @@ public static class MemoryResourceAnalysis
         ProcessAnalysisScope scope,
         bool eventClassObserved,
         long matchedEventCount,
-        long scopedIdentityUnresolvedEventCount = 0)
+        long scopedIdentityUnresolvedEventCount = 0,
+        bool hasWindowGlobalSystemEvidence = false)
     {
         ArgumentNullException.ThrowIfNull(scope);
         if (!scope.IsResolved)
             return ("unknown", scope.ScopeStatus);
         if (matchedEventCount > 0)
             return ("observed", null);
+        if (hasWindowGlobalSystemEvidence)
+            return ("partial", null);
         if (scopedIdentityUnresolvedEventCount > 0)
             return ("unknown", "source_events_unattributed");
         return eventClassObserved
@@ -418,7 +439,7 @@ public static class MemoryResourceAnalysis
             !resolution.Value.HasValue)
         {
             traceIdentityUnresolvedEventCount++;
-            if (RawSelectorMatches(scope, pid, timestampUs))
+            if (RawSelectorMatches(scope, identities, pid, timestampUs))
                 scopedIdentityUnresolvedEventCount++;
             return false;
         }
@@ -437,14 +458,15 @@ public static class MemoryResourceAnalysis
 
     private static bool RawSelectorMatches(
         ProcessAnalysisScope scope,
+        TraceIdentityIndex identities,
         int pid,
-        long timestampUs) =>
-        scope.IsResolved &&
-        scope.Window.ContainsPoint(timestampUs) &&
-        (!scope.Pid.HasValue || scope.Pid.Value == pid);
+        long timestampUs,
+        bool atEndpoint = false) =>
+        scope.MatchesRawUnresolvedCandidate(
+            identities, pid, timestampUs, atEndpoint);
 
     private static string ProcessName(TraceLog trace, ProcessInstanceKey process)
-        => trace.Processes
+        => AnalysisEvents.Enumerate(trace.Processes)
                .Where(candidate => candidate.ProcessID == process.Pid)
                .FirstOrDefault(candidate =>
                    TraceTime.FromMilliseconds(candidate.StartTimeRelativeMsec) == process.StartUs)
@@ -794,7 +816,8 @@ public static class MemoryResourceAnalysis
             long TraceIdentityUnresolvedFreeCount,
             long ScopedIdentityUnresolvedFreeCount) ProjectPoolObservations(
             TimeWindow window,
-            ProcessAnalysisScope scope)
+            ProcessAnalysisScope scope,
+            TraceIdentityIndex? identities = null)
         {
             ArgumentNullException.ThrowIfNull(scope);
 
@@ -805,7 +828,8 @@ public static class MemoryResourceAnalysis
             long traceIdentityUnresolvedFreeCount = 0;
             long scopedIdentityUnresolvedFreeCount = 0;
 
-            foreach (var observation in _poolObservations.OrderBy(item => item.TimeUs))
+            foreach (var observation in AnalysisEvents.Enumerate(_poolObservations)
+                         .OrderBy(item => item.TimeUs))
             {
                 if (observation.IsAllocation)
                 {
@@ -833,8 +857,15 @@ public static class MemoryResourceAnalysis
                 if (!canAttribute)
                 {
                     traceIdentityUnresolvedFreeCount++;
-                    if (RawSelectorMatches(
-                            scope, observation.RawPid, observation.TimeUs))
+                    if ((identities is not null && RawSelectorMatches(
+                             scope,
+                             identities,
+                             observation.RawPid,
+                             observation.TimeUs)) ||
+                        (identities is null &&
+                         scope.IsResolved &&
+                         scope.Window.ContainsPoint(observation.TimeUs) &&
+                         (!scope.Pid.HasValue || scope.Pid.Value == observation.RawPid)))
                     {
                         scopedIdentityUnresolvedFreeCount++;
                     }
@@ -884,6 +915,8 @@ public static class MemoryResourceAnalysis
                 .Select(process => process.ToRow())
                 .OrderByDescending(row => row.WorkingSetBytes)
                 .ThenByDescending(row => row.CommitBytes)
+                .ThenBy(row => row.Pid)
+                .ThenBy(row => row.ProcessStartUs)
                 .Take(top)
                 .ToList();
 
@@ -892,6 +925,8 @@ public static class MemoryResourceAnalysis
                 .Select(handle => handle.ToRow())
                 .OrderByDescending(row => Math.Abs(row.NetDelta))
                 .ThenByDescending(row => row.Created + row.Closed + row.DuplicatedIn + row.DuplicatedOut)
+                .ThenBy(row => row.Pid)
+                .ThenBy(row => row.ProcessStartUs)
                 .Take(top)
                 .ToList();
 
@@ -1070,7 +1105,7 @@ public static class MemoryResourceAnalysis
 
         public MemoryPressureSummary ToSummary(IEnumerable<ProcessAccumulator> processes, int top)
         {
-            foreach (var (timeUs, batch) in _processBatches)
+            foreach (var (timeUs, batch) in AnalysisEvents.Enumerate(_processBatches))
             {
                 var totals = batch.Totals();
                 TrackMax(totals.WorkingSetBytes, timeUs, ref _maxTotalWorkingSetBytes, ref _maxTotalWorkingSetTimeUs);
@@ -1207,6 +1242,8 @@ public static class MemoryResourceAnalysis
                 .Select(process => process.ToRow())
                 .OrderByDescending(row => row.PagedOutstandingBytes + row.NonPagedOutstandingBytes)
                 .ThenByDescending(row => row.PagedAllocatedBytes + row.NonPagedAllocatedBytes)
+                .ThenBy(row => row.Pid)
+                .ThenBy(row => row.ProcessStartUs)
                 .Take(top)
                 .ToList();
 
@@ -1215,6 +1252,8 @@ public static class MemoryResourceAnalysis
                 .Select(tag => tag.ToRow())
                 .OrderByDescending(row => row.OutstandingBytes)
                 .ThenByDescending(row => row.AllocatedBytes)
+                .ThenBy(row => row.Tag, StringComparer.Ordinal)
+                .ThenBy(row => row.PoolKind, StringComparer.Ordinal)
                 .Take(top)
                 .ToList();
 

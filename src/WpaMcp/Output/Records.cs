@@ -1,9 +1,13 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using WpaMcp.Core;
 
 namespace WpaMcp.Output;
 
 public sealed record TraceMeta(
+    [property: Description("Canonical principal-scoped TraceId in active Contract 2.0 responses; direct legacy test construction with a file path is outside the active wire contract.")]
+    [property: ToolOpaqueLocator("trace_id", "^trc_[0-9a-f]{32}$")]
     string Path,
     long DurationUs,
     [property: Description("Count of TraceLog/ETLX-materialized logical events. This is not a raw ETW record count and must not be used as a parser-coverage denominator.")]
@@ -19,11 +23,16 @@ public sealed record TraceMeta(
     string ParserCoverageState = "not_computed");
 
 public sealed record SymbolStatus(
-    string? NtSymbolPath,
-    [property: Description("Default fallback directory used by add_symbol_server when cacheDir is omitted. It does not prove that the active NtSymbolPath uses this directory.")]
-    string CacheDir,
-    string? Warning,
-    IReadOnlyList<SymbolRecommendation> Recommendations);
+    int ModuleCount,
+    int ModulesWithPdbName,
+    int ModulesWithCompletePdbIdentity,
+    double? CompletePdbIdentityRate,
+    [property: Description("Always unmeasured during load_trace: this projection performs no disk, cache, environment, or network probe. Call prepare_symbols explicitly for approved local readiness.")]
+    string LocalReadinessMeasurementState,
+    [property: Description("Always unmeasured during load_trace: PDB identity metadata does not prove frame-name lookup.")]
+    string FrameResolutionMeasurementState,
+    string NextStep,
+    IReadOnlyList<string> EvidenceBoundaries);
 
 public sealed record SymbolRecommendation(
     string Reason,
@@ -34,43 +43,76 @@ public sealed record SymbolRecommendation(
 public sealed record LoadTraceResponse(
     TraceMeta Trace,
     SymbolStatus SymbolStatus,
-    TraceCapabilities Capabilities);
+    TraceCapabilities Capabilities,
+    [property: Description("Canonical principal-scoped trace reference. Null only for direct legacy test construction outside the MCP host.")]
+    [property: ToolOpaqueLocator("trace_id", "^trc_[0-9a-f]{32}$")]
+    string? TraceId = null,
+    string TraceRefKind = "unavailable",
+    bool ReusedExisting = false,
+    string Persistence = "persistent",
+    [property: Description("opened_handle_snapshot_content_hash_verified when this call read and hashed an opened source handle; cached_file_identity_length_timestamps when it reused a prior immutable artifact using only the source final-path/file-id/length/creation/last-write tuple. Use forceRefresh=true when that tuple may have been adversarially preserved.")]
+    string SourceGenerationAssurance = "unavailable",
+    bool ForceRefreshApplied = false,
+    [property: Description("Trace-handle unload and immutable artifact retention are independent lifecycles.")]
+    string ArtifactRetention = "independent_retention_policy",
+    IReadOnlyList<string>? Warnings = null);
 
 public sealed record UnloadTraceResponse(
-    [property: Description("Canonical full path whose in-memory trace entry was retired or marked for refresh.")]
-    string Path,
-    [property: Description("True when a resident cache entry was retired; false when no resident entry existed.")]
-    bool CacheEntryRetired,
-    [property: Description("Deprecated compatibility name. True means this running server registered a raw-ETL sidecar-refresh request; the request does not survive restart and does not guarantee regeneration succeeds.")]
-    bool NextLoadForcesEtlxRefresh,
-    [property: Description("Operational caveats; an active lease remains valid until its query completes.")]
-    IReadOnlyList<string> Warnings,
-    [property: Description("True only when a refresh request for a raw .etl path was registered in this running server process. It is an intent/status field, not proof that an ETLX was regenerated.")]
-    bool RefreshRequestedForCurrentServerProcess = false,
-    [property: Description("Lifetime of the refresh request. current_server_process_only means a restart clears it; call unload_trace again after restart and before loading the rewritten ETL.")]
-    string RefreshRequestLifetime = "current_server_process_only");
+    [property: Description("Canonical principal-scoped TraceId retired by this operation.")]
+    [property: ToolOpaqueLocator("trace_id", "^trc_[0-9a-f]{32}$")]
+    string TraceId,
+    [property: Description("unloaded, already_unloaded, expired, or unknown.")]
+    string LifecycleStatus,
+    [property: Description("drained, pending, or timed_out. Retirement remains in effect after timeout.")]
+    string DrainStatus,
+    [property: Description("Number of active analysis leases observed when retirement linearized.")]
+    int ActiveLeases,
+    [property: Description("True: repeated retirement is safe and returns stable lifecycle state.")]
+    bool Idempotent,
+    [property: Description("Always states that handle retirement does not delete the independently retained artifact.")]
+    string ArtifactDisposition,
+    [property: Description("Operational evidence boundaries; these do not contain source or artifact paths.")]
+    IReadOnlyList<string> Warnings);
 
 public sealed record NoDataReasonGuidance(
-    [property: Description("scope_not_found: no process/thread lifetime matched the requested selector and half-open window; no scoped attribution was performed.")]
-    string ScopeNotFound = "scope_not_found",
-    [property: Description("ambiguous_process_instance: process-lifetime evidence was unsafe to resolve uniquely, for example conflicting observed stop endpoints; no scoped attribution was performed. This is distinct from a successful ScopeMode=pid_aggregate result.")]
-    string AmbiguousProcessInstance = "ambiguous_process_instance",
-    [property: Description("process_start_required: the PID matched multiple non-conflicting lifetimes, but the requested tool requires one exact process instance. Retry with a candidate processStartUs; this is distinct from ambiguous_process_instance.")]
-    string ProcessStartRequired = "process_start_required",
-    [property: Description("ambiguous_thread_instance: multiple thread-lifetime candidates matched and the supplied selectors did not identify one safe thread instance; no scoped attribution was performed.")]
-    string AmbiguousThreadInstance = "ambiguous_thread_instance",
     [property: Description("event_class_not_observed: the documented target event class or predicate was absent trace-wide. This never proves that a capture keyword was disabled.")]
     string EventClassNotObserved = "event_class_not_observed",
     [property: Description("no_events_in_scope: the event class exists elsewhere, but no attributable source event matched the resolved selector and half-open window.")]
     string NoEventsInScope = "no_events_in_scope",
-    [property: Description("source_events_unattributed: raw source events could match the requested PID/TID/time, but required process, thread, or CLR identity was unresolved or ambiguous; no attribution was guessed.")]
-    string SourceEventsUnattributed = "source_events_unattributed",
     [property: Description("no_completed_intervals_in_scope: scoped interval endpoints were observed, but no valid completed interval could be projected into the requested scope.")]
     string NoCompletedIntervalsInScope = "no_completed_intervals_in_scope",
+    [property: Description("unpaired_endpoints_in_scope: attributable interval endpoints remained unmatched; no completed duration was invented.")]
+    string UnpairedEndpointsInScope = "unpaired_endpoints_in_scope",
+    [property: Description("source_events_unattributed: raw source events could match the requested PID/TID/time, but required process, thread, or CLR identity was unresolved or ambiguous; no attribution was guessed.")]
+    string SourceEventsUnattributed = "source_events_unattributed",
     [property: Description("stacks_unavailable: scoped events or completed intervals exist, but none carried the event-domain stack required by this tool.")]
     string StacksUnavailable = "stacks_unavailable",
+    [property: Description("symbols_unresolved: captured code frames exist, but the selected symbol context did not resolve names required by the query.")]
+    string SymbolsUnresolved = "symbols_unresolved",
     [property: Description("focus_not_found: stacked scoped evidence was actually scanned, but the exact case-sensitive focus frame was absent.")]
-    string FocusNotFound = "focus_not_found");
+    string FocusNotFound = "focus_not_found",
+    [property: Description("no_name_match: no materialized event name or task matched the requested marker substring; this does not prove provider or keyword absence.")]
+    string NoNameMatch = "no_name_match",
+    [property: Description("no_candidates_in_considered_input: the reviewed candidate predicate produced no candidate in the fully considered input.")]
+    string NoCandidatesInConsideredInput = "no_candidates_in_considered_input",
+    [property: Description("no_candidates_in_retained_input: no retained candidate matched, but a structurally disclosed upstream cap omitted eligible input; global absence is not concluded.")]
+    string NoCandidatesInRetainedInput = "no_candidates_in_retained_input",
+    [property: Description("no_capabilities_match_filter: the capability catalog is valid, but no capability matched the normalized discovery filter.")]
+    string NoCapabilitiesMatchFilter = "no_capabilities_match_filter",
+    [property: Description("invalid_lifetime_boundaries: lifecycle records were attributable, but every projected interval had EndTimeUs <= StartTimeUs and was excluded rather than reported as a duration.")]
+    string InvalidLifetimeBoundaries = "invalid_lifetime_boundaries");
+
+public sealed record ScopeFailureErrorGuidance(
+    [property: Description("process_instance_not_found: no process lifetime matched the selector and half-open window; returned as error.code with status=failed, not as noData.reason.")]
+    string ProcessInstanceNotFound = "process_instance_not_found",
+    [property: Description("process_start_required: the PID matched multiple clean lifetimes and an exact-only tool requires processStartUs; returned as error.code.")]
+    string ProcessStartRequired = "process_start_required",
+    [property: Description("ambiguous_process_instance: process-lifetime evidence was unsafe to resolve uniquely; returned as error.code.")]
+    string AmbiguousProcessInstance = "ambiguous_process_instance",
+    [property: Description("thread_instance_not_found: no thread lifetime matched the exact process/thread selector; returned as error.code.")]
+    string ThreadInstanceNotFound = "thread_instance_not_found",
+    [property: Description("ambiguous_thread_instance: multiple thread-lifetime candidates matched without a safe unique selection; returned as error.code.")]
+    string AmbiguousThreadInstance = "ambiguous_thread_instance");
 
 public sealed record AnalysisContractGuidance(
     [property: Description("Interpret scope first: only ScopeStatus=ok authorizes attribution. Use ScopeMode, SelectedProcess, IncludedProcesses, and PidReuseObserved to distinguish an exact instance from explicit PID aggregation.")]
@@ -89,21 +131,38 @@ public sealed record AnalysisContractGuidance(
     string ThreadReplayRule,
     [property: Description("Associated stacks, readier stacks, and heuristic security-event matches are evidence, not standalone causal or root-cause proof.")]
     string CausalityRule,
+    [property: Description("Selector-resolution failures are failed envelopes with stable error.code values; they are not successful no-data outcomes.")]
+    ScopeFailureErrorGuidance ScopeFailureErrors,
     [property: Description("Stable reasons that disambiguate empty or degraded results; a bare empty Rows array has no stable meaning.")]
     NoDataReasonGuidance NoDataReasons);
 
 public sealed record InspectTraceResponse(
     TraceMeta Trace,
+    [property: JsonIgnore]
     TraceCapabilities Capabilities,
-    TraceMetadata Metadata,
-    InspectSymbolQuality SymbolQuality,
+    TraceMetadata? Metadata,
+    InspectSymbolQuality? SymbolQuality,
     IReadOnlyList<TraceQualityWarning> Warnings,
-    IReadOnlyList<ToolRecommendation> OrientationTools,
-    IReadOnlyList<ToolRecommendation> CapabilitySupportedTools,
+    [property: Description("Deprecated ID-only projection of bootstrap tool names derived from the Active Catalog. Resolve definitions through tools/list; this list is not an independent capability authority.")]
+    IReadOnlyList<string> OrientationTools,
+    [property: Description("Deprecated ID-only projection of tool names whose mapped capabilities have available or partial whole-trace evidence. Scoped tool outcomes remain authoritative.")]
+    IReadOnlyList<string> CapabilitySupportedTools,
     IReadOnlyList<string> EnabledCapabilities,
-    IReadOnlyList<DiagnosticFlowRecommendation> RecommendedDiagnosticFlows,
+    [property: Description("Deprecated ID-only projection of workflow IDs. Resolve static workflow definitions through wpa://workflows/{workflowId}; trace-specific evidence state is in TraceEvidenceMap.Workflows.")]
+    IReadOnlyList<string> RecommendedDiagnosticFlows,
+    [property: Description("Cursor page semantics and immutable trace-generation binding. full_orientation appears only on the first page; evidence_continuation pages intentionally omit nullable orientation blocks.")]
+    InspectTracePageContext PageContext,
+    bool HasMore,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor,
     [property: Description("Machine-readable interpretation rules for downstream analysis responses. Read this before treating empty rows, trace-wide diagnostics, stack availability, or symbol metadata as scoped conclusions.")]
-    AnalysisContractGuidance? AnalysisContract = null);
+    AnalysisContractGuidance? AnalysisContract = null,
+    [property: Description("Same-source trace evidence assessment for every capability and workflow in the validated Active Catalog. Unknown is preserved when capture or parser completeness cannot support absence.")]
+    TraceEvidenceMapRecord? TraceEvidenceMap = null,
+    [property: Description("Legacy recommendation fields are ID-only compatibility projections derived from TraceEvidenceMap and the Active Catalog; they are not an independent capability authority.")]
+    string LegacyProjectionState = "deprecated_id_only_derived_projection",
+    [property: Description("Per-call QueryPlanner admission, generation-facts reuse, physical-pass, count-basis, phase-duration, and budget-termination evidence. PhysicalTracePassCount is scoped to this call, not accumulated across the trace generation.")]
+    PlannerExecutionTelemetry? PlannerExecution = null);
 
 public sealed record DiagnosticFlowRecommendation(
     string FlowName,
@@ -139,10 +198,12 @@ public sealed record TraceStackwalkSummary(
     long StackWalkEventCount,
     long EventsWithCallStacks,
     [property: Description("Deprecated legacy ratio in [0,1], despite the Pct suffix. Use EventStackCoveragePercent for a true [0,100] percentage.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "materialized_event_count", 0, 1)]
     double? EventStackCoveragePct,
     bool HasExplicitStackWalkEvents = false,
     bool HasUsableEventStacks = false,
     [property: Description("Percentage of TraceLog-materialized events carrying attached stacks, in [0,100].")]
+    [property: ToolMetricSemantics("percent", "ratio", "materialized_event_count", 0, 100)]
     double? EventStackCoveragePercent = null);
 
 public sealed record StackProbeResponse(
@@ -152,14 +213,17 @@ public sealed record StackProbeResponse(
     long ExplicitStackWalkEvents,
     long EventsWithCallStacks,
     [property: Description("Deprecated legacy ratio in [0,1]. Use EventStackCoveragePercent.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "materialized_event_count", 0, 1)]
     double? EventStackCoveragePct,
     long CSwitchEvents,
     long CSwitchEventsWithCallStacks,
     [property: Description("Deprecated legacy ratio in [0,1]. Use CSwitchStackCoveragePercent.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "cswitch_event_count", 0, 1)]
     double? CSwitchStackCoveragePct,
     long ReadyThreadEvents,
     long ReadyThreadEventsWithCallStacks,
     [property: Description("Deprecated legacy ratio in [0,1]. Use ReadyThreadStackCoveragePercent.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "ready_thread_event_count", 0, 1)]
     double? ReadyThreadStackCoveragePct,
     bool HasExplicitStackWalkEvents,
     bool HasUsableEventStacks,
@@ -168,8 +232,11 @@ public sealed record StackProbeResponse(
     long? RawEtwRecordCount = null,
     string RawEtwRecordCountState = "not_measured",
     string ParserCoverageState = "not_computed",
+    [property: ToolMetricSemantics("percent", "ratio", "materialized_event_count", 0, 100)]
     double? EventStackCoveragePercent = null,
+    [property: ToolMetricSemantics("percent", "ratio", "cswitch_event_count", 0, 100)]
     double? CSwitchStackCoveragePercent = null,
+    [property: ToolMetricSemantics("percent", "ratio", "ready_thread_event_count", 0, 100)]
     double? ReadyThreadStackCoveragePercent = null,
     [property: Description("CSwitchEventsWithCallStacks measures the ordinary CSwitch event CallStackIndex. It is not the switch-out BlockingStack used by wait_top_stacks, wait_analysis, and inspect_trace's cswitch domain, so the two coverage values can differ.")]
     string CSwitchStackSemantics = "event_call_stack_not_switch_out_blocking_stack");
@@ -190,8 +257,10 @@ public sealed record ProviderEventCount(
     long EventCount,
     long EventsWithCallStacks,
     [property: Description("Deprecated legacy ratio in [0,1], despite the Pct suffix. Use StackCoveragePercent for [0,100].")]
+    [property: ToolMetricSemantics("ratio", "ratio", "provider_event_count", 0, 1)]
     double? StackCoveragePct,
     [property: Description("Percentage of this provider's TraceLog-materialized events carrying attached stacks, in [0,100].")]
+    [property: ToolMetricSemantics("percent", "ratio", "provider_event_count", 0, 100)]
     double? StackCoveragePercent = null);
 
 public sealed record DriverModuleSummary(
@@ -207,9 +276,6 @@ public sealed record TraceDriverModule(
     string? ProductVersion);
 
 public sealed record InspectSymbolQuality(
-    string? NtSymbolPath,
-    [property: Description("Default fallback directory used by add_symbol_server when cacheDir is omitted. It is not an inferred active cache; inspect NtSymbolPath for configured entries.")]
-    string CacheDir,
     int ModuleCount,
     [property: Description("Deprecated. Module metadata cannot prove frame resolution; this field is always null. Use ModulesWithPdbName and ModulesWithCompletePdbIdentity.")]
     int? ResolvedModuleCount,
@@ -217,14 +283,16 @@ public sealed record InspectSymbolQuality(
     double? ModuleResolutionRate,
     [property: Description("Deprecated. Missing PDB metadata does not prove stack-frame lookup failure; this compatibility field is always empty. Use TopModulesMissingPdbName for the metadata-only list and stack-tool SymbolStats for observed frame-name resolution.")]
     IReadOnlyList<InspectUnresolvedModule> TopUnresolvedModules,
-    IReadOnlyList<SymbolRecommendation> Recommendations,
     int ModulesWithPdbName = 0,
     double? ModulesWithPdbNameRate = null,
     int ModulesWithCompletePdbIdentity = 0,
     double? CompletePdbIdentityRate = null,
-    [property: Description("inspect_trace does not execute stack frame lookup; actual observed frame-name resolution is reported by stack analysis tools.")]
+    [property: Description("inspect_trace does not execute stack frame lookup. PDB identity metadata and preparation readiness never substitute for an explicit context-bound frame lookup measurement.")]
     string FrameResolutionMeasurementState = "not_measured",
-    SymbolStats? FrameResolution = null)
+    SymbolStats? FrameResolution = null,
+    [property: Description("inspect_trace performs no local readiness probe. Call prepare_symbols with an approved named policy.")]
+    string LocalReadinessMeasurementState = "unmeasured",
+    string NextStep = "prepare_symbols")
 {
     [Description("Modules whose trace metadata has no PdbName, ordered by module name and capped at 20. This is PDB identity metadata only and does not indicate whether stack-frame lookup succeeded or failed.")]
     public IReadOnlyList<InspectModuleMissingPdbName> TopModulesMissingPdbName { get; init; } = Array.Empty<InspectModuleMissingPdbName>();
@@ -297,13 +365,17 @@ public sealed record TraceCapabilities(
     bool HasStackWalks,
     bool HasVirtualAlloc,
     bool HasNetIo,
+    [property: Description("Compatibility flag derived only from parsed TCP Connect/Accept/Disconnect/Reconnect lifecycle endpoints; Send/Recv byte events never set it. See NetworkConnectionLifecycleEndpointEventCount for the exact predicate count.")]
     bool HasNetConnections,
     bool HasRegistry,
     bool HasReadyThread,
     bool HasInterrupt,
     bool HasAlpc,
+    [property: Description("Compatibility aggregate for observed ThreadStart/Stop plus ThreadDC rundown endpoints. It does not prove an observed lifecycle boundary; use the split thread endpoint counters.")]
     bool HasThreadEvents,
+    [property: Description("Deprecated compatibility flag for CLR GC/pause interval endpoints. It does not imply GCHeapStats or finalizer events; use the split exact counters below.")]
     bool HasClrGc,
+    [property: Description("Compatibility source flag: true when MethodJittingStarted or MethodLoadVerbose was observed. It does not prove a completed JIT interval; use the split JIT evidence counters.")]
     bool HasClrJit,
     bool HasClrAlloc,
     bool HasClrException,
@@ -322,7 +394,60 @@ public sealed record TraceCapabilities(
     [property: Description("True when at least one event carried an attached stack, independently of explicit StackWalk records.")]
     bool HasAttachedEventStacks = false,
     [property: Description("Whole-trace coverage for every detector-supported target event domain (including CPU, scheduler, IO, memory, CLR, network, registry, ALPC, interrupt, heap, and generic events). Typed entries are computed only from their named domain. generic_event is a trace-wide aggregate; each generic provider/filter query returns its authoritative query-specific coverage.")]
-    IReadOnlyDictionary<string, DomainStackCoverage>? StackCoverageByDomain = null);
+    [property: ToolDictionaryRows("domain", "coverage")]
+    IReadOnlyDictionary<string, DomainStackCoverage>? StackCoverageByDomain = null,
+    [property: Description("True when at least one MemorySystemMemInfo or MemoryMemInfo system-wide memory snapshot was observed. This does not imply per-process working-set/private-byte snapshots.")]
+    bool HasMemorySystemInfo = false,
+    [property: Description("Exact number of materialized kernel ProcessStart events. Process inventory rows can exist from process-table/rundown backfill even when this count is zero; process-creation capability uses this count, not inventory size.")]
+    long ObservedProcessStartEventCount = 0,
+    [property: Description("Exact number of materialized observed ThreadStart/ThreadStop lifecycle endpoints. ThreadDC rundown endpoints are excluded.")]
+    long ObservedThreadLifecycleEndpointEventCount = 0,
+    [property: Description("Exact number of materialized ThreadDCStart/ThreadDCStop rundown endpoints. Rundown proves a bounded snapshot/lifetime input, not an observed thread creation or termination boundary.")]
+    long ThreadRundownEndpointEventCount = 0,
+    [property: Description("Exact source-event predicate for trace.thread.lifetime: observed ThreadStart/Stop plus ThreadDCStart/Stop rundown endpoints.")]
+    long ThreadLifecycleSourceEventCount = 0,
+    [property: Description("Number of valid thread lifetimes whose ThreadStart and ThreadStop boundaries were both directly observed.")]
+    long ThreadCompletedObservedLifetimeCount = 0,
+    [property: Description("Observed or identity-unresolved thread lifecycle endpoints that were not consumed by a valid fully observed lifetime. Rundown-derived boundaries are reported separately.")]
+    long ThreadUnmatchedLifecycleEndpointCount = 0,
+    [property: Description("Count of thread boundary evidence not supplied by directly observed ThreadStart/Stop pairs: inferred lifetime boundary sides, with observed rundown endpoint count retained as a lower bound when stronger lifecycle events suppress duplicate rundown rows.")]
+    long ThreadInferredBoundaryCount = 0,
+    [property: Description("Exact number of materialized CLR GC interval endpoints consumed by clr_gc_analysis: GCStart, GCStop, GCSuspendEEStart, and GCRestartEEStop. This excludes GCHeapStats.")]
+    long ClrGcIntervalEndpointEventCount = 0,
+    [property: Description("Exact number of valid completed GC wall plus pause intervals paired across the whole trace by process lifetime, CLR instance, and interval identity.")]
+    long ClrGcCompletedIntervalCount = 0,
+    [property: Description("CLR GC/pause start or stop endpoints left unmatched after whole-trace pairing.")]
+    long ClrGcUnmatchedEndpointCount = 0,
+    [property: Description("CLR GC/pause endpoints or pairs rejected because process/CLR identity was unresolved or interval ordering was invalid.")]
+    long ClrGcBoundaryEvidenceCount = 0,
+    [property: Description("Exact number of materialized GCHeapStats snapshot events consumed by clr_gc_heap_stats. This excludes GC and pause interval endpoints.")]
+    long ClrGcHeapStatsEventCount = 0,
+    [property: Description("Exact number of materialized GCFinalizeObject point events. Object events are distinct from finalizer-batch endpoints and completed batch pairs.")]
+    long ClrFinalizerObjectEventCount = 0,
+    [property: Description("Exact number of materialized GCFinalizersStart batch endpoints.")]
+    long ClrFinalizerBatchStartEndpointEventCount = 0,
+    [property: Description("Exact number of materialized GCFinalizersStop batch endpoints.")]
+    long ClrFinalizerBatchStopEndpointEventCount = 0,
+    [property: Description("Exact number of valid GCFinalizersStart/Stop pairs reconstructed across the whole trace by process lifetime and CLR instance. Unmatched or invalid endpoints are not counted as completed batches.")]
+    long ClrFinalizerCompletedBatchCount = 0,
+    [property: Description("Exact source-event predicate for clr.finalizer.activity: GCFinalizeObject plus GCFinalizersStart plus GCFinalizersStop. This is an event count, not a completed-batch count.")]
+    long ClrFinalizerSourceEventCount = 0,
+    [property: Description("Exact number of materialized TCP lifecycle endpoints consumed by net_connections: IPv4/IPv6 Connect, Accept, Disconnect, and Reconnect. Send/Recv byte events are excluded.")]
+    long NetworkConnectionLifecycleEndpointEventCount = 0,
+    [property: Description("Exact number of Connect/Accept to Disconnect/Reconnect lifecycle pairs reconstructed by process lifetime and connection identifier.")]
+    long NetworkConnectionCompletedLifecycleCount = 0,
+    [property: Description("Disconnect/Reconnect endpoints with no preceding Connect/Accept for the same process lifetime and connection identifier.")]
+    long NetworkConnectionUnmatchedEndpointCount = 0,
+    [property: Description("Network endpoints or open lifecycles whose identity or closing boundary was unresolved, replaced, process-bounded, or trace-bounded.")]
+    long NetworkConnectionBoundaryEvidenceCount = 0,
+    [property: Description("Exact number of materialized MethodJittingStarted plus MethodLoadVerbose endpoints consumed by clr_jit_analysis.")]
+    long ClrJitIntervalEndpointEventCount = 0,
+    [property: Description("Exact number of valid MethodJittingStarted to MethodLoadVerbose intervals paired by process lifetime, CLR instance, and method identifier.")]
+    long ClrJitCompletedIntervalCount = 0,
+    [property: Description("CLR JIT start/load endpoints left unmatched after whole-trace pairing.")]
+    long ClrJitUnmatchedEndpointCount = 0,
+    [property: Description("CLR JIT endpoints or pairs rejected because process/CLR identity was unresolved or interval ordering was invalid.")]
+    long ClrJitBoundaryEvidenceCount = 0);
 
 public sealed record ProcessRow(
     int Pid,
@@ -332,31 +457,68 @@ public sealed record ProcessRow(
     long EndUs,
     long WallUs,
     long CpuUs,
+    [property: Description("Deprecated alias of WallToCpuRatio; this is wall_us / cpu_us, not blocked time, not a percentage, and not bounded to [0,1].")]
     double? WaitRatio,
     int ImageLoadCount,
     // True when the process was alive before the trace started AND survived past the end:
     // its WallUs ≈ trace duration, and any tiny CpuUs makes WaitRatio numerically huge but
     // semantically meaningless (denominator saturation). Clients sorting by WaitRatio should
     // skip these, otherwise short-lived but actually-blocked processes get buried.
-    bool TraceResident);
+    [property: Description("Deprecated compatibility flag for a row spanning approximately the whole trace. It does not identify which lifecycle endpoints were observed; use ProcessStartObserved, ProcessEndObserved, StartBoundaryKind, and EndBoundaryKind.")]
+    bool TraceResident,
+    bool ProcessStartObserved = false,
+    bool ProcessEndObserved = false,
+    [property: Description("Endpoint provenance: observed, trace_start, or inventory_start.")]
+    string StartBoundaryKind = "unknown",
+    [property: Description("Endpoint provenance: observed, replacement, trace_end, or inventory_end.")]
+    string EndBoundaryKind = "unknown")
+{
+    [Description("Authoritative wall-to-CPU ratio: WallUs / CpuUs; null when CpuUs is zero. This is not a percentage and may exceed 1.")]
+    public double? WallToCpuRatio => WaitRatio;
+}
 
 public sealed record ProcessListResponse(
     IReadOnlyList<ProcessRow> Rows,
     int IdleProcessesHidden,
-    int TotalCount);
+    int TotalCount,
+    [property: Description("Generation/query-bound page context. Its exact TotalCount covers the complete includeSystem-filtered process inventory, not only this page.")]
+    TimelinePageContext? PageContext = null,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: Description("Opaque qrc_ continuation. Repeat path, orderBy, top, and includeSystem unchanged; null means the inventory is complete.")]
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null);
 
 // Per-child timing for one fork. Gap-from-previous lets clients spot burst patterns (e.g.,
 // 23 children spawned in 56 seconds = 2.4s avg gap — was that uniform or clustered?), and
 // FirstImageLoadOffsetUs measures the observed interval from the kernel ProcessStart event
 // to the first mapped DLL. The interval can contain callbacks, scanning, suspension,
 // scheduling, and other work; it does not identify which mechanism consumed the time.
+public sealed record TimelinePageContext(
+    [property: ToolOpaqueLocator("trace_id", "^trc_[0-9a-f]{32}$")]
+    string TraceId,
+    [property: ToolOpaqueLocator("trace_generation_id", "^tgen_[0-9a-f]{32}$")]
+    string TraceGenerationId,
+    string ToolName,
+    string ContractVersion,
+    [property: ToolOpaqueLocator("symbol_context_id", "^sym_[0-9a-f]{32}$")]
+    string? SymbolContextId,
+    string QueryHash,
+    string Ordering,
+    int StartIndex,
+    int RequestedPageSize,
+    int TotalCount,
+    int ReturnedCount);
+
 public sealed record ChildSpawnTiming(
     int Pid,
     string Name,
     long StartTimeUs,
     long? FirstImageLoadOffsetUs,
     int ImageLoadCount,
-    long? GapFromPreviousSpawnUs);
+    long? GapFromPreviousSpawnUs,
+    [property: Description("Stable source ordinal used as the final pagination tie-breaker; it is not a timestamp.")]
+    long SourceOrdinal = 0);
 
 public sealed record ProcessCreateTimingResponse(
     int ParentPid,
@@ -382,7 +544,21 @@ public sealed record ProcessCreateTimingResponse(
     [property: Description("Number of child ProcessStart records matched to the selected parent lifetime.")]
     long MatchedEventCount = 0,
     [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    TimelinePageContext? PageContext = null,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null,
+    [property: Description("Trace inventory children excluded because no observed ProcessStart record established an exact spawn time.")]
+    int BackfilledChildrenExcluded = 0,
+    [property: Description("Arithmetic mean of observed sibling spawn gaps, rounded to the nearest integer microsecond with midpoint away from zero.")]
+    string AvgSpawnGapEstimator = "arithmetic_mean_nearest_integer_us_midpoint_away_from_zero",
+    [property: Description("Median of observed ProcessStart-to-first-ImageLoad intervals; even N averages the two middle values and rounds to the nearest integer microsecond with midpoint away from zero.")]
+    string MedianKernelGapEstimator = "median_even_n_middle_pair_mean_nearest_integer_us_midpoint_away_from_zero",
+    [property: Description("P95 uses nearest-rank: sorted value at ceil(0.95*N)-1, zero-based.")]
+    string P95KernelGapEstimator = "nearest_rank_ceil_0_95_n_minus_1",
+    string TimingPrecision = "exact_integer_microsecond_inputs_declared_integer_rounding");
 
 public sealed record CpuFunctionRow(
     string Function,
@@ -421,7 +597,9 @@ public sealed record SymbolStats(
     int WarmSymbolThreshold = 50,
     string ResolutionEvidence = "post_lookup_frame_name_heuristic",
     string? LookupFailure = null,
-    string MetricAccounting = "exact_long");
+    string MetricAccounting = "exact_long",
+    [property: Description("Exact number of distinct unresolved modules before TopUnresolvedModules is capped at 10.")]
+    int UnresolvedModuleCount = 0);
 
 public sealed record UnresolvedModule(string Module, long FrameCount);
 
@@ -467,6 +645,7 @@ public sealed record CpuPreciseThreadRow(
     double? AvgReadyLatencyUs,
     long? MaxReadyLatencyUs,
     int? PrimaryCore,
+    [property: Description("Exhaustive ordered per-core CPU breakdown for this returned thread row; despite the legacy TopCores name, this collection is not capped.")]
     IReadOnlyList<CpuCoreBucket> TopCores,
     long QuantumEndSwitches,
     long PreemptedSwitches,
@@ -550,10 +729,10 @@ public sealed record CallerCalleeResponse(
     bool HasSampledProfileStacks = false,
     string SymbolResolutionState = "not_applicable",
     DomainStackCoverage? StackCoverage = null,
-    [property: Description("Precision of Focus*Metric and caller/callee row metrics: exact_integer_count for unit-count samples, otherwise float32_per_sample_approximate.")]
-    string MetricPrecision = "float32_per_sample_approximate",
-    [property: Description("Machine-readable accounting of per-frame metrics after projection through TraceEvent's float StackSourceSample.Metric.")]
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    [property: Description("Precision of Focus*Metric and caller/callee row metrics: exact_integer_count for unit-count samples, otherwise exact_long.")]
+    string MetricPrecision = "exact_long",
+    [property: Description("Machine-readable accounting of per-frame metrics from the parallel checked Int64 accumulator; TraceEvent's float StackSourceSample.Metric is not used for public integer values.")]
+    string RowMetricAccounting = "exact_long",
     [property: Description("SourceTotalMetric and DomainStackCoverage totals are accumulated independently with checked 64-bit integer arithmetic.")]
     string ExactTotalAccounting = "exact_long",
     string ScopeMode = "all_processes",
@@ -605,9 +784,14 @@ public sealed record CpuBatchScopeResult(
     long MatchedSampleCount,
     [property: Description("observed when this selector matched CPU samples; otherwise unknown. unknown does not imply that the CPU keyword was disabled.")]
     string CapabilityStatus,
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    [property: Description("Authoritative per-selector boundary for PerPid[Pid].Rows; required even though the parent dictionary cannot use a static JSON-pointer wildcard.")]
+    EmbeddedTopNBoundary? RowsBoundary = null,
+    [property: Description("Authoritative per-selector fixed-limit boundary for PerPid[Pid].Stats.TopUnresolvedModules.")]
+    EmbeddedTopNBoundary? TopUnresolvedModulesBoundary = null);
 
 public sealed record CpuTopFunctionsBatchResponse(
+    [property: ToolDictionaryRows("pid", "result")]
     IReadOnlyDictionary<int, CpuTopFunctionsResponse> PerPid,
     IReadOnlyList<string> Warnings,
     bool Partial = false,
@@ -623,12 +807,28 @@ public sealed record CpuTopFunctionsBatchResponse(
     [property: Description("Per-selector scope and completion metadata; use RequestedProcessStartUs to retain process-instance precision.")]
     IReadOnlyList<CpuBatchScopeResult>? ScopeResults = null);
 
+public sealed record FileMappingStateCounts(
+    [property: Description("event_name events.")]
+    long EventNameEventCount,
+    [property: Description("temporal_file_key events.")]
+    long TemporalFileKeyEventCount,
+    [property: Description("temporal_file_object events.")]
+    long TemporalFileObjectEventCount,
+    [property: Description("ambiguous_temporal_mapping events; neither conflicting name was selected.")]
+    long AmbiguousTemporalMappingEventCount,
+    [property: Description("unresolved_file_identity events.")]
+    long UnresolvedFileIdentityEventCount);
+
 public sealed record FileIoRow(
     string File,
     long ReadBytes,
     long ReadCount,
     long WriteBytes,
-    long WriteCount);
+    long WriteCount,
+    [property: Description("Aggregate mapping state: event_name, temporal_file_key, temporal_file_object, ambiguous_temporal_mapping, unresolved_file_identity, or mixed. File sentinels are display-only.")]
+    string MappingState,
+    [property: Description("Exact state counts; sum equals ReadCount + WriteCount.")]
+    FileMappingStateCounts MappingStateEventCounts);
 
 public sealed record FileIoResponse(
     IReadOnlyList<FileIoRow> Rows,
@@ -673,8 +873,8 @@ public sealed record FileIoStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -709,8 +909,8 @@ public sealed record DiskIoStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -730,7 +930,11 @@ public sealed record HardFaultFileRow(
     long PageInBytes,
     long PageInCount,
     long MaxLatencyUs,
-    long MaxLatencyTimeUs);
+    long MaxLatencyTimeUs,
+    [property: Description("Aggregate mapping state: event_name, temporal_file_key, unresolved_file_identity, or mixed. File sentinels are display-only.")]
+    string MappingState,
+    [property: Description("Exact state counts; sum equals PageInCount. FileObject states are zero.")]
+    FileMappingStateCounts MappingStateEventCounts);
 
 public sealed record HardFaultByFileResponse(
     IReadOnlyList<HardFaultFileRow> Rows,
@@ -767,8 +971,8 @@ public sealed record HardFaultStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -785,6 +989,7 @@ public sealed record MarkerRow(
     string EventName,
     string ProcessName,
     int ThreadId,
+    [property: ToolDictionaryRows("name", "value")]
     IReadOnlyDictionary<string, string> Fields);
 
 public sealed record MarkerCountRow(string Key, long Count);
@@ -806,6 +1011,7 @@ public sealed record SecurityScanProviderRow(
     string Source,
     string ProviderName,
     long EventCount,
+    [property: Description("Exhaustive ordinally sorted distinct event names accumulated for this returned provider aggregate; this nested list is not independently capped.")]
     IReadOnlyList<string> EventNames,
     string? EvidenceKind = null,
     string? Provenance = null,
@@ -880,16 +1086,22 @@ public sealed record WaitAnalysisRow(
     int Tid,
     long CpuUs,
     long BlockedUs,
+    [property: Description("Deprecated alias of BlockedToCpuRatio; this is blocked_us / cpu_us, not a percentage and not bounded to [0,1].")]
     double? WaitRatio,
     [property: Description("Number of scoped CSwitch switch-out events for this thread instance. Switch-in appearances are not counted.")]
     long ContextSwitches,
+    [property: Description("Exhaustive ordered wait-reason buckets for this returned thread row; despite the legacy TopWaitReasons name, this collection is not capped.")]
     IReadOnlyList<WaitReasonBucket> TopWaitReasons,
     [property: Description("Trace-relative process start; combine with Pid to identify the process lifetime.")]
     long ProcessStartUs = 0,
     [property: Description("Generation of this TID within the selected process lifetime. Pass this value as threadGeneration with pid and tid to replay the exact lifetime.")]
     long ThreadGeneration = 0,
     [property: Description("Trace-relative thread start. It can repeat across generations; combine Pid, Tid, and ThreadGeneration (plus ProcessStartUs when PID reuse is observed) to replay the exact thread instance.")]
-    long ThreadStartUs = 0);
+    long ThreadStartUs = 0)
+{
+    [Description("Authoritative blocked-to-CPU ratio: BlockedUs / CpuUs; null when CpuUs is zero. This is not a percentage and may exceed 1.")]
+    public double? BlockedToCpuRatio => WaitRatio;
+}
 
 public sealed record WaitAnalysisResponse(
     IReadOnlyList<WaitAnalysisRow> Rows,
@@ -975,8 +1187,8 @@ public sealed record WaitTopStacksResponse(
     bool HasContextSwitchBlockingStacks = false,
     string SymbolResolutionState = "not_applicable",
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     string ScopeMode = "all_processes",
     bool PidReuseObserved = false,
@@ -1067,7 +1279,11 @@ public sealed record CompositeEvidence(
     IReadOnlyList<WaitReasonBucket> TopWaitReasons,
     [property: Description("Per-frame metrics for stack evidence. Empty for process and wait-reason summaries.")]
     IReadOnlyList<FrameMetric> Frames,
-    long? ProcessStartUs = null);
+    long? ProcessStartUs = null,
+    [property: Description("Authoritative omission boundary for Frames. Stack summaries use the executed call's effective top; non-stack evidence reports an exact empty collection.")]
+    EmbeddedTopNBoundary? FramesBoundary = null,
+    [property: Description("Authoritative omission boundary for TopWaitReasons.")]
+    EmbeddedTopNBoundary? TopWaitReasonsBoundary = null);
 
 public sealed record FrameMetric(
     string Function,
@@ -1094,11 +1310,14 @@ public sealed record CompositeNotConcluded(
     [property: Description("Unit for MetricValue. Does not apply to ObservedPct or ThresholdPct.")]
     string? Unit = null,
     [property: Description("Normalized observed ratio in [0,1]. Compare this with ThresholdPct when both are present.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "decision_metric_denominator", 0, 1)]
     double? ObservedPct = null,
     [property: Description("Normalized decision threshold in [0,1]. Compare ObservedPct against this value.")]
+    [property: ToolMetricSemantics("ratio", "ratio", "decision_metric_denominator", 0, 1)]
     double? ThresholdPct = null,
     long? ProcessStartUs = null,
-    string? EvidenceId = null,
+    [property: Description("Stable boundary id for this not-concluded statement. This is not an evidence reference and need not resolve to CompositeEvidence.")]
+    string? BoundaryId = null,
     [property: Description("Child process-scope status when this item represents an analyzer result.")]
     string? ScopeStatus = null,
     [property: Description("Child event-family status when this item represents an analyzer result.")]
@@ -1126,20 +1345,45 @@ public sealed record CompositeNextTool(
 // [StartUs + i*BucketWidthUs, min(EndUs, StartUs + (i+1)*BucketWidthUs)). Duration metrics
 // are split by exact overlap, so their bucket sum equals the accounted window total.
 public sealed record TimeHistogram(
+    [property: ToolNumericSemantics("time_point", "microseconds_since_trace_start", "exact", "point")]
     long StartUs,
+    [property: ToolNumericSemantics("time_point", "microseconds_since_trace_start", "exact", "point")]
     long EndUs,
+    [property: ToolNumericSemantics("metric", "microseconds", "exact", "bucket_width")]
     long BucketWidthUs,
-    long[] Buckets);
+    [property: ToolNumericSemantics("metric", "dynamic", "exact", "bucket_sum", unitProperty: "Unit")]
+    long[] Buckets,
+    [property: Description("Unit of every Buckets element; values are not comparable across different units.")]
+    string Unit)
+{
+    [Description("Authoritative exact-requested boundary for /when/buckets. Histogram construction always returns exactly the requested bucket count and never paginates or silently truncates it.")]
+    public EmbeddedTopNBoundary BucketsBoundary => new(
+        "/when/buckets",
+        Buckets.LongLength,
+        Buckets.LongLength,
+        Buckets.LongLength,
+        ToolSectionTotalState.Exact,
+        ToolSectionMoreState.Absent,
+        HasMore: false,
+        ContinuationAvailable: false,
+        TruncationReason: null,
+        SortKey: "bucket_index_asc",
+        SortDirection: ToolSortDirection.Ascending,
+        TieBreakers: Array.Empty<string>());
+}
 
 public sealed record ImageLoadRow(
     long TimeUs,
-    long TimeFromProcessStartUs,
+    [property: Description("Microseconds since an observed ProcessStart. Null when the selected lifetime start came only from rundown or inventory backfill.")]
+    long? TimeFromProcessStartUs,
     string FileName,
     long ImageSize,
     // Microseconds between this load and the previous one in chronological order. Null for
     // the first load (no prior). A long gap establishes only that no ImageLoad event for this
     // process lifetime was observed in the interval; it does not identify the intervening work.
-    long? GapFromPrevUs);
+    long? GapFromPrevUs,
+    [property: Description("Stable source event ordinal used as the final pagination tie-breaker; it is not a timestamp.")]
+    long EventIndex = 0);
 
 // Top-N call-tree frames ranked by ImageLoad-event count — answers "what call chain is
 // loading the most DLLs". Different question from ImageLoadTimingResponse: that one is a
@@ -1199,7 +1443,14 @@ public sealed record ImageLoadTimingResponse(
     [property: Description("Number of ImageLoad source events matched to the selected process lifetime.")]
     long MatchedEventCount = 0,
     [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    TimelinePageContext? PageContext = null,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null,
+    [property: Description("observed_process_start when startup-relative offsets are valid; inferred_start_boundary when ProcessStart was not observed; unresolved when scope selection failed.")]
+    string ProcessStartEvidenceState = "unresolved");
 
 public sealed record ImageLoadTopGapsResponse(
     int Pid,
@@ -1220,25 +1471,37 @@ public sealed record ImageLoadTopGapsResponse(
     [property: Description("Number of ImageLoad source events matched to the selected process lifetime. TopGaps may be truncated and excludes the first load.")]
     long MatchedEventCount = 0,
     [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    [property: Description("observed_process_start when startup-relative offsets are valid; inferred_start_boundary when ProcessStart was not observed; unresolved when scope selection failed.")]
+    string ProcessStartEvidenceState = "unresolved");
 
 public sealed record HighWaitCandidate(
     int Pid,
     string ProcessName,
     long TotalCpuUs,
     long TotalBlockedUs,
+    [property: Description("Deprecated alias of BlockedToCpuRatio; this is blocked_us / cpu_us, not a percentage and not bounded to [0,1].")]
     double? WaitRatio,
     long ContextSwitches,
+    [property: Description("Exhaustive collapsed wait-reason buckets for this candidate across its complete wait rows; the collection is not capped.")]
     IReadOnlyList<WaitReasonBucket> TopWaitReasons,
     string WaitAnalysisCallId,
     string? WaitStacksCallId,
     string? ReadyThreadCallId,
     [property: Description("Trace-relative process start. Combine with Pid; candidates from reused PID lifetimes are never merged.")]
-    long ProcessStartUs = 0);
+    long ProcessStartUs = 0)
+{
+    [Description("Authoritative blocked-to-CPU ratio: TotalBlockedUs / TotalCpuUs; null when TotalCpuUs is zero. This is not a percentage and may exceed 1.")]
+    public double? BlockedToCpuRatio => TotalCpuUs == 0
+        ? null
+        : TotalBlockedUs / (double)TotalCpuUs;
+}
 
 public sealed record DiagnoseHighWaitResponse(
     [property: Description("Ordered by total blocked microseconds, not impact, severity, or causality.")]
     IReadOnlyList<HighWaitCandidate> Candidates,
+    [property: Description("Authoritative exact-total omission boundary for Candidates. Candidate aggregation is completed before maxCandidates is applied; no embedded continuation is exposed.")]
+    EmbeddedTopNBoundary CandidateBoundary,
     IReadOnlyList<CompositeEvidence> Evidence,
     IReadOnlyList<CompositeNotConcluded> NotConcluded,
     IReadOnlyList<CompositeNextTool> NextTools,
@@ -1253,7 +1516,32 @@ public sealed record DiagnoseHighWaitResponse(
     string ScopeStatus = "ok",
     string CapabilityStatus = "unknown",
     long MatchedEventCount = 0,
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    [property: Description("True only when the post-wait fan-out budget omitted requested stack work; completed evidence remains usable.")]
+    bool Partial = false,
+    [property: Description("Stable partial boundary code. time_budget_exhausted accompanies Partial=true; null otherwise.")]
+    string? PartialCode = null,
+    [property: Description("Planner admission boundary for this composite. Until equivalence evidence is approved, the tool executes directly and planner logical/pass/scan counts remain null with unavailable states; no single-dispatch claim is made.")]
+    PlannerExecutionTelemetry? PlannerExecution = null);
+
+public sealed record WindowEvidenceSample(
+    string? ProviderName,
+    string? Process,
+    string? Path,
+    [property: ToolNumericSemantics("time_point", "microseconds_since_trace_start", "exact", "returned_row_point", minimum: 0)]
+    long? TimeUs,
+    [property: ToolNumericSemantics("metric", "events", "exact", "returned_row_source_count", minimum: 0)]
+    long? EventCount,
+    [property: ToolNumericSemantics("identifier", "process_id", "exact", "process_identity", minimum: 0)]
+    int? Pid,
+    [property: ToolNumericSemantics("time_point", "microseconds_since_trace_start", "exact", "process_instance_identity", minimum: 0)]
+    long? ProcessStartUs,
+    [property: Description("Always false for diagnostic samples that do not own or represent the aggregate evidence metric.")]
+    bool Representative,
+    [property: Description("Always false when the sample must not be used to attribute the containing WindowEvidenceRow.MetricValue.")]
+    bool MetricAttributable,
+    [property: Description("Machine-readable sampling scope, currently returned_rows_only.")]
+    string SampleScope);
 
 public sealed record WindowEvidenceRow(
     [property: Description("Evidence class such as hard_fault_max_latency, file_io_top_file, memory_pressure, security_scan, or wait_summary.")]
@@ -1265,12 +1553,20 @@ public sealed record WindowEvidenceRow(
     long MetricValue,
     [property: Description("Unit for MetricValue, for example bytes, us, events, or count.")]
     string Unit,
+    [property: Description("Raw PID selector for process-scoped evidence. For single_process it is paired with ProcessStartUs to identify one lifetime; for pid_aggregate it intentionally names only the reused PID and ProcessStartUs is null; null for all-process or window-global evidence.")]
     int? Pid,
+    [property: Description("Exact-process scope label only when ScopeMode=single_process and the returned sample identity matches Pid + ProcessStartUs. Null for all_processes, pid_aggregate, window_global, or unproven attribution; never infer aggregate metric ownership from sample details.")]
     string? ProcessName,
+    [property: Description("Exact file grouping key for MetricValue when the metric is grouped by one file; null for cross-file aggregate metrics. Paths in Samples are contextual returned-row examples and do not own MetricValue unless MetricAttributable is explicitly true.")]
     string? File,
-    [property: Description("Microseconds since trace start for point-in-time evidence when known.")]
+    [property: Description("Microseconds since trace start only when this timestamp directly locates MetricValue (for example maxLatencyUs). Null for aggregate metrics; timestamps in Samples are contextual returned-row examples and do not anchor MetricValue unless MetricAttributable is explicitly true.")]
     long? TimeUs,
+    [property: Description("Ordered human-readable annotations. Security returned-row samples are never encoded here; use Samples and SamplesBoundary. DetailsBoundary is present only when the annotations themselves are sampled, such as wait-reason details.")]
     IReadOnlyList<string> Details,
+    [property: Description("Structured non-representative samples separated from explanatory Details. Empty when this evidence type emits no samples.")]
+    IReadOnlyList<WindowEvidenceSample> Samples,
+    [property: Description("Authoritative omission and ordering boundary for Samples; null exactly when Samples is empty and the evidence type has no sample surface.")]
+    EmbeddedTopNBoundary? SamplesBoundary,
     [property: Description("Machine-readable evidence kind when the source analyzer exposes one.")]
     string? EvidenceKind = null,
     [property: Description("Machine-readable provenance for the evidence classification.")]
@@ -1282,7 +1578,13 @@ public sealed record WindowEvidenceRow(
     [property: Description("Process scope used for this row, or window_global for system-wide evidence.")]
     string ScopeMode = "all_processes",
     [property: Description("Evidence boundary: process_scope or window_global.")]
-    string EvidenceScope = "process_scope");
+    string EvidenceScope = "process_scope",
+    [property: Description("Stable evidence id within this composite response.")]
+    string? EvidenceId = null,
+    [property: Description("CompositeToolCall.CallId that produced this evidence.")]
+    string? CallId = null,
+    [property: Description("Optional authoritative boundary for Details when the annotations themselves are sampled. Returned equals Details.Count; null for exhaustive fixed annotations.")]
+    EmbeddedTopNBoundary? DetailsBoundary = null);
 
 public sealed record DiagnoseWindowResponse(
     long WindowStartUs,
@@ -1319,7 +1621,9 @@ public sealed record DiagnoseWindowResponse(
     [property: Description("Sum of scoped event counts from distinct child event families; hard-fault events are counted once across both sort views.")]
     long MatchedEventCount = 0,
     [property: Description("Stable composite empty-result reason; inspect NotConcluded for per-child scope and capability reasons.")]
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    [property: Description("Planner admission boundary for this composite. Until equivalence evidence is approved, the tool executes directly and planner logical/pass/scan counts remain null with unavailable states; no single-dispatch claim is made.")]
+    PlannerExecutionTelemetry? PlannerExecution = null);
 
 // Top-N call-tree frames ranked by VirtualMemAlloc/Free operation bytes. This is event-flow
 // traffic, not a live virtual-size, commit, or leak measurement.
@@ -1355,8 +1659,8 @@ public sealed record VirtualAllocStacksResponse(
     long NetObservedOperationBytes = 0,
     string NetObservedOperationBytesSemantics = "alloc_minus_free_event_bytes_not_live_virtual_size_commit_or_leak",
     string MetricName = "virtualMemoryOperationBytes",
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -1473,7 +1777,7 @@ public sealed record MemoryResourceResponse(
     [property: Description("window_global means SystemMemory and system-pressure samples use only the requested time window, not pid filtering. When ScopeStatus is not ok these fields are intentionally empty.")]
     string SystemMemoryScope = "window_global",
     string ScopeStatus = "ok",
-    [property: Description("observed when target-process evidence matched, not_observed when no supported target event class appears anywhere in the trace, unknown when the scope is invalid or relevant events exist only outside the selected scope/window.")]
+    [property: Description("observed when target-process evidence matched; partial when only window-global system-memory evidence matched; not_observed when no supported event class appears anywhere in the trace; unknown when scope/evidence cannot support a conclusion.")]
     string CapabilityStatus = "unknown",
     [property: Description("Count of target-process evidence in scope: Memory/ProcessMemInfo process entries plus matched handle events plus matched pool events. System-memory samples are counted separately by Pressure.SystemSampleCount and are excluded.")]
     long MatchedEventCount = 0,
@@ -1507,8 +1811,8 @@ public sealed record NetIoStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -1605,8 +1909,8 @@ public sealed record InterruptStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -1668,7 +1972,13 @@ public sealed record ThreadLifetimeRow(
     [property: Description("Trace-relative process start; combine with the response Pid to identify the owning process lifetime.")]
     long ProcessStartUs = 0,
     [property: Description("Generation of this TID within its process lifetime; repeated TIDs have separate rows.")]
-    long ThreadGeneration = 1);
+    long ThreadGeneration = 1,
+    [property: Description("Start endpoint provenance: observed or process_start.")]
+    string StartBoundaryKind = "unknown",
+    [property: Description("End endpoint provenance: observed, replacement, process_end, trace_end, or inferred_boundary.")]
+    string EndBoundaryKind = "unknown",
+    [property: Description("exact_observed_interval only when both endpoints were observed; otherwise bounded_by_inferred_endpoint.")]
+    string MeasurementState = "unknown");
 
 public sealed record ThreadLifetimeResponse(
     int Pid,
@@ -1688,7 +1998,18 @@ public sealed record ThreadLifetimeResponse(
     [property: Description("Number of ThreadStart/Stop or thread-rundown source records attributed to the selected process lifetime. TotalThreads instead counts projected logical thread lifecycles before top truncation.")]
     long MatchedEventCount = 0,
     [property: Description("Stable empty-result reason: scope_not_found, process_start_required, ambiguous_process_instance, event_class_not_observed, no_events_in_scope, or null.")]
-    string? NoDataReason = null);
+    string? NoDataReason = null,
+    TimelinePageContext? PageContext = null,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null,
+    [property: Description("Number of materialized thread lifetimes excluded because EndTimeUs <= StartTimeUs.")]
+    int InvalidLifetimeCount = 0,
+    [property: Description("Number of observed ThreadStart/ThreadStop endpoints attributed to the selected process lifetime. Only this positive count can support CapabilityStatus=observed.")]
+    long MatchedObservedEndpointCount = 0,
+    [property: Description("Number of ThreadDCStart/ThreadDCStop rundown endpoints attributed to the selected process lifetime. Rundown-only evidence yields CapabilityStatus=partial, never observed.")]
+    long MatchedRundownEndpointCount = 0);
 
 // One row of a managed-allocation stack view: bytes the CLR observed flowing through this
 // frame, plus the GCAllocationTick event count (tick ≈ ~100 KB allocated per (heap, gen, type),
@@ -1715,8 +2036,8 @@ public sealed record ClrAllocStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -1783,8 +2104,8 @@ public sealed record HeapAllocStacksResponse(
     IReadOnlyList<string> Warnings,
     TimeHistogram? When = null,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",
@@ -1874,10 +2195,19 @@ public sealed record FinalizedTypeRow(string TypeName, long Count);
 
 // One TCP connection paired Connect/Accept → Disconnect/Reconnect by emitter process
 // lifetime + `connid`. CloseTimeUs and DurationUs are null when no closing event was observed;
-// TraceResidentEnd distinguishes connections that remained open at trace end.
+// TraceResidentEnd distinguishes connections that remained open at trace end. A repeated open
+// is only a connid-slot replacement boundary and is never projected as an exact close.
 public sealed record NetConnectionRow(
     int Pid,
-    ulong ConnId,
+    [property: Description("Authoritative exact TCP connection identifier as a canonical unsigned decimal string. Use this field for identity, comparison, and replay; ConnId is only a deprecated JavaScript-safe numeric projection.")]
+    string ConnIdText,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    [property: Range(0d, 9_007_199_254_740_991d)]
+    [property: ToolSafeIntegerCompatibility("ConnIdText", "ConnIdLegacyStatus")]
+    [property: Description("Deprecated numeric projection of ConnIdText. Exact only when the identifier is <= 9007199254740991 (JavaScript Number.MAX_SAFE_INTEGER); required null for larger identifiers. Never substitute a rounded value.")]
+    ulong? ConnId,
+    [property: Description("Precision/deprecation state of ConnId: exact_safe_integer_deprecated when ConnId is an exact projection, or null_unsafe_integer_deprecated when ConnId is null because the identifier exceeds JavaScript's safe-integer range. ConnIdText remains authoritative in both cases.")]
+    string ConnIdLegacyStatus,
     string Role,
     bool IsIPv6,
     string LocalAddress,
@@ -1890,7 +2220,7 @@ public sealed record NetConnectionRow(
     bool TraceResidentEnd,
     [property: Description("Trace-relative start of the process that emitted this connection lifecycle. It is part of the pairing identity with Pid and ConnId.")]
     long ProcessStartUs = 0,
-    [property: Description("How the row ended: disconnect, reconnect, replaced_open, process_end_unobserved, or trace_end_unobserved. Unobserved ends have null CloseTimeUs and DurationUs.")]
+    [property: Description("How the row ended: disconnect, reconnect, replaced_open_unobserved, process_end_unobserved, or trace_end_unobserved. Only disconnect/reconnect are observed closes with exact CloseTimeUs and DurationUs; every unobserved state requires both fields to be null.")]
     string EndState = "disconnect");
 
 public sealed record NetConnectionsResponse(
@@ -1910,6 +2240,8 @@ public sealed record NetConnectionsResponse(
     string? NoDataReason = null,
     [property: Description("Number of in-scope Disconnect/Reconnect endpoints that could not be paired with a preceding Connect/Accept for the same process instance and connection ID.")]
     long UnpairedCloseCount = 0,
+    [property: Description("Number of projected rows whose connid slot received a second Connect/Accept before a Disconnect/Reconnect was observed. These rows have EndState=replaced_open_unobserved and null CloseTimeUs/DurationUs; the replacement timestamp is not an exact close.")]
+    long ReplacedOpenUnobservedCount = 0,
     [property: Description("Selected-PID (or all-process) source endpoints anywhere in the trace whose process lifetime could not be resolved. This is diagnostic and is not MatchedEventCount.")]
     long TraceIdentityUnresolvedEndpointCount = 0,
     [property: Description("Identity-unresolved source endpoints whose raw PID and timestamp fall in the requested scope/window; these are not attributed or counted in MatchedEventCount.")]

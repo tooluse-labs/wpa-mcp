@@ -337,6 +337,39 @@ public sealed class DependencyGovernanceTests
         Assert.DoesNotContain("actions/attest-build-provenance", quality, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Release_DependsOnQualityAndBindsAssetsToVersionedManifestCommit()
+    {
+        var release = ReadRepoText(".github/workflows/release.yml");
+
+        Assert.Contains("uses: ./.github/workflows/quality.yml", release, StringComparison.Ordinal);
+        Assert.Contains("needs: quality", release, StringComparison.Ordinal);
+        Assert.Contains("$env:GITHUB_REF_NAME -cne $expectedTag", release, StringComparison.Ordinal);
+        Assert.Contains("github.sha", release, StringComparison.Ordinal);
+        Assert.Contains("capabilityManifestSha256", release, StringComparison.Ordinal);
+        Assert.Contains("toolContractManifestSha256", release, StringComparison.Ordinal);
+        Assert.Contains("activeToolSnapshotSha256", release, StringComparison.Ordinal);
+        Assert.Contains("activeDtoSnapshotSha256", release, StringComparison.Ordinal);
+        Assert.Contains("activeStdioSnapshotSha256", release, StringComparison.Ordinal);
+        Assert.Contains("--runtime-profile", release, StringComparison.Ordinal);
+        Assert.Contains("--validate-release-profile", release, StringComparison.Ordinal);
+        Assert.Contains("runtimeProfileSha256", release, StringComparison.Ordinal);
+        Assert.Contains("runtime-profile.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("selectionScope -cne 'startup_immutable'", release, StringComparison.Ordinal);
+        Assert.Contains("supported-client-matrix.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("artifact-materialization-budget.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("schemaTokensMeasured", release, StringComparison.Ordinal);
+        Assert.Contains("promptCacheBehaviorMeasured", release, StringComparison.Ordinal);
+        Assert.Contains("opaqueConverterTransientPeakProven", release, StringComparison.Ordinal);
+        Assert.Contains("$package.commit -cne '${{ github.sha }}'", release, StringComparison.Ordinal);
+        Assert.Contains("$package.contractMode -cne $profile.contractMode", release, StringComparison.Ordinal);
+        Assert.Contains("WPAMCP_RELEASE_SERVER_PATH", release, StringComparison.Ordinal);
+        Assert.Contains("--filter \"Category=Package\"", release, StringComparison.Ordinal);
+        Assert.Contains("release-package-stdio.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("release/release-evidence.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("Published host reported", release, StringComparison.Ordinal);
+    }
+
     private static Dictionary<string, string> ReadSelectedPlatform()
     {
         var selected = ReadXml("eng/SelectedPlatform.props");

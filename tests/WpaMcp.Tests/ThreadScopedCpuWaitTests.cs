@@ -1,4 +1,6 @@
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Etlx;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
 using WpaMcp.Output;
@@ -338,7 +340,7 @@ public sealed class ThreadScopedCpuWaitTests
                 top.HasSampledProfileStacks ? "skipped" : "no_stacks",
                 top.SymbolResolutionState);
 
-            var focus = Assert.Single(top.Rows.Take(1)).Function;
+            var focus = top.Rows.FirstOrDefault()?.Function ?? "?!?";
             var callerCallee = cpu.CpuCallerCallee(
                 CpuFixturePath,
                 focus,
@@ -354,6 +356,16 @@ public sealed class ThreadScopedCpuWaitTests
             Assert.Equal([Candidate(lifetime)], callerCallee.IncludedThreads);
             Assert.Equal(top.TotalSamples, callerCallee.SourceTotalMetric);
             Assert.Equal(top.HasSampledProfileStacks, callerCallee.HasSampledProfileStacks);
+            if (!top.HasSampledProfileStacks)
+            {
+                Assert.Empty(top.Rows);
+                Assert.Equal("unavailable", top.CapabilityStatus);
+                Assert.Equal("stacks_unavailable", top.NoDataReason);
+                Assert.Empty(callerCallee.Callers);
+                Assert.Empty(callerCallee.Callees);
+                Assert.Equal("unavailable", callerCallee.CapabilityStatus);
+                Assert.Equal("stacks_unavailable", callerCallee.NoDataReason);
+            }
 
             var symbolized = cpu.CpuTopFunctions(
                 CpuFixturePath,

@@ -5,6 +5,7 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
+using WpaMcp.Core.Catalog;
 using WpaMcp.Output;
 
 namespace WpaMcp.Tools;
@@ -22,22 +23,32 @@ public sealed class DiagnoseTools
     private const long PageInZoomBeforeUs = 3_000_000;
     private const long PageInZoomAfterUs = 1_000_000;
 
+    private static readonly Lazy<QueryPlanner> Planner = new(
+        static () => new QueryPlanner(ActiveToolCatalog.LoadAndValidate()),
+        LazyThreadSafetyMode.ExecutionAndPublication);
+
     private readonly TraceCache _cache;
-    public DiagnoseTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public DiagnoseTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true,
+        OpenWorld = false,
+        Destructive = false,
         UseStructuredContent = true), Description(
         "Windowed evidence composite for a specific trace interval. Aggregates per-file hard faults " +
         "by bytes and max latency, top file IO, memory-pressure samples, security-scan evidence, " +
         "and wait_analysis rows for one shared process selector and window. processStartUs selects " +
         "one lifetime; PID-only reuse is labeled as an aggregate. No root-cause verdict: compare " +
-        "the facts and use NextTools for bounded hypothesis checks.")]
+        "the facts and use NextTools for bounded hypothesis checks. PlannerExecution reports that " +
+        "shared dispatch is not yet admitted; planner pass/scan/match counts remain unavailable rather than fabricated.")]
     public DiagnoseWindowResponse DiagnoseWindow(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Window start in microseconds since trace start. Required.")]
         long startUs,
         [Description("Window end in microseconds since trace start (exclusive). Required.")]
@@ -60,7 +71,7 @@ public sealed class DiagnoseTools
 
         if (BuildWideWindowGuard(
                 startUs, endUs, pid, maxWindowDurationUs, processStartUs) is { } guarded)
-            return guarded;
+            return AttachPlannerBoundary(guarded);
 
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;
@@ -68,9 +79,9 @@ public sealed class DiagnoseTools
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxWindowDurationUs);
         var scope = ProcessAnalysisScope.Resolve(
             window, pid, processStartUs, TraceIdentityIndex.For(trace));
-        return BuildDiagnoseWindow(
+        return AttachPlannerBoundary(BuildDiagnoseWindow(
             trace, scope, top, maxWindowDurationUs,
-            callPrefix: "diagnose-window");
+            callPrefix: "diagnose-window"));
     }
 
     private static DiagnoseWindowResponse? BuildWideWindowGuard(
@@ -198,14 +209,19 @@ public sealed class DiagnoseTools
                 Pid: pid,
                 ProcessName: null,
                 File: topHardFaultBytes.File,
-                TimeUs: topHardFaultBytes.MaxLatencyTimeUs,
+                TimeUs: null,
                 Details: new[]
                 {
                     $"pageInCount={topHardFaultBytes.PageInCount}",
                     $"maxLatencyUs={topHardFaultBytes.MaxLatencyUs}",
+                    $"nonRepresentativePointOnly: maxLatencyTimeUs={topHardFaultBytes.MaxLatencyTimeUs} is the timestamp of the largest single fault for this file; aggregate pageInBytes is not anchored to that point.",
                 },
+                Samples: Array.Empty<WindowEvidenceSample>(),
+                SamplesBoundary: null,
                 ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
+                ScopeMode: scope.ScopeMode,
+                EvidenceId: $"{callPrefix}.evidence.hard-fault-bytes",
+                CallId: $"{callPrefix}.hard_fault_by_file.bytes"));
         }
         else
         {
@@ -242,8 +258,12 @@ public sealed class DiagnoseTools
                     $"pageInBytes={topHardFaultLatency.PageInBytes}",
                     $"pageInCount={topHardFaultLatency.PageInCount}",
                 },
+                Samples: Array.Empty<WindowEvidenceSample>(),
+                SamplesBoundary: null,
                 ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
+                ScopeMode: scope.ScopeMode,
+                EvidenceId: $"{callPrefix}.evidence.hard-fault-max-latency",
+                CallId: $"{callPrefix}.hard_fault_by_file.max_latency"));
 
             var zoomStartUs = Math.Max(0, topHardFaultLatency.MaxLatencyTimeUs - PageInZoomBeforeUs);
             nextTools.Add(new CompositeNextTool(
@@ -278,7 +298,7 @@ public sealed class DiagnoseTools
         AddWindowCall(executedCalls, warnings, $"{callPrefix}.file_io_top_files", "file_io_top_files", pid, startUs, endUs, top, fileIo.Warnings ?? Array.Empty<string>(), processStartUs: processStartUs);
         if (fileIo.Rows.FirstOrDefault() is { } topFile)
         {
-            var bytes = topFile.ReadBytes + topFile.WriteBytes;
+            var bytes = checked(topFile.ReadBytes + topFile.WriteBytes);
             evidence.Add(new WindowEvidenceRow(
                 EvidenceType: "file_io_top_file",
                 Label: "Top file IO path by read+write bytes",
@@ -296,8 +316,12 @@ public sealed class DiagnoseTools
                     $"readCount={topFile.ReadCount}",
                     $"writeCount={topFile.WriteCount}",
                 },
+                Samples: Array.Empty<WindowEvidenceSample>(),
+                SamplesBoundary: null,
                 ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
+                ScopeMode: scope.ScopeMode,
+                EvidenceId: $"{callPrefix}.evidence.file-io-top-file",
+                CallId: $"{callPrefix}.file_io_top_files"));
         }
         else
         {
@@ -334,9 +358,13 @@ public sealed class DiagnoseTools
                     $"systemSampleCount={memory.Pressure.SystemSampleCount}",
                     "This system-memory sample is window-global and does not attribute pressure to the selected process.",
                 ],
+                Samples: Array.Empty<WindowEvidenceSample>(),
+                SamplesBoundary: null,
                 ProcessStartUs: null,
                 ScopeMode: "window_global",
-                EvidenceScope: "window_global"));
+                EvidenceScope: "window_global",
+                EvidenceId: $"{callPrefix}.evidence.memory-pressure",
+                CallId: $"{callPrefix}.memory_resource_analysis"));
         }
         if (memory.NoDataReason is not null ||
             (memory.Pressure.ProcessSnapshotBatchCount == 0 &&
@@ -355,75 +383,38 @@ public sealed class DiagnoseTools
                 memory.NoDataReason);
         }
 
-        var security = SecurityScanAnalysis.Analyze(
+        var securityDetailed = SecurityScanAnalysis.AnalyzeDetailed(
             trace, top, pid, startUs, endUs,
             processSubstring: null,
             pathSubstring: null,
             providerSubstring: null,
             targetProcessStartUs: processStartUs);
+        var security = securityDetailed.Response;
         AddWindowCall(executedCalls, warnings, $"{callPrefix}.security_scan_analysis", "security_scan_analysis", pid, startUs, endUs, top, security.Warnings, targetProcessStartUs: processStartUs);
         var hasSecurityEvidence = false;
         if (security.PairedScanCount > 0)
         {
-            var pairedEvidence = security.SlowScans.FirstOrDefault();
-            evidence.Add(new WindowEvidenceRow(
-                EvidenceType: "security_scan_duration",
-                Label: "Duration from paired Microsoft Defender scan-request endpoints",
-                MetricName: "scanDurationUs",
-                MetricValue: security.TotalDurationUs,
-                Unit: "us",
-                Pid: pid,
-                ProcessName: pairedEvidence?.Process,
-                File: pairedEvidence?.Path,
-                TimeUs: pairedEvidence?.StartUs,
-                Details: new[]
-                {
-                    $"pairedScanCount={security.PairedScanCount}",
-                    $"responseMatchedEventCount={security.MatchedEventCount} (all evidence classifications; not a duration denominator)",
-                    "Known-schema interval evidence does not by itself prove performance impact or root cause.",
-                },
-                EvidenceKind: pairedEvidence?.EvidenceKind ?? "paired_interval",
-                Provenance: pairedEvidence?.Provenance ?? "known_defender_schema",
-                Confidence: pairedEvidence?.Confidence ?? "high",
-                ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
+            evidence.Add(BuildSecurityDurationEvidence(
+                security,
+                pid) with
+            {
+                EvidenceId = $"{callPrefix}.evidence.security-scan-duration",
+                CallId = $"{callPrefix}.security_scan_analysis",
+            });
             hasSecurityEvidence = true;
         }
 
-        var presenceGroups = security.Rows
-            .Where(row => row.EventCount > 0 &&
-                !(security.PairedScanCount > 0 && row.EvidenceKind == "paired_interval"))
-            .GroupBy(row => new { row.EvidenceKind, row.Provenance, row.Confidence });
-        foreach (var group in presenceGroups)
-        {
-            var sample = group.First();
-            var isLowConfidence = string.Equals(
-                group.Key.Confidence,
-                "low",
-                StringComparison.Ordinal);
-            evidence.Add(new WindowEvidenceRow(
-                EvidenceType: "security_scan_presence",
-                Label: isLowConfidence
-                    ? "Low-confidence scan-like name matches; presence only, not duration or root cause"
-                    : "Known security scan result events were present; no paired duration was established",
-                MetricName: "matchedSecurityEvents",
-                MetricValue: group.Sum(row => row.EventCount),
-                Unit: "events",
-                Pid: pid,
-                ProcessName: sample.Process,
-                File: sample.Path,
-                TimeUs: null,
-                Details: group.Take(3)
-                    .Select(row => $"{row.ProviderName}:{row.EventCount}")
-                    .Append($"Counts cover returned target rows; rowsHasMore={security.RowsHasMore}.")
-                    .ToList(),
-                EvidenceKind: group.Key.EvidenceKind,
-                Provenance: group.Key.Provenance,
-                Confidence: group.Key.Confidence,
-                ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
-            hasSecurityEvidence = true;
-        }
+        var securityPresence = BuildSecurityPresenceEvidence(
+            securityDetailed,
+            pid)
+            .Select((item, index) => item with
+            {
+                EvidenceId = $"{callPrefix}.evidence.security-scan-presence-{index}",
+                CallId = $"{callPrefix}.security_scan_analysis",
+            })
+            .ToArray();
+        evidence.AddRange(securityPresence);
+        hasSecurityEvidence |= securityPresence.Length > 0;
 
         if (!hasSecurityEvidence)
         {
@@ -456,24 +447,16 @@ public sealed class DiagnoseTools
                 $"thread_scope_{waitScopeResolution.Status.ToString().ToLowerInvariant()}",
                 scope);
         AddWindowCall(executedCalls, warnings, $"{callPrefix}.wait_analysis", "wait_analysis", pid, startUs, endUs, top, waits.Warnings, processStartUs: processStartUs);
-        var totalBlockedUs = waits.Rows.Sum(row => row.BlockedUs);
-        if (totalBlockedUs > 0)
+        var waitSummary = BuildWaitSummaryEvidence(
+            waits,
+            pid);
+        if (waitSummary is not null)
         {
-            evidence.Add(new WindowEvidenceRow(
-                EvidenceType: "wait_summary",
-                Label: "Total blocked time across returned wait rows",
-                MetricName: "blockedUs",
-                MetricValue: totalBlockedUs,
-                Unit: "us",
-                Pid: pid,
-                ProcessName: waits.Rows.FirstOrDefault()?.ProcessName,
-                File: null,
-                TimeUs: null,
-                Details: CollapseWaitReasons(waits.Rows, top: 3)
-                    .Select(reason => $"{reason.Reason}={reason.BlockedUs}us/{reason.Count}")
-                    .ToList(),
-                ProcessStartUs: processStartUs,
-                ScopeMode: scope.ScopeMode));
+            evidence.Add(waitSummary with
+            {
+                EvidenceId = $"{callPrefix}.evidence.wait-summary",
+                CallId = $"{callPrefix}.wait_analysis",
+            });
 
             if (waits.HasContextSwitchBlockingStacks)
             {
@@ -583,7 +566,7 @@ public sealed class DiagnoseTools
             NoDataReason: noDataReason);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Composite startup evidence analysis; it does not return a root-cause verdict. Includes only process instances with an " +
         "observed ProcessStart, ranks them from CPU and wall time inside one bounded startup window, and " +
         "projects wait reasons and image loads from that same process-instance window. CPU functions use " +
@@ -591,7 +574,7 @@ public sealed class DiagnoseTools
         "No startUs/endUs: this composite derives each checked half-open window from ProcessStart and " +
         "startupWindowUs; lifetime metrics are auxiliary and never affect ranking.")]
     public DiagnoseSlowStartupResponse DiagnoseSlowStartup(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Match candidates whose process name contains this substring (case-insensitive). " +
                      "Empty/null = rank all observed-start candidates by startup-window wait ratio.")]
         string? nameSubstring = null,
@@ -611,7 +594,7 @@ public sealed class DiagnoseTools
     {
         if (nameSubstring is not null)
             Validation.RequireText(nameSubstring, allowEmpty: true);
-        if (maxCandidates <= 0 || maxCandidates > 20)
+        if (maxCandidates <= 0 || maxCandidates > ToolOverfetchExecutionContext.MaximumAllowed(20))
             throw new ArgumentOutOfRangeException(nameof(maxCandidates));
         if (minWaitRatio < 0)
             throw new ArgumentOutOfRangeException(nameof(minWaitRatio));
@@ -647,7 +630,7 @@ public sealed class DiagnoseTools
             catalog.Eligible,
             maxRowsPerProcess: topImageLoads);
 
-        return ComposeSlowStartup(
+        return AttachPlannerBoundary(ComposeSlowStartup(
             identities,
             catalog,
             scheduler,
@@ -664,18 +647,19 @@ public sealed class DiagnoseTools
                 trace,
                 top: topCpu,
                 scope,
-                symbolLog: Console.Error,
+                symbolLog: _privacyLog.Writer,
                 excludeEtwSelfOverhead: false),
             diagnoseWindow: (candidate, child, prefix) => BuildDiagnoseWindow(
-                trace,
-                ProcessAnalysisScope.Resolve(
-                    child,
-                    candidate.Process.Pid,
-                    candidate.Process.StartUs,
-                    identities),
-                topWindowEvidence,
-                maxWindowDurationUs,
-                callPrefix: $"{prefix}.first-image-load-gap"));
+                    trace,
+                    ProcessAnalysisScope.Resolve(
+                        child,
+                        candidate.Process.Pid,
+                        candidate.Process.StartUs,
+                        identities),
+                    topWindowEvidence,
+                    maxWindowDurationUs,
+                    callPrefix: $"{prefix}.first-image-load-gap")),
+            toolName: "diagnose_slow_startup");
     }
 
     internal static DiagnoseSlowStartupResponse ComposeSlowStartup(
@@ -703,23 +687,45 @@ public sealed class DiagnoseTools
         ArgumentNullException.ThrowIfNull(analyzeCpu);
         ArgumentNullException.ThrowIfNull(diagnoseWindow);
 
+        const string discoveryCallId = "slow-startup.startup-candidate-discovery";
         var excludedSamples = catalog.Excluded
+            .Take(StartupDiscoverySummary.ExcludedSampleLimit)
             .Select(exclusion => new StartupProcessExclusionRow(
                 EvidenceId:
                     $"slow-startup.pid-{exclusion.Process.Pid}.start-{exclusion.Process.StartUs}.exclusion-sample",
+                CallId: discoveryCallId,
                 Pid: exclusion.Process.Pid,
                 ProcessStartUs: exclusion.Process.StartUs,
                 ProcessName: exclusion.ProcessName,
                 Code: exclusion.Code))
             .ToList();
         var discovery = new StartupDiscoverySummary(
+            CallId: discoveryCallId,
             EligibleStartupInstanceCount: catalog.TotalEligibleCount,
             ConsideredStartupInstanceCount: catalog.Eligible.Count,
             CandidateInputHasMore: catalog.EligibleHasMore,
+            CandidateInputBoundary: new EmbeddedTopNBoundary(
+                SectionPointer: "/discovery/candidateInput",
+                Requested: Validation.MaxCollectionItems,
+                Returned: catalog.Eligible.Count,
+                TotalAvailable: catalog.TotalEligibleCount,
+                TotalState: ToolSectionTotalState.Exact,
+                MoreState: catalog.EligibleHasMore
+                    ? ToolSectionMoreState.Present
+                    : ToolSectionMoreState.Absent,
+                HasMore: catalog.EligibleHasMore,
+                ContinuationAvailable: false,
+                TruncationReason: catalog.EligibleHasMore ? "fixed_source_limit" : null,
+                SortKey: "process_start_us_asc",
+                SortDirection: ToolSortDirection.Ascending,
+                TieBreakers: ["pid_asc"]),
+            ExcludedStartupInstanceCount: checked(
+                catalog.TotalUnobservedStartCount + catalog.TotalOtherExcludedCount),
             ExcludedUnobservedStartCount: catalog.TotalUnobservedStartCount,
             OtherExcludedStartupInstanceCount: catalog.TotalOtherExcludedCount,
             ExcludedSamples: excludedSamples,
-            ExcludedSamplesHasMore: catalog.ExcludedHasMore);
+            ExcludedSamplesHasMore: catalog.ExcludedHasMore ||
+                catalog.Excluded.Count > StartupDiscoverySummary.ExcludedSampleLimit);
 
         var warnings = new List<string>();
         var evidence = new List<CompositeEvidence>();
@@ -727,6 +733,22 @@ public sealed class DiagnoseTools
         var nextTools = new List<CompositeNextTool>();
         var firstImageLoadGapEvidence = new List<StartupGapEvidenceRow>();
         var executedCalls = new List<CompositeToolCall>();
+        executedCalls.Add(ToolCall(
+            discoveryCallId,
+            "startup_candidate_discovery",
+            pid: null,
+            awakenedPid: null,
+            startUs: null,
+            endUs: null,
+            top: Validation.MaxCollectionItems,
+            compactStacks: null,
+            summaryOnly: null,
+            whenBuckets: null,
+            warnings: Array.Empty<string>(),
+            replayable: false,
+            internalTop: Validation.MaxCollectionItems,
+            internalNote:
+                "Internal process-instance startup discovery; public replay uses diagnose_slow_startup with the original selectors."));
 
         if (catalog.ExplicitNameTarget)
         {
@@ -742,7 +764,7 @@ public sealed class DiagnoseTools
                     BlockingCapability: null,
                     RelatedCallId: null,
                     ProcessStartUs: exclusion.Process.StartUs,
-                    EvidenceId: exclusionId));
+                    BoundaryId: exclusionId));
             }
         }
         else if (catalog.TotalUnobservedStartCount > 0)
@@ -756,7 +778,7 @@ public sealed class DiagnoseTools
                 MetricName: "excludedUnobservedStartCount",
                 MetricValue: catalog.TotalUnobservedStartCount,
                 Unit: "process_instances",
-                EvidenceId: "slow-startup.discovery.startup-starts-not-observed"));
+                BoundaryId: "slow-startup.discovery.startup-starts-not-observed"));
         }
 
         warnings.AddRange(PrefixWarnings("slow-startup.discovery", schedulerWarnings));
@@ -771,30 +793,80 @@ public sealed class DiagnoseTools
                 $"slow-startup.discovery: image_load_process_ambiguous: {imageLoads.AmbiguousProcessInstanceCount:N0} event(s) matched multiple process instances.");
         }
 
-        var ranked = SlowStartupProjection.Rank(
+        var ranking = SlowStartupProjection.RankDetailed(
             catalog.Eligible,
             scheduler,
             imageLoads.ByProcess,
             nameSubstring,
             minWaitRatio,
             maxCandidates);
+        var ranked = ranking.Candidates;
+        var candidateBoundary = catalog.EligibleHasMore
+            ? UnknownEmbeddedBoundary(
+                "/candidates",
+                maxCandidates,
+                ranked.Count,
+                "source_limit_saturated",
+                "startup_wait_ratio_desc",
+                ["observed_startup_wall_us_desc", "process_start_us_asc", "pid_asc"])
+            : ExactEmbeddedBoundary(
+                "/candidates",
+                maxCandidates,
+                ranked.Count,
+                ranking.QualifiedCandidateCount,
+                "startup_wait_ratio_desc",
+                ToolSortDirection.Descending,
+                ["observed_startup_wall_us_desc", "process_start_us_asc", "pid_asc"]);
 
-        if (ranked.Count == 0)
+        if (catalog.EligibleHasMore)
         {
-            warnings.Add(
-                $"No processes matched (nameSubstring='{nameSubstring ?? "<any>"}', " +
-                $"minWaitRatio={minWaitRatio}) using observed startup-window metrics. " +
-                "Try lowering minWaitRatio or removing nameSubstring.");
+            var partialReason =
+                $"Startup candidate input was capped at {catalog.Eligible.Count:N0} of " +
+                $"{catalog.TotalEligibleCount:N0} eligible process instances. " +
+                $"qualifiedCandidateCount={ranking.QualifiedCandidateCount:N0} is a lower bound " +
+                "(totalState=lower_bound); omitted instances were not ranked.";
+            warnings.Add($"slow-startup.discovery: upstream_candidate_input_truncated: {partialReason}");
             notConcluded.Add(new CompositeNotConcluded(
-                Code: "no_candidates",
-                Reason: "No observed-start process instance matched the configured nameSubstring and minWaitRatio filters.",
+                Code: "upstream_candidate_input_truncated",
+                Reason: partialReason,
                 Pid: null,
                 BlockingCapability: null,
                 RelatedCallId: null,
-                EvidenceId: "slow-startup.no-candidates"));
+                MetricName: "qualifiedCandidateCountLowerBound",
+                MetricValue: ranking.QualifiedCandidateCount,
+                Unit: "process_instances",
+                BoundaryId: "slow-startup.discovery.candidate-input-truncated",
+                CapabilityStatus: "partial",
+                NoDataReason: "upstream_candidate_input_truncated"));
+        }
+
+        if (ranked.Count == 0)
+        {
+            var inputWasTruncated = catalog.EligibleHasMore;
+            var noCandidateCode = inputWasTruncated
+                ? "no_candidates_in_retained_input"
+                : "no_candidates";
+            var noCandidateReason = inputWasTruncated
+                ? "No candidate in the retained startup input matched the configured nameSubstring and minWaitRatio filters; omitted eligible instances were not evaluated, so global absence is not concluded."
+                : "No observed-start process instance matched the configured nameSubstring and minWaitRatio filters.";
+            warnings.Add(inputWasTruncated
+                ? $"No processes in the retained input matched (nameSubstring='{nameSubstring ?? "<any>"}', minWaitRatio={minWaitRatio}); the global result is partial because eligible input was truncated."
+                : $"No processes matched (nameSubstring='{nameSubstring ?? "<any>"}', minWaitRatio={minWaitRatio}) using observed startup-window metrics. Try lowering minWaitRatio or removing nameSubstring.");
+            notConcluded.Add(new CompositeNotConcluded(
+                Code: noCandidateCode,
+                Reason: noCandidateReason,
+                Pid: null,
+                BlockingCapability: null,
+                RelatedCallId: null,
+                BoundaryId: "slow-startup.no-candidates",
+                CapabilityStatus: inputWasTruncated ? "partial" : null,
+                NoDataReason: noCandidateCode));
             return new DiagnoseSlowStartupResponse(
                 Candidates: Array.Empty<SlowStartupCandidate>(),
-                Summary: "No candidates above minWaitRatio.",
+                CandidateBoundary: candidateBoundary,
+                Summary: inputWasTruncated
+                    ? "No candidates in considered startup input; global result is partial."
+                    : "No candidates above minWaitRatio.",
                 Warnings: warnings,
                 Evidence: evidence,
                 NotConcluded: notConcluded,
@@ -855,7 +927,10 @@ public sealed class DiagnoseTools
                 compactStacks: null,
                 summaryOnly: null,
                 whenBuckets: null,
-                warnings: schedulerWarnings,
+                warnings: Array.Empty<string>(),
+                internalNote: schedulerWarnings.Count == 0
+                    ? null
+                    : "Scheduler warnings are exposed once in outer Warnings with the discovery prefix.",
                 processStartUs: c.Process.StartUs));
             executedCalls.Add(ToolCall(
                 imageCallId,
@@ -899,11 +974,15 @@ public sealed class DiagnoseTools
                 compactStacks: null,
                 summaryOnly: null,
                 whenBuckets: null,
-                warnings: cpuWarnings,
+                warnings: Array.Empty<string>(),
+                internalNote: cpuWarnings.Count == 0
+                    ? null
+                    : "CPU warnings are exposed once in outer Warnings with the candidate prefix.",
                 processStartUs: c.Process.StartUs));
 
             candidates.Add(new SlowStartupCandidate(
                 EvidenceId: $"{prefix}.candidate",
+                CallId: projectionCallId,
                 Pid: c.Process.Pid,
                 ProcessStartUs: c.Process.StartUs,
                 ParentPid: c.ParentPid,
@@ -916,8 +995,47 @@ public sealed class DiagnoseTools
                 StartupImageLoadCount: c.StartupImageLoadCount,
                 StartupImageLoadsHasMore: c.StartupImageLoadsHasMore,
                 TopStartupWaitReasons: collapsedReasons,
+                TopStartupWaitReasonsBoundary: new EmbeddedTopNBoundary(
+                    SectionPointer: "/topStartupWaitReasons",
+                    Requested: 5,
+                    Returned: collapsedReasons.Count,
+                    TotalAvailable: c.StartupBlockedUsByReason.Count,
+                    TotalState: ToolSectionTotalState.Exact,
+                    MoreState: c.StartupBlockedUsByReason.Count > collapsedReasons.Count
+                        ? ToolSectionMoreState.Present
+                        : ToolSectionMoreState.Absent,
+                    HasMore: c.StartupBlockedUsByReason.Count > collapsedReasons.Count,
+                    ContinuationAvailable: false,
+                    TruncationReason: c.StartupBlockedUsByReason.Count > collapsedReasons.Count
+                        ? "fixed_source_limit"
+                        : null,
+                    SortKey: "blocked_us_desc",
+                    SortDirection: ToolSortDirection.Descending,
+                    TieBreakers: ["reason_ordinal_asc"]),
                 FirstStartupImageLoads: c.StartupImageLoads,
+                FirstStartupImageLoadsBoundary: new EmbeddedTopNBoundary(
+                    SectionPointer: "/firstStartupImageLoads",
+                    Requested: topImageLoads,
+                    Returned: c.StartupImageLoads.Count,
+                    TotalAvailable: c.StartupImageLoadCount,
+                    TotalState: ToolSectionTotalState.Exact,
+                    MoreState: c.StartupImageLoadsHasMore
+                        ? ToolSectionMoreState.Present
+                        : ToolSectionMoreState.Absent,
+                    HasMore: c.StartupImageLoadsHasMore,
+                    ContinuationAvailable: false,
+                    TruncationReason: c.StartupImageLoadsHasMore ? "requested_top" : null,
+                    SortKey: "time_us_asc",
+                    SortDirection: ToolSortDirection.Ascending,
+                    TieBreakers: ["file_path_ordinal_asc", "image_base_asc"]),
                 TopStartupCpuFunctions: topCpuRows,
+                TopStartupCpuFunctionsBoundary: BuildConservativeEmbeddedBoundary(
+                    "/topStartupCpuFunctions",
+                    topCpuRows?.Count ?? 0,
+                    topCpu,
+                    "exclusive_metric_desc",
+                    ["function_ordinal_asc"],
+                    unavailable: topCpuRows is null),
                 Window: provenance,
                 LifetimeWallUs: c.LifetimeWallUs,
                 LifetimeCpuUs: c.LifetimeCpuUs,
@@ -931,7 +1049,8 @@ public sealed class DiagnoseTools
                 cpuUs: c.StartupCpuUs,
                 blockedUs: c.StartupBlockedUs,
                 waitReasons: collapsedReasons,
-                processStartUs: c.Process.StartUs));
+                processStartUs: c.Process.StartUs,
+                totalWaitReasonCount: c.StartupBlockedUsByReason.Count));
 
             if (plan.NotConcludedCode is not null)
             {
@@ -942,7 +1061,7 @@ public sealed class DiagnoseTools
                     BlockingCapability: null,
                     RelatedCallId: imageCallId,
                     ProcessStartUs: c.Process.StartUs,
-                    EvidenceId: $"{prefix}.first-image-load"));
+                    BoundaryId: $"{prefix}.first-image-load"));
             }
             else if (plan.FirstImageChildWindow is { } child)
             {
@@ -961,14 +1080,12 @@ public sealed class DiagnoseTools
                     compactStacks: null,
                     summaryOnly: null,
                     whenBuckets: null,
-                    warnings: window.Warnings,
+                    warnings: Array.Empty<string>(),
                     replayable: false,
-                    internalNote: "Uses caller-supplied maxWindowDurationUs, which is not represented in this audit call.",
+                    internalNote: "Uses caller maxWindowDurationUs. Child warnings, next tools, calls, and evidence remain under FirstImageLoadGapEvidence[].Window only.",
                     processStartUs: c.Process.StartUs,
                     parentStartUs: bounds.StartUs,
                     parentEndUs: bounds.EndUs));
-                warnings.AddRange(PrefixWarnings(prefix, window.Warnings));
-                nextTools.AddRange(window.NextTools);
                 firstImageLoadGapEvidence.Add(new StartupGapEvidenceRow(
                     EvidenceId: $"{prefix}.first-image-load-gap",
                     CallId: callId,
@@ -976,11 +1093,16 @@ public sealed class DiagnoseTools
                     ProcessStartUs: c.Process.StartUs,
                     ProcessName: c.Name,
                     FirstImageLoadTimeUs: firstLoad.TimeUs,
-                    FirstImageLoadOffsetUs: firstLoad.TimeFromProcessStartUs,
+                    FirstImageLoadOffsetUs: firstLoad.TimeFromProcessStartUs
+                        ?? throw new InvalidOperationException(
+                            "A startup candidate with an observed ProcessStart must expose a startup-relative image-load offset."),
                     ParentWindow: provenance,
                     ChildStartUs: child.StartUs,
                     ChildEndUs: child.EndUs,
-                    Window: window));
+                    Window: window,
+                    WindowSectionBoundaries: BuildEmbeddedWindowBoundaries(
+                        window,
+                        topWindowEvidence)));
             }
         }
 
@@ -995,11 +1117,12 @@ public sealed class DiagnoseTools
                 MetricName: "slowFirstImageLoadThresholdUs",
                 MetricValue: slowFirstImageLoadThresholdUs,
                 Unit: "us",
-                EvidenceId: "slow-startup.no-slow-first-image-load-gaps"));
+                BoundaryId: "slow-startup.no-slow-first-image-load-gaps"));
         }
 
         return new DiagnoseSlowStartupResponse(
             Candidates: candidates,
+            CandidateBoundary: candidateBoundary,
             Summary: BuildSummary(candidates),
             Warnings: warnings,
             Evidence: evidence,
@@ -1011,10 +1134,10 @@ public sealed class DiagnoseTools
     }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true,
+        OpenWorld = false,
+        Destructive = false,
         UseStructuredContent = true), Description(
         "Preview high-wait composite; no root-cause field. One pid/window across subcalls; " +
         "missing stacks degrade to non-stack evidence. Candidates are ordered by total blocked " +
@@ -1022,7 +1145,7 @@ public sealed class DiagnoseTools
         "with ThresholdPct. TimeBudgetMs bounds post-wait stack fan-out. " +
         "NextTools are optional hypothesis checks, not an ordered checklist.")]
     public DiagnoseHighWaitResponse DiagnoseHighWait(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Optional process ID filter. Null means analyze all non-system processes.")]
         int? pid = null,
         [Description("Window start in microseconds since trace start. Null means full trace.")]
@@ -1044,7 +1167,7 @@ public sealed class DiagnoseTools
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
-        if (maxCandidates <= 0 || maxCandidates > 20)
+        if (maxCandidates <= 0 || maxCandidates > ToolOverfetchExecutionContext.MaximumAllowed(20))
             throw new ArgumentOutOfRangeException(nameof(maxCandidates), "must be in [1, 20]");
         Validation.RequireTop(topStacks);
         Validation.RequireTop(topReadyStacks);
@@ -1070,8 +1193,15 @@ public sealed class DiagnoseTools
         {
             var warning = ProcessAnalysisScope.ResolutionFailureWarning(
                 processScope.ScopeStatus);
-            return new DiagnoseHighWaitResponse(
+            return AttachPlannerBoundary(new DiagnoseHighWaitResponse(
                 Candidates: Array.Empty<HighWaitCandidate>(),
+                CandidateBoundary: UnknownEmbeddedBoundary(
+                    "/candidates",
+                    maxCandidates,
+                    returned: 0,
+                    "scope_not_resolved",
+                    "total_blocked_us_desc",
+                    ["wait_ratio_desc_nulls_last", "pid_asc", "process_start_us_asc"]),
                 Evidence: Array.Empty<CompositeEvidence>(),
                 NotConcluded:
                 [
@@ -1096,12 +1226,14 @@ public sealed class DiagnoseTools
                 ScopeStatus: processScope.ScopeStatus,
                 CapabilityStatus: "unknown",
                 MatchedEventCount: 0,
-                NoDataReason: processScope.ScopeStatus);
+                NoDataReason: processScope.ScopeStatus));
         }
 
         var waitScope = ThreadAnalysisScope.ResolveRequired(
             window, pid, tid: null, processStartUs, threadStartUs: null, identities);
-        var waitResp = WaitAnalysis.Analyze(trace, top: int.MaxValue, waitScope);
+        var waitDetailed = WaitAnalysis.AnalyzeDetailed(
+            trace, top: int.MaxValue, waitScope);
+        var waitResp = waitDetailed.Response;
         executedCalls.Add(ToolCall(
             waitCallId,
             "wait_analysis",
@@ -1149,7 +1281,7 @@ public sealed class DiagnoseTools
                 RelatedCallId: waitCallId));
         }
 
-        var positivePidRows = waitResp.Rows
+        var positivePidRows = waitDetailed.CompleteRows
             .Where(row => row.Pid > 0)
             .ToList();
         var totalPositivePidBlockedUs = positivePidRows.Sum(row => row.BlockedUs);
@@ -1173,10 +1305,19 @@ public sealed class DiagnoseTools
                 ThresholdPct: SignificantSystemBlockedPct));
         }
 
-        var candidateGroups = BuildHighWaitCandidateAggregates(
+        var allCandidateGroups = BuildHighWaitCandidateAggregates(
             positivePidRows,
             requestedPid: pid,
-            maxCandidates);
+            maxCandidates: int.MaxValue);
+        var candidateGroups = allCandidateGroups.Take(maxCandidates).ToList();
+        var candidateBoundary = ExactEmbeddedBoundary(
+            "/candidates",
+            maxCandidates,
+            candidateGroups.Count,
+            allCandidateGroups.Count,
+            "total_blocked_us_desc",
+            ToolSortDirection.Descending,
+            ["wait_ratio_desc_nulls_last", "pid_asc", "process_start_us_asc"]);
 
         if (candidateGroups.Count == 0)
         {
@@ -1228,7 +1369,12 @@ public sealed class DiagnoseTools
                     Unit: "us",
                     TopWaitReasons: new[] { reason },
                     Frames: Array.Empty<FrameMetric>(),
-                    ProcessStartUs: candidate.ProcessStartUs));
+                    ProcessStartUs: candidate.ProcessStartUs,
+                    FramesBoundary: ExactEmbeddedBoundary(
+                        "/frames", 0, 0, 0, "not_applicable", ToolSortDirection.NotApplicable, []),
+                    TopWaitReasonsBoundary: ExactEmbeddedBoundary(
+                        "/topWaitReasons", 1, 1, 1, "blocked_us_desc",
+                        ToolSortDirection.Descending, ["reason_ordinal_asc"])));
             }
 
             string? waitStacksCallId = null;
@@ -1255,7 +1401,7 @@ public sealed class DiagnoseTools
                         trace,
                         effectiveTopStacks,
                         candidateScope,
-                        symbolLog: Console.Error);
+                        symbolLog: _privacyLog.Writer);
                     var attemptedWaitStacksCallId = waitStacksCallId;
                     executedCalls.Add(ToolCall(
                         attemptedWaitStacksCallId,
@@ -1277,6 +1423,14 @@ public sealed class DiagnoseTools
                     if (stackCoverage?.StackedEventCount > 0)
                     {
                         candidateHasWaitStacks = true;
+                        var stackFrames = stackResp.Rows
+                            .Where(row => row.Function is not "?!?" and not "ROOT")
+                            .Select(row => new FrameMetric(
+                                Function: row.Function,
+                                ExclusiveMetric: row.ExclusiveBlockedUs,
+                                InclusiveMetric: row.InclusiveBlockedUs,
+                                Unit: "us"))
+                            .ToList();
                         evidence.Add(new CompositeEvidence(
                             EvidenceId: $"high-wait.{candidateId}.wait-stacks",
                             CallId: attemptedWaitStacksCallId,
@@ -1289,15 +1443,13 @@ public sealed class DiagnoseTools
                             MetricValue: stackCoverage.StackedMetric,
                             Unit: "us",
                             TopWaitReasons: Array.Empty<WaitReasonBucket>(),
-                            Frames: stackResp.Rows
-                                .Where(row => row.Function is not "?!?" and not "ROOT")
-                                .Select(row => new FrameMetric(
-                                    Function: row.Function,
-                                    ExclusiveMetric: row.ExclusiveBlockedUs,
-                                    InclusiveMetric: row.InclusiveBlockedUs,
-                                    Unit: "us"))
-                                .ToList(),
-                            ProcessStartUs: candidate.ProcessStartUs));
+                            Frames: stackFrames,
+                            ProcessStartUs: candidate.ProcessStartUs,
+                            FramesBoundary: StackFramesBoundary(
+                                stackFrames.Count, stackResp.Rows.Count, effectiveTopStacks),
+                            TopWaitReasonsBoundary: ExactEmbeddedBoundary(
+                                "/topWaitReasons", 0, 0, 0, "blocked_us_desc",
+                                ToolSortDirection.Descending, ["reason_ordinal_asc"])));
 
                         if (stackCoverage.CoverageState == "partial")
                         {
@@ -1330,7 +1482,7 @@ public sealed class DiagnoseTools
             string? readyThreadCallId = null;
             var candidateHasReadyStacks = false;
             var schedulerWaitPct = candidate.SchedulerWaitPct;
-            var shouldRunReadyThread = schedulerWaitPct >= ReadyThreadSchedulerThresholdPct;
+            var shouldRunReadyThread = ShouldRunReadyThread(schedulerWaitPct);
             if (shouldRunReadyThread)
             {
                 if (!includeReadyStacks)
@@ -1394,7 +1546,7 @@ public sealed class DiagnoseTools
                         awakenedPid: candidate.Pid,
                         startUs: startUs,
                         endUs: endUs,
-                        symbolLog: Console.Error,
+                        symbolLog: _privacyLog.Writer,
                         awakenedProcessStartUs: candidate.ProcessStartUs);
                     executedCalls.Add(ToolCall(
                         attemptedReadyThreadCallId,
@@ -1415,6 +1567,14 @@ public sealed class DiagnoseTools
                     if (readyCoverage?.StackedEventCount > 0)
                     {
                         candidateHasReadyStacks = true;
+                        var readyFrames = readyResp.Rows
+                            .Where(row => row.Function is not "?!?" and not "ROOT")
+                            .Select(row => new FrameMetric(
+                                Function: row.Function,
+                                ExclusiveMetric: row.ExclusiveReadyCount,
+                                InclusiveMetric: row.InclusiveReadyCount,
+                                Unit: "events"))
+                            .ToList();
                         evidence.Add(new CompositeEvidence(
                             EvidenceId: $"high-wait.{candidateId}.ready-stacks",
                             CallId: attemptedReadyThreadCallId,
@@ -1427,15 +1587,13 @@ public sealed class DiagnoseTools
                             MetricValue: readyCoverage.StackedMetric,
                             Unit: "events",
                             TopWaitReasons: Array.Empty<WaitReasonBucket>(),
-                            Frames: readyResp.Rows
-                                .Where(row => row.Function is not "?!?" and not "ROOT")
-                                .Select(row => new FrameMetric(
-                                    Function: row.Function,
-                                    ExclusiveMetric: row.ExclusiveReadyCount,
-                                    InclusiveMetric: row.InclusiveReadyCount,
-                                    Unit: "events"))
-                                .ToList(),
-                            ProcessStartUs: candidate.ProcessStartUs));
+                            Frames: readyFrames,
+                            ProcessStartUs: candidate.ProcessStartUs,
+                            FramesBoundary: StackFramesBoundary(
+                                readyFrames.Count, readyResp.Rows.Count, effectiveTopReadyStacks),
+                            TopWaitReasonsBoundary: ExactEmbeddedBoundary(
+                                "/topWaitReasons", 0, 0, 0, "blocked_us_desc",
+                                ToolSortDirection.Descending, ["reason_ordinal_asc"])));
 
                         if (readyCoverage.CoverageState == "partial")
                         {
@@ -1537,8 +1695,9 @@ public sealed class DiagnoseTools
                 ProcessStartUs: candidate.ProcessStartUs));
         }
 
-        return new DiagnoseHighWaitResponse(
+        return AttachPlannerBoundary(new DiagnoseHighWaitResponse(
             Candidates: candidates,
+            CandidateBoundary: candidateBoundary,
             Evidence: evidence,
             NotConcluded: notConcluded,
             NextTools: nextTools,
@@ -1551,8 +1710,37 @@ public sealed class DiagnoseTools
             ScopeStatus: processScope.ScopeStatus,
             CapabilityStatus: waitResp.CapabilityStatus,
             MatchedEventCount: waitResp.MatchedEventCount,
-            NoDataReason: waitResp.NoDataReason);
+            NoDataReason: waitResp.NoDataReason,
+            Partial: budgetExhaustedKeys.Count > 0,
+            PartialCode: budgetExhaustedKeys.Count > 0
+                ? "time_budget_exhausted"
+                : null));
     }
+
+    private static DiagnoseWindowResponse AttachPlannerBoundary(
+        DiagnoseWindowResponse response) => response with
+        {
+            PlannerExecution = Planner.Value.DescribeNotAdmitted("diagnose_window"),
+        };
+
+    private static DiagnoseHighWaitResponse AttachPlannerBoundary(
+        DiagnoseHighWaitResponse response) => response with
+        {
+            PlannerExecution = Planner.Value.DescribeNotAdmitted("diagnose_high_wait"),
+        };
+
+    private static DiagnoseSlowStartupResponse AttachPlannerBoundary(
+        DiagnoseSlowStartupResponse response,
+        string toolName) => response with
+        {
+            PlannerExecution = Planner.Value.DescribeNotAdmitted(toolName),
+            FirstImageLoadGapEvidence = response.FirstImageLoadGapEvidence?
+                .Select(row => row with
+                {
+                    Window = AttachPlannerBoundary(row.Window),
+                })
+                .ToArray(),
+        };
 
     private static DiagnoseWindowResponse EmptyDiagnoseWindow(
         long startUs,
@@ -1674,7 +1862,7 @@ public sealed class DiagnoseTools
         sb.AppendLine($"Found {candidates.Count} slow-startup candidate(s):");
         foreach (var c in candidates)
         {
-            var ratioStr = c.StartupWaitRatio is { } r ? $"{r:F1}x" : "n/a";
+            var ratioStr = c.ObservedStartupWallToCpuRatio is { } r ? $"{r:F1}x" : "n/a";
             sb.AppendLine(
                 $"  - pid {c.Pid} start={c.ProcessStartUs} ({c.Name}): " +
                 $"startup_wall={c.ObservedStartupWallUs / 1000.0:F1}ms, " +
@@ -1684,7 +1872,7 @@ public sealed class DiagnoseTools
             {
                 var reasons = string.Join(
                     ", ",
-                    c.TopStartupWaitReasons.Take(3).Select(bucket => bucket.Reason));
+                    c.TopStartupWaitReasons.Select(bucket => bucket.Reason));
                 sb.AppendLine($"    top wait reasons: {reasons}");
             }
         }
@@ -1776,7 +1964,8 @@ public sealed class DiagnoseTools
         long cpuUs,
         long blockedUs,
         IReadOnlyList<WaitReasonBucket> waitReasons,
-        long? processStartUs = null)
+        long? processStartUs = null,
+        int? totalWaitReasonCount = null)
         => new(
             EvidenceId: evidenceId,
             CallId: callId,
@@ -1790,7 +1979,273 @@ public sealed class DiagnoseTools
             Unit: "us",
             TopWaitReasons: waitReasons,
             Frames: Array.Empty<FrameMetric>(),
-            ProcessStartUs: processStartUs);
+            ProcessStartUs: processStartUs,
+            FramesBoundary: ExactEmbeddedBoundary(
+                "/frames", 0, 0, 0, "not_applicable", ToolSortDirection.NotApplicable, []),
+            TopWaitReasonsBoundary: ExactEmbeddedBoundary(
+                "/topWaitReasons",
+                totalWaitReasonCount.HasValue ? 5 : waitReasons.Count,
+                waitReasons.Count,
+                totalWaitReasonCount ?? waitReasons.Count,
+                "blocked_us_desc",
+                ToolSortDirection.Descending,
+                ["reason_ordinal_asc"]));
+
+    internal static WindowEvidenceRow? BuildWaitSummaryEvidence(
+        WaitAnalysisResponse waits,
+        int? pid)
+    {
+        ArgumentNullException.ThrowIfNull(waits);
+        if (waits.TotalBlockedUs <= 0)
+            return null;
+
+        var selectedProcess = string.Equals(
+                waits.ScopeMode,
+                "single_process",
+                StringComparison.Ordinal)
+            ? waits.SelectedProcess
+            : null;
+        var selectedProcessName = selectedProcess is { } key
+            ? waits.Rows.FirstOrDefault(row =>
+                row.Pid == key.Pid &&
+                row.ProcessStartUs == key.StartUs)?.ProcessName
+            : null;
+        var sampledReasons = CollapseWaitReasons(waits.Rows, top: 3);
+
+        return new WindowEvidenceRow(
+            EvidenceType: "wait_summary",
+            Label: "Total blocked time in the selected scope; reason details are returned-row samples",
+            MetricName: "blockedUs",
+            MetricValue: waits.TotalBlockedUs,
+            Unit: "us",
+            Pid: selectedProcess?.Pid ??
+                (string.Equals(waits.ScopeMode, "pid_aggregate", StringComparison.Ordinal)
+                    ? pid
+                    : null),
+            // The metric covers the complete selected scope, not just returned rows.
+            // A singular process label is therefore safe only for an exact process scope;
+            // all-process and PID-aggregate totals must not inherit the first top-N row's
+            // name and appear attributed to that process.
+            ProcessName: selectedProcessName,
+            File: null,
+            TimeUs: null,
+            Details: sampledReasons
+                .Select(reason => $"{reason.Reason}={reason.BlockedUs}us/{reason.Count}")
+                .ToList(),
+            Samples: Array.Empty<WindowEvidenceSample>(),
+            SamplesBoundary: null,
+            ProcessStartUs: selectedProcess?.StartUs,
+            ScopeMode: waits.ScopeMode,
+            DetailsBoundary: new EmbeddedTopNBoundary(
+                "/details",
+                3,
+                sampledReasons.Count,
+                TotalAvailable: null,
+                ToolSectionTotalState.Unknown,
+                ToolSectionMoreState.Unknown,
+                HasMore: false,
+                ContinuationAvailable: false,
+                TruncationReason: "returned_rows_sample",
+                "blocked_us_desc",
+                ToolSortDirection.Descending,
+                ["reason_ordinal_asc"]));
+    }
+
+    internal static WindowEvidenceRow BuildSecurityDurationEvidence(
+        SecurityScanAnalysisResponse security,
+        int? pid)
+    {
+        ArgumentNullException.ThrowIfNull(security);
+        if (security.PairedScanCount <= 0)
+        {
+            throw new ArgumentException(
+                "security_scan_duration requires at least one paired scan.",
+                nameof(security));
+        }
+
+        var selectedProcess = string.Equals(
+                security.ScopeMode,
+                "single_process",
+                StringComparison.Ordinal)
+            ? security.SelectedProcess
+            : null;
+        var selectedProcessName = selectedProcess is { } key
+            ? security.SlowScans.FirstOrDefault(row =>
+                row.Pid == key.Pid &&
+                row.ProcessStartUs == key.StartUs)?.Process
+            : null;
+        var details = new List<string>
+        {
+            $"pairedScanCount={security.PairedScanCount}",
+            $"responseMatchedEventCount={security.MatchedEventCount} (all evidence classifications; not a duration denominator)",
+            "Known-schema interval evidence does not by itself prove performance impact or root cause.",
+        };
+        var samples = security.SlowScans.FirstOrDefault() is { } sample
+            ? new[]
+            {
+                new WindowEvidenceSample(
+                    sample.ProviderName,
+                    sample.Process,
+                    sample.Path,
+                    sample.StartUs,
+                    EventCount: null,
+                    sample.Pid,
+                    sample.ProcessStartUs,
+                    Representative: false,
+                    MetricAttributable: false,
+                    SampleScope: "returned_rows_only"),
+            }
+            : Array.Empty<WindowEvidenceSample>();
+        var samplesBoundary = security.SlowScansHasMore
+            ? new EmbeddedTopNBoundary(
+                "/samples",
+                1,
+                samples.Length,
+                checked((long)security.SlowScans.Count + 1L),
+                ToolSectionTotalState.LowerBound,
+                ToolSectionMoreState.Present,
+                HasMore: true,
+                ContinuationAvailable: false,
+                TruncationReason: "source_top_plus_one_witness",
+                "source_rank_asc",
+                ToolSortDirection.Ascending,
+                ["sample_index_asc"])
+            : ExactEmbeddedBoundary(
+                "/samples",
+                1,
+                samples.Length,
+                security.SlowScans.Count,
+                "source_rank_asc",
+                ToolSortDirection.Ascending,
+                ["sample_index_asc"]);
+
+        return new WindowEvidenceRow(
+            EvidenceType: "security_scan_duration",
+            Label: "Duration from paired Microsoft Defender scan-request endpoints",
+            MetricName: "scanDurationUs",
+            MetricValue: security.TotalDurationUs,
+            Unit: "us",
+            Pid: selectedProcess?.Pid ??
+                (string.Equals(security.ScopeMode, "pid_aggregate", StringComparison.Ordinal)
+                    ? pid
+                    : null),
+            ProcessName: selectedProcessName,
+            File: null,
+            TimeUs: null,
+            Details: details,
+            Samples: samples,
+            SamplesBoundary: samplesBoundary,
+            EvidenceKind: "paired_interval",
+            Provenance: "known_defender_schema",
+            Confidence: "high",
+            ProcessStartUs: selectedProcess?.StartUs,
+            ScopeMode: security.ScopeMode,
+            DetailsBoundary: null);
+    }
+
+    internal static IReadOnlyList<WindowEvidenceRow> BuildSecurityPresenceEvidence(
+        SecurityScanDetailedResult detailed,
+        int? pid)
+    {
+        ArgumentNullException.ThrowIfNull(detailed);
+
+        var security = detailed.Response;
+        var evidence = new List<WindowEvidenceRow>();
+        var selectedProcess = string.Equals(
+                security.ScopeMode,
+                "single_process",
+                StringComparison.Ordinal)
+            ? security.SelectedProcess
+            : null;
+        var selectedProcessName = selectedProcess is { } key
+            ? security.Rows.FirstOrDefault(row =>
+                row.Pid == key.Pid &&
+                row.ProcessStartUs == key.StartUs)?.Process
+            : null;
+        foreach (var summary in detailed.EvidenceClassSummaries.Where(summary =>
+                     !(security.PairedScanCount > 0 &&
+                       summary.EvidenceKind == "paired_interval")))
+        {
+            var returnedSamples = security.Rows
+                .Where(row =>
+                    string.Equals(
+                        row.EvidenceKind ?? "unknown",
+                        summary.EvidenceKind,
+                        StringComparison.Ordinal) &&
+                    string.Equals(
+                        row.Provenance ?? "unknown",
+                        summary.Provenance,
+                        StringComparison.Ordinal) &&
+                    string.Equals(
+                        row.Confidence ?? "unknown",
+                        summary.Confidence,
+                        StringComparison.Ordinal))
+                .ToArray();
+            var details = new List<string>();
+            details.Add(
+                $"eventCountTotalState={summary.TotalState}; eventCountSource=pre_pagination_evidence_class_aggregation.");
+            var samples = returnedSamples.Select(row => new WindowEvidenceSample(
+                    row.ProviderName,
+                    row.Process,
+                    row.Path,
+                    TimeUs: null,
+                    row.EventCount,
+                    row.Pid,
+                    row.ProcessStartUs,
+                    Representative: false,
+                    MetricAttributable: false,
+                    SampleScope: "returned_rows_only"))
+                .ToArray();
+            var samplesBoundary = security.RowsHasMore
+                ? UnknownEmbeddedBoundary(
+                    "/samples",
+                    security.Rows.Count,
+                    samples.Length,
+                    "source_limit_saturated",
+                    "source_rank_asc",
+                    ["sample_index_asc"],
+                    ToolSortDirection.Ascending)
+                : ExactEmbeddedBoundary(
+                    "/samples",
+                    security.Rows.Count,
+                    samples.Length,
+                    samples.Length,
+                    "source_rank_asc",
+                    ToolSortDirection.Ascending,
+                    ["sample_index_asc"]);
+
+            var isLowConfidence = string.Equals(
+                summary.Confidence,
+                "low",
+                StringComparison.Ordinal);
+            evidence.Add(new WindowEvidenceRow(
+                EvidenceType: "security_scan_presence",
+                Label: isLowConfidence
+                    ? "Low-confidence scan-like name matches; presence only, not duration or root cause"
+                    : "Known security scan result events were present; no paired duration was established",
+                MetricName: "matchedSecurityEvents",
+                MetricValue: summary.EventCount,
+                Unit: "events",
+                Pid: selectedProcess?.Pid ??
+                    (string.Equals(security.ScopeMode, "pid_aggregate", StringComparison.Ordinal)
+                        ? pid
+                        : null),
+                ProcessName: selectedProcessName,
+                File: null,
+                TimeUs: null,
+                Details: details,
+                Samples: samples,
+                SamplesBoundary: samplesBoundary,
+                EvidenceKind: summary.EvidenceKind,
+                Provenance: summary.Provenance,
+                Confidence: summary.Confidence,
+                ProcessStartUs: selectedProcess?.StartUs,
+                ScopeMode: security.ScopeMode,
+                DetailsBoundary: null));
+        }
+
+        return evidence;
+    }
 
     private static IReadOnlyList<WaitReasonBucket> CollapseWaitReasons(
         IEnumerable<WaitAnalysisRow> rows,
@@ -1803,8 +2258,139 @@ public sealed class DiagnoseTools
                 BlockedUs: group.Sum(reason => reason.BlockedUs),
                 Count: group.Sum(reason => reason.Count)))
             .OrderByDescending(reason => reason.BlockedUs)
+            .ThenBy(reason => reason.Reason, StringComparer.Ordinal)
             .Take(top)
             .ToList();
+
+    private static IReadOnlyList<EmbeddedTopNBoundary> BuildEmbeddedWindowBoundaries(
+        DiagnoseWindowResponse window,
+        int requested)
+    {
+        return
+        [
+            BuildConservativeEmbeddedBoundary("/hardFaultsByBytes", window.HardFaultsByBytes.Count, requested,
+                "page_in_bytes_desc", ["page_in_count_desc", "file_path_ordinal_asc"]),
+            BuildConservativeEmbeddedBoundary("/hardFaultsByMaxLatency", window.HardFaultsByMaxLatency.Count, requested,
+                "max_latency_us_desc", ["page_in_bytes_desc", "page_in_count_desc", "file_path_ordinal_asc"]),
+            BuildConservativeEmbeddedBoundary("/fileIoTopFiles", window.FileIoTopFiles.Count, requested,
+                "total_bytes_desc", ["file_path_ordinal_asc"]),
+            BuildConservativeEmbeddedBoundary("/securityScanTargets", window.SecurityScanTargets.Count, requested,
+                "total_accounted_duration_us_desc", ["event_count_desc", "paired_scan_count_desc",
+                "source_ordinal_asc", "provider_name_ordinal_asc", "process_name_ordinal_asc",
+                "pid_asc", "path_ordinal_asc", "process_start_us_asc_nulls_first",
+                "target_identity_source_ordinal_asc", "evidence_kind_ordinal_asc",
+                "provenance_ordinal_asc", "confidence_ordinal_asc"]),
+            BuildConservativeEmbeddedBoundary("/slowScans", window.SlowScans.Count, requested,
+                "accounted_duration_us_desc", ["start_us_asc", "source_ordinal_asc",
+                "provider_name_ordinal_asc", "id_ordinal_asc", "pid_asc",
+                "process_start_us_asc_nulls_first", "process_name_ordinal_asc",
+                "path_ordinal_asc", "stop_us_asc", "evidence_kind_ordinal_asc",
+                "provenance_ordinal_asc", "confidence_ordinal_asc",
+                "target_identity_source_ordinal_asc", "reason_ordinal_asc"]),
+            BuildConservativeEmbeddedBoundary("/waits", window.Waits.Count, requested,
+                "blocked_us_desc", ["cpu_us_desc", "pid_asc", "process_start_us_asc",
+                "tid_asc", "thread_generation_asc"]),
+            BuildConservativeEmbeddedBoundary("/pressure/topPeakWorkingSetProcesses",
+                window.Pressure?.TopPeakWorkingSetProcesses.Count ?? 0, requested,
+                "peak_working_set_bytes_desc", ["peak_commit_bytes_desc", "pid_asc",
+                "process_start_us_asc"]),
+            BuildConservativeEmbeddedBoundary("/pressure/topPeakCommitProcesses",
+                window.Pressure?.TopPeakCommitProcesses.Count ?? 0, requested,
+                "peak_commit_bytes_desc", ["peak_working_set_bytes_desc", "pid_asc",
+                "process_start_us_asc"]),
+        ];
+    }
+
+    private static EmbeddedTopNBoundary BuildConservativeEmbeddedBoundary(
+        string pointer,
+        int returned,
+        int requested,
+        string sortKey,
+        IReadOnlyList<string> tieBreakers,
+        bool unavailable = false)
+    {
+        var saturated = returned == requested;
+        var unknown = unavailable || saturated;
+        return new EmbeddedTopNBoundary(
+            pointer,
+            requested,
+            returned,
+            unknown ? null : returned,
+            unknown ? ToolSectionTotalState.Unknown : ToolSectionTotalState.Exact,
+            unknown ? ToolSectionMoreState.Unknown : ToolSectionMoreState.Absent,
+            HasMore: false,
+            ContinuationAvailable: false,
+            TruncationReason: unavailable ? "analysis_unavailable" :
+                saturated ? "source_limit_saturated" : null,
+            sortKey,
+            ToolSortDirection.Descending,
+            tieBreakers);
+    }
+
+    private static EmbeddedTopNBoundary UnknownEmbeddedBoundary(
+        string pointer,
+        int requested,
+        int returned,
+        string truncationReason,
+        string sortKey,
+        IReadOnlyList<string> tieBreakers,
+        ToolSortDirection direction = ToolSortDirection.Descending) => new(
+            pointer,
+            requested,
+            returned,
+            TotalAvailable: null,
+            ToolSectionTotalState.Unknown,
+            ToolSectionMoreState.Unknown,
+            HasMore: false,
+            ContinuationAvailable: false,
+            truncationReason,
+            sortKey,
+            direction,
+            tieBreakers);
+
+    private static EmbeddedTopNBoundary ExactEmbeddedBoundary(
+        string pointer,
+        int requested,
+        int returned,
+        int total,
+        string sortKey,
+        ToolSortDirection direction,
+        IReadOnlyList<string> tieBreakers) => new(
+            pointer,
+            requested,
+            returned,
+            total,
+            ToolSectionTotalState.Exact,
+            total > returned ? ToolSectionMoreState.Present : ToolSectionMoreState.Absent,
+            HasMore: total > returned,
+            ContinuationAvailable: false,
+            TruncationReason: total > returned ? "fixed_source_limit" : null,
+            sortKey == "not_applicable" ? "construction_sequence_asc" : sortKey,
+            direction == ToolSortDirection.NotApplicable
+                ? ToolSortDirection.Ascending
+                : direction,
+            tieBreakers);
+
+    private static EmbeddedTopNBoundary StackFramesBoundary(
+        int returned,
+        int rawReturned,
+        int requested)
+    {
+        var unknown = rawReturned >= requested || rawReturned != returned;
+        return new EmbeddedTopNBoundary(
+            "/frames",
+            requested,
+            returned,
+            unknown ? null : returned,
+            unknown ? ToolSectionTotalState.Unknown : ToolSectionTotalState.Exact,
+            unknown ? ToolSectionMoreState.Unknown : ToolSectionMoreState.Absent,
+            HasMore: false,
+            ContinuationAvailable: false,
+            TruncationReason: unknown ? "source_limit_saturated_or_synthetic_rows_filtered" : null,
+            "exclusive_metric_desc",
+            ToolSortDirection.Descending,
+            ["function_ordinal_asc"]);
+    }
 
     internal static IReadOnlyList<WaitCandidateAggregate> BuildHighWaitCandidateAggregates(
         IEnumerable<WaitAnalysisRow> rows,
@@ -1831,7 +2417,7 @@ public sealed class DiagnoseTools
                     TotalBlockedUs: totalBlockedUs,
                     WaitRatio: totalCpuUs > 0 ? totalBlockedUs / (double)totalCpuUs : null,
                     ContextSwitches: rowsForProcess.Sum(row => row.ContextSwitches),
-                    TopWaitReasons: allReasons.Take(5).ToList(),
+                    TopWaitReasons: allReasons,
                     SchedulerWaitPct: SchedulerWaitPct(allReasons, totalBlockedUs));
             })
             .Where(candidate => candidate.TotalBlockedUs > 0)
@@ -1851,6 +2437,9 @@ public sealed class DiagnoseTools
             .Sum(reason => reason.BlockedUs);
         return schedulerBlocked / (double)totalBlockedUs;
     }
+
+    internal static bool ShouldRunReadyThread(double schedulerWaitPct) =>
+        schedulerWaitPct >= ReadyThreadSchedulerThresholdPct;
 
     private static bool IsSchedulerWaitReason(string reason) =>
         reason is "WrDispatchInt" or "WrPreempted" or "WrQuantumEnd" or "WrDeferredPreempt";

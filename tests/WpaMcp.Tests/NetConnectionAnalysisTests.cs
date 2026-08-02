@@ -200,6 +200,61 @@ public class NetConnectionAnalysisTests
     }
 
     [Fact]
+    public void AnalyzeEvents_RanksObservedDurationsDescendingAndNullDurationsLast()
+    {
+        var process = new ProcessInstanceKey(10, 0);
+        var response = NetConnectionAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes: [new ProcessLifetime(process, 200, true, false)],
+            events:
+            [
+                Open(10, connId: 1, timeUs: 5),
+                Close(10, connId: 1, timeUs: 25),
+                Open(10, connId: 2, timeUs: 30),
+                Close(10, connId: 2, timeUs: 100),
+                Open(10, connId: 3, timeUs: 110),
+            ],
+            pid: 10,
+            top: 10,
+            window: new TimeWindow(0, 200),
+            processStartUs: null);
+
+        Assert.Equal(["2", "1", "3"], response.Connections.Select(row => row.ConnIdText));
+        Assert.Equal([70L, 20L, null], response.Connections.Select(row => row.DurationUs));
+    }
+
+    [Fact]
+    public void AnalyzeEvents_RepeatedOpenDoesNotInventExactCloseOrDuration()
+    {
+        var process = new ProcessInstanceKey(10, 0);
+        var response = NetConnectionAnalysis.AnalyzeEvents(
+            traceEndUs: 200,
+            processLifetimes: [new ProcessLifetime(process, 200, true, false)],
+            events:
+            [
+                Open(10, connId: 7, timeUs: 10),
+                Open(10, connId: 7, timeUs: 50),
+                Close(10, connId: 7, timeUs: 90),
+            ],
+            pid: 10,
+            top: 10,
+            window: new TimeWindow(0, 200),
+            processStartUs: null);
+
+        Assert.Equal(2, response.TotalConnections);
+        Assert.Equal(1, response.ReplacedOpenUnobservedCount);
+        var replacement = Assert.Single(response.Connections, row => row.OpenTimeUs == 10);
+        Assert.Equal("replaced_open_unobserved", replacement.EndState);
+        Assert.Null(replacement.CloseTimeUs);
+        Assert.Null(replacement.DurationUs);
+        var observed = Assert.Single(response.Connections, row => row.OpenTimeUs == 50);
+        Assert.Equal(40, observed.DurationUs);
+        Assert.Contains(response.Warnings, warning => warning.StartsWith(
+            "connection_replaced_open_unobserved:",
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void AnalyzeEvents_MissingExactSelectorReturnsStructuredEmptyResponse()
     {
         var response = NetConnectionAnalysis.AnalyzeEvents(

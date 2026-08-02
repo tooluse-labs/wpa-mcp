@@ -1,0 +1,219 @@
+{
+  "schemaVersion": "real-etl-contract-validation.v1",
+  "recordedOn": "2026-08-01",
+  "purpose": "Production-host contract validation against one large real-world ETL while preserving the evidence boundaries exposed to an LLM.",
+  "privacy": {
+    "sourcePathIncluded": false,
+    "machineIdentityIncluded": false,
+    "processIdentityIncluded": false,
+    "providerIdentityIncluded": false,
+    "fileIdentityIncluded": false
+  },
+  "traceFixture": {
+    "class": "system_workload",
+    "sourceByteLength": "2044723200",
+    "representsMcpSelfPerformance": false,
+    "persistedInRepository": false
+  },
+  "execution": {
+    "configuration": "Release",
+    "targetFramework": "net10.0",
+    "productionJsonRpcTransport": "stdio",
+    "hardResponseFrameBytes": 100000,
+    "currentObservationSingleTraceRun": true,
+    "includesHistoricalBeforeRemediationMeasurement": true
+  },
+  "capabilityMap": {
+    "activeToolCount": 60,
+    "distinctActiveToolCount": 60,
+    "activeCapabilityCount": 51,
+    "distinctActiveCapabilityCount": 51
+  },
+  "observations": {
+    "processInventoryPagination": {
+      "status": "succeeded",
+      "requestedTop": 1000,
+      "totalProcessLifetimeCount": 328,
+      "distinctProcessLifetimeCount": 328,
+      "pageCount": 4,
+      "pageStartIndices": [0, 99, 200, 304],
+      "pageReturnedCounts": [99, 101, 104, 24],
+      "pageElapsedMs": [61, 35, 28, 4],
+      "pageFrameBytes": [99036, 99772, 99364, 28160],
+      "lossOrDuplicationObserved": false,
+      "interpretation": "The cursor traversed the complete ordered process-lifetime inventory despite the response-frame budget."
+    },
+    "emptyFileIoWindow": {
+      "status": "succeeded",
+      "elapsedMs": 554,
+      "frameBytes": 33000,
+      "matchedEventCount": "0",
+      "noDataReason": "no_events_in_scope",
+      "scopeMode": "all_processes",
+      "includedIdentityTotal": 292,
+      "includedIdentityDetailCount": 0,
+      "scopeDetailCompleteness": "omitted_due_to_response_budget",
+      "identityTotalsRemainExact": true,
+      "interpretation": "No data is distinguished from missing capability, invalid scope, and transport failure; identity detail is omitted all-or-none rather than presented as a partial sample."
+    },
+    "explicitSymbolContextResolution": {
+      "status": "failed",
+      "elapsedMs": 2,
+      "frameBytes": 5416,
+      "error": {
+        "code": "symbol_resolution_unavailable",
+        "retryable": false,
+        "message": "Context-bound frame-name resolution is unavailable in this server build; rerun with resolveSymbols=false or use a build that advertises a resolver."
+      },
+      "interpretation": "The server fails explicitly instead of implying that a prepared symbol context performed frame-name lookup."
+    },
+    "missingClrCapabilityWarning": {
+      "code": "missing_clr_runtime",
+      "message": "No supported CLR JIT, GC, allocation, exception, contention, or finalizer source events were recognized; this does not prove that the CLR provider emitted no other events.",
+      "interpretation": "The warning is limited to supported source schemas and does not infer provider-wide absence."
+    },
+    "readyThreadAssociation": {
+      "status": "succeeded",
+      "elapsedMs": 358,
+      "frameBytes": 16189,
+      "matchedEventCount": "11085",
+      "stackedEventCount": "11085",
+      "stackCoveragePct": 100.0,
+      "relationship": "association",
+      "conclusionStatus": "not_concluded",
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "READY_ASSOCIATION_NOT_UNBLOCK_CAUSE"
+      ],
+      "interpretation": "A readier/wakeup stack association is not a one-to-one wait or context-switch pairing and cannot establish root cause by itself."
+    },
+    "securityScanHeuristic": {
+      "status": "succeeded",
+      "elapsedMs": 782,
+      "frameBytes": 58753,
+      "matchedEventCount": "1287",
+      "pairedIntervalCount": "248",
+      "unmatchedStartCount": "9",
+      "unmatchedStopCount": "9",
+      "evidenceKinds": [
+        "paired_interval",
+        "result_event"
+      ],
+      "provenanceClass": "known_schema",
+      "confidence": "high",
+      "relationship": "association",
+      "conclusionStatus": "not_concluded",
+      "doesNotProve": [
+        "ASSOCIATION_NOT_CAUSATION",
+        "HEURISTIC_NOT_ATTRIBUTION",
+        "SECURITY_EVENT_NOT_SCANNER_IDENTITY"
+      ],
+      "compatibilityPaginationFlagsConsistent": true,
+      "interpretation": "Recognized security events remain heuristic association evidence and do not prove scanner identity or causation."
+    },
+    "compositeDiagnostics": [
+      {
+        "tool": "diagnose_window",
+        "status": "succeeded",
+        "elapsedMs": 3439,
+        "frameBytes": 78607,
+        "plannerAdmissionStatus": "not_admitted_evidence_missing",
+        "missingEvidence": [
+          "large_trace_before_after_physical_pass_and_elapsed_measurement"
+        ],
+        "physicalExecutionMetrics": "unavailable_not_admitted",
+        "budgetTerminationStatus": "not_managed_by_planner"
+      },
+      {
+        "tool": "diagnose_high_wait",
+        "status": "succeeded",
+        "elapsedMs": 1433,
+        "frameBytes": 55284,
+        "plannerAdmissionStatus": "not_admitted_evidence_missing",
+        "missingEvidence": [
+          "large_trace_before_after_physical_pass_and_elapsed_measurement"
+        ],
+        "physicalExecutionMetrics": "unavailable_not_admitted",
+        "budgetTerminationStatus": "not_managed_by_planner"
+      },
+      {
+        "tool": "diagnose_slow_startup",
+        "status": "succeeded",
+        "elapsedMs": 4179,
+        "frameBytes": 89923,
+        "plannerAdmissionStatus": "not_admitted_evidence_missing",
+        "missingEvidence": [
+          "large_trace_before_after_physical_pass_and_elapsed_measurement"
+        ],
+        "physicalExecutionMetrics": "unavailable_not_admitted",
+        "budgetTerminationStatus": "not_managed_by_planner",
+        "wireBudgetRemediation": {
+          "removedRepresentationalDuplication": [
+            "nested window warnings from outer warnings",
+            "nested window next tools from outer next tools",
+            "nested window warnings from the outer diagnose-window audit call",
+            "CPU and scheduler warnings from audit calls when retained in outer warnings"
+          ],
+          "uniqueChildEvidenceRemoved": false,
+          "beforeTerminalStatus": "failed",
+          "beforeTerminalErrorCode": "response_too_large",
+          "beforeTerminalElapsedMs": 4084,
+          "beforeTerminalFrameBytes": 3735
+        },
+        "prefitMeasurementBeforeRemediation": {
+          "kind": "direct_typed_analysis_same_review_projection_before_privacy_and_frame_fitting",
+          "analysisElapsedMs": 7227,
+          "rawDomainUtf8Bytes": 37078,
+          "reviewedDomainUtf8Bytes": 35034,
+          "projectedEnvelopeUtf8Bytes": 51340,
+          "projectedCallResultFrameBytes": 118493,
+          "largestDataProperties": [
+            {
+              "jsonPointer": "/firstImageLoadGapEvidence",
+              "utf8Bytes": 18021
+            },
+            {
+              "jsonPointer": "/executedToolCalls",
+              "utf8Bytes": 10665
+            },
+            {
+              "jsonPointer": "/warnings",
+              "utf8Bytes": 5872
+            }
+          ],
+          "largestNestedArray": {
+            "jsonPointer": "/firstImageLoadGapEvidence/0/window/executedToolCalls",
+            "itemCount": 6,
+            "utf8Bytes": 6519
+          },
+          "excludedStartupInstanceCount": 0,
+          "excludedSampleCount": 0,
+          "excludedSamplesUtf8Bytes": 2,
+          "excludedSamplesWerePrimaryCause": false
+        },
+        "knownCorrectnessBoundaryAtMeasurementTime": {
+          "callerVisibleCandidateCount": 1,
+          "deprecatedSummaryCandidateCount": 2,
+          "outerEvidenceCount": 2,
+          "outerExecutedToolCallCount": 10,
+          "gapEvidenceOwnedByRetainedCandidate": false,
+          "status": "candidate_dependent_projection_pending"
+        },
+        "interpretation": "Removing only duplicate representations brought the production frame under budget without deleting unique nested evidence. This run proves the wire-budget remediation, but does not approve slow-startup semantic projection: caller-visible candidate-dependent summary, evidence, calls, and gap rows still required synchronized trimming at measurement time."
+      }
+    ]
+  },
+  "interpretationBoundary": {
+    "supports": [
+      "Production transport and contract behavior on this one large system/workload trace",
+      "Detection of pagination, no-data, evidence-boundary, symbol-state, and response-budget regressions covered by these observations"
+    ],
+    "doesNotSupport": [
+      "MCP server self-performance conclusions",
+      "Planner admission or rollout approval",
+      "Performance generalization to other traces, machines, workloads, or builds",
+      "Product causation or security-product attribution",
+      "Claims that unrecognized event schemas were absent from the trace"
+    ]
+  }
+}

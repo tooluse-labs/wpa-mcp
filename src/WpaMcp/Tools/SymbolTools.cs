@@ -21,7 +21,7 @@ public sealed class SymbolTools
         _cache = cache;
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = false, OpenWorld = false, Destructive = true), Description(
+    [Description(
         "Sets the entire _NT_SYMBOL_PATH for symbol resolution in the running server (replaces " +
         "or appends).  Use this when you want to drop in a curated path string (multiple " +
         "servers + caches separated by `;`); for incremental setup of one server at a time, " +
@@ -42,7 +42,7 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = false), Description(
+    [Description(
         "Appends a symbol server URL (with optional local cache directory) to the existing " +
         "_NT_SYMBOL_PATH.  Cache defaults to `%LocalAppData%\\WpaMcp\\Symbols`.  Use this for " +
         "incremental setup ('add msdl.microsoft.com, then Chromium's symbol server'); for a " +
@@ -66,11 +66,7 @@ public sealed class SymbolTools
         return _symbols.CurrentPath ?? "";
     }
 
-    [McpServerTool(
-        ReadOnly = false,
-        Idempotent = true,
-        OpenWorld = true,
-        Destructive = true), Description(
+    [Description(
         "Per-module symbol metadata and verified local-PDB readiness for an already-loaded trace, with suggested " +
         "path/server actions for modules that have complete lookup identity but no exact local PDB candidate " +
         "(for example, msdl.microsoft.com for ntdll/kernelbase, or the " +
@@ -91,7 +87,7 @@ public sealed class SymbolTools
         "the response recommends running the target stack tool after fixing the path to measure actual frame-name resolution. No startUs/endUs: module symbol status " +
         "is a whole-trace image/module property.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
-        [Description("Absolute path to .etl file")] string path)
+        [Description("Canonical TraceId returned by load_trace")] string path)
     {
         using var traceLease = _cache.Acquire(path);
         var trace = traceLease.Trace;

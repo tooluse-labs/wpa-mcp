@@ -179,8 +179,11 @@ public sealed record SecurityScanTargetRow(
     long StartEventCount,
     long StopEventCount,
     long ResultEventCount,
+    [property: System.ComponentModel.Description("Exhaustive ordinally sorted distinct event names accumulated for this returned target aggregate; this nested list is not independently capped.")]
     IReadOnlyList<string> EventNames,
+    [property: System.ComponentModel.Description("Exhaustive ordinally sorted distinct reasons accumulated for this returned target aggregate; this nested list is not independently capped.")]
     IReadOnlyList<string> Reasons,
+    [property: System.ComponentModel.Description("Exhaustive ordinally sorted distinct statuses accumulated for this returned target aggregate; this nested list is not independently capped.")]
     IReadOnlyList<string> Statuses,
     long TotalFullDurationUs,
     long TotalAccountedDurationUs,
@@ -302,8 +305,8 @@ public sealed record ClrContentionStacksResponse(
     bool HasMore,
     string AccountingMode,
     DomainStackCoverage? StackCoverage = null,
-    string MetricPrecision = "float32_per_sample_approximate",
-    string RowMetricAccounting = "float32_per_sample_approximate",
+    string MetricPrecision = "exact_long",
+    string RowMetricAccounting = "exact_long",
     string ExactTotalAccounting = "exact_long",
     ProcessInstanceKey? SelectedProcess = null,
     string ScopeMode = "all_processes",

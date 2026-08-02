@@ -12,9 +12,9 @@ namespace WpaMcp.Analyzers;
 // code that legitimately streams a single big file from code that opens-reads-closes thousands
 // of small files in a loop.
 //
-// Sample weight = IoSize (bytes per read/write). CallTree.ExclusiveMetric reads as "exclusive
-// bytes processed by this frame"; ExclusiveCount tracks the operation count for free on the
-// same stack source — no need for a separate count-only pipeline.
+// Sample weight = IoSize (bytes per read/write). A parallel checked Int64 projection reports
+// exact per-frame bytes and operation counts without round-tripping through StackSource's
+// float metric.
 //
 // Note vs HardFaultByFileAnalysis: file IO events fire on the syscall (NtReadFile / NtWriteFile),
 // so they capture both cache-hit and cache-miss reads.  MemoryHardFault only fires on cache-miss
@@ -42,19 +42,18 @@ public static class FileIoStackAnalysis
             traceEventCount: ctx.TraceEventCount);
         contract.AddWarning(ctx.Warnings);
 
-        var callTree = new CallTree(ScalingPolicyKind.ScaleToData) { StackSource = ctx.Normalized };
-        var totalBytesMetric = Math.Max(1.0, callTree.Root.InclusiveMetric);
+        var exact = StackSourceTopN.ComputeExactFrameMetrics(ctx.Normalized);
+        var totalBytesMetric = Math.Max(1L, exact.TotalMetric);
 
-        var rows = callTree.ByID
+        var rows = StackSourceTopN.RankExactFrames(exact)
             .Where(_ => ctx.StackCoverage.TotalEventCount > 0)
-            .OrderByDescending(n => n.ExclusiveMetric)
             .Take(top)
             .Select(n => new FileIoStackRow(
-                Function: n.Name,
-                ExclusiveBytes: (long)n.ExclusiveMetric,
-                InclusiveBytes: (long)n.InclusiveMetric,
-                ExclusiveOpCount: (long)n.ExclusiveCount,
-                InclusiveOpCount: (long)n.InclusiveCount,
+                Function: n.Function,
+                ExclusiveBytes: n.ExclusiveMetric,
+                InclusiveBytes: n.InclusiveMetric,
+                ExclusiveOpCount: n.ExclusiveCount,
+                InclusiveOpCount: n.InclusiveCount,
                 ExclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.ExclusiveMetric),
                 InclusivePct: StackSourceTopN.Pct(totalBytesMetric, n.InclusiveMetric),
                 ExclusivePctOfTrace: StackSourceTopN.PctOfTrace(req.HasFilter, ctx.TraceTotalBytes, n.ExclusiveMetric),
@@ -67,7 +66,7 @@ public static class FileIoStackAnalysis
             TotalOpCount: ctx.TotalOps,
             Stats: ctx.Stats,
             Warnings: ctx.Warnings,
-            When: when.Build(),
+            When: when.Build("bytes"),
             StackCoverage: ctx.StackCoverage,
             SelectedProcess: contract.SelectedProcess,
             ScopeMode: contract.ScopeMode,

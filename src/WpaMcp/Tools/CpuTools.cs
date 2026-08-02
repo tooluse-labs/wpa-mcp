@@ -10,9 +10,14 @@ namespace WpaMcp.Tools;
 public sealed class CpuTools
 {
     private readonly TraceCache _cache;
-    public CpuTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public CpuTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N hot functions by exclusive CPU sample count — the canonical 'where is CPU " +
         "time going' answer.  PerfView equivalent: 'CPU Stacks → ByName'.  Built from " +
         "per-CPU PerfInfoSample events (kernel sampler, default ~1 ms cadence per CPU); " +
@@ -31,7 +36,7 @@ public sealed class CpuTools
         "keyword (default WPR 'CPU' / 'CPU.light' profiles include it). StackCoverage reports " +
         "the selected CPU domain only; ?!? is synthetic unknown evidence, not a captured call chain.")]
     public CpuTopFunctionsResponse CpuTopFunctions(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -66,7 +71,7 @@ public sealed class CpuTools
             window, pid, tid, processStartUs, threadStartUs, identities, processScope,
             threadGeneration);
         return CpuAnalysis.TopFunctions(
-            trace, top, scope, Console.Error,
+            trace, top, scope, _privacyLog.Writer,
             excludeEtwSelfOverhead, includeTracePct, resolveSymbols,
             hasFilter: pid.HasValue || startUs.HasValue || endUs.HasValue ||
                        tid.HasValue || processStartUs.HasValue || threadStartUs.HasValue ||
@@ -75,7 +80,7 @@ public sealed class CpuTools
             traceHasCpuSamples: traceLease.Capabilities.HasCpuSamples);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "CPU Usage (Precise)-style scheduler summary from CSwitch + ReadyThread events. " +
         "Use this when sampled CPU is insufficient: it reports actual on-CPU microseconds, " +
         "ready-to-run latency after a thread is readied, per-core runtime attribution, and " +
@@ -83,7 +88,7 @@ public sealed class CpuTools
         "for ready latency. Exact process/thread selectors that do not exist return a structured " +
         "scope_not_found response; PID-only scopes explicitly report reused-lifetime aggregation.")]
     public CpuPreciseResponse CpuPreciseAnalysis(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N thread rows by on-CPU microseconds (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -118,7 +123,7 @@ public sealed class CpuTools
             trace, top, scope, processScope);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Batch variant: top N hot functions per PID, in a single trace load. " +
         "Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID's samples). " +
         "Use when investigating multiple processes from the same trace — saves N round-trips. " +
@@ -126,7 +131,7 @@ public sealed class CpuTools
         "PID aggregation. ScopeResults separates missing scopes, completed empty scopes, and budget-skipped work; " +
         "an empty CPU sample set does not prove that CPU sampling was disabled.")]
     public CpuTopFunctionsBatchResponse CpuTopFunctionsBatch(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Process IDs to analyze (must be non-empty)")] int[] pids,
         [Description("Top N rows per PID (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -156,7 +161,7 @@ public sealed class CpuTools
             top,
             selectors,
             window,
-            Console.Error,
+            _privacyLog.Writer,
             excludeEtwSelfOverhead,
             includeTracePct,
             resolveSymbols,
@@ -175,14 +180,14 @@ public sealed class CpuTools
             ScopeResults: execution.ScopeResults);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function — given a frame name (copy verbatim from " +
         "cpu_top_functions output), returns the immediate callers (frames calling INTO focus) and " +
         "callees (frames focus calls OUT to), each ranked by inclusive samples. PerfView equivalent: " +
         "the 'Callers' / 'Callees' tabs of CPU Stacks. Recursion-safe: counts the leaf-most match " +
         "of focus per stack only.")]
     public CallerCalleeResponse CpuCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in cpu_top_functions output " +
                      "(case-sensitive; unresolved frames look like 'module!?').")]
         string function,
@@ -220,7 +225,7 @@ public sealed class CpuTools
             threadGeneration);
         return CpuAnalysis.CallerCallee(
             trace, function, top, scope,
-            Console.Error, excludeEtwSelfOverhead, resolveSymbols, processScope,
+            _privacyLog.Writer, excludeEtwSelfOverhead, resolveSymbols, processScope,
             traceHasCpuSamples: traceLease.Capabilities.HasCpuSamples);
     }
 

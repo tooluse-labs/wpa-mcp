@@ -130,9 +130,13 @@ public class TelemetryTests
     }
 
     [Fact]
-    public void ToolListPayload_StaysWithinBaselineGuard()
+    public void ToolListPayload_ReportsAggregateCostSeparatelyFromFittedPageLimit()
     {
         var stats = ToolListPayload.MeasureCurrentAssembly();
+        var tools = ToolListPayload.MeasureCurrentTools();
+        var preflight = ToolsListPageFitter.Preflight(
+            tools,
+            ToolsListPaginationOptions.HardMaxResponseFrameBytes);
         var largest = string.Join(
             ", ",
             ToolListPayload.MeasureCurrentToolPayloads()
@@ -146,9 +150,11 @@ public class TelemetryTests
         Assert.True(stats.ToolCount >= 50);
         Assert.True(stats.PayloadBytes > 0);
         Assert.True(
-            stats.PayloadBytes <= ToolListPayload.BaselineGuardPayloadBytes,
-            $"tools/list payload grew to {stats.PayloadBytes} bytes; largest tools: {largest}. Update the baseline only with measured before/after data.");
-        Assert.False(stats.ExceedsLimit);
+            stats.PayloadBytes > preflight.MaxResponseFrameBytes,
+            $"Aggregate tools/list cost was unexpectedly conflated with one fitted page: {stats.PayloadBytes} bytes; largest tools: {largest}.");
+        Assert.Equal(stats.PayloadBytes, preflight.AggregateCatalogResultBytes);
+        Assert.True(preflight.MinimumViableFrameBytes <= preflight.MaxResponseFrameBytes);
+        Assert.True(stats.ExceedsLimit);
     }
 
     [Fact]
@@ -224,6 +230,32 @@ public class TelemetryTests
         Assert.Equal(55, root.GetProperty("tool_count").GetInt32());
         Assert.Equal(12345, root.GetProperty("payload_bytes").GetInt32());
         Assert.Equal(200000, root.GetProperty("max_payload_bytes").GetInt32());
+    }
+
+    [Fact]
+    public void ToolsListPageTelemetry_SeparatesPageFrameFromAggregateCatalogBytes()
+    {
+        using var writer = new StringWriter();
+        using var telemetry = new ToolTelemetry(
+            new ToolTelemetryOptions(true, ToolTelemetryDestination.Stderr, null),
+            Enumerable.Repeat((byte)1, 32).ToArray(),
+            writer);
+
+        telemetry.RecordToolsListPage(
+            frameBytes: 22_141,
+            returnedTools: 7,
+            hasMore: true,
+            aggregateCatalogResultBytes: 182_198,
+            maxResponseFrameBytes: 22_268);
+
+        using var document = JsonDocument.Parse(writer.ToString());
+        var root = document.RootElement;
+        Assert.Equal("tools_list_page", root.GetProperty("event_type").GetString());
+        Assert.Equal(22_141, root.GetProperty("frame_bytes").GetInt32());
+        Assert.Equal(7, root.GetProperty("returned_tools").GetInt32());
+        Assert.True(root.GetProperty("has_more").GetBoolean());
+        Assert.Equal(182_198, root.GetProperty("aggregate_catalog_result_bytes").GetInt32());
+        Assert.Equal(22_268, root.GetProperty("max_response_frame_bytes").GetInt32());
     }
 
     [Fact]

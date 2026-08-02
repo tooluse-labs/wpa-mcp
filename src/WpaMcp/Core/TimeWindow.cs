@@ -6,7 +6,7 @@ internal readonly record struct TimeWindow
     {
         if (startUs < 0 || endUs <= startUs)
         {
-            throw new ArgumentOutOfRangeException(nameof(endUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(endUs)));
         }
 
         StartUs = startUs;
@@ -46,29 +46,29 @@ internal readonly record struct TimeWindowInput(long? StartUs, long? EndUs)
     {
         if (startUs is < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(startUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(startUs)));
         }
 
         if (endUs is < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(endUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(endUs)));
         }
 
         if (maxDurationUs is <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(maxDurationUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(maxDurationUs)));
         }
 
         if (startUs.HasValue && endUs.HasValue)
         {
             if (endUs.Value <= startUs.Value)
             {
-                throw new ArgumentOutOfRangeException(nameof(endUs));
+                throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(endUs)));
             }
 
             if (maxDurationUs.HasValue && endUs.Value - startUs.Value > maxDurationUs.Value)
             {
-                throw new ArgumentOutOfRangeException(nameof(endUs));
+                throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(endUs)));
             }
         }
 
@@ -79,18 +79,18 @@ internal readonly record struct TimeWindowInput(long? StartUs, long? EndUs)
     {
         if (traceDurationUs <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(traceDurationUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(traceDurationUs)));
         }
 
         var resolved = new TimeWindow(StartUs ?? 0, EndUs ?? traceDurationUs);
         if (resolved.EndUs > traceDurationUs)
         {
-            throw new ArgumentOutOfRangeException(nameof(EndUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(EndUs)));
         }
 
         if (maxDurationUs.HasValue && resolved.DurationUs > maxDurationUs.Value)
         {
-            throw new ArgumentOutOfRangeException(nameof(EndUs));
+            throw ToolFailureCaptureContext.Capture(new ArgumentOutOfRangeException(nameof(EndUs)));
         }
 
         return resolved;

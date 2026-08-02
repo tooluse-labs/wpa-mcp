@@ -1,33 +1,42 @@
 using System.Globalization;
-using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using WpaMcp.Core;
 using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
 
 internal static class TraceMetadataAnalysis
 {
-    private const int MaxProviderRows = 50;
     private const int MaxDriverRows = 50;
 
     public static TraceMetadata Analyze(TraceLog trace, TraceCapabilities capabilities)
     {
+        var scan = TraceCapabilitiesDetector.Scan(
+            trace,
+            CancellationToken.None,
+            TraceFactsBuildBudget.Default);
+        return AnalyzeFromScan(trace, scan.LogicalEvents);
+    }
+
+    internal static TraceMetadata AnalyzeFromScan(
+        TraceLog trace,
+        TraceLogicalEventSummary logicalEvents)
+    {
         var system = BuildSystemConfiguration(trace);
         var drivers = BuildDriverSummary(trace);
-        var eventSummary = BuildEventSummary(trace, capabilities);
         var limitations = BuildLimitations(system, drivers);
 
         return new TraceMetadata(
             System: system,
-            Stackwalks: eventSummary.Stackwalks,
-            ProviderEvents: eventSummary.ProviderEvents,
+            Stackwalks: logicalEvents.Stackwalks,
+            ProviderEvents: logicalEvents.ProviderEvents,
             Drivers: drivers,
             Limitations: limitations);
     }
 
     private static TraceSystemConfiguration BuildSystemConfiguration(TraceLog trace)
     {
-        var source = trace.Events.GetSource();
+        var source = AnalysisEvents.CreateDispatcher(trace);
         return new TraceSystemConfiguration(
             MachineName: NullIfEmpty(trace.MachineName),
             OsName: NullIfEmpty(trace.OSName),
@@ -43,81 +52,26 @@ internal static class TraceMetadataAnalysis
             MetadataSource: "TraceLog/TraceEventSource");
     }
 
-    private static (TraceStackwalkSummary Stackwalks, ProviderEventCountSummary ProviderEvents) BuildEventSummary(
-        TraceLog trace,
-        TraceCapabilities capabilities)
-    {
-        var providers = new Dictionary<string, ProviderAccumulator>(StringComparer.OrdinalIgnoreCase);
-        long totalEvents = 0;
-        long eventsWithCallStacks = 0;
-
-        foreach (var ev in trace.Events)
-        {
-            totalEvents++;
-
-            var provider = NullIfEmpty(ev.ProviderName) ?? "<unknown>";
-            if (!providers.TryGetValue(provider, out var accumulator))
-            {
-                accumulator = new ProviderAccumulator(provider);
-                providers.Add(provider, accumulator);
-            }
-
-            var hasCallStack = trace.GetCallStackIndexForEvent(ev) != CallStackIndex.Invalid;
-            if (hasCallStack) eventsWithCallStacks++;
-            accumulator.EventCount++;
-            if (hasCallStack) accumulator.EventsWithCallStacks++;
-        }
-
-        var topProviders = providers.Values
-            .OrderByDescending(provider => provider.EventCount)
-            .ThenBy(provider => provider.Provider, StringComparer.OrdinalIgnoreCase)
-            .Take(MaxProviderRows)
-            .Select(provider => new ProviderEventCount(
-                Provider: provider.Provider,
-                EventCount: provider.EventCount,
-                EventsWithCallStacks: provider.EventsWithCallStacks,
-                StackCoveragePct: RatioOrNull(provider.EventsWithCallStacks, provider.EventCount),
-                StackCoveragePercent: PercentOrNull(provider.EventsWithCallStacks, provider.EventCount)))
-            .ToList();
-
-        var topProviderEventCount = topProviders.Sum(provider => provider.EventCount);
-        var providerSummary = new ProviderEventCountSummary(
-            TotalProviderCount: providers.Count,
-            TotalEventCount: totalEvents,
-            OtherEventCount: Math.Max(0, totalEvents - topProviderEventCount),
-            TopProviders: topProviders);
-
-        var stackwalkSummary = new TraceStackwalkSummary(
-            HasStackWalkEvents: capabilities.HasExplicitStackWalkEvents,
-            StackWalkEventCount: capabilities.ExplicitStackWalkEventCount,
-            EventsWithCallStacks: eventsWithCallStacks,
-            EventStackCoveragePct: RatioOrNull(eventsWithCallStacks, totalEvents),
-            HasExplicitStackWalkEvents: capabilities.HasExplicitStackWalkEvents,
-            HasUsableEventStacks: capabilities.HasAttachedEventStacks,
-            EventStackCoveragePercent: PercentOrNull(eventsWithCallStacks, totalEvents));
-
-        return (stackwalkSummary, providerSummary);
-    }
-
     private static DriverModuleSummary BuildDriverSummary(TraceLog trace)
     {
-        var driverModules = trace.ModuleFiles
+        var driverModules = AnalysisEvents.Enumerate(trace.ModuleFiles)
             .Where(IsDriverModule)
             .GroupBy(module => ModuleIdentity(module), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .OrderBy(module => ModuleName(module), StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var topDrivers = driverModules
-            .Take(MaxDriverRows)
-            .Select(module => new TraceDriverModule(
-                Module: ModuleName(module),
-                Path: NullIfEmpty(module.FilePath) ?? string.Empty,
-                ImageSizeBytes: ToLongSaturating(module.ImageSize),
-                FileVersion: NullIfEmpty(module.FileVersion?.ToString()),
-                ProductName: NullIfEmpty(module.ProductName),
-                ProductVersion: NullIfEmpty(module.ProductVersion)))
-            .ToList();
+        IReadOnlyList<TraceDriverModule> topDrivers = Array.AsReadOnly(
+            driverModules
+                .Take(MaxDriverRows)
+                .Select(module => new TraceDriverModule(
+                    Module: ModuleName(module),
+                    Path: NullIfEmpty(module.FilePath) ?? string.Empty,
+                    ImageSizeBytes: ToLongSaturating(module.ImageSize),
+                    FileVersion: NullIfEmpty(module.FileVersion?.ToString()),
+                    ProductName: NullIfEmpty(module.ProductName),
+                    ProductVersion: NullIfEmpty(module.ProductVersion)))
+                .ToArray());
 
         return new DriverModuleSummary(driverModules.Count, topDrivers);
     }
@@ -140,7 +94,7 @@ internal static class TraceMetadataAnalysis
         if (drivers.TotalDriverModuleCount == 0)
             limitations.Add("driver_modules_not_observed_in_trace_module_table");
 
-        return limitations;
+        return Array.AsReadOnly(limitations.ToArray());
     }
 
     private static bool IsDriverModule(TraceModuleFile module) =>
@@ -175,19 +129,7 @@ internal static class TraceMetadataAnalysis
 
     private static long ToLongSaturating(long value) => Math.Max(0, value);
 
-    private static double? RatioOrNull(long numerator, long denominator) =>
-        denominator == 0 ? null : numerator / (double)denominator;
-
-    private static double? PercentOrNull(long numerator, long denominator) =>
-        denominator == 0 ? null : 100.0 * numerator / denominator;
-
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 
-    private sealed class ProviderAccumulator(string provider)
-    {
-        public string Provider { get; } = provider;
-        public long EventCount { get; set; }
-        public long EventsWithCallStacks { get; set; }
-    }
 }

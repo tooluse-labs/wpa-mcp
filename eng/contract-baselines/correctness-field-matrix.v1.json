@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "baselineDate": "2026-08-01",
+  "contractDecisionState": "contract_2_0_field_placement_locked_by_adr_0003",
+  "fieldGroups": [
+    {
+      "id": "process_instance_scope",
+      "implementationState": "preserve",
+      "applicableWhen": "A result is scoped to one process or to a caller-authorized PID aggregate.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/ProcessAnalysisScope.cs",
+      "unit": "trace-relative microseconds for start identity",
+      "legacyPaths": [
+        "processStartUs",
+        "selectedProcess",
+        "includedProcesses",
+        "scopeMode",
+        "pidReuseObserved"
+      ],
+      "vNextSemanticSlot": "scope.process",
+      "requiredSemantics": "PID alone is not a process identity; aggregate mode and every included lifetime are observable."
+    },
+    {
+      "id": "thread_instance_scope",
+      "implementationState": "preserve",
+      "applicableWhen": "A result accepts or returns a TID.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/ThreadAnalysisScope.cs",
+      "unit": "trace-relative microseconds plus monotonic trace-local generation",
+      "legacyPaths": [
+        "threadStartUs",
+        "threadGeneration",
+        "selectedThread",
+        "includedThreads"
+      ],
+      "vNextSemanticSlot": "scope.thread",
+      "requiredSemantics": "TID reuse must not merge lifetimes or lose the owning process-instance identity."
+    },
+    {
+      "id": "scope_outcome",
+      "implementationState": "preserve",
+      "applicableWhen": "A selector or requested time window narrows analysis scope.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/ProcessAnalysisScope.cs",
+      "unit": "not applicable",
+      "legacyPaths": [
+        "scopeStatus",
+        "scopeMode",
+        "noDataReason"
+      ],
+      "vNextSemanticSlot": "scope.status",
+      "requiredSemantics": "Resolved, missing, ambiguous, and process-start-required outcomes remain distinct."
+    },
+    {
+      "id": "capability_and_no_data",
+      "implementationState": "contract2_structured_scope_capability_no_data_verified",
+      "applicableWhen": "An analyzer can distinguish trace-wide capability absence from an empty selected scope.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+      "unit": "events or intervals as named by the response",
+      "legacyPaths": [
+        "capabilityStatus",
+        "matchedEventCount",
+        "matchedIntervalCount",
+        "noDataReason",
+        "warnings"
+      ],
+      "vNextSemanticSlot": "outcome.noData and evidence.capture",
+      "requiredSemantics": "Selector failure, missing event class, zero scoped matches, parser uncertainty, and budget partial are not interchangeable empty arrays.",
+      "verificationSources": [
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ]
+    },
+    {
+      "id": "qualified_denominators",
+      "implementationState": "preserve",
+      "applicableWhen": "A response reports counts, percentages, or coverage over different scopes.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/WaitAnalysis.cs",
+      "unit": "events, samples, intervals, bytes, or microseconds as explicitly named",
+      "legacyPaths": [
+        "trace*",
+        "window*",
+        "scoped*"
+      ],
+      "vNextSemanticSlot": "evidence.denominators",
+      "requiredSemantics": "Every numerator and denominator names its trace/window/scope domain; a trace-wide denominator cannot be relabeled scoped."
+    },
+    {
+      "id": "interval_integrity",
+      "implementationState": "preserve",
+      "applicableWhen": "Duration derives from paired endpoints or clipped intervals.",
+      "authoritativeSource": "src/WpaMcp/Core/DurationAccounting.cs",
+      "unit": "microseconds and endpoint/interval counts",
+      "legacyPaths": [
+        "unmatchedIntervalCount",
+        "invalidIntervalCount",
+        "identityUnresolved*",
+        "accountingMode"
+      ],
+      "vNextSemanticSlot": "evidence.intervalIntegrity",
+      "requiredSemantics": "Unmatched, invalid, identity-unresolved, full-duration, and in-window accounted duration remain separate facts."
+    },
+    {
+      "id": "capture_and_parser_integrity",
+      "implementationState": "contract2_capture_provenance_boundary_verified",
+      "applicableWhen": "A result depends on capture completeness or TraceEvent materialization.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/TraceMetadataAnalysis.cs",
+      "unit": "logical parsed events and nullable raw/parser measurements",
+      "legacyPaths": [
+        "eventCount",
+        "rawEventCount",
+        "rawEventCountMeasurementState",
+        "parserCoverageState"
+      ],
+      "vNextSemanticSlot": "evidence.captureIntegrity",
+      "requiredSemantics": "Parsed logical events are not raw ETL record count; unavailable raw count and parser coverage stay explicitly unmeasured.",
+      "verificationSources": [
+        "src/WpaMcp/Analyzers/TraceMetadataAnalysis.cs",
+        "src/WpaMcp/Core/Catalog/TraceEvidenceMapBuilder.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "tests/WpaMcp.Tests/MetaToolsTests.cs",
+        "tests/WpaMcp.Tests/InspectTraceTests.cs"
+      ]
+    },
+    {
+      "id": "domain_stack_coverage",
+      "implementationState": "preserve",
+      "applicableWhen": "A capability or result depends on stacks for a particular event domain and selected scope.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/TraceCapabilitiesDetector.cs",
+      "unit": "event-weighted and metric-weighted percentages",
+      "legacyPaths": [
+        "stackCoverage.totalEventCount",
+        "stackCoverage.stackedEventCount",
+        "stackCoverage.stackCoveragePct",
+        "stackCoverage.totalMetric",
+        "stackCoverage.stackedMetric",
+        "stackCoverage.metricStackCoveragePct",
+        "stackCoverage.coverageState"
+      ],
+      "vNextSemanticSlot": "evidence.stackCoverage",
+      "requiredSemantics": "Coverage is per domain and scope; no_stacks, partial, and full remain distinct and global HasStackWalks is not a substitute."
+    },
+    {
+      "id": "stack_metric_semantics",
+      "implementationState": "preserve",
+      "applicableWhen": "Rows aggregate captured or synthetic stack frames.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+      "unit": "the named stack metric",
+      "legacyPaths": [
+        "stackCoverage.metricName",
+        "stackCoverage.metricAccounting",
+        "stackCoverage.stackSemantics",
+        "stackCoverage.containsSyntheticUnknown",
+        "stackCoverage.syntheticUnknownFrame"
+      ],
+      "vNextSemanticSlot": "evidence.stackSemantics",
+      "requiredSemantics": "The synthetic ?!? bucket represents missing call chains and must not be interpreted as a captured function or root cause."
+    },
+    {
+      "id": "symbol_frame_resolution",
+      "implementationState": "preserve",
+      "applicableWhen": "A result reports symbol quality or symbol-dependent frame names.",
+      "authoritativeSource": "src/WpaMcp/Core/SymbolService.cs",
+      "unit": "observed unique frames and metric-weighted resolution",
+      "legacyPaths": [
+        "frameResolutionMeasurementState",
+        "frameResolution",
+        "stats.observedUniqueCodeFrameNameResolutionRate",
+        "stats.observedMetricResolutionRate"
+      ],
+      "vNextSemanticSlot": "evidence.symbolResolution",
+      "requiredSemantics": "PDB identity metadata is not measured frame resolution; no explicit symbol context remains unmeasured and performs no implicit probe."
+    },
+    {
+      "id": "metric_precision",
+      "implementationState": "phase1_fixed_verified",
+      "applicableWhen": "A response projects integer counts, bytes, or microseconds into rows or totals.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/StackSourceTopN.cs",
+      "unit": "the named metric with checked Int64 accumulation",
+      "legacyPaths": [
+        "metricPrecision",
+        "rowMetricAccounting",
+        "exactTotalAccounting"
+      ],
+      "vNextSemanticSlot": "precision.metric",
+      "requiredSemantics": "A public integer labeled exact cannot be reconstructed from binary32; overflow fails rather than wrapping."
+    },
+    {
+      "id": "virtual_alloc_accounting",
+      "implementationState": "preserve",
+      "applicableWhen": "VirtualAlloc/VirtualFree operations are summarized.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/VirtualAllocStackAnalysis.cs",
+      "unit": "bytes observed in operation events",
+      "legacyPaths": [
+        "allocatedBytes",
+        "freedBytes",
+        "totalOperationBytes",
+        "netObservedOperationBytes",
+        "netObservedOperationBytesSemantics"
+      ],
+      "vNextSemanticSlot": "data.virtualMemoryAccounting",
+      "requiredSemantics": "Operation traffic and alloc-minus-free event bytes are not live virtual size, commit, or leak."
+    },
+    {
+      "id": "temporal_file_identity",
+      "implementationState": "preserve",
+      "applicableWhen": "FileObject or FileKey is resolved to a path for an event.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/FileObjectResolver.cs",
+      "unit": "event time and EventIndex ordering",
+      "legacyPaths": [
+        "fileName",
+        "<unmapped:0x...>"
+      ],
+      "vNextSemanticSlot": "evidence.fileIdentityResolution",
+      "requiredSemantics": "Resolution is event-time/lifetime aware; unresolved identity remains explicit and cannot use a later reused mapping."
+    },
+    {
+      "id": "evidence_inference_boundary",
+      "implementationState": "contract2_structured_inference_boundary_verified",
+      "applicableWhen": "A result uses association, heuristic, or inferred evidence rather than a direct measured fact.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/SecurityScanAnalysis.cs",
+      "unit": "not applicable",
+      "legacyPaths": [
+        "measurementBasis",
+        "relationship",
+        "conclusionStatus",
+        "evidenceKind",
+        "confidence",
+        "provenance",
+        "doesNotProve"
+      ],
+      "vNextSemanticSlot": "evidence.inferenceBoundary",
+      "requiredSemantics": "Association and heuristic evidence do not become causal or confirmed merely because a row has a high metric.",
+      "verificationSources": [
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Output/ToolEnvelope.cs",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ]
+    },
+    {
+      "id": "collection_completeness",
+      "implementationState": "contract2_section_and_reachable_collection_completeness_verified",
+      "applicableWhen": "Any collection, Top-N, timeline, section, compact mode, or response budget can omit eligible data.",
+      "authoritativeSource": "src/WpaMcp/Core/StackResponseOptions.cs",
+      "unit": "rows and UTF-8 bytes",
+      "legacyPaths": [
+        "hasMore on selected responses only"
+      ],
+      "vNextSemanticSlot": "sections[*].completeness",
+      "requiredSemantics": "Returned count, exact pre-truncation total when measured or an honest lower_bound/unknown when not measured, stable sort/tie-breaker, omission reason, more-state, and continuation availability are observable. A top+1 probe is not an exact total; a saturated conservative source limit proves neither another row nor terminal state; no cursor does not upgrade unknown to complete. Composite fitting preserves cross-section reference integrity.",
+      "verificationSources": [
+        "src/WpaMcp/Core/ReviewedToolOutcomeAdapters.cs",
+        "src/WpaMcp/Core/CompositeResultContractValidator.cs",
+        "src/WpaMcp/Core/ToolOpaqueLocatorInputOverlay.cs",
+        "src/WpaMcp/Core/ToolEnvelopeProjection.cs",
+        "src/WpaMcp/Core/ToolResponseFrameFitter.cs",
+        "src/WpaMcp/Output/Records.cs",
+        "eng/tool-contracts.v2.json",
+        "tests/WpaMcp.Tests/ReviewedOutcomeCorrectnessTests.cs",
+        "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+        "tests/WpaMcp.Tests/ActiveReachableCollectionClosureTests.cs",
+        "tests/WpaMcp.Tests/ContractBaselines/active-reachable-collection-closure.v1.json"
+      ],
+      "knownRemainingGaps": [],
+      "remainingGapSemantics": "Verified for the current active catalog by focused proof-mode and nested-boundary tests plus a fail-closed BFS over every reachable collection occurrence and a reviewed source-cap inventory. External client, rollout, package, large-trace, approval, and release gates remain separate."
+    },
+    {
+      "id": "nested_sample_boundary",
+      "implementationState": "contract2_typed_samples_boundary_verified",
+      "applicableWhen": "A composite evidence row includes bounded or non-representative examples selected from an already bounded child result.",
+      "authoritativeSource": "src/WpaMcp/Output/Records.cs",
+      "unit": "sample rows",
+      "legacyPaths": [
+        "evidence[*].details sample strings"
+      ],
+      "vNextSemanticSlot": "evidence[*].samples and evidence[*].samplesBoundary",
+      "requiredSemantics": "Samples are structurally separate from exhaustive annotations; each sample states representativeness, metric attribution, and sample scope, while a typed boundary states returned/total/more/truncation semantics. Free text is not the authoritative completeness or attribution contract.",
+      "verificationSources": [
+        "src/WpaMcp/Output/Records.cs",
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Core/CompositeResultContractValidator.cs",
+        "tests/WpaMcp.Tests/SecurityScanAnalysisTests.cs",
+        "tests/WpaMcp.Tests/CompositeResultContractValidatorTests.cs",
+        "tests/WpaMcp.Tests/ActiveReachableCollectionClosureTests.cs"
+      ],
+      "knownRemainingGaps": [],
+      "remainingGapSemantics": "Verified for the current active implementation by security duration/presence regressions, hostile composite validation, and the fail-closed reachable-collection gate. Details is annotation-only; sample completeness and attribution are authoritative only in WindowEvidenceSample and SamplesBoundary. External-client, large-trace, package, approval, and release gates remain separate."
+    },
+    {
+      "id": "opaque_identifier_precision",
+      "implementationState": "contract2_canonical_string_and_safe_legacy_projection_verified",
+      "applicableWhen": "An opaque identifier may exceed JavaScript's safe integer range.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/NetConnectionAnalysis.cs",
+      "unit": "canonical unsigned decimal string",
+      "legacyPaths": [
+        "connections[*].connId",
+        "connections[*].connIdText",
+        "connections[*].connIdLegacyStatus"
+      ],
+      "vNextSemanticSlot": "data.identifiers",
+      "requiredSemantics": "The string is authoritative; an unsafe legacy numeric projection is explicit null and never rounded.",
+      "verificationSources": [
+        "src/WpaMcp/Analyzers/NetConnectionAnalysis.cs",
+        "src/WpaMcp/Output/Records.cs",
+        "tests/WpaMcp.Tests/NetConnectionIdentifierContractTests.cs",
+        "tests/WpaMcp.Tests/ToolEnvelopeContractTests.cs"
+      ]
+    },
+    {
+      "id": "self_performance_attribution",
+      "implementationState": "contract2_exact_process_instance_attribution_guard_verified",
+      "applicableWhen": "A workflow attempts to conclude anything about wpa-mcp server or worker performance.",
+      "authoritativeSource": "src/WpaMcp/Analyzers/TraceIdentityIndex.cs",
+      "unit": "exact observed process instances",
+      "legacyPaths": [],
+      "vNextSemanticSlot": "evidence.observedWorkloads and conclusion.selfPerformance",
+      "requiredSemantics": "Without an exact observed server/worker process instance, the conclusion is not_concluded and no self-performance recommendation is emitted.",
+      "verificationSources": [
+        "src/WpaMcp/Core/Catalog/TraceEvidenceMapBuilder.cs",
+        "src/WpaMcp/Output/CapabilityDiscoveryRecords.cs",
+        "tests/WpaMcp.Tests/InspectTraceTests.cs"
+      ]
+    }
+  ]
+}

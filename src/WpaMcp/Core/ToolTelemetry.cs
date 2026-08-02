@@ -28,7 +28,10 @@ internal sealed class ToolTelemetry : IDisposable
     public bool Enabled => Options.Enabled;
 
     public static ToolTelemetry CreateFromEnvironment()
-        => new(ToolTelemetryOptions.FromEnvironment(), RandomNumberGenerator.GetBytes(32));
+        => Create(ToolTelemetryOptions.FromEnvironment());
+
+    internal static ToolTelemetry Create(ToolTelemetryOptions options)
+        => new(options, RandomNumberGenerator.GetBytes(32));
 
     public string HashArguments(object? arguments)
     {
@@ -76,6 +79,53 @@ internal sealed class ToolTelemetry : IDisposable
             tool_count = stats.ToolCount,
             payload_bytes = stats.PayloadBytes,
             max_payload_bytes = stats.MaxPayloadBytes,
+            timestamp_utc = DateTimeOffset.UtcNow,
+        });
+    }
+
+    public void RecordRuntimeProfile(RuntimeCompatibilityProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (!Enabled)
+            return;
+
+        Write(new
+        {
+            event_type = "runtime_profile",
+            session_id = SessionId,
+            runtime_version = profile.RuntimeVersion,
+            release_line = profile.ReleaseLine,
+            contract_mode = profile.ContractModeName,
+            contract_mode_explicit = profile.ContractModeExplicit,
+            trace_reference_mode = profile.TraceReferenceModeName,
+            trace_reference_mode_explicit = profile.TraceReferenceModeExplicit,
+            release_status = profile.ReleaseEligible ? "eligible" : "blocked",
+            release_blockers = profile.ReleaseBlockers,
+            external_known_blockers = profile.ExternalKnownBlockers,
+            deprecation_warnings = profile.Warnings,
+            timestamp_utc = DateTimeOffset.UtcNow,
+        });
+    }
+
+    public void RecordToolsListPage(
+        int frameBytes,
+        int returnedTools,
+        bool hasMore,
+        int aggregateCatalogResultBytes,
+        int maxResponseFrameBytes)
+    {
+        if (!Enabled)
+            return;
+
+        Write(new
+        {
+            event_type = "tools_list_page",
+            session_id = SessionId,
+            frame_bytes = frameBytes,
+            returned_tools = returnedTools,
+            has_more = hasMore,
+            aggregate_catalog_result_bytes = aggregateCatalogResultBytes,
+            max_response_frame_bytes = maxResponseFrameBytes,
             timestamp_utc = DateTimeOffset.UtcNow,
         });
     }

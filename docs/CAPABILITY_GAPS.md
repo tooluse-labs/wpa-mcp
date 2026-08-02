@@ -1,8 +1,20 @@
 # wpa-mcp — capability gaps vs WPA / PerfView
 
-> Working notes, not an RFC. Inventory of analysis capabilities that WPA and PerfView expose but wpa-mcp doesn't yet, plus capabilities that are GUI-tool-specific and not worth porting for LLM consumers.
+> **Current status (2026-08-01):** This is the human-readable delta ledger,
+> not the runtime catalog. The validated development model currently contains
+> 60 active tools, 51 declared capabilities, 15 goals, and 15 workflows. Ten of
+> those capabilities are deliberately mapped to `evaluator.declared_gap`; the
+> other rows below include broader WPA/PerfView candidates that are not yet
+> catalogued. `eng/capabilities.v1.json`, `eng/tool-contracts.v2.json`, the
+> Active Catalog validators, and runtime resources are authoritative.
+
+> Working notes, not an RFC. The server fully exposes its declared capability
+> map to lower selection cost and fully exposes evidence gaps so an LLM cannot
+> turn an unsupported or unmeasured capability into a conclusion. The map is
+> exhaustive for wpa-mcp's declared surface, never for the complete WPA/ETW
+> universe; unlisted means `unknown_not_catalogued`, not proven absent.
 >
-> **Document-set logic** — three active docs in a sequential pipeline:
+> **Document-set logic as of May 2026** — three historical planning docs in a sequential pipeline:
 >
 > - **`CAPABILITY_GAPS.md` (this)** — **what to add** (the stable inventory)
 > - **`MCP_SURFACE_DESIGN.md`** — **how to add it** (Tool / Resource / Prompt, three-layer architecture, annotation tiers)
@@ -13,6 +25,8 @@
 > Earlier brainstorm notes are in `docs/archive/` for historical context.
 >
 > **Revision notes:**
+> - **v7 (2026-08-01):** reconciled the historical inventory with the validated 60-tool/51-capability catalog, recorded the ten manifest-declared gaps, and converted CPU Precise, memory resources, system metadata, provider counts, and capture diagnostics from false "missing" claims into covered-core/remaining-boundary rows.
+> - **v6 (2026-08-01):** added contract-rollout and client-evidence release gaps with the exact machine-readable blocker codes; the historical analyzer inventory remains unchanged.
 > - **v5 (2026-05-15):** removed the four-tier punchlist; prioritization now lives solely in `MCP_IMPLEMENTATION_TASKS.md`. This doc retains only the stable capability inventory (A/B/C/D + not-to-port + UI vs data caveats + the anti-pattern callout). Doc-set cleanup also archived `OPTIMIZATION.md`.
 > - **v4 (2026-05-15):** rewrote the punchlist as a four-tier priority structure; added explicit anti-pattern warning; reframed doc set as sequential rather than companion; added risk notes to A-4 and B-5.
 > - **v3 (2026-05-15):** tightened factual claims after code review; added three A-table gaps.
@@ -28,16 +42,41 @@ Strip away the UI and WPA / PerfView capabilities sort into four buckets:
 - **C. Trace metadata** — info about the trace itself
 - **D. Trace lifecycle / preprocessing** — operations on the trace artifact before / between analyses
 
+### Runtime authority and discovery path
+
+- Tools-only clients call `list_capabilities`; Resource-capable clients follow
+  every page linked from `wpa://capabilities/server`, `wpa://tools/server`, and
+  `wpa://workflows/server`.
+- A chosen tool's complete evidence and result-section semantics live at
+  `wpa://tools/{toolName}/sections` and its linked pages. A gap ledger cannot
+  substitute for those runtime ordering, truncation, precision, and conclusion
+  boundaries.
+- `inspect_trace` supplies the Trace Evidence Map for one loaded generation.
+  Server declaration, trace evidence availability, and actual query outcome are
+  separate states.
+- The ten current manifest-declared gaps are:
+  `symbols.configuration.path`, `symbols.configuration.server`,
+  `symbols.diagnostics.metadata`, `scheduler.ready.causality`,
+  `security.scanner.attribution`, `symbols.frame_resolution.measured`,
+  `trace.raw_event_count.external`, `attribution.cross_domain.causal`,
+  `lifecycle.trace.handle`, and `lifecycle.trace.artifact_peak_bound`.
+
+Several of these deliberately name an unavailable standalone capability even
+though a narrower fact exists elsewhere. For example, `prepare_symbols` reports
+verified readiness and load/query/unload implement handle lifecycle, but the
+current context-bound frame resolver is unavailable and there is no independent
+handle-status/inventory tool. The catalog keeps those distinctions visible.
+
 ---
 
 ## A. Data-dimension gaps
 
 | Gap | Value | Notes |
 |---|---|---|
-| **CPU Usage Precise** (on-CPU µs from CSwitch, vs the statistical sampling of Sampled) | High | Current `cpu_*` is Sampled; `wait_*` is the off-CPU dual. Neither answers "how many µs did this thread actually spend on a CPU." Adding Precise closes the thread-time triangle (Sampled CPU / Precise on-CPU / Wait off-CPU). Note: this is only half of WPA's Precise view — see "Scheduler / core / priority" below for the other half. |
-| **Scheduler / core / priority analysis** (per-core attribution, CPU migration, priority inversion, ready latency, quantum end) | Medium-high | The deeper half of WPA's CPU Usage (Precise) view. Answers "which core?", "did it bounce across cores?", "did priority inversion stall it?", "how long from ready to run?". Distinct from `ready_thread_*` (which is the wake event, not the dispatch latency distribution). |
+| **CPU Usage Precise** (on-CPU µs from CSwitch, vs the statistical sampling of Sampled) | Covered core | `cpu_precise_analysis` now reports exact CSwitch-derived on-CPU time, ready-to-run latency, per-core attribution, and quantum/preemption counters by replayable process/thread instance. This row remains as closure evidence, not an open capability. |
+| **Scheduler / core / priority analysis** (CPU migration, priority inversion, richer priority timelines) | Medium-high, partial | Per-core attribution, ready latency, and quantum/preemption counts are covered by `cpu_precise_analysis`; `ready_thread_*` is explicitly association evidence. Dedicated migration summaries, priority timelines, and mechanistic priority-inversion proof remain gaps. `scheduler.ready.causality` stays a declared gap so a readier stack cannot be overclaimed as "who unblocked". |
 | **GC heap dump (`.gcdump`) loading + object reference graph + retention paths** | High | Required for memory-leak investigations. `clr_gc_*` is ETW-event-level only — it can't answer "who still holds this `byte[]` array." |
-| **Memory resource views** (working set, commit, private bytes, paged / non-paged pool, handle count) | High | The system-memory perspective, **distinct from allocation streams**: `clr_gc_*` is managed allocations, `heap_alloc_*` is NT heap events, `virtual_alloc_*` is reservation events. None of these answer "what's the actual resident footprint right now?", "is paged pool exhausted?", or "are we leaking handles?". WPA has dedicated views; wpa-mcp has zero coverage. <br/>**Risk note (v4):** verify first that current wpr profiles actually capture working-set / commit / pool / handle counters. If a new wpr keyword is required, this slips a priority tier — analyzers can't recover events that were never recorded. |
+| **Memory resource views** (working set, commit, private bytes, pool and handle activity) | Covered core, retention gap remains | `memory_resource_analysis` now projects `Memory/ProcessMemInfo` snapshots plus observed handle create/close and pool allocation/free deltas with explicit capture requirements and scope. These deltas are not absolute current counters, and a trend does not prove a leak or retention path. `.gcdump` object graphs and authoritative retained-object attribution remain open. |
 | **Async / Task chain stitching** (CLR Task continuation reassembly across threads) | High | `clr_*` returns events disjointly; async call chains don't reconnect. PerfView has task tracing for this. |
 | **UI responsiveness / input latency / frame pacing** (input-to-render latency, DWM frame pacing, compositor stalls) | Medium-high | The user-perceived performance dimension. `Window-in-focus` (below) only answers "which window was foreground"; it does not answer "how long from keystroke to pixel." Required for any desktop / UI investigation. |
 | **GPU profiling** (Compute Graphics / GPU Work) | Medium | Narrow scope but no substitute for GPU-bound workloads. |
@@ -50,7 +89,7 @@ Strip away the UI and WPA / PerfView capabilities sort into four buckets:
 
 | Gap | Value | Notes |
 |---|---|---|
-| **Time-window filtering — unify + share ROI context + add correctness tests** | Medium-high | **Status correction over v1.** `startUs` / `endUs` parameters are *already* present on most stack-shaped tools — `grep -l "startUs\|endUs"` finds 40+ files in `src/`, with a uniform `[Description("Window start in microseconds since trace start")] long? startUs = null` signature. The real gaps: (a) coverage isn't uniform; (b) no shared ROI context between calls; (c) no systematic correctness tests around clip boundaries. Treat as **unify + share-context + test**, not "add the parameter from scratch." |
+| **Shared ROI context across calls** | Medium-high, partial | Per-call half-open `startUs <= t < endUs` semantics and boundary tests are broadly implemented; lifecycle-relative tools intentionally use different scopes, and admitted timeline/inventory results can publish bound cursors. There is still no first-class immutable ROI object shared across independent calls, so clients must replay the exact window and identity selectors. |
 | **Cross-trace diff** (baseline vs regression) | High | Blocker is process-identity matching across captures. |
 | **Flexible group-by / pivot** (regroup by module / namespace / threadpool / payload field) | Medium-high | WPA does this via column drag; PerfView has GroupPats. wpa-mcp's output schema is fixed. |
 | **Aggregation mode switching** (sum / avg / max / min / count / weighted) | Medium | Most columns are locked to sum or count. |
@@ -62,9 +101,9 @@ Strip away the UI and WPA / PerfView capabilities sort into four buckets:
 
 | Gap | Value | Notes |
 |---|---|---|
-| **System Configuration** (OS build, CPU model / topology, core count, boot config, driver list — carried by SystemConfig events) | High | `load_trace` returns `Capabilities` but no hardware / OS provenance — the LLM lacks ground-truth context. ETW carries this via SystemConfig events; the analyzer just needs to project it. AC / battery state and frequency transitions live in Kernel-Power provider events and belong to A-table "Power profiling," not here. |
-| **Per-provider trace statistics** (per-provider event counts; buffer config; dropped-event signal) | Medium-high | Baseline `EventsLost` is already exposed via `TraceMeta.EventsLost`, but the per-provider breakdown isn't. ETW buffer loss is fundamentally session-level — a strict per-provider dropped-events split may not be reconstructable. What is recoverable: per-provider event counts. |
-| **Capture-quality diagnostics** (profile recommendation, missing-keyword guidance, stackwalk completeness, symbol resolution rate) | Medium-high | The other half of "what should I trust in this trace?" Reads from existing `Capabilities` + `SymbolStatus` and tells the LLM what to ask the user to re-capture. **Pure analysis-side — does NOT involve starting/stopping ETW sessions.** |
+| **System Configuration** (OS build, CPU model/topology, core count, boot config, driver list) | Covered core, nullable-source gaps remain | `inspect_trace` now projects trace-derived system metadata and driver summaries. Fields remain nullable when the trace did not carry them; host-machine values are never substituted. Power-state timelines remain a separate gap. |
+| **Per-provider trace statistics** (event counts, buffer config, dropped-event provenance) | Covered counts, raw/session details remain | `inspect_trace` reports parser-materialized provider event counts and trace-level loss metadata with explicit provenance. Raw external record count, provider-specific loss attribution, and complete ETW buffer configuration are not inferred; `trace.raw_event_count.external` is a declared gap. |
+| **Capture-quality diagnostics** (capability evidence, stack completeness, symbol boundaries) | Covered core, resolution/recapture gaps remain | `inspect_trace` now exposes the Trace Evidence Map, same-domain stack coverage, quality warnings, PDB-identity state, and next-step boundaries. `prepare_symbols` measures verified local readiness, but the current context-bound frame resolver fails closed and `symbols.frame_resolution.measured` remains a declared gap. None of these prove the original keyword configuration or automate recapture. |
 | **Symbol source lookup** (return `file:line`) | Medium | Lets LLMs cross-reference source. |
 | **Inline frame expansion** | Medium | Inlined functions are currently subsumed into the outer frame; deep drilldowns distort. |
 
@@ -72,7 +111,10 @@ Strip away the UI and WPA / PerfView capabilities sort into four buckets:
 
 ## D. Trace lifecycle / preprocessing
 
-Not core analysis, but the analysis end legitimately owns artifact preprocessing — `tools/etlshrink/` already establishes precedent.
+The secure core lifecycle is implemented: `load_trace` is the only raw source
+entry, returns a principal-scoped immutable TraceId, and `unload_trace` retires
+the handle without claiming artifact deletion. The remaining rows are new
+artifact-producing transformations, not missing parts of that core lifecycle.
 
 | Gap | Value | Notes |
 |---|---|---|
@@ -121,12 +163,37 @@ Write-side operations that need elevated rights:
 
 ---
 
-## Prioritization
+## Contract rollout and client-evidence gaps
 
-**⚠️ Anti-pattern, do not do:** add capabilities by reading this list top-to-bottom. The reference tools (WPA / PerfView) organize features by capture / domain, not by LLM value. **Sequence the work via the priority structure in `MCP_IMPLEMENTATION_TASKS.md`**, not by reading this doc in order.
+These are release blockers, not hidden analyzer capabilities:
 
-This doc describes **what is missing relative to WPA / PerfView** — a slow-changing inventory. **How to sequence the work** lives in `MCP_IMPLEMENTATION_TASKS.md` (P0 navigation foundation → P1 routing & composites → P2 low-risk high-value → P3 high-value high-risk), which can evolve with each sprint without touching this doc.
+| Gap | Machine-readable status | Consequence |
+|---|---|---|
+| Reviewed legacy result projection | `release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime` | ADR 0005 requires legacy + raw-path defaults for 0.4.x. The server rejects `legacy` at startup, so 0.4.x cannot be released merely by opting into Contract 2.0. |
+| Full 0.5.x deprecation window and usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 1.0 cannot remove legacy/raw compatibility until this evidence is reviewed in-repository. An environment variable cannot waive it. |
+| Supported-client paging/token/cache matrix | `release_blocked:supported_client_matrix_incomplete` | The package stdio harness traverses every page, but named third-party clients still need recorded page aggregation, prompt-schema tokens, and cache behavior before 0.5 becomes the secure default. Page-one-only clients are incompatible. |
+| Corrected active contract baselines | `release_blocked:corrected_active_contract_baselines_not_release_approved` | `active-tools.v1.json`, `active-dto-inventory.v1.json`, and `active-structured-stdio.v1.json` must describe the same commit and runtime profile as the package executable. |
+| Physical artifact materialization peak | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | Retained-store quota and checkpoints do not prove the opaque converter's transient disk peak. Release requires a passed `artifact-materialization-budget.v1.json`, not an inferred hard cap. |
+
+The selected runtime profile is exposed at `wpa://runtime/profile`; absence of a
+release gate is never reported as analyzer support. See `CLIENT_COMPATIBILITY.md`
+and `CONTRACT_MIGRATION.md`.
 
 ---
 
-Last revised: 2026-05-15 (v5).
+## Prioritization
+
+**Anti-pattern:** do not add capabilities by reading this table top-to-bottom,
+and do not hide an existing specialist tool to reduce prompt size. A candidate
+must first receive a stable CapabilityId, questions answered/not answered,
+required evidence/stacks, scope/cost/symbol requirements, maximum relationship,
+runtime evaluator or explicit gap evaluator, tool/section contracts, benchmark,
+and compatibility decision. Only then can an approved task or ADR sequence it.
+
+The historical `MCP_IMPLEMENTATION_TASKS.md` is not the current backlog. The
+accepted architecture and Phase 0–7 implementation/release gates live in
+`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md` and ADRs 0002–0005.
+
+---
+
+Last revised: 2026-08-01 (v7).

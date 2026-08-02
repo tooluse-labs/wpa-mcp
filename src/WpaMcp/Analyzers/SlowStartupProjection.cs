@@ -28,6 +28,10 @@ internal sealed record StartupEvidenceWindowPlan(
     TimeWindow? FirstImageChildWindow,
     string? NotConcludedCode);
 
+internal sealed record SlowStartupRankingResult(
+    IReadOnlyList<SlowStartupCandidateData> Candidates,
+    int QualifiedCandidateCount);
+
 internal static class SlowStartupProjection
 {
     public static double? StartupWaitRatio(
@@ -43,6 +47,21 @@ internal static class SlowStartupProjection
         IReadOnlyDictionary<ProcessInstanceKey, StartupImageLoadBucket> imageLoads,
         string? nameSubstring,
         double minWaitRatio,
+        int maxCandidates) =>
+        RankDetailed(
+            processes,
+            scheduler,
+            imageLoads,
+            nameSubstring,
+            minWaitRatio,
+            maxCandidates).Candidates;
+
+    internal static SlowStartupRankingResult RankDetailed(
+        IReadOnlyList<StartupProcessObservation> processes,
+        IReadOnlyDictionary<ProcessInstanceKey, StartupSchedulerMetrics> scheduler,
+        IReadOnlyDictionary<ProcessInstanceKey, StartupImageLoadBucket> imageLoads,
+        string? nameSubstring,
+        double minWaitRatio,
         int maxCandidates)
     {
         ArgumentNullException.ThrowIfNull(processes);
@@ -53,7 +72,7 @@ internal static class SlowStartupProjection
             throw new ArgumentOutOfRangeException(nameof(minWaitRatio));
 
         var hasNameFilter = !string.IsNullOrEmpty(nameSubstring);
-        var ranked = processes
+        var qualified = processes
             .Where(process =>
                 !hasNameFilter ||
                 process.Metadata.Name.Contains(
@@ -66,10 +85,10 @@ internal static class SlowStartupProjection
             .ThenByDescending(seed => seed.ObservedStartupWallUs)
             .ThenBy(seed => seed.Observation.Process.StartUs)
             .ThenBy(seed => seed.Observation.Process.Pid)
-            .Take(maxCandidates)
-            .Select(ToCandidate)
             .ToArray();
-        return ranked;
+        return new SlowStartupRankingResult(
+            qualified.Take(maxCandidates).Select(ToCandidate).ToArray(),
+            qualified.Length);
     }
 
     public static StartupEvidenceWindowPlan PlanEvidence(

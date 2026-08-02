@@ -23,8 +23,13 @@
   Claude Code scope for `claude mcp add`: user, local, or project. Defaults to
   SCOPE env var, then user. Codex and Claude Desktop ignore this.
 
-.PARAMETER SymbolPath
-  Value passed to wpa-mcp via --symbol-path. Defaults to Microsoft public symbols.
+.PARAMETER SymbolLocalRoot
+  Approved local PDB candidate directory used by prepare_symbols. Defaults to
+  %LOCALAPPDATA%\WpaMcp\symbol-candidates. Remote symbol servers are not imported.
+
+.PARAMETER SymbolStoreRoot
+  Private verified PDB store used by prepare_symbols. Defaults to
+  %LOCALAPPDATA%\WpaMcp\symbol-store and must be disjoint from SymbolLocalRoot.
 
 .PARAMETER CacheSize
   Value passed to wpa-mcp via --cache-size. Defaults to 2.
@@ -49,7 +54,8 @@ param(
 
     [string]$Scope,
     [string]$ServerName = 'wpa-mcp',
-    [string]$SymbolPath = 'SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols',
+    [string]$SymbolLocalRoot = (Join-Path $env:LOCALAPPDATA 'WpaMcp\symbol-candidates'),
+    [string]$SymbolStoreRoot = (Join-Path $env:LOCALAPPDATA 'WpaMcp\symbol-store'),
     [int]$CacheSize = 2,
     [switch]$ForceDownload,
     [switch]$Diagnostics
@@ -81,7 +87,11 @@ function Format-TomlString {
 }
 
 function New-ServerArgs {
-    return @('--symbol-path', $SymbolPath, '--cache-size', "$CacheSize")
+    return @(
+        '--symbol-local-root', $SymbolLocalRoot,
+        '--symbol-store-root', $SymbolStoreRoot,
+        '--cache-size', "$CacheSize"
+    )
 }
 
 function Move-WithRetry {
@@ -608,3 +618,5 @@ Write-Host ''
 Write-Host 'Next steps:'
 Write-Host '  - Restart any active MCP client sessions.'
 Write-Host "  - Binary: $binaryPath"
+Write-Host "  - Put approved local PDB candidates under: $SymbolLocalRoot"
+Write-Host '  - After load_trace, call prepare_symbols to create an immutable symbol context.'

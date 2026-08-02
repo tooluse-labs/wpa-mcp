@@ -5,15 +5,18 @@ namespace WpaMcp.Analyzers;
 
 // CLR-events analog of KernelEventWalker.  Subscribe via `configure`, then runs a single
 // trace pass.  Same construction note as the kernel walker — attach to the source from
-// trace.Events.GetSource(), not the TraceLog directly, because TraceLog rejects callbacks
+// AnalysisEvents dispatcher, not the TraceLog directly, because TraceLog rejects callbacks
 // for synthesized events.
 internal static class ClrEventWalker
 {
-    public static void Walk(TraceLog trace, Action<ClrTraceEventParser> configure)
+    public static void Walk(
+        TraceLog trace,
+        Action<ClrTraceEventParser> configure,
+        CancellationToken cancellationToken = default)
     {
-        var source = trace.Events.GetSource();
+        var source = AnalysisEvents.CreateDispatcher(trace, cancellationToken);
         var clr = new ClrTraceEventParser(source);
         configure(clr);
-        source.Process();
+        AnalysisEvents.Process(source, cancellationToken);
     }
 }

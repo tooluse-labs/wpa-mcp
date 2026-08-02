@@ -8,6 +8,12 @@
 
 **Tech Stack:** PowerShell; C#/.NET; NuGet lock files and central package management; Model Context Protocol C# SDK; GitHub Actions on `windows-latest`; GitHub artifact attestation and `gh` CLI; xUnit protocol/golden/benchmark suites produced by Children 5, 9, and 10.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+Release provenance now includes hashes of the single active tool catalog, complete capability manifest, and every advertised input/output schema set for each public contract profile. Packaging and tag promotion must fail when production registration, `tools/list`, capability-map pages, committed snapshots, or recorded hashes diverge.
+
+The release claim gate also fails closed on capability overclaim: `supported` requires the checked-in capture/analyzer/environment/scope evidence and adversarial results owned by Children 9–10; otherwise the claim is `preview` or `gap`. Hash changes, capability promotions, and waivers are reviewed versioned evidence and cannot be regenerated or relaxed inside the release job merely to pass.
+
 ## Global Constraints
 
 - Execute Tasks 1–4 (11A) before Child 1 or any runtime/analyzer implementation relies on a TFM, SDK, protocol handshake, cancellation, task, or schema behavior.

@@ -2,6 +2,7 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using WpaMcp.Core;
+using WpaMcp.Output;
 
 namespace WpaMcp.Analyzers;
 
@@ -93,25 +94,50 @@ public sealed class FileObjectResolver
             : Unmapped(fileObject);
 
     internal string ResolveAt(ulong fileObject, ulong fileKey, long timestampUs)
-    {
-        if (fileKey != 0 && _keyNames.TryResolveAt(fileKey, timestampUs, out var keyName))
-            return keyName;
-        if (fileObject != 0 && _objectNames.TryResolveAt(fileObject, timestampUs, out var objectName))
-            return objectName;
-        return Unmapped(fileObject != 0 ? fileObject : fileKey);
-    }
+        => ResolveDetailedAt(fileObject, fileKey, timestampUs).File;
 
     internal string ResolveAt(
         ulong fileObject,
         ulong fileKey,
         long timestampUs,
         EventIndex eventIndex)
+        => ResolveDetailedAt(fileObject, fileKey, timestampUs, eventIndex).File;
+
+    internal FileMappingResolution ResolveDetailedAt(
+        ulong fileObject,
+        ulong fileKey,
+        long timestampUs)
     {
-        if (fileKey != 0 && _keyNames.TryResolveAt(fileKey, timestampUs, eventIndex, out var keyName))
-            return keyName;
-        if (fileObject != 0 && _objectNames.TryResolveAt(fileObject, timestampUs, eventIndex, out var objectName))
-            return objectName;
-        return Unmapped(fileObject != 0 ? fileObject : fileKey);
+        string? keyName = null;
+        string? objectName = null;
+        if (fileKey != 0 && !_keyNames.TryResolveAt(fileKey, timestampUs, out keyName))
+            keyName = null;
+        if (fileObject != 0 && !_objectNames.TryResolveAt(fileObject, timestampUs, out objectName))
+            objectName = null;
+        return FileMappingResolution.FromTemporalMappings(
+            fileObject,
+            fileKey,
+            keyName,
+            objectName);
+    }
+
+    internal FileMappingResolution ResolveDetailedAt(
+        ulong fileObject,
+        ulong fileKey,
+        long timestampUs,
+        EventIndex eventIndex)
+    {
+        string? keyName = null;
+        string? objectName = null;
+        if (fileKey != 0 && !_keyNames.TryResolveAt(fileKey, timestampUs, eventIndex, out keyName))
+            keyName = null;
+        if (fileObject != 0 && !_objectNames.TryResolveAt(fileObject, timestampUs, eventIndex, out objectName))
+            objectName = null;
+        return FileMappingResolution.FromTemporalMappings(
+            fileObject,
+            fileKey,
+            keyName,
+            objectName);
     }
 
     internal void AddMapping(
@@ -169,7 +195,136 @@ public sealed class FileObjectResolver
     private static long ToUs(Microsoft.Diagnostics.Tracing.TraceEvent data) =>
         TraceTime.FromMilliseconds(data.TimeStampRelativeMSec);
 
-    private static string Unmapped(ulong value) => $"<unmapped:0x{value:X}>";
+    private static string Unmapped(ulong value) => FileIdentifierFormatting.Unmapped(value);
+}
+
+internal static class FileIdentifierFormatting
+{
+    public static string Pointer(ulong value) => $"0x{value:x16}";
+
+    public static string Unmapped(ulong value) => $"<unmapped:{Pointer(value)}>";
+}
+
+internal static class FileMappingStates
+{
+    public const string EventName = "event_name";
+    public const string TemporalFileKey = "temporal_file_key";
+    public const string TemporalFileObject = "temporal_file_object";
+    public const string AmbiguousTemporalMapping = "ambiguous_temporal_mapping";
+    public const string UnresolvedFileIdentity = "unresolved_file_identity";
+    public const string Mixed = "mixed";
+}
+
+internal readonly record struct FileMappingResolution(string File, string MappingState)
+{
+    public static FileMappingResolution FromEventName(string fileName) =>
+        new(fileName, FileMappingStates.EventName);
+
+    public static FileMappingResolution FromFileKey(
+        ulong fileKey,
+        string? fileName) =>
+        !string.IsNullOrEmpty(fileName)
+            ? new(fileName, FileMappingStates.TemporalFileKey)
+            : Unresolved(fileKey);
+
+    public static FileMappingResolution FromTemporalMappings(
+        ulong fileObject,
+        ulong fileKey,
+        string? fileKeyName,
+        string? fileObjectName)
+    {
+        if (fileKeyName is not null && fileObjectName is not null)
+        {
+            if (!string.Equals(fileKeyName, fileObjectName, StringComparison.OrdinalIgnoreCase))
+            {
+                return new FileMappingResolution(
+                    $"<ambiguous:file-key={FileIdentifierFormatting.Pointer(fileKey)};file-object={FileIdentifierFormatting.Pointer(fileObject)}>",
+                    FileMappingStates.AmbiguousTemporalMapping);
+            }
+
+            return new FileMappingResolution(fileKeyName, FileMappingStates.TemporalFileKey);
+        }
+
+        if (fileKeyName is not null)
+            return new FileMappingResolution(fileKeyName, FileMappingStates.TemporalFileKey);
+        if (fileObjectName is not null)
+            return new FileMappingResolution(fileObjectName, FileMappingStates.TemporalFileObject);
+        return Unresolved(fileObject != 0 ? fileObject : fileKey);
+    }
+
+    private static FileMappingResolution Unresolved(ulong identifier) =>
+        new(FileIdentifierFormatting.Unmapped(identifier), FileMappingStates.UnresolvedFileIdentity);
+}
+
+internal sealed class FileMappingStateAccumulator
+{
+    private long _eventNameEventCount;
+    private long _temporalFileKeyEventCount;
+    private long _temporalFileObjectEventCount;
+    private long _ambiguousTemporalMappingEventCount;
+    private long _unresolvedFileIdentityEventCount;
+
+    public void Add(string mappingState)
+    {
+        checked
+        {
+            switch (mappingState)
+            {
+                case FileMappingStates.EventName:
+                    _eventNameEventCount++;
+                    break;
+                case FileMappingStates.TemporalFileKey:
+                    _temporalFileKeyEventCount++;
+                    break;
+                case FileMappingStates.TemporalFileObject:
+                    _temporalFileObjectEventCount++;
+                    break;
+                case FileMappingStates.AmbiguousTemporalMapping:
+                    _ambiguousTemporalMappingEventCount++;
+                    break;
+                case FileMappingStates.UnresolvedFileIdentity:
+                    _unresolvedFileIdentityEventCount++;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(mappingState),
+                        mappingState,
+                        "Unknown file mapping state.");
+            }
+        }
+    }
+
+    public FileMappingStateCounts Snapshot() => new(
+        _eventNameEventCount,
+        _temporalFileKeyEventCount,
+        _temporalFileObjectEventCount,
+        _ambiguousTemporalMappingEventCount,
+        _unresolvedFileIdentityEventCount);
+
+    public string AggregateState
+    {
+        get
+        {
+            var populatedStateCount = 0;
+            string? onlyState = null;
+            Observe(_eventNameEventCount, FileMappingStates.EventName);
+            Observe(_temporalFileKeyEventCount, FileMappingStates.TemporalFileKey);
+            Observe(_temporalFileObjectEventCount, FileMappingStates.TemporalFileObject);
+            Observe(_ambiguousTemporalMappingEventCount, FileMappingStates.AmbiguousTemporalMapping);
+            Observe(_unresolvedFileIdentityEventCount, FileMappingStates.UnresolvedFileIdentity);
+
+            if (populatedStateCount == 0)
+                throw new InvalidOperationException("Cannot summarize an empty mapping-state accumulator.");
+            return populatedStateCount == 1 ? onlyState! : FileMappingStates.Mixed;
+
+            void Observe(long count, string state)
+            {
+                if (count == 0) return;
+                populatedStateCount++;
+                onlyState = state;
+            }
+        }
+    }
 }
 
 internal sealed class TemporalFileNameMap<TKey> where TKey : notnull

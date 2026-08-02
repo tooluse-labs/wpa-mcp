@@ -32,6 +32,7 @@ AGENTS.md
 CLAUDE.md
 docs/*_REVIEW*.md
 .worktrees/
+/.tmp/
 
 # Symbol cache
 Symbols/

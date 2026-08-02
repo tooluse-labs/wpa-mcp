@@ -1,0 +1,25 @@
+namespace WpaMcp.Output;
+
+public sealed record RuntimeCompatibilityResourceRecord(
+    string SchemaVersion,
+    string RuntimeVersion,
+    string ReleaseLine,
+    string ContractMode,
+    bool ContractModeExplicit,
+    string TraceReferenceMode,
+    bool TraceReferenceModeExplicit,
+    string OutputSchemaDialect,
+    string OutputSchemaReferenceProfile,
+    string OutputSchemaReferenceRequirement,
+    string OutputSchemaExternalReferencePolicy,
+    string SelectionScope,
+    bool Runnable,
+    string ReleaseStatus,
+    IReadOnlyList<string> RuntimeBlockers,
+    IReadOnlyList<string> ReleaseBlockers,
+    IReadOnlyList<string> ExternalKnownBlockers,
+    IReadOnlyList<string> Warnings,
+    string LegacyContractStatus,
+    string LegacyContractRemovalRelease,
+    string RawPathCompatibilityRemovalRelease,
+    string V1DeprecationGateStatus);

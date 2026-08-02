@@ -57,7 +57,7 @@ public static class MarkerSearch
     {
         var counts = new Dictionary<string, long>(StringComparer.Ordinal);
         long total = 0;
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             if (!Matches(ev, nameSubstring)) continue;
             total++;
@@ -81,7 +81,7 @@ public static class MarkerSearch
     {
         var rows = new List<MarkerRow>(Math.Min(top, 256));
         long total = 0;
-        foreach (var ev in trace.Events)
+        foreach (var ev in AnalysisEvents.Enumerate(trace))
         {
             if (!Matches(ev, nameSubstring)) continue;
             total++;

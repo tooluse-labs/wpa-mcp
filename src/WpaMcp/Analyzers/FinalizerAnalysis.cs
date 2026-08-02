@@ -91,6 +91,7 @@ public static class FinalizerAnalysis
                      .ThenBy(item => item.index)
                      .Select(item => item.value))
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             var processResolution = observation.Kind == FinalizerEventKind.BatchStop
                 ? identities.Processes.ResolveAtEndpoint(
                     observation.Pid, observation.TimeUs)
@@ -330,6 +331,7 @@ public static class FinalizerAnalysis
 
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!matchesProcess(pair.Key.Process))
                 continue;
 
@@ -351,7 +353,15 @@ public static class FinalizerAnalysis
                 ProcessStartUs: pair.Key.Process.StartUs));
         }
 
-        rows.Sort((left, right) => left.StartUs.CompareTo(right.StartUs));
+        rows = rows
+            .OrderBy(row => row.StartUs)
+            .ThenBy(row => row.Pid)
+            .ThenBy(row => row.ProcessStartUs)
+            .ThenBy(row => row.EndUs)
+            .ThenBy(row => row.FinalizersRun)
+            .ThenBy(row => row.AccountedDurationUs)
+            .ThenBy(row => row.FullDurationUs)
+            .ToList();
         var capabilityStatus = scopeStatus != ProcessAnalysisScope.ResolvedStatus
             ? "unknown"
             : matchedBatchEndpointEventCount > 0 || rows.Count > 0
@@ -468,6 +478,7 @@ public static class FinalizerAnalysis
         long count = 0;
         foreach (var pair in pairs)
         {
+            AnalysisEvents.ThrowIfCancellationRequested();
             if (!matchesProcess(pair.Key.Process))
                 continue;
             if (window.ContainsPoint(pair.StartUs)) count++;

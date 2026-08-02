@@ -10,13 +10,18 @@ namespace WpaMcp.Tools;
 public sealed class WaitTools
 {
     private readonly TraceCache _cache;
-    public WaitTools(TraceCache cache) => _cache = cache;
+    private readonly IPrivacyLogSink _privacyLog;
+    public WaitTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    {
+        _cache = cache;
+        _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+    }
 
     [McpServerTool(
-        ReadOnly = false,
+        ReadOnly = true,
         Idempotent = true,
-        OpenWorld = true,
-        Destructive = true,
+        OpenWorld = false,
+        Destructive = false,
         UseStructuredContent = true), Description(
         "Per-thread blocked-time evidence for investigations where CPU usage is low and " +
         "wall-clock time is high. PerfView equivalent: 'Thread Time' view, " +
@@ -34,7 +39,7 @@ public sealed class WaitTools
         "TotalCSwitches is a deprecated compatibility alias for WindowCSwitchesAllThreads. " +
         "The analysis needs materialized CSwitch events; an unobserved event class does not by itself prove a capture keyword was disabled.")]
     public WaitAnalysisResponse WaitAnalysis(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -72,7 +77,7 @@ public sealed class WaitTools
             processScope);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by blocked microseconds — answers 'where in the code is the wait " +
         "happening' (vs wait_analysis which answers 'which thread / which kernel wait reason'). Built " +
         "from the blocked thread's switch-out blocking stack on each ThreadCSwitch interval, " +
@@ -81,7 +86,7 @@ public sealed class WaitTools
         "stack-walk-on-CSwitch in the capture profile. StackCoverage counts selected closed blocked " +
         "interval samples and covered microseconds; ?!? is synthetic unknown evidence.")]
     public WaitTopStacksResponse WaitTopStacks(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -125,18 +130,18 @@ public sealed class WaitTools
             trace,
             StackResponseOptions.EffectiveTop(top, compactStacks, summaryOnly),
             scope,
-            symbolLog: Console.Error,
+            symbolLog: _privacyLog.Writer,
             whenBuckets: whenBuckets,
             filterSpecified: filterSpecified);
     }
 
-    [McpServerTool(ReadOnly = false, Idempotent = true, OpenWorld = true, Destructive = true), Description(
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Caller/callee drill-down for a focus function in the wait-stack data. PerfView " +
         "equivalent: 'Callers' / 'Callees' tabs of Thread Time / Wait Time view. Metric is " +
         "blocked microseconds; top-N callers ranked by inclusive blocked μs flowing INTO focus, " +
         "callees ranked by μs flowing OUT to them.")]
     public CallerCalleeResponse WaitCallerCallee(
-        [Description("Absolute path to .etl file")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Focus frame name, exactly as it appears in wait_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -171,7 +176,7 @@ public sealed class WaitTools
                               threadGeneration.HasValue;
         using var symbolResolution = StackResponseOptions.UseResolveSymbols(resolveSymbols);
         return BlockedTimeStackAnalysis.CallerCallee(
-            trace, function, top, scope, Console.Error, filterSpecified);
+            trace, function, top, scope, _privacyLog.Writer, filterSpecified);
     }
 
     internal static ThreadAnalysisScope ResolveStackScope(

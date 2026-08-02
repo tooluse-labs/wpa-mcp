@@ -8,6 +8,12 @@
 
 **Tech Stack:** The TFM, MCP SDK, and TraceEvent package selected by Child 11A; the current implementation baseline is C# 12, .NET 8, Microsoft.Diagnostics.Tracing.TraceEvent 3.2.2, and ModelContextProtocol 1.2.0. Tests use xUnit 2.5.3 plus Windows file-handle APIs, `HttpClient`/`SocketsHttpHandler`, PowerShell, and POSIX installer scripts.
 
+## Accepted capability/evidence amendment (2026-08-01)
+
+This plan remains the implementation owner for fail-closed trace loading and immutable symbol policy, but its final public load identifier and public `SymbolContextId` shape are follow-up ADR gates under [ADR 0002](../../decisions/0002-capability-map-evidence-contract.md). Treat the concrete trace-ID grammar and symbol-context records below as staged implementation inputs until those wire decisions are accepted; do not publish competing opaque identifier families.
+
+The accepted evidence contract also requires that a query without an explicit public symbol context perform no disk or network symbol probe and report symbol resolution as unmeasured, not failed or implicitly resolved. Load responses and capability evidence must expose only safe opaque references and policy/provenance fields approved by the follow-up ADR.
+
 ## Global Constraints
 
 - Child 1 and Child 5 are completed prerequisites. This plan directly consumes Child 1's shared argument validation and Child 5's stable `ToolEnvelope`, error codes, startup contract selection, and privacy behavior; it does not create a temporary duplicate or alternate integration branch.
