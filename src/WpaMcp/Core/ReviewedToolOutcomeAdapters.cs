@@ -202,8 +202,6 @@ internal sealed record ReviewedToolPolicy(
     {
         if (root["scopeResults"] is not JsonArray rawRows)
             throw new InvalidOperationException($"Reviewed tool '{toolName}' omitted its per-selector scope results.");
-        if (root["perPid"] is not JsonObject perPid)
-            throw new InvalidOperationException($"Reviewed tool '{toolName}' omitted its per-PID results.");
 
         var rows = rawRows.OfType<JsonObject>().ToArray();
         if (rows.Length != rawRows.Count || rows.Length == 0)
@@ -238,7 +236,7 @@ internal sealed record ReviewedToolPolicy(
             {
                 var pid = ReadLong(row, "pid") ??
                     throw new InvalidOperationException($"Reviewed tool '{toolName}' emitted a completed selector without pid.");
-                if (perPid[pid.ToString(CultureInfo.InvariantCulture)] is not JsonObject pidResult ||
+                if (row["result"] is not JsonObject pidResult ||
                     pidResult["stackCoverage"] is not JsonObject coverage)
                 {
                     throw new InvalidOperationException(
@@ -253,11 +251,10 @@ internal sealed record ReviewedToolPolicy(
                 coverageByPid.Add(pid, counts);
             }
 
-            var pidKey = (ReadLong(row, "pid") ?? 0).ToString(CultureInfo.InvariantCulture);
-            var completedResult = perPid[pidKey] as JsonObject;
+            var completedResult = row["result"] as JsonObject;
             ValidateEmbeddedBatchBoundary(
                 row["rowsBoundary"] as JsonObject,
-                "/perPid/result/rows",
+                "/scopeResults/result/rows",
                 completedResult?["rows"] is JsonArray resultRows ? resultRows.Count : 0,
                 completedResult is not null,
                 expectedExactTotal: null);
@@ -266,7 +263,7 @@ internal sealed record ReviewedToolPolicy(
                 : null;
             ValidateEmbeddedBatchBoundary(
                 row["topUnresolvedModulesBoundary"] as JsonObject,
-                "/perPid/result/stats/topUnresolvedModules",
+                "/scopeResults/result/stats/topUnresolvedModules",
                 completedResult?["stats"]?["topUnresolvedModules"] is JsonArray unresolvedRows
                     ? unresolvedRows.Count
                     : 0,
@@ -281,7 +278,8 @@ internal sealed record ReviewedToolPolicy(
             0L,
             (total, coverage) => checked(total + coverage.Stacked));
         var hasUsableData = stackedEventCount > 0;
-        if (rows.All(row => string.Equals(
+        if ((ReadLong(root, "completedPidCount") ?? 0) == 0 &&
+            rows.All(row => string.Equals(
                 ReadString(row, "resultStatus"),
                 "budget_skipped",
                 StringComparison.Ordinal)))
@@ -290,10 +288,10 @@ internal sealed record ReviewedToolPolicy(
         }
         var hasIncompleteSelector = rows.Any(row => ReadString(row, "resultStatus") is
             "scope_not_found" or "ambiguous_process_instance" or "budget_skipped" or "analysis_failed");
-        var hasScopedEvidenceLimitation = hasIncompleteSelector ||
+        var partial = ReadBoolean(root, "partial") == true;
+        var hasScopedEvidenceLimitation = partial || hasIncompleteSelector ||
             rows.Any(row => string.Equals(ReadString(row, "resultStatus"), "completed_no_samples", StringComparison.Ordinal)) ||
             coverageByPid.Values.Any(coverage => coverage.Total > 0 && coverage.Stacked < coverage.Total);
-        var partial = hasUsableData && hasIncompleteSelector;
         var noDataReason = hasUsableData
             ? null
             : matchedEventCount > 0
@@ -305,7 +303,7 @@ internal sealed record ReviewedToolPolicy(
                 ? "no_events_in_scope"
                 : DefaultNoDataReason;
         var partialErrorCode = partial
-            ? CpuBatchPartialErrorCode(rows)
+            ? ReadString(root, "partialErrorCode") ?? CpuBatchPartialErrorCode(rows)
             : null;
 
         var traceStatus = hasUsableData
@@ -712,6 +710,8 @@ internal sealed record ReviewedToolInvocationPlan(
                         TimelinePagination.ProcessCreateTimingTool => ReadLongValue(root, "spawnCount"),
                         TimelinePagination.ImageLoadTimingTool => ReadLongValue(root, "totalImageLoads"),
                         TimelinePagination.ListProcessesTool => ReadLongValue(root, "totalCount"),
+                        TimelinePagination.CpuTopFunctionsBatchTool =>
+                            ReadLongValue(root, "requestedPidCount"),
                         _ => null,
                     };
                     if (timelineTotal < 0 || startIndex < 0 || startIndex > timelineTotal ||

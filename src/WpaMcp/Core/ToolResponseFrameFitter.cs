@@ -467,6 +467,10 @@ internal sealed class ToolResponseFrameFitter(
             TimelinePagination.ListProcessesTool => TimelinePagination.ProcessKey(
                 last["pid"]!.GetValue<int>(),
                 ReadExactInt64(last, "startUs")),
+            TimelinePagination.CpuTopFunctionsBatchTool =>
+                envelope["data"]?["resultSetId"]?.GetValue<string>() ??
+                throw new InvalidOperationException(
+                    "CPU batch pagination requires data.resultSetId."),
             _ => throw new InvalidOperationException("Unsupported timeline cursor tool."),
         };
         var context = new TimelineQueryContext(

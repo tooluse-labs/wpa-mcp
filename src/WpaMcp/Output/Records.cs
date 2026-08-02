@@ -785,27 +785,31 @@ public sealed record CpuBatchScopeResult(
     [property: Description("observed when this selector matched CPU samples; otherwise unknown. unknown does not imply that the CPU keyword was disabled.")]
     string CapabilityStatus,
     string? NoDataReason = null,
-    [property: Description("Authoritative per-selector boundary for PerPid[Pid].Rows; required even though the parent dictionary cannot use a static JSON-pointer wildcard.")]
+    [property: Description("Authoritative per-selector boundary for ScopeResults[].Result.Rows.")]
     EmbeddedTopNBoundary? RowsBoundary = null,
-    [property: Description("Authoritative per-selector fixed-limit boundary for PerPid[Pid].Stats.TopUnresolvedModules.")]
-    EmbeddedTopNBoundary? TopUnresolvedModulesBoundary = null);
+    [property: Description("Authoritative per-selector fixed-limit boundary for ScopeResults[].Result.Stats.TopUnresolvedModules.")]
+    EmbeddedTopNBoundary? TopUnresolvedModulesBoundary = null)
+{
+    [Description("Complete CPU projection for completed selectors; null for unavailable selectors.")]
+    public CpuTopFunctionsResponse? Result { get; init; }
+}
 
 public sealed record CpuTopFunctionsBatchResponse(
-    [property: ToolDictionaryRows("pid", "result")]
-    IReadOnlyDictionary<int, CpuTopFunctionsResponse> PerPid,
+    [property: Description("Request-ordered, indivisible per-selector status and CPU result rows.")]
+    IReadOnlyList<CpuBatchScopeResult> ScopeResults,
     IReadOnlyList<string> Warnings,
     bool Partial = false,
-    IReadOnlyList<int>? SkippedPids = null,
+    string? PartialErrorCode = null,
     int RequestedPidCount = 0,
     int CompletedPidCount = 0,
-    [property: Description("PIDs whose shared event scan completed and whose per-PID projection completed. Includes PidsWithNoSamples.")]
-    IReadOnlyList<int>? CompletedPids = null,
-    [property: Description("Requested PIDs/process instances that did not exist in the requested half-open window.")]
-    IReadOnlyList<int>? PidsNotFound = null,
-    [property: Description("Completed process selectors that matched zero sampled CPU events. This does not imply that CPU sampling was disabled.")]
-    IReadOnlyList<int>? PidsWithNoSamples = null,
-    [property: Description("Per-selector scope and completion metadata; use RequestedProcessStartUs to retain process-instance precision.")]
-    IReadOnlyList<CpuBatchScopeResult>? ScopeResults = null);
+    TimelinePageContext? PageContext = null,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null,
+    [property: Description("Opaque identity of the bounded immutable result snapshot reused by continuation pages.")]
+    [property: ToolOpaqueLocator("cpu_batch_result_set", "^cbr_[0-9a-f]{32}$")]
+    string? ResultSetId = null);
 
 public sealed record FileMappingStateCounts(
     [property: Description("event_name events.")]

@@ -8,8 +8,8 @@
     "catalogBytes": 178923
   },
   "toolCount": 61,
-  "catalogBytes": 203626,
-  "catalogSha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940",
+  "catalogBytes": 204269,
+  "catalogSha256": "be3f06d8635f41073a6fe680027c275950d762adf39e86da28d265a908566924",
   "structuredToolNames": [
     "list_capabilities",
     "get_tool_contract",
@@ -1262,7 +1262,7 @@
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuTopFunctionsBatch",
       "returnType": "WpaMcp.Output.CpuTopFunctionsBatchResponse",
-      "description": "Batch variant: top N hot functions per PID, in a single trace load. Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID\u0027s samples). Use when investigating multiple processes from the same trace \u2014 saves N round-trips. Optional processStartUs entries select exact process lifetimes; a null entry explicitly retains PID aggregation. ScopeResults separates missing scopes, completed empty scopes, and budget-skipped work; an empty CPU sample set does not prove that CPU sampling was disabled.",
+      "description": "Batch variant: top N hot functions per PID, in a single trace load. Each PID gets an independent CallTree (so its inclusive-% column normalizes to that PID\u0027s samples). Use when investigating multiple processes from the same trace \u2014 saves N round-trips. Optional processStartUs entries select exact process lifetimes; a null entry explicitly retains PID aggregation. ScopeResults separates missing scopes, completed empty scopes, and budget-skipped work; an empty CPU sample set does not prove that CPU sampling was disabled. ScopeResults is cursor-paged as complete per-selector semantic rows; continuation reuses the first call\u0027s immutable snapshot.",
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
@@ -1340,13 +1340,27 @@
           "hasDefaultValue": true,
           "defaultValueJson": "null",
           "description": "Optional process start selectors aligned one-for-one with pids. A null entry requests explicit PID aggregation; a non-null entry selects that exact trace-relative process start."
+        },
+        {
+          "name": "pageSize",
+          "type": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValueJson": "100",
+          "description": "Maximum PID result rows requested per page (default 100, max 1000). The response fitter may retain fewer complete rows to honor the hard frame budget."
+        },
+        {
+          "name": "cursor",
+          "type": "System.String",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Opaque qrc_ continuation returned by the previous page. It is bound to the session, trace generation, query, symbol/privacy context, and immutable batch snapshot."
         }
       ],
-      "inputSchemaBytes": 3021,
-      "inputSchemaSha256": "1857af151d38d5a7622a30f1ad86f8ad707338294e49d76cdf9eba1fbf5cc2df",
-      "outputSchemaBytes": 42902,
-      "outputSchemaSha256": "e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f",
-      "toolBytes": 4140
+      "inputSchemaBytes": 3533,
+      "inputSchemaSha256": "c39e7cf2939c68ec5b0bd9d56a19ef005464a887f883838b3c286ea2cdab396c",
+      "outputSchemaBytes": 43418,
+      "outputSchemaSha256": "c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42",
+      "toolBytes": 4783
     },
     {
       "name": "diagnose_high_wait",

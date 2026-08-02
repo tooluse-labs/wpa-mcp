@@ -486,28 +486,13 @@ public sealed class ToolOutputSchemaTests
     }
 
     [Fact]
-    public void WireProjection_OrdersPerPidDictionaryRowsNumerically()
+    public void CpuBatchSchema_UsesOneSemanticResultArray()
     {
-        var empty = new CpuTopFunctionsResponse(
-            Array.Empty<CpuFunctionRow>(),
-            new SymbolStats(0, 0, null, Array.Empty<UnresolvedModule>()),
-            Array.Empty<string>());
-        var batch = new CpuTopFunctionsBatchResponse(
-            new Dictionary<int, CpuTopFunctionsResponse>
-            {
-                [10] = empty,
-                [2] = empty,
-            },
-            Array.Empty<string>());
-
-        var projected = ToolWireJson.Project(batch, typeof(CpuTopFunctionsBatchResponse))!.AsObject();
-        var rows = projected["perPid"]!.AsArray();
-        Assert.Equal(2, rows[0]!["pid"]!.GetValue<int>());
-        Assert.Equal(10, rows[1]!["pid"]!.GetValue<int>());
-
         var schema = ToolOutputSchemaFactory.CreateEnvelopeSchema<CpuTopFunctionsBatchResponse>();
-        var perPid = Props(NonNull(schema["properties"]!["data"]!))["perPid"]!;
-        Assert.Equal("pid_ascending_numeric", perPid["x-ordering"]!.GetValue<string>());
+        var data = Props(NonNull(schema["properties"]!["data"]!));
+        Assert.Equal("array", data["scopeResults"]!["type"]!.GetValue<string>());
+        Assert.Null(data["perPid"]);
+        Assert.NotNull(Props(Item(data["scopeResults"]!))["result"]);
     }
 
     [Fact]

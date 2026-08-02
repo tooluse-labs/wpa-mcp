@@ -30,6 +30,27 @@
     "distinctActiveCapabilityCount": 51
   },
   "observations": {
+    "cpuBatchSnapshotPagination": {
+      "measuredOn": "2026-08-02",
+      "status": "succeeded",
+      "measurementPath": "production_catalog_call_wrapper_in_process",
+      "requestedPidCount": 12,
+      "topFunctionsPerPid": 12,
+      "excludeEtwSelfOverhead": true,
+      "resolveSymbols": false,
+      "elapsedMs": 4857,
+      "pageCount": 3,
+      "pageReturnedCounts": [5, 5, 2],
+      "pageFrameBytes": [86120, 86122, 39652],
+      "hardResponseFrameBytes": 100000,
+      "analysisSnapshotCount": 1,
+      "sameResultSetIdAcrossPages": true,
+      "lossOrDuplicationObserved": false,
+      "beforeTerminalStatus": "failed",
+      "beforeTerminalErrorCode": "response_too_large",
+      "minimalSemanticUnitFailureBoundary": "one complete per-selector scopeResults row still fails atomically if it alone exceeds the hard frame",
+      "interpretation": "The formerly terminal 12-PID batch completed in three exact cursor pages. Continuations reused one bounded session/query/trace-generation-bound snapshot and did not rescan the ETL."
+    },
     "processInventoryPagination": {
       "status": "succeeded",
       "requestedTop": 1000,

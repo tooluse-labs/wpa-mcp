@@ -46,6 +46,7 @@ internal static class TimelinePagination
     internal const string ProcessCreateTimingTool = "process_create_timing";
     internal const string ImageLoadTimingTool = "image_load_timing";
     internal const string ListProcessesTool = "list_processes";
+    internal const string CpuTopFunctionsBatchTool = "cpu_top_functions_batch";
     internal const string ThreadLifetimeOrdering =
         "start_time_us_asc_tid_asc_thread_generation_asc";
     internal const string ProcessCreateTimingOrdering =
@@ -54,6 +55,8 @@ internal static class TimelinePagination
         "time_us_asc_event_index_asc";
     internal const string ListProcessesCpuOrdering =
         "cpu_us_desc_pid_asc_process_start_us_asc";
+    internal const string CpuTopFunctionsBatchOrdering =
+        "request_selector_index_asc";
     internal const string ListProcessesWallOrdering =
         "wall_us_desc_pid_asc_process_start_us_asc";
     internal const string ListProcessesWaitRatioOrdering =
@@ -61,7 +64,7 @@ internal static class TimelinePagination
 
     internal static bool IsTimelineTool(string toolName) => toolName is
         ThreadLifetimeTool or ProcessCreateTimingTool or ImageLoadTimingTool or
-        ListProcessesTool;
+        ListProcessesTool or CpuTopFunctionsBatchTool;
 
     internal static TimelineQueryContext CreateContext(
         TraceLease lease,

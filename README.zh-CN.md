@@ -399,7 +399,7 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 |---|---|---|
 | `cpu_top_functions` | 给定窗口 / PID，按 exclusive CPU 采样数返回 top-N 热点函数。可选 `excludeEtwSelfOverhead` 把 `EtwpLogKernelEvent` 等折成单个 `[ETW Overhead]` 桶。过滤调用默认省略 `*PctOfTrace`，避免大 ETL 上额外全 trace CPU 采样计数；确实需要整条 trace 百分比时传 `includeTracePct=true`。 | CPU Stacks → ByName |
 | `cpu_precise_analysis` | CSwitch + ReadyThread scheduler summary：按线程输出精确 on-CPU 微秒数、ready-to-run latency、per-core runtime attribution，以及 quantum/preemption 计数。用于 sampled CPU 回答不了的"实际跑了多久？"和"ready 后等了多久才被调度？"问题。 | CPU Usage (Precise) |
-| `cpu_top_functions_batch` | 同上但一次调用覆盖多个 PID。每个 PID 独立 CallTree（inclusive% 按该 PID 的采样数归一化）。 | **[复合]**——批量变体，省去 N 次 CPU Stacks → ByName 往返 |
+| `cpu_top_functions_batch` | 同上但通过一次共享采样扫描覆盖多个 PID。每个 PID 独立 CallTree；完整的 `scopeResults` 语义行从有界不可变快照进行游标分页，后续页不会重扫 trace。 | **[复合]**——批量变体，省去 N 次 CPU Stacks → ByName 往返 |
 | `cpu_caller_callee` | 给定 focus frame，返回其 caller（调进 focus）和 callee（focus 调出去），按 inclusive 采样数排序。Recursion-safe。 | CPU Stacks → Callers / Callees tab |
 
 ### Wait / 阻塞时间（CSwitch 衍生）

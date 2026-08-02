@@ -251,7 +251,7 @@ internal static class ToolNumericSemanticsReviewedManifest
             "WpaMcp.Output.CpuBatchScopeResult|MatchedSampleCount",
             "WpaMcp.Output.CpuPreciseResponse|MatchedEventCount,ScopedIdentityUnresolvedCSwitchSideCount,TotalContextSwitches,TotalReadyCount,TraceIdentityUnresolvedCSwitchSideCount",
             "WpaMcp.Output.CpuPreciseThreadRow|ContextSwitches,PreemptedSwitches,QuantumEndSwitches,ReadyCount",
-            "WpaMcp.Output.CpuTopFunctionsBatchResponse|CompletedPidCount,RequestedPidCount",
+            "WpaMcp.Output.CpuTopFunctionsBatchResponse|CompletedPidCount,RequestedPidCount,ReturnedCount",
             "WpaMcp.Output.CpuTopFunctionsResponse|MatchedEventCount,TotalSamples",
             "WpaMcp.Output.DiagnoseHighWaitResponse|MatchedEventCount",
             "WpaMcp.Output.DiagnoseWindowResponse|MatchedEventCount,SecurityMatchedEventCount,SecurityPairedScanCount",
@@ -316,8 +316,6 @@ internal static class ToolNumericSemanticsReviewedManifest
 
         Add(entries, NonMetric("unavailable_legacy", "not_applicable"),
             "WpaMcp.Output.InspectSymbolQuality|ResolvedModuleCount");
-        Add(entries, NonMetric("identifier", "process_id"),
-            "WpaMcp.Output.CpuTopFunctionsBatchResponse|PidsWithNoSamples");
     }
 
     private static void AddRemainingNumerics(
@@ -360,8 +358,6 @@ internal static class ToolNumericSemanticsReviewedManifest
             "WpaMcp.Output.InspectTracePageContext|StartIndex");
         Add(entries, NonMetric("configuration", "histogram_bucket_count"),
             "WpaMcp.Output.CompositeToolCall|WhenBuckets");
-        Add(entries, NonMetric("identifier", "process_id"),
-            "WpaMcp.Output.CpuTopFunctionsBatchResponse|CompletedPids,PidsNotFound,SkippedPids");
         Add(entries, NonMetric("unavailable_legacy", "not_applicable"),
             "WpaMcp.Output.InspectSymbolQuality|ModuleResolutionRate");
     }

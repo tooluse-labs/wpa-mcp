@@ -475,7 +475,7 @@ public static class CpuAnalysis
                     : "unknown",
                 noDataReason,
                 RowsBoundary: Boundary(
-                    "/perPid/result/rows",
+                "/scopeResults/result/rows",
                     top,
                     completed?.Rows.Count ?? 0,
                     "exclusive_metric_desc",
@@ -483,14 +483,14 @@ public static class CpuAnalysis
                     unavailable: completed is null),
                 TopUnresolvedModulesBoundary: completed is null
                     ? Boundary(
-                        "/perPid/result/stats/topUnresolvedModules",
+                "/scopeResults/result/stats/topUnresolvedModules",
                         10,
                         0,
                         "unresolved_frame_count_desc",
                         ["module_name_ordinal_asc"],
                         unavailable: true)
                     : new EmbeddedTopNBoundary(
-                        "/perPid/result/stats/topUnresolvedModules",
+                        "/scopeResults/result/stats/topUnresolvedModules",
                         10,
                         completed.Stats.TopUnresolvedModules.Count,
                         completed.Stats.UnresolvedModuleCount,

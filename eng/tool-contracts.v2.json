@@ -1134,7 +1134,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuTopFunctionsBatch",
-      "inputType": "parameters(path:System.String,pids:System.Int32[],top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E[])",
+      "inputType": "parameters(path:System.String,pids:System.Int32[],top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E[],pageSize:System.Int32,cursor:System.String)",
       "outputType": "WpaMcp.Output.CpuTopFunctionsBatchResponse",
       "capabilityIds": [
         "cpu.sampled.stacks"
@@ -1161,10 +1161,12 @@
       "discoveryPriority": 100,
       "domain": "cpu",
       "ordinal": 20,
-      "defaultOrdering": "not_applicable",
+      "defaultOrdering": "request_selector_index_asc",
       "tieBreakers": [],
-      "pageableSections": [],
-      "paginationMode": "none",
+      "pageableSections": [
+        "/scopeResults"
+      ],
+      "paginationMode": "cursor",
       "deprecation": {
         "state": "none",
         "replacedBy": null,

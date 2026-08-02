@@ -2,7 +2,7 @@
   "formatVersion": "tools-list-pagination.v1",
   "measuredAt": "2026-08-02",
   "server": {
-    "catalogVersion": "3013654166b56d7df3e09d2d3c1ab422061ce69a0bc8028d556c8b8ec758c0c5",
+    "catalogVersion": "0f99b2b1a0ede1dee4695f2b2ea6f7ed93b9abe24e573ada618ce770f0b13644",
     "contractMode": "2.0",
     "toolCount": 61,
     "catalogScope": "wpa_mcp_declared_capabilities",
@@ -10,8 +10,8 @@
   },
   "aggregateCatalog": {
     "serialization": "ModelContextProtocol ListToolsResult with McpJsonUtilities.DefaultOptions",
-    "bytes": 203626,
-    "sha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940",
+    "bytes": 204269,
+    "sha256": "be3f06d8635f41073a6fe680027c275950d762adf39e86da28d265a908566924",
     "promptSchemaTokens": null,
     "promptSchemaTokenState": "unmeasured_client_specific",
     "cacheHitState": "unmeasured_client_specific"
@@ -26,17 +26,17 @@
     "scope": "tools_list_only"
   },
   "exactMinimumProductionStdioTraversal": {
-    "maxJsonRpcResponseBytes": 35858,
+    "maxJsonRpcResponseBytes": 36127,
     "pageCount": 6,
     "pageFrameBytes": [
-      33234,
-      33135,
-      34723,
-      33853,
-      34639,
-      34636
+      35737,
+      34104,
+      35156,
+      33911,
+      34296,
+      31659
     ],
-    "maximumObservedPageFrameBytes": 34723,
+    "maximumObservedPageFrameBytes": 35737,
     "clientBehavior": "real newline-delimited stdio client traversed nextCursor until null",
     "closure": "all_61_tools_exactly_once_in_validated_order",
     "cursorBehavior": "opaque_retry_safe_tamper_rejected_cross_instance_rejected",
@@ -58,13 +58,13 @@
     "fixedPageUtf8Bytes": 8192,
     "toolCount": 61,
     "pageCount": 318,
-    "maximumToolFrameBytes": 35858,
-    "maximumToolFrameToolName": "list_processes",
-    "maximumToolFramePage": 2,
-    "maximumResourceFrameBytes": 15911,
-    "maximumResourceFrameToolName": "list_processes",
-    "maximumResourceFramePage": 2,
-    "minimumViableResponseBytes": 35858,
+    "maximumToolFrameBytes": 36127,
+    "maximumToolFrameToolName": "cpu_top_functions_batch",
+    "maximumToolFramePage": 4,
+    "maximumResourceFrameBytes": 16056,
+    "maximumResourceFrameToolName": "cpu_top_functions_batch",
+    "maximumResourceFramePage": 4,
+    "minimumViableResponseBytes": 36127,
     "capMinusOneBehavior": "startup_exit_78_before_stdin"
   }
 }

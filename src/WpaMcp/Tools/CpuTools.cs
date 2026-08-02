@@ -11,10 +11,16 @@ public sealed class CpuTools
 {
     private readonly TraceCache _cache;
     private readonly IPrivacyLogSink _privacyLog;
-    public CpuTools(TraceCache cache, IPrivacyLogSink? privacyLog = null)
+    private readonly CapabilityDiscoveryRuntime? _capabilityDiscovery;
+
+    public CpuTools(
+        TraceCache cache,
+        IPrivacyLogSink? privacyLog = null,
+        CapabilityDiscoveryRuntime? capabilityDiscovery = null)
     {
         _cache = cache;
         _privacyLog = privacyLog ?? PassThroughPrivacyLogSink.Instance;
+        _capabilityDiscovery = capabilityDiscovery;
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
@@ -129,7 +135,8 @@ public sealed class CpuTools
         "Use when investigating multiple processes from the same trace — saves N round-trips. " +
         "Optional processStartUs entries select exact process lifetimes; a null entry explicitly retains " +
         "PID aggregation. ScopeResults separates missing scopes, completed empty scopes, and budget-skipped work; " +
-        "an empty CPU sample set does not prove that CPU sampling was disabled.")]
+        "an empty CPU sample set does not prove that CPU sampling was disabled. ScopeResults is cursor-paged " +
+        "as complete per-selector semantic rows; continuation reuses the first call's immutable snapshot.")]
     public CpuTopFunctionsBatchResponse CpuTopFunctionsBatch(
         [Description("Canonical TraceId returned by load_trace")] string path,
         [Description("Process IDs to analyze (must be non-empty)")] int[] pids,
@@ -145,14 +152,54 @@ public sealed class CpuTools
         [Description("Soft budget in milliseconds for batch work after trace loading. Exhaustion returns completed PID results plus skipped PID metadata before the MCP client timeout.")]
         int timeBudgetMs = 100_000,
         [Description("Optional process start selectors aligned one-for-one with pids. A null entry requests explicit PID aggregation; a non-null entry selects that exact trace-relative process start.")]
-        long?[]? processStartUs = null)
+        long?[]? processStartUs = null,
+        [Description("Maximum PID result rows requested per page (default 100, max 1000). The response fitter may retain fewer complete rows to honor the hard frame budget.")]
+        int pageSize = 100,
+        [Description("Opaque qrc_ continuation returned by the previous page. It is bound to the session, trace generation, query, symbol/privacy context, and immutable batch snapshot.")]
+        string? cursor = null)
     {
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         var selectors = CpuAnalysis.NormalizeBatchSelectors(pids, processStartUs);
         Validation.RequireTop(top);
+        Validation.RequireTop(pageSize);
         Validation.RequireTimeBudgetMs(timeBudgetMs);
 
         using var traceLease = _cache.Acquire(path);
+        var query = TimelinePagination.CanonicalQuery(
+            TimelinePagination.CpuTopFunctionsBatchTool,
+            ("pids", string.Join(",", selectors.Select(selector =>
+                TimelinePagination.Number(selector.Pid)))),
+            ("processStartUs", string.Join(",", selectors.Select(selector =>
+                TimelinePagination.OptionalNumber(selector.ProcessStartUs)))),
+            ("top", TimelinePagination.Number(top)),
+            ("startUs", TimelinePagination.OptionalNumber(startUs)),
+            ("endUs", TimelinePagination.OptionalNumber(endUs)),
+            ("excludeEtwSelfOverhead", excludeEtwSelfOverhead ? "true" : "false"),
+            ("includeTracePct", includeTracePct ? "true" : "false"),
+            ("resolveSymbols", resolveSymbols ? "true" : "false"),
+            ("timeBudgetMs", TimelinePagination.Number(timeBudgetMs)),
+            ("pageSize", TimelinePagination.Number(pageSize)));
+        var context = TimelinePagination.CreateContext(
+            traceLease,
+            path,
+            TimelinePagination.CpuTopFunctionsBatchTool,
+            query,
+            TimelinePagination.CpuTopFunctionsBatchOrdering);
+        var pagination = _capabilityDiscovery is null
+            ? null
+            : CpuBatchPaginationRuntime.For(_capabilityDiscovery);
+        if (cursor is not null)
+        {
+            if (pagination is null)
+            {
+                throw new QueryResultCursorException(
+                    QueryResultCursorFailureKind.Invalid,
+                    "CPU batch continuation requires the production pagination runtime.");
+            }
+
+            return pagination.Resume(context, cursor, pageSize);
+        }
+
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -167,17 +214,34 @@ public sealed class CpuTools
             resolveSymbols,
             timeBudgetMs,
             traceHasCpuSamples: traceLease.Capabilities.HasCpuSamples);
-        return new CpuTopFunctionsBatchResponse(
-            execution.PerPid,
+        var scopeResults = execution.ScopeResults
+            .Select(scope => scope with
+            {
+                Result = execution.PerPid.TryGetValue(scope.Pid, out var result)
+                    ? result
+                    : null,
+            })
+            .ToArray();
+        var complete = new CpuTopFunctionsBatchResponse(
+            scopeResults,
             execution.Warnings,
             Partial: execution.Partial,
-            SkippedPids: execution.SkippedPids,
+            PartialErrorCode: execution.Partial
+                ? execution.ScopeResults.Any(scope => scope.ResultStatus == "budget_skipped")
+                    ? "budget_exceeded"
+                    : execution.ScopeResults.Any(scope => scope.ResultStatus == "analysis_failed")
+                        ? "analysis_failed"
+                        : execution.ScopeResults.Any(scope =>
+                            scope.ResultStatus == "ambiguous_process_instance")
+                            ? "ambiguous_process_instance"
+                            : "process_instance_not_found"
+                : null,
             RequestedPidCount: selectors.Count,
             CompletedPidCount: execution.CompletedPids.Count,
-            CompletedPids: execution.CompletedPids,
-            PidsNotFound: execution.PidsNotFound,
-            PidsWithNoSamples: execution.PidsWithNoSamples,
-            ScopeResults: execution.ScopeResults);
+            ReturnedCount: scopeResults.Length);
+        return pagination is null
+            ? complete
+            : pagination.Start(context, complete, pageSize);
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(

@@ -209,8 +209,8 @@ public class CpuAnalysisTests
         foreach (var pid in pids)
         {
             var single = tools.CpuTopFunctions(FixturePath, top: 5, pid: pid, startUs: 0, resolveSymbols: true);
-            Assert.True(batch.PerPid.ContainsKey(pid), $"batch missing pid {pid}");
-            var batched = batch.PerPid[pid];
+            var scope = Assert.Single(batch.ScopeResults.Where(row => row.Pid == pid));
+            var batched = Assert.IsType<CpuTopFunctionsResponse>(scope.Result);
 
             Assert.Equal(single.Stats.Resolved, batched.Stats.Resolved);
             Assert.Equal(single.Stats.Unresolved, batched.Stats.Unresolved);
@@ -264,10 +264,8 @@ public class CpuAnalysisTests
         Assert.Contains(batch.Warnings, w => w.Contains("Symbol resolution skipped", StringComparison.Ordinal));
         Assert.False(batch.Partial);
         Assert.Equal(pids.Length, batch.RequestedPidCount);
-        Assert.Equal(batch.PerPid.Count, batch.CompletedPidCount);
-        Assert.Equal(pids, batch.CompletedPids);
-        Assert.Empty(batch.PidsNotFound ?? []);
-        Assert.Empty(batch.PidsWithNoSamples ?? []);
+        Assert.Equal(batch.ScopeResults.Count(row => row.Result is not null), batch.CompletedPidCount);
+        Assert.Equal(pids, batch.ScopeResults.Select(row => row.Pid));
     }
 
     [Fact]
@@ -304,14 +302,10 @@ public class CpuAnalysisTests
 
         var response = tools.CpuTopFunctionsBatch(FixturePath, [missingPid], top: 5);
 
-        Assert.Empty(response.PerPid);
-        Assert.Empty(response.CompletedPids ?? []);
-        Assert.Equal([missingPid], response.PidsNotFound);
-        Assert.Empty(response.PidsWithNoSamples ?? []);
-        Assert.Empty(response.SkippedPids ?? []);
         Assert.Equal(0, response.CompletedPidCount);
         Assert.False(response.Partial);
-        var scope = Assert.Single(response.ScopeResults ?? []);
+        var scope = Assert.Single(response.ScopeResults);
+        Assert.Null(scope.Result);
         Assert.Equal("scope_not_found", scope.ScopeStatus);
         Assert.Equal("scope_not_found", scope.ResultStatus);
         Assert.Equal("scope_not_found", scope.NoDataReason);
@@ -373,26 +367,22 @@ public class CpuAnalysisTests
             endUs: candidate.TimeUs + 1,
             processStartUs: [candidate.Lifetime.Key.StartUs]);
 
-        var perPid = Assert.Single(response.PerPid);
-        Assert.Equal(candidate.Lifetime.Key.Pid, perPid.Key);
-        Assert.Empty(perPid.Value.Rows);
-        Assert.Equal(0, perPid.Value.TotalSamples);
-        Assert.Equal("single_process", perPid.Value.ScopeMode);
-        Assert.Equal(candidate.Lifetime.Key, perPid.Value.SelectedProcess);
-        Assert.Equal("no_events_in_scope", perPid.Value.NoDataReason);
-        Assert.Equal([candidate.Lifetime.Key.Pid], response.CompletedPids);
-        Assert.Empty(response.PidsNotFound ?? []);
-        Assert.Equal([candidate.Lifetime.Key.Pid], response.PidsWithNoSamples);
+        var scope = Assert.Single(response.ScopeResults);
+        var result = Assert.IsType<CpuTopFunctionsResponse>(scope.Result);
+        Assert.Empty(result.Rows);
+        Assert.Equal(0, result.TotalSamples);
+        Assert.Equal("single_process", result.ScopeMode);
+        Assert.Equal(candidate.Lifetime.Key, result.SelectedProcess);
+        Assert.Equal("no_events_in_scope", result.NoDataReason);
         Assert.Equal(1, response.CompletedPidCount);
         Assert.False(response.Partial);
-        var scope = Assert.Single(response.ScopeResults ?? []);
         Assert.Equal("completed_no_samples", scope.ResultStatus);
         Assert.Equal("no_events_in_scope", scope.NoDataReason);
         Assert.Equal(0, scope.MatchedSampleCount);
         Assert.Equal("unknown", scope.CapabilityStatus);
-        Assert.Contains(perPid.Value.Warnings, warning =>
+        Assert.Contains(result.Warnings, warning =>
             warning.StartsWith("no_events_in_scope:", StringComparison.Ordinal));
-        Assert.DoesNotContain(perPid.Value.Warnings, warning =>
+        Assert.DoesNotContain(result.Warnings, warning =>
             warning.Contains("keyword disabled", StringComparison.OrdinalIgnoreCase));
     }
 

@@ -5,6 +5,15 @@ All notable user-facing changes to `wpa-mcp` are tracked here.
 This changelog starts with `v0.2.15`. Older releases remain available from
 GitHub Releases and the git tag history.
 
+## Unreleased
+
+### Fixed
+
+- `cpu_top_functions_batch` now cursor-pages complete per-selector result rows from a bounded,
+  session-bound immutable snapshot. Frame fitting can shrink an oversized successful batch
+  without rescanning the ETL on continuation; only a single indivisible result row that exceeds
+  the hard response frame can still return `response_too_large`.
+
 ## 0.4.1 - 2026-08-02
 
 ### Fixed

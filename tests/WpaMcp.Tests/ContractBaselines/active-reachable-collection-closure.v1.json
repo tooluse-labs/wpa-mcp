@@ -4,8 +4,8 @@
   "expectedCounts": {
     "activeToolCount": 61,
     "reachableTypeCount": 151,
-    "collectionPropertyCount": 233,
-    "collectionOccurrenceCount": 452
+    "collectionPropertyCount": 228,
+    "collectionOccurrenceCount": 447
   },
   "proofDefinitions": [
     {
@@ -34,11 +34,6 @@
       "sourceNote": "Reviewed producers append the complete warning set for the result. ToolResponseFrameFitter never silently trims warnings; an oversized non-cursor result fails atomically."
     },
     {
-      "proofMode": "input_partition_exact",
-      "owner": "cpu-analysis",
-      "sourceNote": "CpuAnalysis batch status arrays, scope results, and PerPid form exhaustive partitions/projections of the validated bounded selector input; no producer-side Take/sample cap is applied to these collections."
-    },
-    {
       "proofMode": "fixed_catalog_exhaustive",
       "owner": "capability-and-composite-contracts",
       "sourceNote": "The collection enumerates a finite reviewed capability/workflow/evidence/planner domain or a fixed composite call/evidence plan. Producers emit the complete applicable set rather than a data-dependent top/sample prefix."
@@ -62,6 +57,7 @@
         "WpaMcp.Output.ClrExceptionStacksResponse.Rows",
         "WpaMcp.Output.ClrExceptionStacksResponse.TopTypes",
         "WpaMcp.Output.CpuPreciseResponse.Rows",
+        "WpaMcp.Output.CpuTopFunctionsBatchResponse.ScopeResults",
         "WpaMcp.Output.DiagnoseHighWaitResponse.Candidates",
         "WpaMcp.Output.DiagnoseHighWaitResponse.Evidence",
         "WpaMcp.Output.DiagnoseHighWaitResponse.ExecutedToolCalls",
@@ -243,17 +239,6 @@
       ]
     },
     {
-      "proofMode": "input_partition_exact",
-      "properties": [
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.CompletedPids",
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.PerPid",
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.PidsNotFound",
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.PidsWithNoSamples",
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.ScopeResults",
-        "WpaMcp.Output.CpuTopFunctionsBatchResponse.SkippedPids"
-      ]
-    },
-    {
       "proofMode": "fixed_catalog_exhaustive",
       "properties": [
         "WpaMcp.Output.CapabilityGoalRecord.WorkflowIds",
@@ -321,18 +306,17 @@
   ],
   "proofModeCounts": {
     "fixed_catalog_exhaustive": 97,
-    "input_partition_exact": 6,
-    "manifest_pageable": 168,
+    "manifest_pageable": 169,
     "producer_exhaustive": 20,
     "scope_identity_exact": 76,
     "typed_nested_boundary": 21,
     "warnings_exhaustive": 64
   },
-  "reviewedOccurrenceSetSha256": "22908e7b273e7d300cc024a6fac33ed089db98e3e5d0a4aff67ced12d3c91453",
+  "reviewedOccurrenceSetSha256": "89b067422c588c45af6e723554c27190900da1fc4b84bf98f08e04987b3157f6",
   "sourceCapReview": {
     "owner": "correctness-contracts",
     "sourceNote": "Deterministic syntax inventory over src/WpaMcp for LINQ Take/TakeLast, parameterless FirstOrDefault sample selection, ExcludedSampleLimit, and Max* row/sample/item/entry/candidate limits. It is a change detector, not proof of runtime semantics; each affected collection still requires the reviewed property disposition above.",
-    "siteCount": 97,
-    "siteSetSha256": "938a1c80dae559ed844b969013570d69b533e976c01f27bf029bbea944b0c19a"
+    "siteCount": 98,
+    "siteSetSha256": "9f07d79d65cb3e4b44693ecc530e64b798b4ad41825787d0df3d0d82469f1af3"
   }
 }

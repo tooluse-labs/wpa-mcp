@@ -421,7 +421,7 @@ Tools without `startUs` / `endUs` operate on intentionally different scopes; eac
 |---|---|---|
 | `cpu_top_functions` | Top-N hot functions by exclusive CPU samples in a window / for a PID.  Optional `excludeEtwSelfOverhead` folds `EtwpLogKernelEvent` etc. into a single `[ETW Overhead]` bucket. Filtered calls omit `*PctOfTrace` by default to avoid an extra whole-trace CPU sample-count pass; set `includeTracePct=true` when those columns matter. | CPU Stacks → ByName |
 | `cpu_precise_analysis` | CSwitch + ReadyThread scheduler summary: exact on-CPU microseconds, ready-to-run latency, per-core runtime attribution, and quantum/preemption counters by thread. Use when sampled CPU cannot answer "how long did it actually run?" or "how long was it ready before dispatch?" | CPU Usage (Precise) |
-| `cpu_top_functions_batch` | Same as above for multiple PIDs in a single trace load. Each PID gets an independent CallTree (its inclusive-% column normalizes to that PID's samples). | **[Composite]** — batch variant, saves N round-trips through CPU Stacks → ByName |
+| `cpu_top_functions_batch` | Same as above for multiple PIDs in one shared sampled-profile scan. Each PID gets an independent CallTree. Complete `scopeResults` rows are cursor-paged from a bounded immutable snapshot, so continuation never rescans the trace. | **[Composite]** — batch variant, saves N round-trips through CPU Stacks → ByName |
 | `cpu_caller_callee` | Drill into a focus frame: callers (frames calling INTO it) and callees (frames it calls OUT to), each ranked by inclusive CPU samples. Recursion-safe. | CPU Stacks → Callers / Callees tabs |
 
 ### Wait / blocked time (CSwitch-derived)

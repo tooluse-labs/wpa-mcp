@@ -881,7 +881,6 @@ public sealed class ReviewedOutcomeCorrectnessTests
     private static ReviewedToolResult AdaptCpuBatch(params JsonObject[] rows)
     {
         var scopeResults = new JsonArray();
-        var perPid = new JsonObject();
         for (var index = 0; index < rows.Length; index++)
         {
             var row = rows[index];
@@ -893,7 +892,7 @@ public sealed class ReviewedOutcomeCorrectnessTests
             row.Remove("_testStackedSampleCount");
             if (status is "completed" or "completed_no_samples")
             {
-                perPid[pid.ToString(System.Globalization.CultureInfo.InvariantCulture)] = new JsonObject
+                row["result"] = new JsonObject
                 {
                     ["rows"] = new JsonArray(),
                     ["stats"] = new JsonObject
@@ -924,22 +923,53 @@ public sealed class ReviewedOutcomeCorrectnessTests
                 ["continuationAvailable"] = false,
                 ["truncationReason"] = available ? null : "analysis_unavailable",
             };
-            row["rowsBoundary"] = Boundary("/perPid/result/rows", available);
+            row["rowsBoundary"] = Boundary("/scopeResults/result/rows", available);
             row["topUnresolvedModulesBoundary"] = Boundary(
-                "/perPid/result/stats/topUnresolvedModules", available);
+                "/scopeResults/result/stats/topUnresolvedModules", available);
             scopeResults.Add(row);
         }
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var tool = catalog.Tools.Single(item => item.ToolName == "cpu_top_functions_batch");
         return new ReviewedToolOutcomeAdapterRegistry(catalog.Tools)
-            .Plan(tool, new Dictionary<string, JsonElement>())
+            .Plan(tool, new Dictionary<string, JsonElement>
+            {
+                ["pageSize"] = JsonSerializer.SerializeToElement(100),
+            })
             .Adapt(new JsonObject
             {
-                ["perPid"] = perPid,
                 ["warnings"] = new JsonArray(),
                 ["partial"] = rows.Any(row => row["resultStatus"]!.GetValue<string>() is
-                    "scope_not_found" or "ambiguous_process_instance" or "budget_skipped" or "analysis_failed"),
+                    "completed" or "completed_no_samples") && rows.Any(row =>
+                    row["resultStatus"]!.GetValue<string>() is "scope_not_found" or
+                        "ambiguous_process_instance" or "budget_skipped" or "analysis_failed"),
+                ["partialErrorCode"] = rows.Any(row =>
+                    row["resultStatus"]!.GetValue<string>() is "completed" or
+                        "completed_no_samples") && rows.Any(row =>
+                    row["resultStatus"]!.GetValue<string>() == "budget_skipped")
+                    ? "budget_exceeded"
+                    : null,
                 ["scopeResults"] = scopeResults,
+                ["requestedPidCount"] = rows.Length,
+                ["completedPidCount"] = rows.Count(row =>
+                    row["resultStatus"]!.GetValue<string>() is "completed" or "completed_no_samples"),
+                ["pageContext"] = new JsonObject
+                {
+                    ["traceId"] = "trc_test",
+                    ["traceGenerationId"] = "gen_test",
+                    ["toolName"] = TimelinePagination.CpuTopFunctionsBatchTool,
+                    ["contractVersion"] = ToolContractVersions.V2,
+                    ["symbolContextId"] = null,
+                    ["queryHash"] = new string('a', 64),
+                    ["ordering"] = TimelinePagination.CpuTopFunctionsBatchOrdering,
+                    ["startIndex"] = 0,
+                    ["requestedPageSize"] = 100,
+                    ["totalCount"] = rows.Length,
+                    ["returnedCount"] = rows.Length,
+                },
+                ["returnedCount"] = rows.Length,
+                ["hasMore"] = false,
+                ["nextCursor"] = null,
+                ["resultSetId"] = "cbr_test",
             });
     }
 

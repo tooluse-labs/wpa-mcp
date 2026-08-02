@@ -19,8 +19,8 @@
     ]
   },
   "toolCount": 61,
-  "totalCanonicalUtf8Bytes": 2342676,
-  "registrySha256": "f76b2ad0c0b2b560f3fa8fa73649ba26d7e36824b85d54908398251cb7f64005",
+  "totalCanonicalUtf8Bytes": 2343192,
+  "registrySha256": "45840f546b62a4a179bce25bfdd88af9336d575d131555a672f4c933f1c27bdf",
   "tools": [
     {
       "toolName": "alpc_caller_callee",
@@ -161,10 +161,10 @@
       "toolName": "cpu_top_functions_batch",
       "contractVersion": "2.0",
       "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
-      "schemaUri": "wpa://contracts/tools/cpu_top_functions_batch/e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f",
-      "sha256": "e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f",
+      "schemaUri": "wpa://contracts/tools/cpu_top_functions_batch/c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42",
+      "sha256": "c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42",
       "mediaType": "application/schema\u002Bjson",
-      "utf8Bytes": 42902
+      "utf8Bytes": 43418
     },
     {
       "toolName": "diagnose_high_wait",
