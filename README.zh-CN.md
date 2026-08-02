@@ -83,7 +83,17 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
 ```
 
-两条路径做的事一样：从 GitHub Releases 下载最新 self-contained `wpa-mcp-win-x64.exe` 到 `%USERPROFILE%\.local\bin\wpa-mcp.exe`，然后直接注册到每个检测到的 MCP 客户端（Claude Code / Codex / Claude Desktop）。不需要本机预装 .NET runtime 或 SDK。
+两条路径做的事一样：从 GitHub Releases 下载并校验最新的 Windows x64 完整分发包，安装到用户目录，然后直接注册到每个检测到的 MCP 客户端（Claude Code / Codex / Claude Desktop）。不需要本机预装 .NET runtime 或 SDK。
+
+### 更新
+
+从 **v0.4.3** 开始，安装后的可执行文件可原地更新：
+
+```powershell
+wpa-mcp.exe update
+```
+
+更新程序只接受 GitHub 上已发布且非草稿、非预发布的版本，校验版本内嵌的发布证据和 SHA-256 摘要，在当前安装目录旁分阶段替换完整 ZIP 分发包，并验证更新后的版本。MCP 客户端无需重新注册；如果文件被占用，请先关闭客户端后重试。早于 v0.4.3 的版本需再运行一次上述一行安装命令，之后即可使用内置更新。
 
 通过一行命令转发额外参数：
 
@@ -171,7 +181,7 @@ dotnet build -c Release
 冒烟测试：
 
 ```powershell
-dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # 输出 "WpaMcp 0.4.1"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # 输出 "WpaMcp 0.4.3"
 dotnet test                                                   # 跑 xUnit 套件（需要 fixture，见 CONTRIBUTING.md）
 ```
 
@@ -546,7 +556,7 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 `--trace-reference-mode id_only`；CLI 覆盖环境变量。contract 值严格限定为
 `legacy` / `2.0`，trace reference 值为 `compatibility` / `id_only`。
 
-当前源码版本是 `0.4.1`，默认且可发布的 profile 是 Contract 2.0 + ID-only，结果
+当前源码版本是 `0.4.3`，默认且可发布的 profile 是 Contract 2.0 + ID-only，结果
 形状只有 Contract 2.0；此前没有任何
 released wpa-mcp 把 Phase 0 snapshot 建立为受支持的 legacy wire contract。`legacy`
 值只为显式 fail closed 而保留，避免把
@@ -556,7 +566,7 @@ Contract 2.0 的 0.4.x。raw-path compatibility 只能通过显式启动开关�
 固定 profile 前请阅读[契约迁移](docs/CONTRACT_MIGRATION.zh-CN.md)与
 [客户端兼容性](docs/CLIENT_COMPATIBILITY.zh-CN.md)。
 
-诊断时可用 `--runtime-profile` 输出默认 profile JSON；默认 0.4.1 profile 下
+诊断时可用 `--runtime-profile` 输出默认 profile JSON；默认 0.4.3 profile 下
 `--validate-release-profile` 返回 0，ADR rollout gate 未满足时返回退出码 78。两者都
 不会启动 MCP 或读取 stdin。
 

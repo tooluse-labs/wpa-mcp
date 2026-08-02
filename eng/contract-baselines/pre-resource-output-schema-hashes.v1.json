@@ -21,7 +21,7 @@
     { "toolName": "cpu_caller_callee", "sha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565" },
     { "toolName": "cpu_precise_analysis", "sha256": "a335b892f70d5b176966672c4f405a4b153ac1614fda58cdb997d9adc1bcb269" },
     { "toolName": "cpu_top_functions", "sha256": "683c0758ac55943680b6de36e7f988c295c606629602af9498651bdf9b2af061" },
-    { "toolName": "cpu_top_functions_batch", "sha256": "e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f" },
+    { "toolName": "cpu_top_functions_batch", "sha256": "c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42" },
     { "toolName": "diagnose_high_wait", "sha256": "ef4bb01db3a5803c5b34120e812696ae40e33ca2282ada7e4e88bac3e3e78134" },
     { "toolName": "diagnose_slow_startup", "sha256": "581a72f0b60eed59cf886a59ff6c5b0501d84ab2552cee6735dd9706fbddaf0c" },
     { "toolName": "diagnose_window", "sha256": "158365f3198e5e1e5e6f10c040d5f9043b6ca03b168c012e9cc59a1a383ac4f8" },

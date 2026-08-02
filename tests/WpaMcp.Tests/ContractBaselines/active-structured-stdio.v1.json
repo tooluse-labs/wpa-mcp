@@ -90,31 +90,31 @@
       "toolCount": 61,
       "pageCount": 3,
       "configuredFrameCapBytes": 87542,
-      "maximumObservedPageFrameBytes": 87329,
+      "maximumObservedPageFrameBytes": 85113,
       "pages": [
         {
           "pageIndex": 0,
-          "returnedTools": 27,
+          "returnedTools": 26,
           "firstTool": "list_capabilities",
-          "lastTool": "image_load_timing",
+          "lastTool": "image_load_caller_callee",
           "hasMore": true,
-          "frameBytes": 87329
+          "frameBytes": 84798
         },
         {
           "pageIndex": 1,
           "returnedTools": 25,
-          "firstTool": "image_load_top_gaps",
-          "lastTool": "cpu_precise_analysis",
+          "firstTool": "image_load_timing",
+          "lastTool": "registry_top_stacks",
           "hasMore": true,
-          "frameBytes": 84916
+          "frameBytes": 85113
         },
         {
           "pageIndex": 2,
-          "returnedTools": 9,
-          "firstTool": "ready_thread_caller_callee",
+          "returnedTools": 10,
+          "firstTool": "cpu_precise_analysis",
           "lastTool": "thread_lifetime",
           "hasMore": false,
-          "frameBytes": 31651
+          "frameBytes": 34628
         }
       ],
       "structuredToolNames": [
@@ -180,8 +180,8 @@
         "process_create_timing",
         "thread_lifetime"
       ],
-      "resultBytes": 203626,
-      "resultSha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940"
+      "resultBytes": 204269,
+      "resultSha256": "be3f06d8635f41073a6fe680027c275950d762adf39e86da28d265a908566924"
     },
     "stdoutLineCount": 126,
     "allStdoutLinesWereJson": true,
@@ -397,7 +397,7 @@
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
           "normalizedCompactFrameBytes": 66516,
-          "normalizedCompactFrameSha256": "3b73c70e0a4bfef1d6265c84e9710ec90798d24d15e87e2df74199abce75acfc",
+          "normalizedCompactFrameSha256": "49c06ac4f10f929cc875b6ce215b536fe9155badabb1c6d242e44f4dffbde0fc",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -422,7 +422,7 @@
               }
             ],
             "structuredContentBytes": 27587,
-            "structuredContentSha256": "280bf1de65e0b8f6bde873938fa9c592da8df822f3049e8e3adee9ab35436716",
+            "structuredContentSha256": "74e6d2a81c264143afaac15421a3a7321b51e6e8a9d6715e1d3ceeed2864954b",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -446,7 +446,7 @@
                 "itemCount": null,
                 "propertyCount": 15,
                 "bytes": 24949,
-                "sha256": "a36624a481959fa78e720c47acc0c503883e7570778460c8550b03b7152558f3"
+                "sha256": "ba2e8c39ad5f72d73758b1511d63fb0b553d797b6c3d5dc410de123c9d50f676"
               },
               {
                 "name": "error",
@@ -7078,8 +7078,8 @@
     },
     {
       "name": "cpu_top_functions_batch",
-      "outputSchemaBytes": 42902,
-      "outputSchemaSha256": "e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f",
+      "outputSchemaBytes": 43418,
+      "outputSchemaSha256": "c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42",
       "cases": [
         {
           "case": "loaded_fixture_contract_case",

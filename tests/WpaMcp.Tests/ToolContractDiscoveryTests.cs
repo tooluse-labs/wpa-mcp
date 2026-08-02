@@ -101,12 +101,12 @@ public sealed class ToolContractDiscoveryTests
         Assert.Equal(8_192, preflight.FixedPageUtf8Bytes);
         Assert.Equal(61, preflight.ToolCount);
         Assert.Equal(318, preflight.PageCount);
-        Assert.Equal(35_858, preflight.MaximumToolFrameBytes);
-        Assert.Equal("list_processes", preflight.MaximumToolFrameToolName);
-        Assert.Equal(2, preflight.MaximumToolFramePage);
-        Assert.Equal(15_911, preflight.MaximumResourceFrameBytes);
-        Assert.Equal("list_processes", preflight.MaximumResourceFrameToolName);
-        Assert.Equal(2, preflight.MaximumResourceFramePage);
+        Assert.Equal(36_127, preflight.MaximumToolFrameBytes);
+        Assert.Equal("cpu_top_functions_batch", preflight.MaximumToolFrameToolName);
+        Assert.Equal(4, preflight.MaximumToolFramePage);
+        Assert.Equal(16_056, preflight.MaximumResourceFrameBytes);
+        Assert.Equal("cpu_top_functions_batch", preflight.MaximumResourceFrameToolName);
+        Assert.Equal(4, preflight.MaximumResourceFramePage);
         Assert.Equal(
             preflight.MaximumToolFrameBytes,
             preflight.MinimumViableFrameBytes);

@@ -7,7 +7,7 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
-## 0.4.2 - 2026-08-02
+## 0.4.3 - 2026-08-02
 
 ### Added
 
@@ -21,6 +21,10 @@ GitHub Releases and the git tag history.
   session-bound immutable snapshot. Frame fitting can shrink an oversized successful batch
   without rescanning the ETL on continuation; only a single indivisible result row that exceeds
   the hard response frame can still return `response_too_large`.
+
+## 0.4.2 - 2026-08-02 (tagged; not published)
+
+The tag was created, but the release workflow stopped at the reviewed contract baseline quality gate before any GitHub Release or assets were published.
 
 ## 0.4.1 - 2026-08-02
 
