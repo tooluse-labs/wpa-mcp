@@ -68,12 +68,7 @@ public class TimeWindowSemanticsTests
         };
 
         var nonWindowed = McpToolMethods()
-            .Where(method =>
-            {
-                var parameters = method.GetParameters();
-                return !parameters.Any(parameter => parameter.Name == "startUs") &&
-                       !parameters.Any(parameter => parameter.Name == "endUs");
-            })
+            .Where(method => !HasTimeWindowSelector(method))
             .Select(method => (Name: $"{method.DeclaringType!.Name}.{method.Name}", Description: DescriptionOf(method)))
             .OrderBy(item => item.Name, StringComparer.Ordinal)
             .ToList();
@@ -114,6 +109,18 @@ public class TimeWindowSemanticsTests
             .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
             .Where(method => method.GetCustomAttribute<McpServerToolAttribute>() is not null)
             .ToList();
+
+    private static bool HasTimeWindowSelector(MethodInfo method)
+    {
+        var parameters = method.GetParameters();
+        var hasScalarWindow =
+            parameters.Any(parameter => parameter.Name == "startUs") &&
+            parameters.Any(parameter => parameter.Name == "endUs");
+        var hasNamedWindows = parameters.Any(parameter =>
+            parameter.Name == "windows" &&
+            parameter.ParameterType == typeof(ThreadComparisonWindowInput[]));
+        return hasScalarWindow || hasNamedWindows;
+    }
 
     private static string DescriptionOf(MemberInfo member)
     {

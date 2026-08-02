@@ -2,10 +2,10 @@
   "formatVersion": "active-reachable-collection-closure.v1",
   "registrySemantics": "Reviewed, fail-closed dispositions for every collection reachable from an active output root. Property membership and the classified occurrence hash are explicit review state, not semantic inference from names. A collection or a new tool/path occurrence requires review before this baseline may change.",
   "expectedCounts": {
-    "activeToolCount": 61,
-    "reachableTypeCount": 151,
-    "collectionPropertyCount": 228,
-    "collectionOccurrenceCount": 447
+    "activeToolCount": 62,
+    "reachableTypeCount": 153,
+    "collectionPropertyCount": 237,
+    "collectionOccurrenceCount": 456
   },
   "proofDefinitions": [
     {
@@ -22,6 +22,11 @@
       "proofMode": "typed_nested_boundary",
       "owner": "output-contracts",
       "sourceNote": "A sibling or parent EmbeddedTopNBoundary carries requested/returned/total-state/more-state for the row-local collection; CompositeResultContractValidator or ReviewedToolOutcomeAdapters validates the producer-specific binding."
+    },
+    {
+      "proofMode": "request_bounded_top_n",
+      "owner": "diagnosis-contracts",
+      "sourceNote": "The thread_compare_windows contract exposes top=1..50, passes that bound to each nested analyzer, keeps each window row indivisible, and publishes TOP_N_NOT_COMPLETE in the response-wide conclusion boundaries. These collections are intentionally bounded evidence, not complete enumeration or independently pageable sections."
     },
     {
       "proofMode": "scope_identity_exact",
@@ -113,6 +118,7 @@
         "WpaMcp.Output.SecurityScanAnalysisResponse.Rows",
         "WpaMcp.Output.SecurityScanAnalysisResponse.SlowScans",
         "WpaMcp.Output.StartupDiscoverySummary.ExcludedSamples",
+        "WpaMcp.Output.ThreadCompareWindowsResponse.Rows",
         "WpaMcp.Output.ThreadLifetimeResponse.Threads",
         "WpaMcp.Output.TimeHistogram.Buckets",
         "WpaMcp.Output.TraceEvidenceMapRecord.Capabilities",
@@ -142,6 +148,14 @@
         "WpaMcp.Output.SymbolStats.TopUnresolvedModules",
         "WpaMcp.Output.WindowEvidenceRow.Details",
         "WpaMcp.Output.WindowEvidenceRow.Samples"
+      ]
+    },
+    {
+      "proofMode": "request_bounded_top_n",
+      "properties": [
+        "WpaMcp.Output.ThreadComparisonWindowRow.TopCpuFunctions",
+        "WpaMcp.Output.ThreadComparisonWindowRow.TopWaitFunctions",
+        "WpaMcp.Output.ThreadComparisonWindowRow.TopWaitReasons"
       ]
     },
     {
@@ -182,6 +196,8 @@
         "WpaMcp.Output.ReadyThreadStacksResponse.IncludedProcesses",
         "WpaMcp.Output.RegistryStacksResponse.IncludedProcesses",
         "WpaMcp.Output.SecurityScanAnalysisResponse.IncludedProcesses",
+        "WpaMcp.Output.ThreadCompareWindowsResponse.IncludedProcesses",
+        "WpaMcp.Output.ThreadCompareWindowsResponse.IncludedThreads",
         "WpaMcp.Output.ThreadLifetimeResponse.IncludedProcesses",
         "WpaMcp.Output.VirtualAllocStacksResponse.IncludedProcesses",
         "WpaMcp.Output.WaitAnalysisResponse.IncludedProcesses",
@@ -230,6 +246,8 @@
         "WpaMcp.Output.ReadyThreadStacksResponse.Warnings",
         "WpaMcp.Output.RegistryStacksResponse.Warnings",
         "WpaMcp.Output.SecurityScanAnalysisResponse.Warnings",
+        "WpaMcp.Output.ThreadCompareWindowsResponse.Warnings",
+        "WpaMcp.Output.ThreadComparisonWindowRow.Warnings",
         "WpaMcp.Output.ThreadLifetimeResponse.Warnings",
         "WpaMcp.Output.TraceCapabilityEvidenceRecord.Warnings",
         "WpaMcp.Output.UnloadTraceResponse.Warnings",
@@ -269,6 +287,7 @@
         "WpaMcp.Output.PrepareSymbolsResponse.EvidenceBoundaries",
         "WpaMcp.Output.SymbolStatus.EvidenceBoundaries",
         "WpaMcp.Output.StartupGapEvidenceRow.WindowSectionBoundaries",
+        "WpaMcp.Output.ThreadCompareWindowsResponse.DoesNotProve",
         "WpaMcp.Output.TraceCapabilities.StackCoverageByDomain",
         "WpaMcp.Output.TraceCapabilityEvidenceRecord.CallableTools",
         "WpaMcp.Output.TraceCapabilityEvidenceRecord.DisabledByPolicyTools",
@@ -305,18 +324,19 @@
     }
   ],
   "proofModeCounts": {
-    "fixed_catalog_exhaustive": 97,
-    "manifest_pageable": 169,
+    "fixed_catalog_exhaustive": 98,
+    "manifest_pageable": 170,
     "producer_exhaustive": 20,
-    "scope_identity_exact": 76,
+    "request_bounded_top_n": 3,
+    "scope_identity_exact": 78,
     "typed_nested_boundary": 21,
-    "warnings_exhaustive": 64
+    "warnings_exhaustive": 66
   },
-  "reviewedOccurrenceSetSha256": "89b067422c588c45af6e723554c27190900da1fc4b84bf98f08e04987b3157f6",
+  "reviewedOccurrenceSetSha256": "888311632f7e507162e8a9831a2af85cc46ad663a847b279124190eafcbb8761",
   "sourceCapReview": {
     "owner": "correctness-contracts",
     "sourceNote": "Deterministic syntax inventory over src/WpaMcp for LINQ Take/TakeLast, parameterless FirstOrDefault sample selection, ExcludedSampleLimit, and Max* row/sample/item/entry/candidate limits. It is a change detector, not proof of runtime semantics; each affected collection still requires the reviewed property disposition above.",
-    "siteCount": 98,
-    "siteSetSha256": "9f07d79d65cb3e4b44693ecc530e64b798b4ad41825787d0df3d0d82469f1af3"
+    "siteCount": 100,
+    "siteSetSha256": "0a2d8b1b520f0243285eb307bdfbbf40dafe4a291c60208eae593107cb4fc1f2"
   }
 }
