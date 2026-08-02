@@ -435,8 +435,12 @@ public static class CliRunner
     private static int PrintHelp(bool toError)
     {
         var w = toError ? Console.Error : Console.Out;
-        w.WriteLine("WpaMcp CLI (test/debug only — use the MCP stdio server in production).");
+        w.WriteLine("WpaMcp command line.");
         w.WriteLine();
+        w.WriteLine("Maintenance:");
+        w.WriteLine("  wpa-mcp.exe update      Install the latest verified stable release");
+        w.WriteLine();
+        w.WriteLine("Analyzer verbs (test/debug only; use MCP stdio in production):");
         w.WriteLine("Usage: WpaMcp.dll <verb> [args]");
         w.WriteLine();
         w.WriteLine("Verbs:");
@@ -466,7 +470,7 @@ public static class CliRunner
         w.WriteLine("  --find-marker           <trace.etl> <substring> [mode=count_by_event|count_by_process|rows] [top=50]");
         w.WriteLine("  --probe-stacks          <trace.etl> (debug: explicit StackWalk vs event CallStackIndex)");
         w.WriteLine();
-        w.WriteLine("All verbs emit JSON to stdout, log progress to stderr, and exit 0 on success.");
+        w.WriteLine("Analyzer verbs emit JSON to stdout, log progress to stderr, and exit 0 on success.");
         w.WriteLine("Run with no args (or no recognized verb) to see this help. --version for build info.");
         return toError ? 2 : 0;
     }

@@ -21,6 +21,9 @@ public static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (SelfUpdateCommand.IsInvocation(args))
+            return await SelfUpdateCommand.RunAsync(args).ConfigureAwait(false);
+
         if (args.Length == 1 && args[0] == "--version")
         {
             var version = typeof(Program).Assembly

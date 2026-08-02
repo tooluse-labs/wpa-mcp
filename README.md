@@ -86,7 +86,17 @@ iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scrip
 curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
 ```
 
-Both routes do the same thing: download the latest self-contained `wpa-mcp-win-x64.exe` from GitHub Releases into `%USERPROFILE%\.local\bin\wpa-mcp.exe`, then register that executable directly with every detected MCP client (Claude Code / Codex / Claude Desktop). No local .NET runtime or SDK is required.
+Both routes do the same thing: download the latest complete `wpa-mcp-win-x64.zip` bundle from GitHub Releases into `%USERPROFILE%\.local`, then register `%USERPROFILE%\.local\bin\wpa-mcp.exe` directly with every detected MCP client (Claude Code / Codex / Claude Desktop). No local .NET runtime or SDK is required.
+
+### Update
+
+Starting with `v0.4.2`, an installed bundle can update itself to the latest stable GitHub Release:
+
+```powershell
+wpa-mcp.exe update
+```
+
+The command verifies GitHub's asset digest, the immutable release evidence, the downloaded ZIP SHA-256, and the staged executable version before replacing `bin\wpa-mcp.exe` and `native\amd64`. It does not change MCP client registration. Installations older than `v0.4.2` must run the one-line installer once; if another MCP session keeps the executable locked, close that client and run `update` again.
 
 Forward extra flags through the one-liner:
 
@@ -570,7 +580,7 @@ Equivalent command-line options are `--contract-mode 2.0` and
 values. Accepted contract values are exactly `legacy` and `2.0`. Accepted trace
 reference values are `compatibility` and `id_only`.
 
-The source tree is version `0.4.1` and uses the release-eligible Contract 2.0 +
+The source tree is version `0.4.2` and uses the release-eligible Contract 2.0 +
 ID-only default profile. Contract 2.0 is its only result shape. No released
 wpa-mcp version established the Phase 0 snapshot as a supported legacy wire
 contract. The `legacy` value is recognized
@@ -582,7 +592,7 @@ See [contract migration](docs/CONTRACT_MIGRATION.md) and
 [client compatibility](docs/CLIENT_COMPATIBILITY.md) before pinning a profile.
 
 For diagnostics, `--runtime-profile` prints the default profile as JSON;
-`--validate-release-profile` returns zero for the default 0.4.1 profile and exit
+`--validate-release-profile` returns zero for the default 0.4.2 profile and exit
 code 78 whenever an ADR rollout gate is blocked. These commands do not start
 MCP or read stdin.
 

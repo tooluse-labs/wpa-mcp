@@ -7,6 +7,14 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.4.2 - 2026-08-02
+
+### Added
+
+- Add `wpa-mcp.exe update` for explicit self-update to the latest stable GitHub Release,
+  with release-evidence and SHA-256 verification, staged version validation, and rollback
+  if the installed executable or native bundle cannot be replaced.
+
 ### Fixed
 
 - `cpu_top_functions_batch` now cursor-pages complete per-selector result rows from a bounded,
