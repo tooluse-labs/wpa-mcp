@@ -1,4 +1,6 @@
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using WpaMcp.Core;
 using WpaMcp.Tools;
 using Xunit;
@@ -371,6 +373,11 @@ public sealed class TraceLifecycleProductionTests
         try
         {
             using var trusted = new TrustedTraceArtifactRoot(root);
+            using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
+            var secured = new DirectoryInfo(root).GetAccessControl(
+                AccessControlSections.Owner | AccessControlSections.Access);
+            Assert.Equal(identity.User, secured.GetOwner(typeof(SecurityIdentifier)));
+            Assert.True(secured.AreAccessRulesProtected);
             var artifact = Path.Combine(root, "trace.etlx");
             var replacement = Path.Combine(root, "replacement.etlx");
             await File.WriteAllBytesAsync(artifact, [1, 2, 3, 4, 5]);

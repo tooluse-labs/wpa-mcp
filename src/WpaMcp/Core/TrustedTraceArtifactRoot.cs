@@ -129,19 +129,31 @@ internal sealed class TrustedTraceArtifactRoot : IDisposable
         var info = new DirectoryInfo(path);
         var existing = info.GetAccessControl(AccessControlSections.Owner);
         var existingOwner = existing.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-        if (existingOwner is null || !existingOwner.Equals(currentUser))
+        var administrators = new SecurityIdentifier(
+            WellKnownSidType.BuiltinAdministratorsSid,
+            null);
+        var administratorsOwnRootForCurrentToken =
+            existingOwner is not null &&
+            existingOwner.Equals(administrators) &&
+            identity.Owner is not null &&
+            identity.Owner.Equals(administrators);
+        if (existingOwner is null ||
+            (!existingOwner.Equals(currentUser) &&
+             !administratorsOwnRootForCurrentToken))
         {
             throw new UnauthorizedAccessException(
-                "The artifact root must be owned by the current Windows user.");
+                "The artifact root must be owned by the current Windows user or the current token's local Administrators default owner.");
         }
 
         var security = new DirectorySecurity();
+        // Elevated Windows tokens can create a directory with BUILTIN\Administrators
+        // as their default owner. Re-home that narrowly accepted initial state to
+        // the user SID before the directory becomes a trusted artifact boundary.
+        security.SetOwner(currentUser);
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         AddFullControl(security, currentUser);
         AddFullControl(security, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));
-        AddFullControl(
-            security,
-            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+        AddFullControl(security, administrators);
         info.SetAccessControl(security);
 
         var verified = info.GetAccessControl(
@@ -158,7 +170,7 @@ internal sealed class TrustedTraceArtifactRoot : IDisposable
         {
             currentUser,
             new(WellKnownSidType.LocalSystemSid, null),
-            new(WellKnownSidType.BuiltinAdministratorsSid, null),
+            administrators,
         };
         var rules = verified.GetAccessRules(
                 includeExplicit: true,

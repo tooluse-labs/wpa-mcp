@@ -5,7 +5,19 @@ All notable user-facing changes to `wpa-mcp` are tracked here.
 This changelog starts with `v0.2.15`. Older releases remain available from
 GitHub Releases and the git tag history.
 
-## 0.4.0 - 2026-08-02
+## 0.4.1 - 2026-08-02
+
+### Fixed
+
+- Accept a newly created artifact root whose initial owner is the current
+  elevated token's `BUILTIN\\Administrators` default owner, then re-home it to
+  the current user and verify the same protected, exact ACL as before. This
+  fixes trace lifecycle startup on GitHub's Windows Server 2025 runner without
+  accepting arbitrary owners or weakening the final artifact boundary.
+- The `v0.4.0` tag failed its quality workflow before any GitHub Release or
+  assets were created. Version 0.4.1 is the first published 0.4.x build.
+
+## 0.4.0 - 2026-08-02 (tagged; not published)
 
 ### Migration notes
 
@@ -94,7 +106,7 @@ GitHub Releases and the git tag history.
   `QueryPlanner` admission for `inspect_trace`. Direct composites continue to
   disclose that they do not prove a single shared planner dispatch.
 - Added a version-aware ADR 0005 rollout policy for the 0.4, 0.5, and 1.0
-  default/removal windows. Version 0.4.0 activates the Contract 2.0 + ID-only
+  default/removal windows. Version 0.4.x activates the Contract 2.0 + ID-only
   release profile; pre-0.4 versions remain machine-marked release-blocked.
 - Added `wpa://runtime/profile`, privacy-safe runtime-profile telemetry, and
   `--runtime-profile` / `--validate-release-profile`. `tools/list` cursors now
@@ -170,7 +182,7 @@ GitHub Releases and the git tag history.
 
 ### Known boundary
 
-- The 0.4.0 profile publishes Contract 2.0 + ID-only. `legacy` fails closed
+- The 0.4.x profile publishes Contract 2.0 + ID-only. `legacy` fails closed
   because no released compatibility contract exists; that deliberate lack of
   an adapter does not block Contract 2.0.
 - Corrected active-tool, DTO/stdio, lean-payload, pagination, and full-contract

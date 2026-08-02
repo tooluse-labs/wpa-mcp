@@ -174,7 +174,7 @@ dotnet build -c Release
 Smoke-check:
 
 ```powershell
-dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.4.0"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.4.1"
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
@@ -570,7 +570,7 @@ Equivalent command-line options are `--contract-mode 2.0` and
 values. Accepted contract values are exactly `legacy` and `2.0`. Accepted trace
 reference values are `compatibility` and `id_only`.
 
-The source tree is version `0.4.0` and uses the release-eligible Contract 2.0 +
+The source tree is version `0.4.1` and uses the release-eligible Contract 2.0 +
 ID-only default profile. Contract 2.0 is its only result shape. No released
 wpa-mcp version established the Phase 0 snapshot as a supported legacy wire
 contract. The `legacy` value is recognized
@@ -582,7 +582,7 @@ See [contract migration](docs/CONTRACT_MIGRATION.md) and
 [client compatibility](docs/CLIENT_COMPATIBILITY.md) before pinning a profile.
 
 For diagnostics, `--runtime-profile` prints the default profile as JSON;
-`--validate-release-profile` returns zero for the default 0.4.0 profile and exit
+`--validate-release-profile` returns zero for the default 0.4.1 profile and exit
 code 78 whenever an ADR rollout gate is blocked. These commands do not start
 MCP or read stdin.
 

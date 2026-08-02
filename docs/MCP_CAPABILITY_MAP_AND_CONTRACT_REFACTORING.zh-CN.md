@@ -1192,12 +1192,12 @@ single-pass。实际 2GB ETL 的 wall-time、peak memory、cancel 和 response b
 
 ### Phase 7：默认切换与遗留清理
 
-实施状态（2026-08-02）：**启动级 rollout policy、release enforcement 与 0.4.0
+实施状态（2026-08-02）：**启动级 rollout policy、release enforcement 与 0.4.x
 版本切换均已实现。** `RuntimeCompatibilityPolicy` 在读取 stdin
 前一次性解析 `WPAMCP_CONTRACT_MODE` / `--contract-mode` 与既有
 `WPAMCP_TRACE_REFERENCE_MODE` / `--trace-reference-mode`，CLI 覆盖 env；tool call
 不能切换。真实选择通过 `wpa://runtime/profile` 暴露，并进入 `tools/list` cursor
-binding 与 privacy-safe telemetry。当前 0.4.0 默认且唯一 result shape 是 Contract
+binding 与 privacy-safe telemetry。当前 0.4.1 默认且唯一 result shape 是 Contract
 2.0，并使用 ID-only secure default；raw-path
 compatibility 仅是到 1.0 前的显式 startup switch。此前没有 released legacy wire
 contract，选择 `legacy` 会 fail closed；没有一个从未发布的 adapter 不阻断 0.4.x。
@@ -1217,7 +1217,7 @@ lookup path。
 
 此外，安装/配置脚本必须通过 package stdio gate 证明只使用当前允许的 secure symbol
 options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须在发布前修正。故本节
-声明 0.4.0 release window 已满足；0.5/1.0 的后续历史门禁仍按 ADR 执行。
+声明 0.4.x release window 已满足；0.5/1.0 的后续历史门禁仍按 ADR 执行。
 
 交付：
 

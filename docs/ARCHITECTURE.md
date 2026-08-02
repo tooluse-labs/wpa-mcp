@@ -243,7 +243,7 @@ override environment values; tool calls cannot switch modes. The selected
 profile, warnings, and blockers are exposed at `wpa://runtime/profile` and bind
 directory/query cursors.
 
-Version 0.4.0 runs the release-eligible Contract 2.0 + ID-only profile.
+Version 0.4.1 runs the release-eligible Contract 2.0 + ID-only profile.
 `legacy` fails closed because no released legacy result contract exists; that
 unsupported mode is not a Contract 2.0 release blocker. The opaque converter's
 transient physical disk peak remains an accepted, disclosed residual risk rather
