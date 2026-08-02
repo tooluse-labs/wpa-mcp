@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Decision date: 2026-08-01
+- Amended: 2026-08-02 — explicit 0.4.x acceptance of the opaque converter
+  transient physical-peak residual risk
 - Decision source: implementation authorization through `/goal`
 - Amends: ADR 0002 and the approved trace access/lifecycle plans
 - Implementation status: not complete
@@ -54,11 +56,11 @@ The production registry and the `load_trace`/`unload_trace` handle operations ar
 
 Retiring the last handle does not delete the immutable ETLX or symbol artifacts. `ArtifactStore` owns independent byte/file quotas, LRU/TTL retention, leases/pins, atomic publication, and eviction. The implemented trace-artifact TTL is measured from the last store access, defaults to seven days, and is configured at startup with `WPAMCP_TRACE_ARTIFACT_RETENTION_MINUTES` or `--trace-artifact-retention-minutes` (1 minute through 365 days). TTL never invalidates a pinned live-handle object; after its last pin drains, an expired object is evicted and a later load materializes a new generation and mints a new trace ID. Permanent artifact purge, if exposed, is a separate administrator operation.
 
-#### Physical artifact peak bound (release-blocked)
+#### Physical artifact peak bound (accepted residual risk)
 
 `MaxArtifactStoreBytes` is a retained-object quota, not a hard upper bound for the physical bytes used by the whole artifact root during materialization. The implementation serializes materializations, checks the current operation directory after the immutable input snapshot and after conversion/publication staging, cleans failed temporary operations, and enforces retained byte/object quotas with pin-aware eviction. Those are tested guarantees.
 
-The `TraceLog.OpenOrConvert` converter may create and remove internal transient files between those checkpoints. Their maximum physical size is opaque to this process, so the converter-time peak and the combined retained-plus-temporary root peak are not hard-proven. Until conversion runs inside an independently quota-enforced worker/filesystem boundary, the server must expose `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` and must not describe `MaxArtifactStoreBytes` as a whole-operation or whole-root physical peak cap.
+The `TraceLog.OpenOrConvert` converter may create and remove internal transient files between those checkpoints. Their maximum physical size is opaque to this process, so the converter-time peak and the combined retained-plus-temporary root peak are not hard-proven. For 0.4.x, the product owner explicitly accepts this residual risk. The server exposes `accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited` as a warning, and `artifact-materialization-budget.v1.json` records that `opaqueConverterTransientPeakProven=false` and `wholeRootPhysicalPeakHardLimited=false`. This acceptance makes the risk non-blocking; it does not permit documentation or runtime metadata to describe `MaxArtifactStoreBytes` as a whole-operation or whole-root physical peak cap. An independently quota-enforced conversion boundary remains the future hardening path.
 
 ### 5. Explicit immutable symbol contexts
 

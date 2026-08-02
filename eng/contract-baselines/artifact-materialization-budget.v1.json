@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "artifact-materialization-budget.v1",
+  "baselineDate": "2026-08-02",
+  "status": "accepted_residual_risk",
+  "decisionSource": "explicit_user_authorization_2026-08-02",
+  "releaseDisposition": "non_blocking_until_superseded",
+  "riskCode": "accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited",
+  "retainedArtifactQuotaEnforced": true,
+  "singleMaterializationCheckpointBudgetEnforced": true,
+  "opaqueConverterTransientPeakProven": false,
+  "wholeRootPhysicalPeakHardLimited": false,
+  "boundary": "MaxArtifactStoreBytes limits retained objects and the implementation serializes materialization with operation-directory checkpoints. TraceLog.OpenOrConvert may create opaque transient files between checkpoints, so conversion-time and whole-root physical peaks are not hard-limited.",
+  "acceptedConsequence": "A sufficiently large or adversarial conversion may exhaust more disk space than MaxArtifactStoreBytes before conversion fails or cleanup runs.",
+  "requiredDisclosure": "The runtime profile and lifecycle documentation must continue to expose this accepted residual risk until an independently quota-enforced conversion boundary replaces it."
+}

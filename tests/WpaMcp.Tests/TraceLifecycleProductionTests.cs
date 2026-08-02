@@ -197,7 +197,7 @@ public sealed class TraceLifecycleProductionTests
             Path.Combine(runtime.ArtifactRoot, "tmp")));
         Assert.False(Directory.Exists(Path.Combine(runtime.ArtifactRoot, "objects")));
         Assert.Equal(
-            "release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven",
+            "accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited",
             OwnedTraceArtifactStore.TemporarySpaceAssurance);
         Assert.Equal(
             0,

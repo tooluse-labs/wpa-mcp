@@ -5,7 +5,7 @@ All notable user-facing changes to `wpa-mcp` are tracked here.
 This changelog starts with `v0.2.15`. Older releases remain available from
 GitHub Releases and the git tag history.
 
-## 0.3.0 - Unreleased
+## 0.4.0 - 2026-08-02
 
 ### Migration notes
 
@@ -94,15 +94,17 @@ GitHub Releases and the git tag history.
   `QueryPlanner` admission for `inspect_trace`. Direct composites continue to
   disclose that they do not prove a single shared planner dispatch.
 - Added a version-aware ADR 0005 rollout policy for the 0.4, 0.5, and 1.0
-  default/removal windows. The current 0.3.0 development profile remains
-  runnable as Contract 2.0 + ID-only but is machine-marked release-blocked
-  because pre-0.4 is not a publishable ADR release line.
+  default/removal windows. Version 0.4.0 activates the Contract 2.0 + ID-only
+  release profile; pre-0.4 versions remain machine-marked release-blocked.
 - Added `wpa://runtime/profile`, privacy-safe runtime-profile telemetry, and
   `--runtime-profile` / `--validate-release-profile`. `tools/list` cursors now
   receive the selected startup contract mode from the same profile.
 - Added release gates that compare the exact published executable's runtime
   profile with its project version, commit-bound package stdio evidence,
   corrected active snapshots, manifests, and uploaded artifact hashes.
+- Kept the 0.x assembly binding identity stable while advancing package,
+  file, and informational versions, preventing a version-only release from
+  changing canonical Contract 2.0 schema bytes or content addresses.
 
 - Added consistent process/thread scope metadata, capability status,
   matched-event counts, stable no-data reasons, and replayable candidates across
@@ -168,10 +170,9 @@ GitHub Releases and the git tag history.
 
 ### Known boundary
 
-- The current 0.3.0 Contract 2.0 + ID-only profile is runnable for development
-  but release-blocked because ADR 0005 defines publishable windows starting at
-  0.4.x. `legacy` fails closed because no released compatibility contract
-  exists; that deliberate lack of an adapter does not block Contract 2.0.
+- The 0.4.0 profile publishes Contract 2.0 + ID-only. `legacy` fails closed
+  because no released compatibility contract exists; that deliberate lack of
+  an adapter does not block Contract 2.0.
 - Corrected active-tool, DTO/stdio, lean-payload, pagination, and full-contract
   registry baselines are regenerated and reviewed together; automated gates
   bind them to the active manifests/profile. This closes the former active-
@@ -179,8 +180,9 @@ GitHub Releases and the git tag history.
   Named-client paging/token/cache measurements remain compatibility observations,
   while the package harness must prove complete pagination and both
   full-contract lookup paths.
-- Retained artifact quotas do not prove the opaque converter's transient
-  physical disk peak; the independent materialization-budget gate remains open.
+- Retained artifact quotas do not hard-limit the opaque converter's transient
+  physical disk peak. This is an explicitly accepted 0.4.x residual risk,
+  recorded without claiming that the whole-root peak is proven.
 - `inspect_trace` uses the typed planner and generation snapshot. Composites not
   admitted by the manifest still execute directly and do not claim one physical
   shared dispatch; large-trace performance/cancellation evidence remains a gate.

@@ -397,7 +397,7 @@
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
           "normalizedCompactFrameBytes": 66516,
-          "normalizedCompactFrameSha256": "73072bc06b2eed2042d9306e2eed36c894ed884faf7889a6810eb0565b617a19",
+          "normalizedCompactFrameSha256": "3b73c70e0a4bfef1d6265c84e9710ec90798d24d15e87e2df74199abce75acfc",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -422,7 +422,7 @@
               }
             ],
             "structuredContentBytes": 27587,
-            "structuredContentSha256": "0d0e97f01abefad1ca7e8c097603503acd0f5e282fa33417a57e5afb6e103220",
+            "structuredContentSha256": "280bf1de65e0b8f6bde873938fa9c592da8df822f3049e8e3adee9ab35436716",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -446,7 +446,7 @@
                 "itemCount": null,
                 "propertyCount": 15,
                 "bytes": 24949,
-                "sha256": "2e786d3c0fad56fc20d5984f3d45f8fee715d76d27982ced0ca5129567fc7a51"
+                "sha256": "a36624a481959fa78e720c47acc0c503883e7570778460c8550b03b7152558f3"
               },
               {
                 "name": "error",

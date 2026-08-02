@@ -170,12 +170,12 @@ principal-scoped immutable TraceId；`unload_trace` retire handle，但不宣称
 
 ## Contract rollout 与客户端证据缺口
 
-以下是 release blocker，不是被隐藏的 analyzer capability：
+以下是 rollout gate 与已接受残余风险，不是被隐藏的 analyzer capability：
 
 | 缺口 | 机器可读状态 | 后果 |
 |---|---|---|
 | 完整 0.5.x 弃用窗口与 usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 在仓库内审查这份证据之前，1.0 不得删除 raw-path compatibility；环境变量不能绕过发布历史门禁。 |
-| artifact materialization 物理峰值 | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | retained-store quota 与 checkpoint 不能证明 opaque converter 的瞬态磁盘峰值。发布必须有通过的 `artifact-materialization-budget.v1.json`，不能把推测冒充 hard cap。 |
+| artifact materialization 物理峰值 | `accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited` | retained-store quota 与 checkpoint 不会 hard-limit opaque converter 的瞬态磁盘峰值。0.4.x owner 显式接受这项非阻断风险；`artifact-materialization-budget.v1.json` 记录 `opaqueConverterTransientPeakProven=false`，不会虚构 hard cap。 |
 
 这里没有“经审查的 legacy projection”缺口：此前没有 released version 把 Phase 0
 snapshot 建立为受支持的 result wire contract，因此 0.4.x 的结果契约只有 Contract 2.0。

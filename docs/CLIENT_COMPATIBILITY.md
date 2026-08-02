@@ -103,14 +103,16 @@ later descriptors to accommodate a host that ignores cursors.
 The corrected active-tool, DTO/stdio, lean-payload, pagination, historical-hash,
 and full-contract registry baselines are reviewed and automatically bound to
 the active manifests/profile. That closes the former corrected-active-baseline
-blocker. The independent opaque-converter transient physical-peak blocker
-remains; passing these catalog gates does not waive it.
+blocker. The independent opaque-converter transient physical-peak boundary is
+now an explicitly accepted 0.4.x residual risk. It remains disclosed in the
+runtime warnings and risk-acceptance evidence; catalog gates do not turn it
+into a proven hard bound.
 
 ## Profile support
 
 | Runtime profile | Client expectation | Current implementation |
 |---|---|---|
-| Contract 2.0 + ID-only | Lean discovery plus on-demand closed envelope contracts; `load_trace`/TraceId lifecycle | Runnable development profile |
+| Contract 2.0 + ID-only | Lean discovery plus on-demand closed envelope contracts; `load_trace`/TraceId lifecycle | 0.4.x release profile |
 | Contract 2.0 + raw compatibility | Same discovery/contract projections; raw paths deprecated and may create a canonical handle | Explicit startup compatibility only; removed in 1.0 |
 | Legacy + either trace mode | No released compatibility contract; Phase 0 goldens are regression evidence only | Unsupported; startup fails closed without blocking Contract 2.0 releases |
 

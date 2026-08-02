@@ -123,7 +123,7 @@ public sealed class Phase0CorrectnessBaselineTests
                 gate => gate.GetProperty("status").GetString()!,
                 StringComparer.Ordinal);
         Assert.DoesNotContain("third_party_client_matrix", unresolvedGates.Keys);
-        Assert.Equal("release_blocked_measurement_pending", unresolvedGates["opaque_converter_physical_peak"]);
+        Assert.Equal("accepted_residual_risk_non_blocking", unresolvedGates["opaque_converter_physical_peak"]);
         Assert.Equal("rollout_telemetry_pending", unresolvedGates["raw_path_0_5_deprecation_telemetry"]);
         Assert.Equal("release_approval_pending", unresolvedGates["release_approval_tag_and_assets"]);
 

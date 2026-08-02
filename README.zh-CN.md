@@ -171,7 +171,7 @@ dotnet build -c Release
 冒烟测试：
 
 ```powershell
-dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # 输出 "WpaMcp 0.3.0"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # 输出 "WpaMcp 0.4.0"
 dotnet test                                                   # 跑 xUnit 套件（需要 fixture，见 CONTRIBUTING.md）
 ```
 
@@ -546,9 +546,8 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 `--trace-reference-mode id_only`；CLI 覆盖环境变量。contract 值严格限定为
 `legacy` / `2.0`，trace reference 值为 `compatibility` / `id_only`。
 
-当前源码版本仍是 `0.3.0`：可运行的开发 profile 是 Contract 2.0 + ID-only，
-但 ADR 0005 明确把 0.4 之前的 release line 标成 `releaseStatus=blocked`。0.4.x 默认
-profile 是 Contract 2.0 + ID-only，且结果形状只有 Contract 2.0；此前没有任何
+当前源码版本是 `0.4.0`，默认且可发布的 profile 是 Contract 2.0 + ID-only，结果
+形状只有 Contract 2.0；此前没有任何
 released wpa-mcp 把 Phase 0 snapshot 建立为受支持的 legacy wire contract。`legacy`
 值只为显式 fail closed 而保留，避免把
 active Contract 2.0 envelope 冒充 legacy；没有未发布的 legacy adapter 不会阻断原生
@@ -557,8 +556,9 @@ Contract 2.0 的 0.4.x。raw-path compatibility 只能通过显式启动开关�
 固定 profile 前请阅读[契约迁移](docs/CONTRACT_MIGRATION.zh-CN.md)与
 [客户端兼容性](docs/CLIENT_COMPATIBILITY.zh-CN.md)。
 
-诊断时可用 `--runtime-profile` 输出默认 profile JSON；当 ADR rollout gate 尚未
-满足时，`--validate-release-profile` 返回退出码 78。两者都不会启动 MCP 或读取 stdin。
+诊断时可用 `--runtime-profile` 输出默认 profile JSON；默认 0.4.0 profile 下
+`--validate-release-profile` 返回 0，ADR rollout gate 未满足时返回退出码 78。两者都
+不会启动 MCP 或读取 stdin。
 
 ### Trace 缓存
 
@@ -576,8 +576,8 @@ store 访问 7 天后过期；可在启动时用 `WPAMCP_TRACE_ARTIFACT_RETENTIO
 `--trace-artifact-retention-minutes` 配置为 1 分钟至 365 天。live handle 会 pin 对象，
 因此 TTL 不会使 active generation 失效；最后一个 pin drain 后才执行过期清理，generation
 cache 也不能静默复活已过期 artifact。retained-store quota 和 materialization checkpoint
-已执行，但 opaque converter 的瞬态物理磁盘峰值仍是显式 release blocker，不能冒充
-hard bound。
+已执行，但 opaque converter 的瞬态物理磁盘峰值没有 hard bound。这是 0.4.x 显式接受
+并持续公开的残余风险，不能把它表述成已经证明的 whole-root hard bound。
 
 ### 自己抓 trace
 

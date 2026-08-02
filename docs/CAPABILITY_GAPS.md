@@ -178,12 +178,12 @@ Write-side operations that need elevated rights:
 
 ## Contract rollout and client-evidence gaps
 
-These are release blockers, not hidden analyzer capabilities:
+These are rollout gates and accepted residual risks, not hidden analyzer capabilities:
 
 | Gap | Machine-readable status | Consequence |
 |---|---|---|
 | Full 0.5.x deprecation window and usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 1.0 cannot remove raw-path compatibility until this evidence is reviewed in-repository. An environment variable cannot waive it. |
-| Physical artifact materialization peak | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | Retained-store quota and checkpoints do not prove the opaque converter's transient disk peak. Release requires a passed `artifact-materialization-budget.v1.json`, not an inferred hard cap. |
+| Physical artifact materialization peak | `accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited` | Retained-store quota and checkpoints do not hard-limit the opaque converter's transient disk peak. The 0.4.x owner explicitly accepts this non-blocking risk; `artifact-materialization-budget.v1.json` records `opaqueConverterTransientPeakProven=false` rather than inventing a hard cap. |
 
 There is no reviewed-legacy-projection gap: no released version established the
 Phase 0 snapshot as a supported result wire contract, so Contract 2.0 is the

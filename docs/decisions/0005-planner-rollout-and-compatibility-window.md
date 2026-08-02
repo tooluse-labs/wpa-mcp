@@ -2,8 +2,9 @@
 
 - Status: Accepted
 - Decision date: 2026-08-01
-- Amended: 2026-08-02 — Contract 2.0-only rollout, lean discovery, and
-  non-blocking client observations
+- Amended: 2026-08-02 — Contract 2.0-only rollout, lean discovery,
+  non-blocking client observations, and explicit acceptance of the opaque
+  converter transient-peak residual risk for 0.4.x
 - Decision source: implementation authorization through `/goal`
 - Depends on: ADR 0001, ADR 0003, ADR 0004
 - Implementation status: partially implemented; Contract 2.0 is the only result
@@ -36,9 +37,9 @@ Implementation note (2026-08-01): `RuntimeCompatibilityPolicy` now applies this
 matrix once at startup. `WPAMCP_CONTRACT_MODE` / `--contract-mode` and
 `WPAMCP_TRACE_REFERENCE_MODE` / `--trace-reference-mode` are explicit inputs;
 CLI wins, and the resulting pair is exposed at `wpa://runtime/profile`, bound
-into `tools/list` cursors, and recorded in privacy-safe telemetry. The current
-0.3.0 development line retains its already implemented Contract 2.0 + ID-only
-default but is release-blocked because it precedes 0.4.0.
+into `tools/list` cursors, and recorded in privacy-safe telemetry. Version 0.4.0
+activates the already implemented Contract 2.0 + ID-only release profile.
+Versions before 0.4.0 remain release-blocked.
 
 The runtime does **not** claim a legacy adapter exists. No released wpa-mcp
 version established the Phase 0 snapshot as a supported public result wire
@@ -53,10 +54,13 @@ it cannot be waived by environment configuration.
 Known repository-wide blockers are listed separately as
 `externalKnownBlockers` and also participate in the terminal release decision.
 At this implementation checkpoint the corrected active baselines are reviewed
-and closed. The remaining external blocker is the unproven opaque-converter
-transient artifact peak. The workflow independently validates the catalog and
-contract baselines and requires passed evidence for the remaining blocker
-before artifact creation.
+and closed. The product owner explicitly accepts that the opaque converter's
+transient physical disk peak is not hard-limited for 0.4.x. It is therefore a
+non-blocking runtime warning, not an `externalKnownBlocker`. The workflow
+independently validates the catalog and contract baselines and requires the
+versioned risk record to state both `opaqueConverterTransientPeakProven=false`
+and `wholeRootPhysicalPeakHardLimited=false`; risk acceptance cannot masquerade
+as technical proof.
 
 Phase 0 per-tool snapshots remain historical regression inputs for explicitly
 reviewed correctness changes. They are not executable wire modes and are never

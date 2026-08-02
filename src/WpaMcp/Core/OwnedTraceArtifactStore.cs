@@ -32,7 +32,7 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
 {
     internal const string ConversionOptionsVersion = "wpamcp-owned-etlx-v1";
     internal const string TemporarySpaceAssurance =
-        "release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven";
+        RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk;
     private static readonly JsonSerializerOptions ManifestJson = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,

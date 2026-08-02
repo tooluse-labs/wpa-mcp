@@ -174,7 +174,7 @@ dotnet build -c Release
 Smoke-check:
 
 ```powershell
-dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.3.0"
+dotnet src\WpaMcp\bin\Release\net10.0\WpaMcp.dll --version    # prints "WpaMcp 0.4.0"
 dotnet test                                                   # runs the xUnit suite (needs fixtures, see CONTRIBUTING.md)
 ```
 
@@ -570,10 +570,8 @@ Equivalent command-line options are `--contract-mode 2.0` and
 values. Accepted contract values are exactly `legacy` and `2.0`. Accepted trace
 reference values are `compatibility` and `id_only`.
 
-The source tree is currently version `0.3.0`: it runs the implemented Contract
-2.0 + ID-only development profile, but ADR 0005 intentionally marks this
-pre-0.4 release line as `releaseStatus=blocked`. The 0.4.x profile defaults to
-Contract 2.0 + ID-only, and Contract 2.0 is its only result shape. No released
+The source tree is version `0.4.0` and uses the release-eligible Contract 2.0 +
+ID-only default profile. Contract 2.0 is its only result shape. No released
 wpa-mcp version established the Phase 0 snapshot as a supported legacy wire
 contract. The `legacy` value is recognized
 only to fail closed instead of mislabeling a Contract 2.0 envelope, and the lack
@@ -584,8 +582,9 @@ See [contract migration](docs/CONTRACT_MIGRATION.md) and
 [client compatibility](docs/CLIENT_COMPATIBILITY.md) before pinning a profile.
 
 For diagnostics, `--runtime-profile` prints the default profile as JSON;
-`--validate-release-profile` returns exit code 78 while an ADR rollout gate is
-blocked. These commands do not start MCP or read stdin.
+`--validate-release-profile` returns zero for the default 0.4.0 profile and exit
+code 78 whenever an ADR rollout gate is blocked. These commands do not start
+MCP or read stdin.
 
 ### Trace cache
 
@@ -609,8 +608,8 @@ artifacts expire seven days after their last store access by default. Set
 generation; an expired object is removed after the last pin drains and is not
 silently resurrected by the generation cache. Retained-store quotas and
 materialization checkpoints are enforced, but the converter's transient
-physical disk peak remains an explicit release blocker rather than a claimed
-hard bound.
+physical disk peak is not hard-limited. Version 0.4.x explicitly accepts and
+discloses that residual risk without claiming a whole-root hard bound.
 
 ### Capturing your own traces
 

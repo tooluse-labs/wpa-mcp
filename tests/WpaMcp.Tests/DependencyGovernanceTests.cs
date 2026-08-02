@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using WpaMcp.Core;
 
 namespace WpaMcp.Tests;
 
@@ -364,7 +365,9 @@ public sealed class DependencyGovernanceTests
         Assert.Contains("pre-resource-output-schema-hashes.v1.json", release, StringComparison.Ordinal);
         Assert.Contains("artifact-materialization-budget.v1.json", release, StringComparison.Ordinal);
         Assert.DoesNotContain("supported-client-matrix.v1.json", release, StringComparison.Ordinal);
+        Assert.Contains("accepted_residual_risk", release, StringComparison.Ordinal);
         Assert.Contains("opaqueConverterTransientPeakProven", release, StringComparison.Ordinal);
+        Assert.Contains("wholeRootPhysicalPeakHardLimited", release, StringComparison.Ordinal);
         Assert.Contains("$package.commit -cne '${{ github.sha }}'", release, StringComparison.Ordinal);
         Assert.Contains("$package.contractMode -cne $profile.contractMode", release, StringComparison.Ordinal);
         Assert.Contains("$package.outputContractCount", release, StringComparison.Ordinal);
@@ -376,6 +379,25 @@ public sealed class DependencyGovernanceTests
         Assert.Contains("release-package-stdio.v1.json", release, StringComparison.Ordinal);
         Assert.Contains("release/release-evidence.v1.json", release, StringComparison.Ordinal);
         Assert.Contains("Published host reported", release, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ArtifactMaterializationBudget_RecordsAcceptedRiskWithoutClaimingPeakProof()
+    {
+        using var document = ReadJson("eng/contract-baselines/artifact-materialization-budget.v1.json");
+        var root = document.RootElement;
+
+        Assert.Equal("artifact-materialization-budget.v1", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("accepted_residual_risk", root.GetProperty("status").GetString());
+        Assert.Equal("non_blocking_until_superseded", root.GetProperty("releaseDisposition").GetString());
+        Assert.Equal(
+            RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk,
+            root.GetProperty("riskCode").GetString());
+        Assert.True(root.GetProperty("retainedArtifactQuotaEnforced").GetBoolean());
+        Assert.True(root.GetProperty("singleMaterializationCheckpointBudgetEnforced").GetBoolean());
+        Assert.False(root.GetProperty("opaqueConverterTransientPeakProven").GetBoolean());
+        Assert.False(root.GetProperty("wholeRootPhysicalPeakHardLimited").GetBoolean());
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("decisionSource").GetString()));
     }
 
     private static Dictionary<string, string> ReadSelectedPlatform()

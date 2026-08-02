@@ -91,8 +91,8 @@ internal static class RuntimeCompatibilityPolicy
     internal const string LegacyContractRemovalRelease = "not_applicable";
     internal const string V1DeprecationGateStatus =
         "release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence";
-    internal const string ArtifactTransientPeakStatus =
-        "release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven";
+    internal const string ArtifactTransientPeakRisk =
+        "accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited";
     internal const string OutputSchemaDialect =
         "https://json-schema.org/draft/2020-12/schema";
     internal const string OutputSchemaReferenceProfile =
@@ -134,7 +134,7 @@ internal static class RuntimeCompatibilityPolicy
         var traceReference = traceReferenceOverride ?? defaults.TraceReference;
         var runtimeBlockers = new List<string>();
         var releaseBlockers = new List<string>();
-        var externalKnownBlockers = new List<string> { ArtifactTransientPeakStatus };
+        var externalKnownBlockers = new List<string>();
         var warnings = new List<string>();
 
         if (stage == RuntimeReleaseStage.V1OrLater)
@@ -161,6 +161,8 @@ internal static class RuntimeCompatibilityPolicy
 
         releaseBlockers.AddRange(runtimeBlockers.Select(blocker => "runtime_profile_unavailable:" + blocker));
         releaseBlockers.AddRange(externalKnownBlockers);
+
+        warnings.Add(ArtifactTransientPeakRisk);
 
         if (traceReference == TraceAccessMode.Compatibility)
         {

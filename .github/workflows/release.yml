@@ -76,6 +76,7 @@ jobs:
           }
           $profile = $profileJson | ConvertFrom-Json
           $profileJson | Set-Content release/runtime-profile.v1.json -Encoding utf8
+          $acceptedArtifactRisk = 'accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited'
 
           if ($profile.schemaVersion -cne 'runtime-profile.v1' -or
               $profile.runtimeVersion -cne '${{ steps.release_identity.outputs.version }}' -or
@@ -84,7 +85,8 @@ jobs:
               $profile.traceReferenceMode -cne 'id_only' -or
               -not $profile.runnable -or
               $profile.contractModeExplicit -or
-              $profile.traceReferenceModeExplicit) {
+              $profile.traceReferenceModeExplicit -or
+              (@($profile.warnings) -cnotcontains $acceptedArtifactRisk)) {
             throw "Published runtime profile does not match the immutable release identity/default profile."
           }
 
@@ -160,9 +162,15 @@ jobs:
 
           $artifact = Get-Content eng/contract-baselines/artifact-materialization-budget.v1.json -Raw | ConvertFrom-Json
           if ($artifact.schemaVersion -cne 'artifact-materialization-budget.v1' -or
-              $artifact.status -cne 'passed' -or
-              -not $artifact.opaqueConverterTransientPeakProven) {
-            throw 'Opaque converter transient-peak evidence is not release-approved.'
+              $artifact.status -cne 'accepted_residual_risk' -or
+              $artifact.releaseDisposition -cne 'non_blocking_until_superseded' -or
+              $artifact.riskCode -cne 'accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited' -or
+              [string]::IsNullOrWhiteSpace([string]$artifact.decisionSource) -or
+              -not $artifact.retainedArtifactQuotaEnforced -or
+              -not $artifact.singleMaterializationCheckpointBudgetEnforced -or
+              $artifact.opaqueConverterTransientPeakProven -or
+              $artifact.wholeRootPhysicalPeakHardLimited) {
+            throw 'Opaque converter residual-risk acceptance evidence is invalid or overclaims a hard physical peak bound.'
           }
 
       - name: Verify package evidence uses the gated default profile

@@ -123,10 +123,12 @@ default pair, correctness evidence, or deprecation-history gate is not
 releasable. The release workflow runs these commands against the exact packaged
 executable and
 then verifies package stdio evidence, version, commit, schemas, and snapshots.
-`externalKnownBlockers` currently prevents an eligible status until the opaque
-converter transient-peak evidence is release-approved. The workflow separately
-requires and validates the reviewed catalog/contract baselines, so changing one
-runtime constant cannot bypass either evidence check.
+`externalKnownBlockers` no longer contains the opaque-converter transient peak;
+the non-hard-limited peak is an explicitly accepted 0.4.x residual risk exposed
+through `warnings`. The workflow separately validates the reviewed
+catalog/contract baselines and the truthful risk record, including
+`opaqueConverterTransientPeakProven=false`, so risk acceptance cannot be
+misrepresented as a hard-bound proof.
 
 Named third-party client/version runs may measure catalog aggregation, injected
 descriptor tokens, and prompt-cache behavior. They are non-blocking

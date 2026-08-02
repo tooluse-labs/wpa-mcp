@@ -104,9 +104,11 @@ Contract 2.0 是唯一结果形状；独立的 raw-path compatibility switch 仍
 `wpa-mcp.exe --validate-release-profile` 在 version line、默认组合、correctness
 evidence 或弃用历史门禁不满足时返回 78。release workflow 会对实际 packaged executable
 运行它们，并校验 package stdio evidence、版本、commit、schemas 与 snapshots。
-corrected active baselines 已在本轮审查并关闭。`externalKnownBlockers` 当前仍会因
-opaque converter 瞬态峰值证据未通过而阻断 eligible；workflow 也会独立校验 catalog/
-contract baselines 与剩余 evidence artifact，因此单独修改 runtime 常量不能绕过门禁。
+corrected active baselines 已在本轮审查并关闭。`externalKnownBlockers` 当前不再包含
+opaque converter 瞬态峰值；该未受 hard limit 的峰值作为 0.4.x 显式接受
+的残余风险进入 `warnings`。workflow 会独立校验 catalog/contract baselines 与
+`artifact-materialization-budget.v1.json` 的真实风险接受状态，且要求其中
+`opaqueConverterTransientPeakProven=false`，因此不能把风险接受冒充成 hard-bound 证明。
 
 具名第三方 client/version 运行可以测量 catalog aggregation、实际注入 descriptor 的
 token 与 prompt-cache 行为。除非未来 ADR 显式承诺该具名 client/version，这些数据只

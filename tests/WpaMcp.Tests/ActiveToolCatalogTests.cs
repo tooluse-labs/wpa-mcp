@@ -678,7 +678,7 @@ public sealed class ActiveToolCatalogTests
         Assert.Contains("CONVERTER_TRANSIENT_PEAK_NOT_HARD_BOUNDED", peak.ConclusionBoundaryCodes);
         Assert.Contains(peak.EvidenceReferences, evidence =>
             evidence.Kind == "reviewed_gap" &&
-            evidence.Member == "#### Physical artifact peak bound (release-blocked)");
+            evidence.Member == "#### Physical artifact peak bound (accepted residual risk)");
         Assert.Empty(catalog.Tools.Where(tool => tool.Capabilities.Contains(peak)));
 
         var lifecycle = catalog.Workflows.Single(workflow =>

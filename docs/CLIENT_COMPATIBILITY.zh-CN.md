@@ -84,13 +84,14 @@ release blocker。server 不会为迁就忽略 cursor 的 host 而隐藏后续 d
 corrected active-tool、DTO/stdio、lean-payload、pagination、历史 hash 与完整契约
 registry baseline 已在本轮审查，并由自动测试绑定到 active manifests/profile；原
 corrected-active-baseline blocker 因此关闭。独立的 opaque converter transient
-physical-peak blocker 仍保留；catalog gate 通过不会豁免它。
+physical peak 现作为 0.4.x 显式接受的残余风险；runtime warning 和风险接受证据会持续
+公开它，catalog gate 通过也不会把它冒充为已经证明的 hard bound。
 
 ## Profile 支持
 
 | Runtime profile | 客户端预期 | 当前实现 |
 |---|---|---|
-| Contract 2.0 + ID-only | lean discovery + 按需 closed envelope contract；`load_trace`/TraceId lifecycle | 可运行的开发 profile |
+| Contract 2.0 + ID-only | lean discovery + 按需 closed envelope contract；`load_trace`/TraceId lifecycle | 0.4.x 发布 profile |
 | Contract 2.0 + raw compatibility | 同一 discovery/contract 投影；raw path 已弃用并可能创建 canonical handle | 仅显式启动兼容；1.0 删除 |
 | Legacy + 任一 trace mode | 没有已发布 compatibility contract；Phase 0 golden 只作 regression evidence | 不支持；启动 fail closed，但不阻断 Contract 2.0 发布 |
 

@@ -2,7 +2,7 @@
   "formatVersion": "tools-list-pagination.v1",
   "measuredAt": "2026-08-02",
   "server": {
-    "catalogVersion": "f83046987ce22dbc0d034d306c5d773c49f6f90c61fa1c404f4cfb7dea1c218a",
+    "catalogVersion": "3013654166b56d7df3e09d2d3c1ab422061ce69a0bc8028d556c8b8ec758c0c5",
     "contractMode": "2.0",
     "toolCount": 61,
     "catalogScope": "wpa_mcp_declared_capabilities",

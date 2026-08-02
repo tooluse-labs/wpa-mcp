@@ -7,7 +7,7 @@
   "unresolvedProgramGates": [
     {
       "id": "opaque_converter_physical_peak",
-      "status": "release_blocked_measurement_pending"
+      "status": "accepted_residual_risk_non_blocking"
     },
     {
       "id": "raw_path_0_5_deprecation_telemetry",

@@ -120,8 +120,9 @@ artifacts have a startup-configured last-access TTL (seven days by default;
 A live handle pins its object, so TTL cannot invalidate an active generation;
 expiry is enforced after the final pin drains and before reuse. Quotas and
 materialization checkpoints bound retained state, but the opaque converter's
-transient physical disk peak is not yet proven. That is an explicit release
-blocker, not an inferred hard cap.
+transient physical disk peak is not hard-limited. Version 0.4.x explicitly
+accepts and discloses that residual risk; it is not described as an inferred
+whole-root hard cap.
 
 The optional `compatibility` trace-reference profile accepts approved raw paths
 through query adapters and therefore advertises the worst reachable path and
@@ -242,12 +243,12 @@ override environment values; tool calls cannot switch modes. The selected
 profile, warnings, and blockers are exposed at `wpa://runtime/profile` and bind
 directory/query cursors.
 
-The current 0.3.0 development source runs Contract 2.0 + ID-only. It is not a
-publishable ADR 0005 release profile because its version precedes 0.4.0.
+Version 0.4.0 runs the release-eligible Contract 2.0 + ID-only profile.
 `legacy` fails closed because no released legacy result contract exists; that
-unsupported mode is not a Contract 2.0 release blocker. Release eligibility
-remains blocked until opaque converter transient-peak evidence passes. The
-corrected active baselines are reviewed and closed in this change. Named-client paging/token/cache
+unsupported mode is not a Contract 2.0 release blocker. The opaque converter's
+transient physical disk peak remains an accepted, disclosed residual risk rather
+than a proven hard bound. The corrected active baselines are reviewed and closed
+in this change. Named-client paging/token/cache
 measurements are non-blocking compatibility observations unless a future ADR
 explicitly guarantees a named client/version. See `CONTRACT_MIGRATION.md` and
 `CLIENT_COMPATIBILITY.md`.

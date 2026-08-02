@@ -14,7 +14,7 @@
     "reason": "hostWrapperEffects keeps uniform startup/telemetry effects visible without weakening or inflating per-tool MCP annotations.",
     "traceReferenceRule": "ID-only queries use an already loaded TraceId and cannot materialize a source; the explicit compatibility profile may receive an approved raw local path and therefore inherits load/conversion effects.",
     "symbolRule": "Queries without SymbolContextId do no symbol lookup. Queries with SymbolContextId read only pinned verified artifacts; prepare_symbols is the sole symbol-store mutation boundary and current remote resolution is explicitly unimplemented.",
-    "artifactQuotaRule": "Retained artifact quotas and materialization checkpoints are enforced, but the opaque converter transient physical peak is not proven as a whole-root physical peak cap."
+    "artifactQuotaRule": "Retained artifact quotas and materialization checkpoints are enforced. The opaque converter transient physical peak is not hard-limited; this is an explicitly accepted residual risk for 0.4.x and must remain disclosed."
   },
   "stateEnums": {
     "pathAccess": [
@@ -142,7 +142,7 @@
       },
       "triggers": [
         "Raw paths are accepted only in the explicit compatibility profile and pass local-root, same-object, device, UNC, and reparse policy checks.",
-        "A cold .etl path may snapshot/convert/publish/evict only inside the server-owned artifact root; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"
+        "A cold .etl path may snapshot/convert/publish/evict only inside the server-owned artifact root; accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited"
       ],
       "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
       "evidenceSources": [
@@ -163,7 +163,7 @@
       },
       "triggers": [
         "All raw_trace_query source/artifact conditions apply; symbol resolution still requires a same-generation immutable SymbolContextId.",
-        "Query-time symbol use reads only pinned verified artifacts and performs no download/cache population; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"
+        "Query-time symbol use reads only pinned verified artifacts and performs no download/cache population; accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited"
       ],
       "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
       "evidenceSources": [
@@ -182,7 +182,7 @@
         "processState": {"state": "trace_handle_and_artifact_registry_mutation", "measurementState": "static_reviewed"},
         "externalStorage": {"state": "approved_local_source_only", "measurementState": "static_reviewed"}
       },
-      "triggers": ["load_trace may copy/convert/publish/evict in the owned root and mint/reuse a handle; release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven"],
+      "triggers": ["load_trace may copy/convert/publish/evict in the owned root and mint/reuse a handle; accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited"],
       "expectedAnnotations": {"readOnlyHint": false, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
       "evidenceSources": [
         {"path": "src/WpaMcp/Tools/MetaTools.cs", "member": "MetaTools.LoadTrace", "basis": "Exposes canonical load and TraceId result semantics."},

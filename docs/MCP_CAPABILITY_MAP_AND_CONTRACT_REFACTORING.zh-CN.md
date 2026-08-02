@@ -1083,9 +1083,11 @@ context-bound adapter；`resolveSymbols=true` 会稳定 fail closed 为
 resolution。`symbols.frame_resolution.measured` 因此仍是 declared gap。
 generation-level trace facts/open/conversion 使用 single-flight。
 
-未关闭的 gate 是 opaque converter 的瞬态物理磁盘峰值：retained quota 与单次
-materialization checkpoint 不能证明整个转换过程峰值，故 runtime 保留
-`release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven`。
+opaque converter 的瞬态物理磁盘峰值仍没有 hard limit：retained quota 与单次
+materialization checkpoint 不能证明整个转换过程峰值。0.4.x owner 已显式接受这项
+残余风险；runtime 以 warning 暴露
+`accepted_residual_risk:retained_quota_enforced;single_materialization_checkpoint_budget;opaque_converter_transient_peak_not_hard_limited`，且 evidence 明确保持
+`opaqueConverterTransientPeakProven=false`，不能冒充 hard-bound 证明。
 
 交付：
 
@@ -1190,14 +1192,13 @@ single-pass。实际 2GB ETL 的 wall-time、peak memory、cancel 和 response b
 
 ### Phase 7：默认切换与遗留清理
 
-实施状态（2026-08-02）：**启动级 rollout policy 与 release enforcement 已实现，
-但 Phase 7 尚未完成，也没有切换版本。** `RuntimeCompatibilityPolicy` 在读取 stdin
+实施状态（2026-08-02）：**启动级 rollout policy、release enforcement 与 0.4.0
+版本切换均已实现。** `RuntimeCompatibilityPolicy` 在读取 stdin
 前一次性解析 `WPAMCP_CONTRACT_MODE` / `--contract-mode` 与既有
 `WPAMCP_TRACE_REFERENCE_MODE` / `--trace-reference-mode`，CLI 覆盖 env；tool call
 不能切换。真实选择通过 `wpa://runtime/profile` 暴露，并进入 `tools/list` cursor
-binding 与 privacy-safe telemetry。当前 0.3.0 保留已实现的 2.0 + ID-only 开发默认，
-但机器状态为 `release_blocked`，因为 ADR 0005 从 0.4.x 才定义可发布 window。0.4.x
-默认且唯一 result shape 是 Contract 2.0，并使用 ID-only secure default；raw-path
+binding 与 privacy-safe telemetry。当前 0.4.0 默认且唯一 result shape 是 Contract
+2.0，并使用 ID-only secure default；raw-path
 compatibility 仅是到 1.0 前的显式 startup switch。此前没有 released legacy wire
 contract，选择 `legacy` 会 fail closed；没有一个从未发布的 adapter 不阻断 0.4.x。
 1.0 因缺少完整 0.5.x raw-path 弃用窗口与 usage telemetry review 而被硬门禁阻断。
@@ -1208,14 +1209,15 @@ active snapshots、manifest 和 artifact hashes 绑定到同一证据链。详�
 
 当前 active snapshots、lean discovery、pagination 与 full-contract registry baseline
 已经审查并由自动 gate 绑定，不再是 runtime release blocker。opaque converter
-transient-peak artifact 仍缺少通过证据，是当前保留的外部 release blocker。具名 client 的
+transient peak 未受 hard limit 的事实由版本化 evidence 记录，并作为 0.4.x 显式接受的
+非阻断 warning；evidence 不得把它标成 proven。具名 client 的
 paging/token/cache 测量只更新兼容指导，不是全局 release blocker；exact package
 stdio 必须自行证明 host-side 全页遍历、lean aggregate budget 与两条 full-contract
 lookup path。
 
 此外，安装/配置脚本必须通过 package stdio gate 证明只使用当前允许的 secure symbol
 options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须在发布前修正。故本节
-只声明 rollout machinery 已实现，不声明 0.4/0.5/1.0 任一 release window 已满足。
+声明 0.4.0 release window 已满足；0.5/1.0 的后续历史门禁仍按 ADR 执行。
 
 交付：
 

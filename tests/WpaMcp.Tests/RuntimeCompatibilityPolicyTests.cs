@@ -30,12 +30,12 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.Equal(ToolContractMode.V2, profile.ContractMode);
         Assert.Equal(TraceAccessMode.IdOnly, profile.TraceReferenceMode);
         Assert.True(profile.Runnable);
-        Assert.False(profile.ReleaseEligible);
+        Assert.True(profile.ReleaseEligible);
+        Assert.Empty(profile.ReleaseBlockers);
+        Assert.Empty(profile.ExternalKnownBlockers);
         Assert.DoesNotContain(profile.ReleaseBlockers, blocker =>
             blocker.Contains("legacy", StringComparison.Ordinal));
-        Assert.Equal(
-            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
-            profile.ExternalKnownBlockers);
+        Assert.Contains(RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk, profile.Warnings);
         RuntimeCompatibilityPolicy.RequireRunnable(profile);
     }
 
@@ -67,11 +67,10 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.False(profile.ContractModeExplicit);
         Assert.False(profile.TraceReferenceModeExplicit);
         Assert.True(profile.Runnable);
-        Assert.False(profile.ReleaseEligible);
-        Assert.Equal(
-            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
-            profile.ExternalKnownBlockers);
-        Assert.Empty(profile.Warnings);
+        Assert.True(profile.ReleaseEligible);
+        Assert.Empty(profile.ReleaseBlockers);
+        Assert.Empty(profile.ExternalKnownBlockers);
+        Assert.Contains(RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk, profile.Warnings);
     }
 
     [Fact]
@@ -83,9 +82,10 @@ public sealed class RuntimeCompatibilityPolicyTests
             traceReferenceModeExplicit: true);
 
         Assert.True(profile.Runnable);
-        Assert.False(profile.ReleaseEligible);
+        Assert.True(profile.ReleaseEligible);
         Assert.Contains(profile.Warnings, warning =>
             warning.StartsWith("raw_trace_path_deprecated", StringComparison.Ordinal));
+        Assert.Contains(RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk, profile.Warnings);
     }
 
     [Fact]
@@ -109,9 +109,8 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.False(defaults.ReleaseEligible);
         Assert.Contains(RuntimeCompatibilityPolicy.V1DeprecationGateStatus,
             defaults.ReleaseBlockers);
-        Assert.Equal(
-            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
-            defaults.ExternalKnownBlockers);
+        Assert.Empty(defaults.ExternalKnownBlockers);
+        Assert.Contains(RuntimeCompatibilityPolicy.ArtifactTransientPeakRisk, defaults.Warnings);
 
         var rawPath = RuntimeCompatibilityPolicy.Evaluate(
             "1.0.0",
@@ -270,9 +269,9 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.Equal("2.0", root.GetProperty("contract_mode").GetString());
         Assert.Equal("compatibility", root.GetProperty("trace_reference_mode").GetString());
         Assert.True(root.GetProperty("trace_reference_mode_explicit").GetBoolean());
-        Assert.Equal("blocked",
+        Assert.Equal("eligible",
             root.GetProperty("release_status").GetString());
-        Assert.NotEmpty(root.GetProperty("external_known_blockers").EnumerateArray());
+        Assert.Empty(root.GetProperty("external_known_blockers").EnumerateArray());
         Assert.NotEmpty(root.GetProperty("deprecation_warnings").EnumerateArray());
     }
 

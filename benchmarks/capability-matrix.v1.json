@@ -609,7 +609,7 @@
           "evidenceId": "evidence.lifecycle.trace.artifact_peak_bound",
           "kind": "reviewed_gap",
           "path": "docs/decisions/0004-trace-and-symbol-lifecycle.md",
-          "member": "#### Physical artifact peak bound (release-blocked)"
+          "member": "#### Physical artifact peak bound (accepted residual risk)"
         },
         {
           "evidenceId": "evidence.lifecycle.trace.artifact_checkpoint_budget",
