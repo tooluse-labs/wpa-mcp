@@ -18,16 +18,17 @@ public sealed class CapabilityPolicyTests
         var projection = full.ProjectCapabilityPolicy(policy, sdkTools);
         var catalog = projection.Catalog;
 
-        Assert.Equal(60, full.Tools.Count);
-        Assert.Equal(60, catalog.AllTools.Count);
-        Assert.Equal(57, catalog.Tools.Count);
-        Assert.Equal(57, projection.ServerTools.Count);
+        Assert.Equal(61, full.Tools.Count);
+        Assert.Equal(61, catalog.AllTools.Count);
+        Assert.Equal(58, catalog.Tools.Count);
+        Assert.Equal(58, projection.ServerTools.Count);
         Assert.DoesNotContain(catalog.Tools, tool =>
             tool.Capabilities.Any(capability =>
                 capability.CapabilityId == "cpu.sampled.stacks"));
         Assert.DoesNotContain(projection.ServerTools, tool => tool.ProtocolTool.Name is
             "cpu_caller_callee" or "cpu_top_functions" or "cpu_top_functions_batch");
         Assert.Contains(catalog.Tools, tool => tool.ToolName == "list_capabilities");
+        Assert.Contains(catalog.Tools, tool => tool.ToolName == "get_tool_contract");
         Assert.Contains(catalog.Tools, tool => tool.ToolName == "inspect_trace");
 
         var discovery = new CapabilityDiscoveryRuntime(
@@ -64,14 +65,14 @@ public sealed class CapabilityPolicyTests
         Assert.Equal(policy.ProfileHash, discovery.WorkflowCatalogSnapshot()
             .CapabilityPolicy.ProfileHash);
         var toolCatalog = discovery.ToolCatalogSnapshot();
-        Assert.Equal(60, toolCatalog.Tools.Count);
+        Assert.Equal(61, toolCatalog.Tools.Count);
         Assert.Equal(3, toolCatalog.Tools.Count(tool => !tool.Callable));
         Assert.All(
             toolCatalog.Tools.Where(tool => !tool.Callable),
             tool => Assert.Equal(
                 WpaMcp.Output.CapabilityAvailabilityStatus.DisabledByPolicy,
                 tool.AvailabilityState));
-        Assert.Equal(60, discovery.ToolResourceIndex().TotalItems);
+        Assert.Equal(61, discovery.ToolResourceIndex().TotalItems);
     }
 
     [Theory]

@@ -95,6 +95,8 @@ internal sealed class ActiveToolCatalog
     public IReadOnlyList<CapabilityGoalDefinition> Goals => _goals;
     public IReadOnlyList<CapabilityWorkflowDefinition> Workflows => _workflows;
     public IReadOnlyList<CapabilityEvaluatorDefinition> Evaluators => _evaluators;
+    internal IReadOnlyDictionary<string, ToolOutputContract> OutputContracts =>
+        _tools.ToDictionary(tool => tool.ToolName, tool => tool.OutputContract, StringComparer.Ordinal);
     internal CapabilityPolicyProfile CapabilityPolicy { get; }
     internal CapabilityEvaluatorRegistry EvaluatorRegistry => _evaluatorRegistry;
 
@@ -373,6 +375,11 @@ internal sealed class ActiveToolCatalog
         {
             throw new CatalogValidationException(
                 "CAPABILITY-POLICY-DISCOVERY: list_capabilities must remain callable");
+        }
+        if (!activeNames.Contains("get_tool_contract"))
+        {
+            throw new CatalogValidationException(
+                "CAPABILITY-POLICY-DISCOVERY: get_tool_contract must remain callable");
         }
 
         var inspectRetained = activeNames.Contains("inspect_trace");
@@ -1092,7 +1099,8 @@ internal sealed class ActiveToolCatalog
             entry.ConclusionRules.ToImmutableArray(),
             entry.DoesNotProve.ToImmutableArray(),
             entry.EvidenceReferences.ToImmutableArray(),
-            plannerAdmission);
+            plannerAdmission,
+            binding.OutputContract);
     }
 
     private static CapabilityDefinition BuildCapability(
@@ -1235,9 +1243,9 @@ internal sealed class ActiveToolCatalog
 
         var bootstrap = tools.Where(tool => tool.DiscoveryPriority == 0).Select(tool => tool.ToolName).ToArray();
         Require(bootstrap.SequenceEqual(
-                ["list_capabilities", "inspect_trace", "list_processes", "load_trace"]),
+                ["list_capabilities", "get_tool_contract", "inspect_trace", "list_processes", "load_trace"]),
             "DISCOVERY-BOOTSTRAP",
-            $"bootstrap order must be list_capabilities,inspect_trace,list_processes,load_trace; actual={string.Join(',', bootstrap)}");
+            $"bootstrap order must be list_capabilities,get_tool_contract,inspect_trace,list_processes,load_trace; actual={string.Join(',', bootstrap)}");
         Require(tools.Skip(bootstrap.Length).All(tool => tool.DiscoveryPriority > 0),
             "DISCOVERY-BOOTSTRAP", "domain tools must follow bootstrap tools");
     }
@@ -1300,7 +1308,12 @@ internal sealed class ActiveToolCatalog
                          .OrderBy(method => method.Name, StringComparer.Ordinal))
             {
                 var tool = CreateServerTool(method, options);
-                discovered.Add(new DiscoveredTool(method, tool));
+                discovered.Add(new DiscoveredTool(
+                    method,
+                    tool,
+                    ToolOutputSchemaFactory.CreateContract(
+                        tool.ProtocolTool.Name,
+                        EffectiveOutputType(method))));
             }
         }
 
@@ -1314,11 +1327,6 @@ internal sealed class ActiveToolCatalog
 
     internal static McpServerTool CreateServerTool(MethodInfo method, McpServerToolCreateOptions options)
     {
-        var publicOutputSchema = ToolOutputSchemaFactory.CreateEnvelopeSchema(EffectiveOutputType(method));
-        var publicOutputSchemaElement = JsonSerializer.SerializeToElement(
-            publicOutputSchema,
-            McpJsonUtilities.DefaultOptions);
-
         // The SDK tool must first serialize and validate the method's raw T result so
         // ContractMcpServerTool can review it. Supplying the public Envelope<T> schema
         // here makes the SDK reject every successful raw T before the wrapper runs.
@@ -1366,7 +1374,9 @@ internal sealed class ActiveToolCatalog
         SymbolToolSchemaOverlay.Apply(tool, method);
         ToolExactIntegerInputOverlay.Apply(tool, method);
         ToolOpaqueLocatorInputOverlay.Apply(tool, method);
-        tool.ProtocolTool.OutputSchema = publicOutputSchemaElement;
+        tool.ProtocolTool.OutputSchema = ToolOutputSchemaFactory.CreateContract(
+            tool.ProtocolTool.Name,
+            EffectiveOutputType(method)).ToJsonElement();
         return tool;
     }
 
@@ -1430,13 +1440,21 @@ internal sealed class ActiveToolCatalog
 
         foreach (var item in discovered)
         {
-            var expected = ToolOutputSchemaFactory.CreateEnvelopeSchema(EffectiveOutputType(item.Method));
+            var expected = item.OutputContract.ParseSchema();
             var actual = JsonNode.Parse(JsonSerializer.Serialize(
                 item.Tool.ProtocolTool.OutputSchema,
                 McpJsonUtilities.DefaultOptions));
             Require(JsonNode.DeepEquals(expected, actual),
                 "OUTPUT-SCHEMA",
-                $"{item.Tool.ProtocolTool.Name} does not advertise its exact closed envelope schema");
+                $"{item.Tool.ProtocolTool.Name} does not retain its exact server-side closed envelope schema");
+            var regenerated = ToolOutputSchemaFactory.CreateContract(
+                item.Tool.ProtocolTool.Name,
+                EffectiveOutputType(item.Method));
+            Require(
+                item.OutputContract == regenerated &&
+                item.OutputContract.SchemaUri.EndsWith(item.OutputContract.Sha256, StringComparison.Ordinal),
+                "OUTPUT-CONTRACT-REGISTRY",
+                $"{item.Tool.ProtocolTool.Name} does not have a stable content-addressed output contract");
         }
     }
 
@@ -1536,7 +1554,10 @@ internal sealed class ActiveToolCatalog
         IReadOnlyDictionary<string, IReadOnlyList<string>> WorkflowIdsByCapability,
         IReadOnlyDictionary<string, string> EvaluatorIdByCapability);
 
-    private sealed record DiscoveredTool(MethodInfo Method, McpServerTool Tool);
+    private sealed record DiscoveredTool(
+        MethodInfo Method,
+        McpServerTool Tool,
+        ToolOutputContract OutputContract);
 }
 
 internal static class CatalogManifestLoader

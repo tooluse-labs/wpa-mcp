@@ -22,37 +22,38 @@ public sealed class RuntimeCompatibilityPolicyTests
     }
 
     [Fact]
-    public void Version04_DefaultsToLegacyAndRawPathButFailsClosedWithoutLegacyFloor()
+    public void Version04_DefaultsToContract2AndIdOnlyWithoutInventingALegacyFloor()
     {
         var profile = RuntimeCompatibilityPolicy.Evaluate("0.4.7");
 
         Assert.Equal(RuntimeReleaseStage.V04, profile.ReleaseStage);
-        Assert.Equal(ToolContractMode.Legacy, profile.ContractMode);
-        Assert.Equal(TraceAccessMode.Compatibility, profile.TraceReferenceMode);
-        Assert.False(profile.Runnable);
+        Assert.Equal(ToolContractMode.V2, profile.ContractMode);
+        Assert.Equal(TraceAccessMode.IdOnly, profile.TraceReferenceMode);
+        Assert.True(profile.Runnable);
         Assert.False(profile.ReleaseEligible);
-        Assert.Contains(RuntimeCompatibilityPolicy.LegacyContractImplementationStatus,
-            profile.RuntimeBlockers);
-        Assert.Throws<ArgumentException>(() =>
-            RuntimeCompatibilityPolicy.RequireRunnable(profile));
+        Assert.DoesNotContain(profile.ReleaseBlockers, blocker =>
+            blocker.Contains("legacy", StringComparison.Ordinal));
+        Assert.Equal(
+            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
+            profile.ExternalKnownBlockers);
+        RuntimeCompatibilityPolicy.RequireRunnable(profile);
     }
 
     [Fact]
-    public void Version04_Contract2AndIdOnlyAreIndependentOptInsButDoNotRepairMissingDefault()
+    public void Version04_LegacySelectionFailsClosedBecauseItWasNeverAReleasedRuntimeContract()
     {
         var profile = RuntimeCompatibilityPolicy.Evaluate(
             "0.4.7",
-            ToolContractMode.V2,
+            ToolContractMode.Legacy,
             contractModeExplicit: true,
-            TraceAccessMode.IdOnly,
-            traceReferenceModeExplicit: true);
+            traceReferenceOverride: null,
+            traceReferenceModeExplicit: false);
 
-        Assert.True(profile.Runnable);
+        Assert.False(profile.Runnable);
         Assert.False(profile.ReleaseEligible);
         Assert.True(profile.ContractModeExplicit);
-        Assert.True(profile.TraceReferenceModeExplicit);
-        Assert.Contains(profile.ReleaseBlockers, blocker =>
-            blocker.StartsWith("required_0.4_default_unavailable", StringComparison.Ordinal));
+        Assert.Contains(RuntimeCompatibilityPolicy.LegacyContractImplementationStatus,
+            profile.RuntimeBlockers);
     }
 
     [Fact]
@@ -67,11 +68,8 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.False(profile.TraceReferenceModeExplicit);
         Assert.True(profile.Runnable);
         Assert.False(profile.ReleaseEligible);
-        Assert.Contains(RuntimeCompatibilityPolicy.ActiveContractBaselineStatus,
-            profile.ExternalKnownBlockers);
-        Assert.Contains(RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus,
-            profile.ExternalKnownBlockers);
-        Assert.Contains(RuntimeCompatibilityPolicy.SupportedClientMatrixStatus,
+        Assert.Equal(
+            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
             profile.ExternalKnownBlockers);
         Assert.Empty(profile.Warnings);
     }
@@ -99,8 +97,6 @@ public sealed class RuntimeCompatibilityPolicyTests
             contractModeExplicit: true);
 
         Assert.False(profile.Runnable);
-        Assert.Contains(profile.Warnings, warning =>
-            warning.StartsWith("legacy_contract_deprecated", StringComparison.Ordinal));
         Assert.Contains(RuntimeCompatibilityPolicy.LegacyContractImplementationStatus,
             profile.RuntimeBlockers);
     }
@@ -113,6 +109,9 @@ public sealed class RuntimeCompatibilityPolicyTests
         Assert.False(defaults.ReleaseEligible);
         Assert.Contains(RuntimeCompatibilityPolicy.V1DeprecationGateStatus,
             defaults.ReleaseBlockers);
+        Assert.Equal(
+            [RuntimeCompatibilityPolicy.ArtifactTransientPeakStatus],
+            defaults.ExternalKnownBlockers);
 
         var rawPath = RuntimeCompatibilityPolicy.Evaluate(
             "1.0.0",
@@ -178,16 +177,16 @@ public sealed class RuntimeCompatibilityPolicyTests
     }
 
     [Fact]
-    public void ServerOptions_Default04ProfileFailsBeforeHostStartup()
+    public void ServerOptions_Default04ProfileUsesContract2AndIdOnly()
     {
         var values = BaseEnvironment();
-        var error = Assert.Throws<ArgumentException>(() => McpServerOptions.Parse(
+        var options = McpServerOptions.Parse(
             [],
             key => values.GetValueOrDefault(key),
-            runtimeVersion: "0.4.0"));
+            runtimeVersion: "0.4.0");
 
-        Assert.Contains("legacy", error.Message, StringComparison.Ordinal);
-        Assert.Contains("unavailable", error.Message, StringComparison.Ordinal);
+        Assert.Equal(ToolContractMode.V2, options.CompatibilityProfile.ContractMode);
+        Assert.Equal(TraceAccessMode.IdOnly, options.TraceRuntime.AccessMode);
     }
 
     [Fact]
@@ -224,7 +223,7 @@ public sealed class RuntimeCompatibilityPolicyTests
             json,
             StringComparison.Ordinal);
         Assert.Contains(
-            "\"outputSchemaReferenceRequirement\":\"required_client_resolution\"",
+            "\"outputSchemaReferenceRequirement\":\"on_demand_content_addressed_resource_or_get_tool_contract\"",
             json,
             StringComparison.Ordinal);
         Assert.Contains(

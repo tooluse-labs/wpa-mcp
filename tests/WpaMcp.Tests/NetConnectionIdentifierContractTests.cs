@@ -2,10 +2,11 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol;
-using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
+using WpaMcp.Core.Catalog;
 using WpaMcp.Output;
 
 namespace WpaMcp.Tests;
@@ -80,18 +81,24 @@ public sealed class NetConnectionIdentifierContractTests
     [Fact]
     public void GeneratedOutputSchema_IdentifiesExactAndDeprecatedFields()
     {
-        var tool = McpServerTool.Create(
-            (Func<NetConnectionRow>)SchemaProbe,
-            new McpServerToolCreateOptions
-            {
-                UseStructuredContent = true,
-                SerializerOptions = McpJsonUtilities.DefaultOptions,
-            });
-        var schema = JsonSerializer.Serialize(
-            tool.ProtocolTool.OutputSchema,
-            McpJsonUtilities.DefaultOptions);
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var contract = catalog.OutputContracts["net_connections"];
+        var tool = Assert.Single(
+            catalog.CreateProtocolTools(new DeferredCatalogServiceProvider()),
+            candidate => candidate.Name == contract.ToolName);
+        Assert.Null(tool.OutputSchema);
+        var metadata = Assert.IsType<JsonObject>(
+            tool.Meta?[ToolOutputContract.MetadataKey]);
+        Assert.Equal(contract.SchemaUri, metadata["uri"]!.GetValue<string>());
+        Assert.Equal(contract.Sha256, metadata["sha256"]!.GetValue<string>());
+        Assert.Equal(contract.Utf8Bytes, metadata["utf8Bytes"]!.GetValue<int>());
+        Assert.True(JsonNode.DeepEquals(contract.ToDiscoveryMetadata(), metadata));
+
+        var schema = contract.CanonicalJson;
         using var schemaDocument = JsonDocument.Parse(schema);
-        var root = schemaDocument.RootElement;
+        var root = FindObjectSchemaWithProperty(
+            schemaDocument.RootElement,
+            "connIdText");
         var properties = root.GetProperty("properties");
 
         Assert.Contains("\"connIdText\"", schema, StringComparison.Ordinal);
@@ -107,15 +114,17 @@ public sealed class NetConnectionIdentifierContractTests
         Assert.Equal(
             "string",
             properties.GetProperty("connIdText").GetProperty("type").GetString());
-        var legacyTypes = properties.GetProperty("connId")
-            .GetProperty("type")
+        var legacyBranches = properties.GetProperty("connId")
+            .GetProperty("anyOf")
             .EnumerateArray()
-            .Select(item => item.GetString())
+            .ToArray();
+        var legacyTypes = legacyBranches
+            .Select(item => item.GetProperty("type").GetString())
             .ToArray();
         Assert.Equal(["integer", "null"], legacyTypes);
         Assert.Equal(
             NetConnectionAnalysis.JavaScriptMaxSafeInteger,
-            properties.GetProperty("connId").GetProperty("maximum").GetUInt64());
+            legacyBranches[0].GetProperty("maximum").GetUInt64());
         Assert.Equal(
             "string",
             properties.GetProperty("connIdLegacyStatus").GetProperty("type").GetString());
@@ -168,5 +177,51 @@ public sealed class NetConnectionIdentifierContractTests
         return property.PropertyType;
     }
 
-    private static NetConnectionRow SchemaProbe() => throw new NotSupportedException();
+    private static JsonElement FindObjectSchemaWithProperty(
+        JsonElement element,
+        string propertyName)
+    {
+        if (TryFindObjectSchemaWithProperty(element, propertyName, out var result))
+            return result;
+
+        throw new KeyNotFoundException(
+            $"No object schema contains property '{propertyName}'.");
+    }
+
+    private static bool TryFindObjectSchemaWithProperty(
+        JsonElement element,
+        string propertyName,
+        out JsonElement result)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("properties", out var properties) &&
+                properties.ValueKind == JsonValueKind.Object &&
+                properties.TryGetProperty(propertyName, out _))
+            {
+                result = element;
+                return true;
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (TryFindObjectSchemaWithProperty(
+                        property.Value,
+                        propertyName,
+                        out result))
+                    return true;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (TryFindObjectSchemaWithProperty(item, propertyName, out result))
+                    return true;
+            }
+        }
+
+        result = default;
+        return false;
+    }
 }

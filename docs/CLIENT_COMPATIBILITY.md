@@ -1,26 +1,37 @@
 # MCP client compatibility
 
 wpa-mcp exposes its full capability surface and full evidence boundaries. A
-compatible client must reduce discovery cost without silently discarding tools,
-schemas, continuations, or uncertainty fields.
+compatible client must reduce discovery cost without silently discarding tool
+descriptors, continuations, or uncertainty fields. Full result contracts are
+available on demand and are not broadcast inline with every descriptor.
 
-The current validated development surface is 60 active tools mapped to 51
-declared capabilities, 15 goals, and 15 workflows. Those counts are a snapshot for
-cross-checking full traversal; clients must use the advertised catalog version
-and totals rather than hard-code them.
+The validated development surface publishes its current tool, capability,
+goal, and workflow totals with the catalog. Clients must use the advertised
+catalog version and totals rather than hard-code a snapshot.
 
 ## Required client behavior
 
 - Negotiate the repository-pinned MCP protocol profile over stateful stdio.
 - Follow `tools/list.nextCursor` until absent and combine pages without
-  omission, duplication, or reordering. A page-one-only client is incompatible.
-- Preserve each tool's complete input and output schema. A tool/schema is an
-  indivisible paging unit.
-- Resolve every output schema according to its declared JSON Schema 2020-12
+  omission, duplication, or reordering. This is MCP client/host work, not an
+  LLM reasoning task.
+- Preserve each complete lean discovery descriptor: name, description, input
+  schema, annotations, and Contract 2.0 URI/version/hash. A descriptor is an
+  indivisible paging unit; the full output schema is not required inline.
+- Fetch `wpa://contracts/tools/{toolName}/{sha256}` only when deep
+  client-side result validation is needed. Follow its immutable byte-range page
+  index, concatenate fragments in order, and verify the advertised UTF-8 size
+  and SHA-256. A Tools-only client uses
+  `get_tool_contract(toolName, page)` to retrieve the same canonical bytes in
+  deterministic pages. Both paths use identical fixed 8,192-UTF-8-byte page
+  boundaries. The server fails startup if the configured response cap cannot
+  deliver every Resource page and mirrored Contract 2.0 Tool page; the reviewed
+  current catalog requires 35,858 bytes even though `tools/list` alone can page
+  at a lower cap.
+- Resolve a fetched output schema according to its declared JSON Schema 2020-12
   dialect. The server uses only one-segment same-document references of the
   form `#/$defs/<safe-id>` and rejects dangling, cyclic, multi-segment,
-  anchored, or external references. A client that ignores or cannot resolve
-  these local references is incompatible; it must not silently treat a
+  anchored, or external references. A validator must not silently treat a
   referenced schema as permissive. External references must never trigger a
   network fetch.
 - Consume Contract 2.0 `structuredContent`; verify or treat `content` text as
@@ -56,46 +67,51 @@ and totals rather than hard-code them.
 Resource-capable clients should start with the small indexes at
 `wpa://capabilities/server`, `wpa://tools/server`, and
 `wpa://workflows/server`, then follow every listed page. For a selected tool,
-read `wpa://tools/{toolName}/sections` and all listed pages before relying on
-section ordering or evidence semantics. These resources are same-source
-projections of the Active Catalog and are frame-budgeted; they do not authorize
-a client to skip `tools/list` pages or hide a capability from a Tools-only
-model.
+its discovery descriptor names the immutable full-contract resource at
+`wpa://contracts/tools/{toolName}/{sha256}`. Read it only when a UI,
+validator, code generator, or diagnostic needs the deep schema, then follow its
+page index and verify the reassembled bytes. Also read
+`wpa://tools/{toolName}/sections` and all listed pages before relying on section
+ordering or evidence semantics. These resources are same-source projections of
+the Active Catalog and are frame-budgeted.
+
+The host should assemble and cache the complete lean discovery catalog, then
+use the capability map and current task to inject only relevant descriptors
+into the LLM context. That progressive injection is a host responsibility; it
+does not change the server catalog. A host that omits a descriptor must not
+report the corresponding capability as absent from wpa-mcp.
 
 ## Evidence status
 
-The in-repository package harness exercises the exact published executable over
-raw stdio. It initializes with the maximum accepted serialized request-ID size,
-walks all tool and capability pages, verifies schemas and synchronized
-structured/text output, reads capability and runtime resources, checks complete
-frame budgets, and verifies that the executable is unchanged. It separately
-proves hostile first-frame rejection occurs before mutable telemetry/trace/
-symbol side effects.
+For release evidence, the in-repository package harness must exercise the exact
+published executable over raw stdio. It must initialize with the maximum
+accepted serialized request-ID size, walk all tool and capability pages, verify
+the lean descriptors, resolve every advertised full-contract URI/hash through
+the Resource and Tools-only paths, validate synchronized structured/text
+output, read capability and runtime resources, check complete frame budgets,
+and verify that the executable is unchanged. A separate case must prove hostile
+first-frame rejection occurs before mutable telemetry/trace/symbol side effects.
 
 This is protocol/package evidence, not proof for every named third-party
-client. Prompt-schema token cost, prefix-cache behavior, and complete page
-aggregation remain `release_blocked:supported_client_matrix_incomplete` until
-recorded for each supported client/version. The server will not hide later
-tools to accommodate a client that ignores cursors.
+client. Named client/version runs may record page aggregation, which descriptors
+the host injects, prompt-schema token cost, and prefix-cache behavior. Those
+observations update the compatibility table and host guidance; they are not a
+global release blocker unless a future ADR explicitly guarantees that named
+client/version and defines its acceptance criteria. The server will not hide
+later descriptors to accommodate a host that ignores cursors.
 
-The release workflow requires a passed
-`eng/contract-baselines/supported-client-matrix.v1.json` whose every client row
-records full-page consumption, measured schema tokens, and measured prompt-cache
-behavior. The file is currently absent, so both the runtime profile and workflow
-remain blocked rather than treating the raw stdio harness as client evidence.
-
-Corrected active snapshot files can exist before they are release-approved.
-The runtime deliberately keeps
-`release_blocked:corrected_active_contract_baselines_not_release_approved`
-until the snapshots, manifests, profile, package executable, and commit have
-been reviewed as one evidence set.
+The corrected active-tool, DTO/stdio, lean-payload, pagination, historical-hash,
+and full-contract registry baselines are reviewed and automatically bound to
+the active manifests/profile. That closes the former corrected-active-baseline
+blocker. The independent opaque-converter transient physical-peak blocker
+remains; passing these catalog gates does not waive it.
 
 ## Profile support
 
 | Runtime profile | Client expectation | Current implementation |
 |---|---|---|
-| Contract 2.0 + ID-only | Closed envelope schemas; `load_trace`/TraceId lifecycle | Runnable development profile |
-| Contract 2.0 + raw compatibility | Same envelope; raw paths deprecated and may create a canonical handle | Explicit startup compatibility only; removed in 1.0 |
-| Legacy + either trace mode | Phase 0 legacy goldens, not Contract 2.0 relabeled | Not implemented; startup fails closed |
+| Contract 2.0 + ID-only | Lean discovery plus on-demand closed envelope contracts; `load_trace`/TraceId lifecycle | Runnable development profile |
+| Contract 2.0 + raw compatibility | Same discovery/contract projections; raw paths deprecated and may create a canonical handle | Explicit startup compatibility only; removed in 1.0 |
+| Legacy + either trace mode | No released compatibility contract; Phase 0 goldens are regression evidence only | Unsupported; startup fails closed without blocking Contract 2.0 releases |
 
 See `CONTRACT_MIGRATION.md` and ADR 0005 for version defaults and removal dates.

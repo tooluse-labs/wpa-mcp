@@ -1,6 +1,6 @@
 # wpa-mcp — MCP 工具表面设计（review draft）
 
-> **历史快照（2026-05；2026-08-01 对齐说明）：** 正文不是当前实现证据。validated development surface 现有 60 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows；`list_capabilities` 与可分页 capability/tool/workflow、per-section contract Resources 已实现，所有 active tools 均输出 Contract 2.0 envelope。正文中的旧 `diagnose_symbols`、`set_symbol_path`、`add_symbol_server` 已不在 active surface，由显式本地 `prepare_symbols` lifecycle 取代。当前架构/状态以 [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md)、`ARCHITECTURE.md` 和 ADR 0002–0005 为准。正文只保留“不删低频工具、不做 mega-tool、不按 trace 动态过滤 `tools/list`”等历史设计动机。
+> **历史快照（2026-05；2026-08-02 对齐说明）：** 正文不是当前实现证据。validated development surface 现有 61 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows；lean 可分页 `tools/list`、`list_capabilities` 与按需 capability/tool/contract Resources 已实现，所有 invocation 均输出 Contract 2.0 envelope。正文中的旧 `diagnose_symbols`、`set_symbol_path`、`add_symbol_server` 已不在 active surface，由显式本地 `prepare_symbols` lifecycle 取代。当前架构/状态以 [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md)、`ARCHITECTURE.md` 和 ADR 0002–0005 为准。正文只保留“不删低频工具、不做 mega-tool、不按 trace 动态过滤 `tools/list`”等历史设计动机。
 
 > Working notes，不是 RFC。讨论如何组织当前很宽且仍在增长的工具面，让 LLM 消费者不被 decision fatigue 淹没，同时不丢分析能力。
 >

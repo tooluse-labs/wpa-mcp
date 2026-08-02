@@ -3,10 +3,10 @@
   "observation": {
     "catalogSource": "eng/tool-contracts.v2.json",
     "activeCatalogSnapshotTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
-    "toolCount": 60,
+    "toolCount": 61,
     "profiles": ["id_only", "compatibility"],
     "reviewScope": "Every current Active Catalog tool under both trace-reference profiles, plus separately disclosed host-wrapper effects.",
-    "reviewedAt": "2026-08-01"
+    "reviewedAt": "2026-08-02"
   },
   "annotationBoundary": {
     "included": "The tool request domain: worst reachable effects of the active implementation and shared trace/symbol services during one tool request.",
@@ -89,10 +89,10 @@
         "processState": {"state": "bounded_discovery_cursor_registry_mutation", "measurementState": "static_reviewed"},
         "externalStorage": {"state": "none", "measurementState": "static_reviewed"}
       },
-      "triggers": ["Paged capability discovery may mint/redeem an opaque bounded in-process cursor; it does not inspect a trace or external resource."],
+      "triggers": ["Catalog discovery may read immutable in-process metadata; list_capabilities may mint/redeem a bounded cursor, while get_tool_contract uses deterministic random-access pages. Neither inspects a trace or external resource."],
       "expectedAnnotations": {"readOnlyHint": true, "idempotentHint": true, "openWorldHint": false, "destructiveHint": false},
       "evidenceSources": [
-        {"path": "src/WpaMcp/Tools/CapabilityDiscoveryTools.cs", "member": "CapabilityDiscoveryTools.ListCapabilities", "basis": "Routes only to the validated declared capability catalog."},
+        {"path": "src/WpaMcp/Tools/CapabilityDiscoveryTools.cs", "member": "CapabilityDiscoveryTools.ListCapabilities/GetToolContract", "basis": "Routes only to the validated declared capability catalog and its immutable output-contract registry."},
         {"path": "src/WpaMcp/Core/CapabilityDiscovery.cs", "member": "CapabilityDiscoveryService/CapabilityCursorRegistry", "basis": "Implements bounded opaque discovery paging without trace or filesystem access."}
       ]
     },
@@ -253,6 +253,7 @@
     {"name":"find_marker","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
     {"name":"generic_event_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
     {"name":"generic_event_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
+    {"name":"get_tool_contract","manifestSideEffectClass":"none","idOnlyFamily":"none","compatibilityFamily":"none"},
     {"name":"hard_fault_by_file","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
     {"name":"hard_fault_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
     {"name":"hard_fault_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},

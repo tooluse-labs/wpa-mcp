@@ -152,16 +152,15 @@ public sealed class ToolOutputSchemaTests
     }
 
     [Fact]
-    public void EveryActiveToolSchema_UsesReachableSafeLocalDefinitionsWithinFrameCap()
+    public void EveryActiveOutputContract_UsesReachableSafeLocalDefinitionsAndLeanDiscoveryFitsFrameCap()
     {
         var catalog = ActiveToolCatalog.LoadAndValidate();
-        var protocolTools = catalog.CreateProtocolTools(
-            new DeferredCatalogServiceProvider());
+        var outputContracts = catalog.OutputContracts;
 
-        Assert.Equal(60, protocolTools.Count);
-        Assert.All(protocolTools, tool =>
+        Assert.Equal(61, outputContracts.Count);
+        Assert.All(catalog.Tools, tool =>
         {
-            var schema = JsonNode.Parse(tool.OutputSchema!.Value.GetRawText())!.AsObject();
+            var schema = outputContracts[tool.ToolName].ParseSchema();
             Assert.Equal(
                 "https://json-schema.org/draft/2020-12/schema",
                 schema["$schema"]!.GetValue<string>());
@@ -175,14 +174,16 @@ public sealed class ToolOutputSchemaTests
             Assert.Empty(ToolOutputSchemaLinter.LintSchema(schema));
         });
 
+        var protocolTools = catalog.CreateProtocolTools(
+            new DeferredCatalogServiceProvider());
+        Assert.All(protocolTools, tool => Assert.Null(tool.OutputSchema));
         var preflight = ToolsListPageFitter.Preflight(
             protocolTools,
             ToolsListPaginationOptions.HardMaxResponseFrameBytes);
-        Assert.Equal("diagnose_slow_startup", preflight.LargestSingleToolName);
         Assert.True(
             preflight.LargestSingleToolFrameBytes <
             ToolsListPaginationOptions.HardMaxResponseFrameBytes,
-            $"Largest schema frame was {preflight.LargestSingleToolFrameBytes} bytes.");
+            $"Largest lean discovery frame was {preflight.LargestSingleToolFrameBytes} bytes.");
     }
 
     [Fact]

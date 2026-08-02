@@ -9,11 +9,11 @@ namespace WpaMcp.Core;
 
 internal static class ToolListPayload
 {
-    public const int DefaultMaxPayloadBytes = 200_000;
-    // Immutable Phase 1 legacy-transition observation. Contract 2.0 intentionally
-    // exceeds this aggregate threshold because every tool exposes its closed output
-    // schema; tools/list page fitting is the transport bound and does not reduce the
-    // aggregate prompt cost reported by this measurement.
+    // Lean discovery has its own aggregate prompt-cost gate. Full Contract 2.0
+    // schemas are measured separately in the content-addressed registry.
+    public const int DefaultMaxPayloadBytes = 250_000;
+    // Immutable Phase 1 legacy-transition observation retained for historical
+    // comparison; it is not the active discovery budget.
     public const int BaselineGuardPayloadBytes = 185_000;
 
     public static ToolListPayloadStats MeasureCurrentAssembly(

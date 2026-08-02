@@ -87,14 +87,10 @@ internal static class RuntimeCompatibilityPolicy
 {
     internal const string ContractModeEnvironmentVariable = "WPAMCP_CONTRACT_MODE";
     internal const string LegacyContractImplementationStatus =
-        "release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime";
-    internal const string LegacyContractRemovalRelease = "1.0.0";
+        "unsupported:no_released_legacy_result_contract_exists;contract_2.0_is_the_only_runtime_shape";
+    internal const string LegacyContractRemovalRelease = "not_applicable";
     internal const string V1DeprecationGateStatus =
         "release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence";
-    internal const string SupportedClientMatrixStatus =
-        "release_blocked:supported_client_matrix_incomplete";
-    internal const string ActiveContractBaselineStatus =
-        "release_blocked:corrected_active_contract_baselines_not_release_approved";
     internal const string ArtifactTransientPeakStatus =
         "release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven";
     internal const string OutputSchemaDialect =
@@ -102,7 +98,7 @@ internal static class RuntimeCompatibilityPolicy
     internal const string OutputSchemaReferenceProfile =
         "root_local_defs_safe_id";
     internal const string OutputSchemaReferenceRequirement =
-        "required_client_resolution";
+        "on_demand_content_addressed_resource_or_get_tool_contract";
     internal const string OutputSchemaExternalReferencePolicy =
         "forbidden";
 
@@ -138,15 +134,8 @@ internal static class RuntimeCompatibilityPolicy
         var traceReference = traceReferenceOverride ?? defaults.TraceReference;
         var runtimeBlockers = new List<string>();
         var releaseBlockers = new List<string>();
-        var externalKnownBlockers = new List<string>
-        {
-            ActiveContractBaselineStatus,
-            ArtifactTransientPeakStatus,
-        };
+        var externalKnownBlockers = new List<string> { ArtifactTransientPeakStatus };
         var warnings = new List<string>();
-
-        if (stage is RuntimeReleaseStage.V05 or RuntimeReleaseStage.V1OrLater)
-            externalKnownBlockers.Add(SupportedClientMatrixStatus);
 
         if (stage == RuntimeReleaseStage.V1OrLater)
         {
@@ -165,12 +154,6 @@ internal static class RuntimeCompatibilityPolicy
         {
             releaseBlockers.Add("release_line_not_defined_by_adr_0005:version_is_before_0.4.0");
         }
-        else if (stage == RuntimeReleaseStage.V04 && !LegacyContractImplemented)
-        {
-            // A 0.4 artifact is not releasable merely because its opt-in 2.0 mode
-            // starts: its required default legacy floor must also be runnable.
-            releaseBlockers.Add("required_0.4_default_unavailable:" + LegacyContractImplementationStatus);
-        }
         else if (stage == RuntimeReleaseStage.V1OrLater && !V1DeprecationGateApproved)
         {
             releaseBlockers.Add(V1DeprecationGateStatus);
@@ -183,11 +166,6 @@ internal static class RuntimeCompatibilityPolicy
         {
             warnings.Add(
                 "raw_trace_path_deprecated:migrate_to_load_trace_and_trace_id;removed_in_1.0.0");
-        }
-        if (contract == ToolContractMode.Legacy && stage == RuntimeReleaseStage.V05)
-        {
-            warnings.Add(
-                "legacy_contract_deprecated:migrate_to_contract_2.0;removed_in_1.0.0");
         }
         if (stage == RuntimeReleaseStage.DevelopmentPre04)
         {
@@ -243,7 +221,7 @@ internal static class RuntimeCompatibilityPolicy
         RuntimeReleaseStage stage) => stage switch
     {
         RuntimeReleaseStage.DevelopmentPre04 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
-        RuntimeReleaseStage.V04 => (ToolContractMode.Legacy, TraceAccessMode.Compatibility),
+        RuntimeReleaseStage.V04 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V05 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V1OrLater => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         _ => throw new ArgumentOutOfRangeException(nameof(stage)),

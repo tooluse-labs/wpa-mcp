@@ -94,7 +94,8 @@ internal sealed record ActiveToolDefinition(
     ImmutableArray<string> ConclusionRules,
     ImmutableArray<string> DoesNotProve,
     ImmutableArray<string> EvidenceReferenceIds,
-    PlannerAdmissionDefinition? PlannerAdmission);
+    PlannerAdmissionDefinition? PlannerAdmission,
+    ToolOutputContract OutputContract);
 
 internal sealed record PlannerAdmissionDefinition(
     string ToolName,

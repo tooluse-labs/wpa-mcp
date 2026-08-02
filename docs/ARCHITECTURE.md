@@ -7,14 +7,17 @@ catalog, lifecycle, analysis, and wire-contract state are interchangeable.
 ```text
 MCP client (stateful stdio JSON-RPC)
   │
-  ├─ tools/list cursor pages ───────────────┐
+  ├─ lean tools/list cursor pages ──────────┐
   ├─ list_capabilities / inspect_trace      │ capability selection
-  └─ wpa://... resources                    │ and evidence boundaries
+  ├─ wpa://contracts/tools/... resources    │ on-demand full contracts
+  └─ get_tool_contract (Tools-only)         │ equivalent fallback
                                             ▼
 Validated Active Catalog
   ├─ eng/capabilities.v1.json
   ├─ eng/tool-contracts.v2.json
   ├─ benchmarks/capability-matrix.v1.json
+  ├─ lean discovery projection
+  ├─ full Contract 2.0 registry
   └─ executable SDK tool/schema bindings
                                             │
                                             ▼
@@ -29,7 +32,7 @@ ContractMcpServerTool
 Tools/*Tools.cs → Analyzers/*.cs → TraceEvent / TraceLog
 ```
 
-As of 2026-08-01 the validated model contains **60 active tools, 51 declared
+As of 2026-08-02 the validated model contains **61 active tools, 51 declared
 capabilities, 15 goals, and 15 workflows**. These are a reviewed snapshot, not
 constants to copy into code. Startup fails closed when manifests, attributed
 methods, schemas, capability links, evidence references, planner admissions,
@@ -43,10 +46,19 @@ The server follows one design rule:
 > selection cost. Expose complete evidence boundaries, and use structured
 > contracts to prevent an LLM from over-interpreting results.
 
-`tools/list` always exposes every active tool in deterministic order. It is
-byte-budgeted and cursor-paged; a tool and its complete input/output schemas are
-an indivisible unit. A client must consume every page. The server never removes
-later tools or schemas to make page one smaller.
+`tools/list` always exposes every active tool in deterministic order through a
+lean discovery descriptor. Each descriptor contains the name, description,
+complete input schema, annotations, and content-addressed Contract 2.0
+URI/version/hash. It does not need to inline the full output schema. Discovery
+descriptors are byte-budgeted and cursor-paged as indivisible units. A protocol
+client or host consumes every advertised page; the LLM itself is not responsible
+for MCP cursor traversal. The server never removes later tools to make page one
+smaller.
+
+The host may cache the complete lean catalog and use `list_capabilities` to
+inject only task-relevant descriptors into an LLM context. That progressive
+injection is host policy, not dynamic server-side `tools/list` filtering, and a
+host omission must not be described as capability absence in the server.
 
 The same Active Catalog supplies:
 
@@ -55,15 +67,25 @@ The same Active Catalog supplies:
   and workflow against one immutable trace generation;
 - `wpa://capabilities/server`, `wpa://tools/server`, and
   `wpa://workflows/server`, which are small page indexes;
-- domain/workflow resource pages; and
+- domain/workflow resource pages;
+- immutable `wpa://contracts/tools/{toolName}/{sha256}` resources, with
+  fixed 8,192-UTF-8-byte page indexes and equivalent
+  `get_tool_contract(toolName, page)` lookup for Tools-only clients. Both paths
+  read one page registry, so page identities remain stable across frame caps;
+  startup measures every actual Resource and mirrored Contract 2.0 Tool frame
+  with the maximum request ID and rejects an insufficient cap before stdin; and
 - `wpa://tools/{toolName}/sections` plus numbered pages, which expose every
   section's JSON pointer, role, ordering and tie breakers, completeness proof,
   limit source, evidence IDs, measurement basis, relationship, and declared
   conclusion.
 
-Resources lower repeated discovery cost but are not the only route to critical
-facts. A Tools-only client can still discover the full surface and inspect a
-trace. Capabilities absent from a capture remain discoverable with structured
+Resources lower repeated discovery and validation cost but are not the only
+route to critical facts. A Tools-only client can still discover the full
+surface, inspect a trace, and retrieve a selected full contract. Fetching a full
+contract is needed only for deep client-side result validation; invocation does
+not require preloading all output schemas. Contract fragments are concatenated
+in advertised byte order and verified against the descriptor's UTF-8 size and
+SHA-256. Capabilities absent from a capture remain discoverable with structured
 `partial`, `unavailable`, or `unknown` evidence; they are not hidden.
 
 ## Trace and artifact lifecycle
@@ -142,10 +164,12 @@ lookup implementation and real-trace correctness evidence are admitted.
 
 ## Contract 2.0 result pipeline
 
-All 60 active tools advertise a closed Contract 2.0 output schema and return a
-`ToolEnvelope<T>`. The exact same finalized object is serialized into
-`structuredContent` and the text JSON block. The shared header makes these
-dimensions machine-readable:
+Every active tool has one closed Contract 2.0 output schema generated into the
+full contract registry and enforced by the server. The lean `tools/list`
+descriptor advertises its immutable URI and SHA-256 rather than broadcasting
+the deep schema. Each tool returns a `ToolEnvelope<T>`. The exact same finalized
+object is serialized into `structuredContent` and the text JSON block. The
+shared header makes these dimensions machine-readable:
 
 - tool and trace reference;
 - resolved scope and exact process/thread identities;
@@ -219,8 +243,11 @@ profile, warnings, and blockers are exposed at `wpa://runtime/profile` and bind
 directory/query cursors.
 
 The current 0.3.0 development source runs Contract 2.0 + ID-only. It is not a
-publishable ADR 0005 release profile. `legacy` fails closed because no reviewed
-legacy adapter exists. Release eligibility also remains blocked until corrected
-active baselines are explicitly approved, the supported-client paging/token/
-cache matrix exists where required, and opaque converter transient-peak evidence
-passes. See `CONTRACT_MIGRATION.md` and `CLIENT_COMPATIBILITY.md`.
+publishable ADR 0005 release profile because its version precedes 0.4.0.
+`legacy` fails closed because no released legacy result contract exists; that
+unsupported mode is not a Contract 2.0 release blocker. Release eligibility
+remains blocked until opaque converter transient-peak evidence passes. The
+corrected active baselines are reviewed and closed in this change. Named-client paging/token/cache
+measurements are non-blocking compatibility observations unless a future ADR
+explicitly guarantees a named client/version. See `CONTRACT_MIGRATION.md` and
+`CLIENT_COMPATIBILITY.md`.

@@ -1,6 +1,6 @@
 # wpa-mcp 能力地图与证据契约重构设计
 
-**日期：** 2026-08-01
+**日期：** 2026-08-02
 
 **状态：** Accepted design amendment；Phase 0–7 runtime implementation 已大范围落地；最终 release gates 尚未关闭
 
@@ -10,7 +10,7 @@
 
 **适用范围：** MCP 公开能力发现、工具目录、结构化结果、证据边界、标识符精度、分页/截断、副作用分层、路由与 composite 执行
 
-**当前实现基线：** 以运行时 validated Active Catalog、公开 schema、测试与 release gate 为准。2026-08-01 当前快照为 **60 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows**；其中 declared capability 包含显式 gap。这些数字用于核对此次实施，不得成为跳过 catalog 验证的长期手写常量。
+**当前实现基线：** 以运行时 validated Active Catalog、公开 schema、测试与 release gate 为准。2026-08-02 当前快照为 **61 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows**；其中 declared capability 包含显式 gap。这些数字用于核对此次实施，不得成为跳过 catalog 验证的长期手写常量。
 
 ## 1. 文档定位与优先级
 
@@ -31,7 +31,8 @@
 
 | 既有条款 | 已接受目标方向 | 后续 ADR gate/需同步 owner |
 | --- | --- | --- |
-| legacy catalog 不广告 output schema | 兼容模式不得删除当前实现已经公开的 5 个 structured schema；其余工具仍按既有 legacy 行为 | Contract ADR；同步 `mcp-contract-privacy-budgets`，以 Phase 0 runtime snapshot 为准 |
+| `tools/list` 为每个工具内嵌完整 output schema | 改为同源双投影：lean descriptor 保留完整 input schema 与 content-addressed contract metadata；完整 output schema 由 Resource 或 `get_tool_contract` 按需读取，server 仍用同一 schema 做结果验证 | Catalog/contract ADR；同步 payload/registry baseline、stdio 与 package gate |
+| 把 Phase 0 snapshot 当作待实现 legacy wire floor | snapshot 仅是历史回归证据；此前没有 released legacy result contract，0.4.x 只发布 Contract 2.0 result shape，不实现未发布的 adapter | Rollout ADR；同步 migration、compatibility、README 与 release blockers |
 | `tools/list` 按 tool name ordinal 排序，cursor 仅按既有 mode/index 设计 | 使用 `DiscoveryPriority + domain + tool name` 的稳定顺序；cursor 绑定 catalog hash/mode/server instance 并防篡改，同时仍完整分页 | Catalog/discovery ADR；同步 contract plan、MCP 协议错误和 snapshots |
 | 每次显式 load 可产生新 trace ID | 要么同主体同 generation 返回 canonical ID，要么保留新 ID 但把 `idempotentHint` 设为 false；底层仍必须 generation-level single-flight | Trace lifecycle ADR；同步 trace registry/lease plan |
 | 最后 artifact lease/handle 可触发派生产物删除 | handle/backend reference retirement 与 immutable artifact retention 解耦；ETLX 由独立 quota/LRU 回收 | Trace/artifact lifecycle ADR；同步 trace lifecycle 和 artifact ownership plan |
@@ -66,7 +67,7 @@
 
 重构开始时的历史审查基线是：
 
-- active catalog 当时暴露 61 个工具；该数字只属于 Phase 0 legacy snapshot。
+- active catalog 当时暴露 61 个工具；该数字只属于 Phase 0 pre-refactor snapshot。
 - 只有 5 个工具启用 `UseStructuredContent=true`，其余工具没有可供客户端验证的完整 `outputSchema/structuredContent`。
 - Release 配置下 `tools/list` 约为 178,923 UTF-8 bytes，距离现有 180,000-byte CI guard 只剩约 1.1 KiB。
 - 多数 Top-N 响应没有 `TotalGroupCount`、`HasMore`、排序和截断原因。
@@ -82,11 +83,19 @@
 4. 如果 capability、tool、description、schema、routing 和 composite 各有一份手写规则，它们必然继续漂移。
 5. 重复扫描会放大取消、预算和 partial-result 契约的复杂度。
 
-当前实现已把 active surface 收敛为 60 个工具，并由 validated model 投影出
+当前实现的 active surface 为 61 个工具（原 60 个能力/分析/生命周期工具，加上
+Tools-only contract fallback `get_tool_contract`），并由 validated model 投影出
 51 个 declared capabilities、15 个 goals、15 个 workflows、全部 input/output schema、
 `tools/list`、`list_capabilities`、Trace Evidence Map 与 byte-budgeted Resources。
 因此，本次重构的对象始终是一个统一的 **Capability and Contract Runtime**，
 而不是逐工具追加字段；历史数字不能覆盖当前 catalog truth。
+当前与 Phase 0 总数同为 61 只是数值巧合：tool identity 已变化，不能把历史 snapshot
+当作当前目录或 legacy compatibility floor。
+
+Contract 2.0 全量接线后，把每个深层 output schema 都内嵌进目录的历史测量约为
+2.5 MB。该数字是同源双投影之前的 before measurement，不是当前默认
+`tools/list` 大小，也不能直接当作 LLM prompt 成本。当前 gate 分别度量 aggregate
+lean discovery（不超过 250,000 bytes）和完整 schema registry；二者不能混报。
 
 **实际 ETL 证据纠错：** 对本轮指定 ETL 使用当前 exact ETL/TraceLog identity
 projection 复核后，PID 4024 只对应 **1 个进程生命周期**，整条 trace 未观测到 PID
@@ -96,7 +105,7 @@ fixture/golden 验证；真实 trace 只能证明它实际包含的 evidence。
 
 该实际 ETL 同时形成以下对抗证据。修复后的当前 development executable 已在同一
 文件上重跑下列查询；这证明对应 query-level 行为，但仍不等于 exact packaged
-executable、同一 commit/package hash、支持客户端和外部 release matrix 已通过：
+executable、同一 commit/package hash、具名客户端观测和外部 release matrix 已通过：
 
 - 该 trace 是系统/工作负载 trace，未包含可精确选中的 WpaMcp/dotnet server 实例，
   因而不能用于 MCP self-performance attribution。
@@ -141,6 +150,9 @@ executable、同一 commit/package hash、支持客户端和外部 release matri
 - 不删除低频底层工具来降低 token 成本。
 - 不把所有能力合并成 `analyze_trace(mode=...)` mega-tool。
 - 不根据当前 trace 动态增加、删除或重排 `tools/list`。
+- 不增加 session-time activate/deactivate API，也不让 host 的渐进注入反向修改 server catalog。
+- 不增加万能 dispatcher，不把原生工具名或调用参数收敛成一个自由格式入口。
+- 不为从未发布的 result wire shape 实现 legacy adapter。
 - 不把默认 `core profile` 当作隐藏完整能力的捷径。
 - 不把关键能力只放在 Resources 或 Prompts。
 - 第一阶段不重写已经通过正确性测试的 ETW 算法。
@@ -437,7 +449,7 @@ Active Catalog 必须通过 typed method/public schema 逐项验证声明：`thr
 由 Active Catalog 生成或验证：
 
 - `tools/list`
-- input/output schema
+- lean `tools/list` input schema/contract metadata 与完整 output contract registry
 - structured result wrapper
 - annotations
 - Server Capability Map
@@ -452,47 +464,70 @@ Active Catalog 必须通过 typed method/public schema 逐项验证声明：`thr
 
 ## 9. 完整工具目录与规模控制
 
-### 9.1 完整暴露规则
+### 9.1 静态完整暴露规则
 
 - 默认 active catalog 是完整目录，不使用默认 `core profile` 隐藏工具。
-- `tools/list` 对同一启动配置保持静态，不因加载哪条 trace 而变化。
-- 所有页面合并后，每个启用工具恰好出现一次。
-- profile 只能表达管理员明确的安全或部署策略，不作为 token 优化手段。
-- profile 禁用能力时，能力地图必须返回 `disabled_by_policy`。
-- `list_capabilities` 是不可隐藏的 bootstrap Tool；任何仍提供 trace analysis 的 profile 也必须保留 `inspect_trace`。否则 Tools-only 客户端无法得知被禁用能力及证据边界，启动应 fail closed 而不是发布失明 profile。
+- `tools/list` 对同一启动配置保持静态，不因加载哪条 trace、已调用哪个工具或 LLM 当前问题而变化。
+- 所有页面合并后，每个启用工具恰好出现一次；host 只注入子集时不得把未注入工具报告为 server 不支持。
+- profile 只能表达管理员明确的安全或部署策略，不作为 token 优化手段；被禁用能力必须在能力地图中返回 `disabled_by_policy`。
+- `list_capabilities` 与 `get_tool_contract` 是不可隐藏的 bootstrap Tools；任何仍提供 trace analysis 的 profile 也必须保留 `inspect_trace`。否则 Tools-only client 无法完成能力与契约发现，启动应 fail closed。
+- server 不提供 session-time activation/deactivation，也不提供一个替代原生工具的万能 dispatcher。工具名、完整 input schema 与调用参数保持原样。
 
-### 9.2 排序与分页
+### 9.2 同源双投影
 
-增加 output schema 后，完整目录不能继续依赖一个接近 180 KiB 的单响应。目标设计是：
+validated Active Catalog 为每个工具只生成一次完整、闭合的 Contract 2.0 output
+schema。该同一份 immutable schema 同时用于 server 发送前验证、contract snapshot、
+content-addressed Resource 与 Tools-only fallback；任何投影的 hash/byte 不一致都 fail
+closed。
 
-- 使用 MCP cursor 对 `tools/list` 进行分页；Tool 和 Schema 是不可拆分单元。
-- 使用稳定 `DiscoveryPriority`，先暴露 orientation/capability tools，再按 domain 和 tool name 排序；同一 catalog version 的顺序完全确定。
-- cursor 绑定 catalog hash/version、contract mode、server instance 和下一索引，并由 server-side registry 或 server-instance key 的 MAC 防篡改；不能把可修改的 base64 JSON 当 opaque cursor。非法或过期 cursor 按 MCP `tools/list`/JSON-RPC 的协议错误形状返回，不进入分析工具 `ToolEnvelope`。
-- 单个工具连同完整 input/output schema 无法放入 wire cap 时，启动失败，不能删减 schema 或隐藏工具。
-- 支持的 MCP 客户端必须通过 E2E 证明会遍历全部 `nextCursor`；只读取第一页的客户端应被列为不兼容，而不是由服务器静默降级。
+默认 `tools/list` 只返回 lean discovery descriptor：工具名、description、完整
+`inputSchema`、annotations，以及 `_meta["wpa-mcp/outputContract"]` 中的
+`contractVersion/schemaDialect/uri/sha256/mediaType/utf8Bytes/representation`。深层
+`outputSchema` 不在 descriptor 中内嵌；这只是发现投影瘦身，不会削弱调用结果或 server
+validation 语义。
 
-`list_capabilities`、`inspect_trace` 和同源 Resources 可以降低选择成本，但不能降低客户端
-最终注入完整 `tools/list` 后的 aggregate schema 成本。schema 成本由分页、紧凑描述、
-稳定缓存和经过明确授权的部署 profile 处理。
+完整 schema 有两条等价按需路径：
 
-分页只解决单个协议 frame 的安全上限，不会降低客户端最终加载完整 catalog 后的总 schema token。必须同时记录 `TotalCatalogBytes`、`PageBytes`、客户端实际注入 token 和 prompt-cache 命中；不得把“每页小于上限”报告成“工具面已经变小”。完整暴露带来的总发现成本是本设计有意接受并持续度量的权衡。
+1. 支持 Resource 的 client 读取
+   `wpa://contracts/tools/{toolName}/{sha256}` 小型 index，跟完
+   `.../pages/{page}`，按 page/start-byte 顺序无分隔符、无 normalization 地拼接
+   `schemaFragment` UTF-8 bytes。
+2. Tools-only client 调 `get_tool_contract(toolName, page)`；页号从 1 开始，每页最多
+   8,192 UTF-8 bytes，跟随 `nextPage` 直到 null，并按相同规则重组。
 
-目录预算分为两个不同 gate：单页完整 JSON-RPC frame 的 hard cap，以及完整目录的 growth-review threshold。前者超限必须 fail closed；后者相对冻结基线增长时必须给出 schema/description 增量、客户端遍历行为、实际 token 注入和 cache 影响的审查证据。通过 growth review 的手段可以是压缩重复描述、同源 Resource、客户端缓存或协议升级，但不能删除工具、裁掉 output schema，或把后续页面伪装成不存在。
+两条路径读取同一个固定 8,192 UTF-8-byte page registry；Resource index/page URI、
+pageCount、start offset 与 fragment 不随实例 frame cap 改变。启动必须在 stdin 前用最大
+合法 serialized request ID 逐页测量真实 Resources/read frame 与 Contract 2.0 镜像 Tool
+frame，并以两者和 `tools/list` minimum 的最大值作为统一下限。当前 catalog 的 Tool
+最大帧为 35,858 bytes、Resource 最大帧为 15,911 bytes；这些是 baseline 实测值，不是
+长期硬编码协议常量，catalog 改变后必须重新计算。
 
-每个 active profile/contract mode 的批准 baseline artifact 至少冻结：
+两条路径都必须核对 tool name、contract version、canonical byte count 与 lowercase
+SHA-256。Schema dialect 是 JSON Schema 2020-12；仅允许安全的同文档
+`#/$defs/<safe-id>` reference，外部 `$ref` 禁止且绝不触发网络读取。contract URI 是
+locator，不是 JSON Schema external `$ref`。
 
-```text
-ApprovedBaselineHash
-TotalCatalogBytes
-TotalSchemaTokens（按目标客户端 tokenizer）
-LargestToolBytes
-PageCount
-TargetClientBehavior/version
-PromptCachePolicy
-GrowthThreshold 与批准记录
-```
+### 9.3 排序、分页与 host 注入
 
-CI 用仓库内可审计的 approval artifact 验证 threshold，不能依赖口头 review。若某目标客户端遍历后的实际 schema 注入超过其批准的上下文/工具预算，该 client/profile 的 release 必须阻断或明确标为不兼容；分页成功不能替代 aggregate usability gate，也不能以隐藏能力来“修复”超限。
+- 使用 MCP cursor 对 `tools/list` 分页；一个 lean descriptor 是不可拆分单元。
+- 使用稳定 `DiscoveryPriority`：先暴露 capability/contract/orientation tools，再按 domain 与 tool name 排序；同一 catalog version 的顺序完全确定。
+- cursor 绑定 catalog hash/version、contract mode、server instance 和下一索引，并由 server-side registry 的随机 locator 防篡改。非法、篡改、过期或跨 instance cursor 按 MCP `tools/list`/JSON-RPC 协议错误返回，不进入 `ToolEnvelope`。
+- 单个完整 descriptor 无法放入 frame cap 时启动失败；不能删减 input schema、contract locator 或隐藏工具。
+- MCP host/client（不是 LLM）必须跟完全部 `nextCursor`。host 可缓存静态目录，用 capability map 与当前任务选择相关 descriptors 渐进注入 LLM；这不会改变 server catalog，也不要求模型一次看到全部 61 个工具。
+- 只读取第一页的 host 不兼容。具名第三方 client 的 token/cache 测量可改进兼容指导，但不是全局 release blocker，除非未来 ADR 明确承诺该 client/version。
+
+预算与 release evidence 分为三个独立 gate：
+
+- 每个完整 JSON-RPC page frame 的 hard cap；
+- 所有页面合并后的 aggregate lean `tools/list` 不超过 **250,000 bytes**；
+- 完整 Contract 2.0 registry 的逐工具 URI/hash/bytes 与 aggregate hash 闭合。
+
+历史约 2.5 MB inline catalog 只记录“全部深层 schema 随 descriptor 广播”的旧设计。
+分页本身只降低 frame 峰值；双投影才把完整 schema 从默认 discovery 移到按需读取。
+CI baseline 必须分别冻结 lean catalog hash/aggregate/page bytes 与 full registry
+hash/bytes，不能把 Resource 体积算成默认 LLM context，也不能以删工具、弱化 input
+schema、遗漏 contract locator 或省略后续页来过 gate。host 实际注入 token 与 cache
+命中作为独立观测记录。
 
 ## 10. 统一结构化结果契约
 
@@ -558,12 +593,14 @@ Precision
 wire property 名固定使用 camelCase：`ToolRef -> toolRef`、`TraceRef -> traceRef`、`Scope -> scope`、`CapabilityEvidence -> capabilityEvidence`、`Completeness -> completeness`、`EvidenceBoundary -> evidenceBoundary`、`NoData -> noData`、`Precision -> precision`。类型名与 wire 名不得再各自派生别名。
 
 本文不再维护可复制的手写 JSON payload：它会与 required-null、enum registry、section
-role 和工具专属 schema 漂移。current active runtime 已为全部 60 个工具返回 closed
+role 和工具专属 schema 漂移。current active runtime 已为全部 61 个工具返回 closed
 Contract 2.0 envelope；精确字段、section 集合和排序以 live output schema、
 `wpa://tools/{toolName}/sections` 的全部页及 runtime result 为准。`scope.requested` 与
 `scope.selected` 是嵌套对象，不能扁平化成一个 PID；`generationAlias` 当前必须为 null，
 因为 canonical TraceId 已绑定 immutable generation，Contract 2.0 不公开另一枚 generation
-locator。legacy 模式当前因缺少 reviewed adapter 而 fail closed。
+locator。此前没有 released legacy result wire contract；`legacy` 输入当前 fail closed，
+避免把 Contract 2.0 envelope 错标为 legacy。缺少一个从未发布的 adapter 不是 0.4.x
+release blocker。
 
 ### 10.2 Envelope 不变量
 
@@ -721,7 +758,7 @@ NoData
 
 wire-budget fitting 只能减少公开 detail，不能把裁剪后的 `rows.Count` 回写成伪造的 pre-truncation exact total，也不能把 `unknown/lower_bound` 美化为 `exact`。对于 candidate、evidence、section summary、executed-call provenance 或其他存在跨 section 引用的 composite，默认把相互引用的集合视为一个原子 fitting 单元：要么一起保留并通过引用闭包校验，要么一起省略并明确 completeness/budget 原因。只有 manifest 明确声明可独立裁剪、且裁剪后不存在悬空 evidence ID、错误 total、错误控制流或被放大的 conclusion 时，才允许单独缩减其中一个 section；否则最小可信 composite 放不下就返回完整 `response_too_large` failure，不能发送内部自相矛盾的 partial success。
 
-`ToolScope` 的 `candidateTotal/includedTotal` 始终是裁剪前精确计数。响应预算确实省略候选细节时，`Candidates/Included` 必须同时为空且 `detailCompleteness=omitted_due_to_response_budget`；没有任何候选细节可省略时保持 `complete`。禁止保留一条样本却声称 complete。4,096-byte 最小配置若连一条 mirrored 成功页也物理不可容纳，应返回完整 mirrored `response_too_large`，不能启用 summary 或提高 hard cap 来掩盖事实。
+`ToolScope` 的 `candidateTotal/includedTotal` 始终是裁剪前精确计数。响应预算确实省略候选细节时，`Candidates/Included` 必须同时为空且 `detailCompleteness=omitted_due_to_response_budget`；没有任何候选细节可省略时保持 `complete`。禁止保留一条样本却声称 complete。4,096-byte 是单个 tool-envelope fitter 的静态下界，不是当前完整生产 catalog 的可启动下界；统一 discovery preflight 当前要求至少 35,858 bytes。对独立 fitter 测试或不暴露完整契约发现面的嵌入式 runtime，若该下界连一条 mirrored 成功页也物理不可容纳，应返回完整 mirrored `response_too_large`，不能启用 summary 或提高 hard cap 来掩盖事实。
 
 禁止依赖 MCP host、客户端或模型上下文自行裁剪；客户端静默裁剪会把可用性问题升级为正确性问题。
 
@@ -893,37 +930,38 @@ Cost
 
 ### Phase 0：冻结并建立可追溯基线
 
-实施状态（2026-08-01）：**实现基线已生成，review/release gate 仍开放**。legacy
-snapshot 保留迁移前事实；corrected active snapshots 已按当前 60-tool catalog 生成，
-但 `RuntimeCompatibilityPolicy` 仍将其标为
-`release_blocked:corrected_active_contract_baselines_not_release_approved`。在同一提交的
-全量 schema/stdio/package 验证通过并完成显式审查前，不得把“文件存在”表述成
-release approval。已落地的可执行证据为：
+实施状态（2026-08-02）：**当前实现基线已生成并审查，自动 gate 保持其闭合**。
+pre-refactor snapshot 只保留迁移前事实；corrected active snapshots 已按当前 61-tool
+catalog 生成，原
+`release_blocked:corrected_active_contract_baselines_not_release_approved` 已关闭。baseline
+closure 不等于提前宣称所有 full-suite/package gate 已通过；这些结果仍由自动测试分别
+报告。已落地的可执行证据为：
 
-- `tests/WpaMcp.Tests/ContractBaselines/legacy-active-tools.v1.json` 与同目录 builder/test：冻结 reviewed legacy compatibility floor 的 61 个 active tools、5 个既有 structured tools、逐工具描述/annotations/参数/default/schema hash/byte；测试只比较，不自动覆写基线。基线另保留 commit `2dfb459` 的 61/5/178,923-byte 预重构观测，避免把并行正确性修复后的 179,107-byte 目录误称为初始值。
+- `tests/WpaMcp.Tests/ContractBaselines/legacy-active-tools.v1.json` 与同目录 builder/test：尽管保留了历史文件名，它冻结的是 pre-refactor regression evidence，不是 released compatibility floor；其中记录当时 61 个 active tools、5 个既有 structured tools及逐工具 description/annotations/参数/default/schema hash/byte。基线另保留 commit `2dfb459` 的 61/5/178,923-byte 观测，避免把并行正确性修复后的 179,107-byte 目录误称为初始值。
 - `tests/WpaMcp.Tests/ContractBaselines/legacy-dto-inventory.v1.json`、同目录 builder 与 `tests/WpaMcp.Tests/LegacyDtoInventorySnapshotTests.cs`：冻结 132 个 public Output DTO 类型、44 个 response、1,618 个 public property 及 JSON 名称/CLR 类型/nullability/default/description/`JsonIgnore`，并显式列出 public `ulong`、ID-like integer、collection、Top-N 与 timeline 审查候选；候选分类是审查路由，不冒充运行时能力事实。
 - `eng/contract-baselines/correctness-disposition.v1.json`：把 §5.3 的 17 项逐项绑定到 source/test、兼容处置和迁移规则。
 - `eng/contract-baselines/correctness-field-matrix.v1.json`：冻结适用条件、权威来源、单位、legacy 路径、Contract 2.0 语义槽和不可弱化规则；文件中的历史属性名 `vNextSemanticSlot` 只记录迁移来源，不代表当前 contract 版本仍未决定。
 - `tests/WpaMcp.Tests/Phase0CorrectnessBaselineTests.cs`：校验 issue/field-group 完整性、分类数量与源码追溯路径。
-- `eng/contract-baselines/side-effect-inventory.v1.json` 与 `tests/WpaMcp.Tests/SideEffectInventoryTests.cs`：从同一 active catalog 对当前 **60/60** 工具逐项冻结 ID-only 与 raw compatibility profile 下的 path/disk/network/process-state/external-storage 最坏可达副作用；`load_trace` 是唯一 raw source 入口，`prepare_symbols` 是唯一 verified-symbol store mutation 边界，普通 ID-only query 只读取 owned artifact/pinned verified symbols。closed-state、source evidence 和 annotations 不低报由测试校验。
+- `eng/contract-baselines/side-effect-inventory.v1.json` 与 `tests/WpaMcp.Tests/SideEffectInventoryTests.cs`：从同一 active catalog 对每个当前工具逐项冻结 ID-only 与 raw compatibility profile 下的 path/disk/network/process-state/external-storage 最坏可达副作用；`load_trace` 是唯一 raw source 入口，`prepare_symbols` 是唯一 verified-symbol store mutation 边界，普通 ID-only query 只读取 owned artifact/pinned verified symbols。closed-state、source evidence 和 annotations 不低报由测试校验。
 - `tests/WpaMcp.Tests/ContractBaselines/legacy-structured-stdio.v1.json` 与 `LegacyStructuredStdioGoldenTests.cs`：通过真实 `WpaMcp.Program` stdio 完成 initialize、`tools/list` 和 5 个既有 structured tools 的 success/failure/boundary 记录。该 immutable legacy evidence 的 SHA-256 为 `055be9ddde2c21effad7a9d3c27c6630977b600c7c4fc1be3f891392a662e2b7`；它明确标注 `LEGACY-STDIO-SCHEMA-001`，不把已知错误冻结为正确行为。
 - `eng/contract-baselines/observed-contract-defects.v1.json`：记录真实 stdio 递归校验发现的 `WIRE-SCHEMA-001`。旧 SDK 输出在 10 个 success/boundary case 中累计缺少 286 个 schema-required nullable 路径；生产 filter 只补齐 schema 允许为 `null` 的 required property，绝不为缺失的 non-null 事实造值，并保持 text JSON 与 `structuredContent` 同源。
 
-三份 corrected active snapshot 现位于
+corrected active snapshot 位于
 `tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json`、
-`active-dto-inventory.v1.json` 与 `active-structured-stdio.v1.json`。尚未完成的是：在
-共享树稳定后重新生成受其影响的 catalog/page-budget 基线，执行完整 stdio/package
-矩阵，并把这三份文件与 exact packaged executable、commit 和 runtime profile 一起
-审查批准。不得据 legacy evidence、单个 focused test 或文件存在宣称 Phase 0 release
-gate 已关闭。
+`active-dto-inventory.v1.json` 与 `active-structured-stdio.v1.json`；lean payload、
+pagination 和 full-contract registry 分别由
+`tool-list-payload-budget.v1.json`、`tools-list-pagination.v1.json` 与
+`tool-output-contract-registry.v1.json` 锁定。本轮把它们与 active manifest/profile 一起
+生成、审查并纳入自动 gate，因此 Phase 0 baseline blocker 已关闭。exact package stdio
+和完整测试套件仍是独立验证项，不能从 baseline 文件存在反推其结果。
 
 交付：
 
 - 从真实 active catalog 生成完整工具、input schema、output schema/null、description、annotations snapshot。
 - 生成 capability/tool/DTO inventory。
 - 清点所有 public `ulong`、ID-like `long`、Top-N、时间线、无界 collection 和隐式副作用。
-- 保存当前 legacy stdio 行为和工具目录 byte baseline。
-- 对当前 5 个 structured 工具逐个保存成功、失败和边界结果 golden；兼容下限按工具名和实际 schema 判断，不能只保存“5”这个数量。
+- 保存 Phase 0 pre-refactor stdio 行为和工具目录 byte baseline。
+- 对当时 5 个 structured 工具逐个保存成功、失败和边界结果 golden；历史回归证据按工具名和实际 schema 判断，不能只保存“5”这个数量。
 
 Phase 0 还必须生成“正确性字段非回退矩阵”。对当前已经适用并公开的语义，后续统一 envelope 只能归一化或增强，不能删除、改弱或用泛化 warning 取代。至少清点并锁定：
 
@@ -944,10 +982,10 @@ MeasurementBasis / Relationship / ConclusionStatus / confidence / provenance / D
 
 并非每个工具都需要所有字段；矩阵必须记录字段适用条件、权威来源、单位、默认值、旧 JSON 路径和 Contract 2.0 JSON 路径。迁移校验比较语义而不只比较字段名，尤其不能让 `threadGeneration`、process instance scope 或 scoped/domain coverage 在包进通用 envelope 后消失。
 
-每个 Phase 0 snapshot 差异和 §5.3 Issue ID 必须标记兼容处置，不能把 legacy golden 误当成“旧行为永远正确”：
+每个 Phase 0 snapshot 差异和 §5.3 Issue ID 必须标记兼容处置，不能把 pre-refactor golden 误当成“旧行为永远正确”：
 
 ```text
-preserve                    正确且仍受支持，兼容模式不得回退
+preserve                    正确且仍受支持，Contract 2.0 compatibility projection 不得回退
 normalize_only              只改变载体/命名，权威值与语义保持等价
 known_incorrect_must_change 已知会误导或给出错误事实，必须版本化修正，旧 golden 仅作缺陷证据
 deprecated                  暂时保留兼容投影，给出删除版本和替代字段
@@ -968,7 +1006,7 @@ test/package/真实 ETL 的边界继续保持可验证 gate，不能用 focused 
 - `COR-PRECISION-001` 的 analyzer 事实修复已完成定向验证：每个 stack sample 以稳定 token 绑定 checked `Int64` 权重，raw/normalized 的 `DoneAddingSamples()` 排序不再使 metric 与 stack 错配；17 个 top-stack 与 caller/callee 使用 exact accumulator，并以 function ordinal 处理并列。测试覆盖乱序、同时间、递归、`2^24`、`2^53`、`long.MaxValue` 与 overflow。首版裸并行列表曾被独立对抗审查判为 P0 并拒绝集成，当前版本是修正后的实现。
 - `COR-ID-001` 已接入 live Contract 2.0：`NetConnectionRow.ConnIdText` 是 invariant unsigned-decimal 权威值；deprecated numeric `ConnId` 仅在 JavaScript safe integer 范围投影，否则 required-null，并携带 precision/deprecation state。其他 reviewed opaque identifiers 同样以规范字符串为权威值。
 - `COR-PAGING-001` 的审计发现四条 composite 会从已裁剪数据派生 total、分类或控制流；这些事实污染已先行修复，随后接入统一 public section contract、top+1/cursor proof 和 full-frame fitting。
-- `COR-PAGING-001` 的当前 active implementation closure 已完成验证：`diagnose_window` 的 wait 总量使用 scope exact total，security presence 使用分页前 evidence-class exact aggregation，`diagnose_high_wait` 的 scheduler routing 使用未裁剪 wait reasons，slow-startup 的上游输入截断只能返回 `partial`/`lower_bound`/`not_concluded`；histogram exact-requested、CPU batch per-selector boundary、row-local boundary 和 opaque locator schema 均有 focused tests。独立 fail-closed gate 从 60 个 active output roots 反射遍历 150 个 reachable DTO、233 个 collection properties 和 452 个 tool/path/property/proof occurrences，双向核对 168 个 manifest pageable occurrences，并冻结 98 个 reviewed source-cap sites。该实现闭包不代表第三方客户端、rollout、large-trace、package、审批、tag 或 release asset gate 已完成。
+- `COR-PAGING-001` 的当前 active implementation closure 已完成验证：`diagnose_window` 的 wait 总量使用 scope exact total，security presence 使用分页前 evidence-class exact aggregation，`diagnose_high_wait` 的 scheduler routing 使用未裁剪 wait reasons，slow-startup 的上游输入截断只能返回 `partial`/`lower_bound`/`not_concluded`；histogram exact-requested、CPU batch per-selector boundary、row-local boundary 和 opaque locator schema 均有 focused tests。独立 fail-closed gate 从每个 active output root 反射遍历全部 reachable DTO/collection/tool-path proof，并与 manifest pageable occurrences 双向核对；精确数量由同提交 baseline 生成，不在本文硬编码。该实现闭包不代表第三方客户端、rollout、large-trace、package、审批、tag 或 release asset gate 已完成。
 - `COR-TRUNCATION-001` 的当前 active implementation closure 已完成验证：security duration/presence 的有界示例只通过强类型 `WindowEvidenceSample` 返回，每个样本明确 `Representative=false`、`MetricAttributable=false`、`SampleScope=returned_rows_only`；`Details` 只保留穷尽 annotations；`CompositeResultContractValidator` 要求 `/samples` 的 typed `SamplesBoundary`，reachable-collection gate 将其登记为 `typed_nested_boundary`。fresh security、hostile validator 与 closure 回归全绿。该实现事实不代表外部客户端、large-trace、package、审批或发版门禁完成。
 - `COR-SCOPE-001/002`、`COR-WAIT-001`：process/thread 解析统一保留半开窗口、PID/TID 复用间隙和 endpoint 语义；MemoryResource、GC/JIT、CLR contention、network、Wait/blocked-time 与 CPU precise 的 unresolved diagnostics 不再把别的生命周期计入 scoped count；high-wait candidate/replay 保留精确 `processStartUs`。
 - `COR-VM-001` 与 `COR-FILEMAP-001`：VirtualAlloc 分离 alloc/free/operation traffic/signed observed delta；FileObject/FileKey 使用带 event order 的 temporal binding，冲突返回 typed `ambiguous_temporal_mapping`，并对每个聚合行返回五类 exact mapping-state counts，不以 display sentinel 代替机器状态。
@@ -984,38 +1022,50 @@ test/package/真实 ETL 的边界继续保持可验证 gate，不能用 focused 
 - 关闭 §5.3 中所有 analyzer-level Phase 1 Issue ID；每项都有 owner、受影响 tool/DTO/analyzer 清单、兼容处置和专用 golden，不允许只依赖通用 envelope 测试。
 - 修正与实现不一致的 description，例如空窗口边界和无堆栈 synthetic frame 语义。
 
-退出条件：底层事实和 golden 已正确，已知错误不再被新的 adapter 依赖；这一阶段不是最终 MCP contract release gate，截断/unsafe legacy wire 风险要到 Phase 4 关闭后才能宣称完成。
+退出条件：底层事实和 golden 已正确，已知错误不再被新的 Contract 2.0 projection 依赖；这一阶段不是最终 MCP contract release gate，截断/unsafe pre-refactor wire 风险要到 Phase 4 关闭后才能宣称完成。
 
 ### Phase 2：Active Catalog 与最小 contract/error 骨架
 
-实施状态（2026-08-01）：**生产 Active Catalog 与 `tools/list` 协议分页已完成；
-当前 active set 为 60 个工具。** 它们由同一 validated model 构造并注册，`Program`
-不再使用 `WithToolsFromAssembly`，分页、structured-output filter、Resources 与 payload
-telemetry 复用同一组定义。cursor 为 `tlc_` 加 128-bit CSPRNG locator，server-side
-state 绑定 server instance、catalog version、contract mode、discovery order 和 next
-index；重试不消费 parent cursor，错误 binding 不撤销 owner cursor，malformed/
-tampered/expired/cross-instance cursor 返回协议级错误而不是 tool result。单个
-tool/schema 不可拆分，startup 使用最大允许 serialized request-id、实际 JSON-RPC
-response 和 stdio LF 做 fail-closed preflight。
+实施状态（2026-08-02）：**生产 Active Catalog、lean `tools/list` 协议分页与完整
+contract registry 已完成；当前 active set 为 61 个工具。** 它们由同一 validated model
+构造并注册，`Program` 不再使用 `WithToolsFromAssembly`。protocol descriptor 保留完整
+input schema 与 `_meta["wpa-mcp/outputContract"]`，但 `outputSchema=null`；production
+wrapper 另持有同源完整 schema 做发送前验证。Resource 与 `get_tool_contract` 从同一
+canonical bytes 投影，原生工具名、input schema、调用参数与 60 个既有结果形状不变。
 
-目录的精确 catalog hash、page bytes、aggregate SHA-256 和未测 client-token/cache
-边界由 `eng/contract-baselines/tools-list-pagination.v1.json` 锁定；任何 manifest 或
-schema 改动都必须重新测量和显式 review。旧 61-tool/9-page/byte 数字仅是中间实施
-观测，不能继续当作当前证据。分页只降低单 frame 峰值，不降低所有页面合并后的
-aggregate prompt cost。具名第三方客户端的 prompt-schema token/cache 行为仍属于
-最终 release matrix，不能由生产 stdio harness 代替。
+cursor 为 `tlc_` 加 128-bit CSPRNG locator；server-side state 绑定 server instance、
+catalog version、contract mode、discovery order 和 next index。重试不消费 parent
+cursor，错误 binding 不撤销 owner cursor，malformed/tampered/expired/cross-instance
+cursor 返回协议级错误而不是 tool result。单个 lean descriptor 不可拆分，startup 使用
+最大允许 serialized request-id、实际 JSON-RPC response 与 stdio LF 做 fail-closed
+preflight。另一个同源 preflight 遍历固定 8,192-byte contract page registry，测量全部
+Resource 与 `get_tool_contract` 镜像 frame；配置必须同时满足两项，不能只用较低的
+`tools/list` subsystem minimum 启动。
+
+`eng/contract-baselines/tools-list-pagination.v1.json` 锁定 lean catalog hash、page bytes
+与 aggregate SHA-256；`tool-output-contract-registry.v1.json` 独立锁定每个完整 schema
+的 canonical bytes/hash。aggregate default `tools/list` hard gate 是 250,000 bytes；
+历史约 2.5 MB inline 观测不再是当前 discovery budget。具名第三方 client 的实际注入
+token/cache 行为属于兼容性观测，不是全局 release blocker；package stdio harness 则
+必须证明全部页面和两条 contract lookup path 闭合。
 
 交付：
 
 - `capabilities.v1.json`、`tool-contracts.vN.json`、Issue/compatibility disposition 和校验器。
 - programmatic `McpToolCatalog` 成为生产唯一目录。
 - 冻结公共字段位置、nullability、错误 registry、cursor domain 和 envelope actual version 的 ADR。
-- `tools/list` 确定性、防篡改分页和 startup minimum-response preflight；此处只处理协议目录，不假设最终分析 envelope 已完成。
-- typed adapter、manifest pageable pointer 和 schema generator 骨架先在 legacy snapshot 下验证，不提前发布不完整 Contract 2.0 candidate。
+- `tools/list` 确定性、防篡改分页，以及覆盖完整契约 Resource/Tool lookup 的统一 startup minimum-response preflight。
+- lean descriptor/full schema 双投影、content-addressed Resource 与 Tools-only contract fallback。
+- typed outcome projection、manifest pageable pointer 和 schema generator 由 pre-refactor snapshot 做非回退核对，不发布第二套 legacy result shape。
 
-兼容模式必须保留 Phase 0 snapshot 中已经存在的 structured content/output schema，不能为了制造“纯 legacy”目录而删除当前 5 个已公开 schema；其他 legacy 工具保持 Phase 0 行为直到 Phase 4 原子切入 Contract 2.0。
+Phase 0 snapshot 没有被任何 released version 建立为 public result wire contract，因此本
+阶段不实现 legacy adapter。`legacy` 启动值稳定 fail closed，防止把 active Contract 2.0
+envelope 错标；这不是 0.4.x release blocker。
 
-退出条件：每个启用工具恰好出现一次、都有 capability/manifest；legacy 不回退已有 structured contract；所有 catalog 页面合并后完整；协议 cursor 与 tool cursor 错误形状已分离；服务器不会为适配 cap 隐藏工具。
+退出条件：每个启用工具恰好出现一次、都有 capability/manifest/full contract；所有
+catalog 页面合并后完整且不超过 lean aggregate gate；每个 URI/hash 可从 Resource 与
+Tools-only path 重组；协议 cursor 与 tool cursor 错误形状分离；服务器不会为适配 cap
+隐藏或动态激活工具。
 
 ### Phase 3：显式 trace/symbol 生命周期
 
@@ -1051,10 +1101,13 @@ materialization checkpoint 不能证明整个转换过程峰值，故 runtime �
 
 ### Phase 4：最终版本化 structured contract 与精确预算
 
-实施状态（2026-08-01）：**Contract 2.0 runtime 接线已覆盖全部 60 个 active
+实施状态（2026-08-02）：**Contract 2.0 runtime 接线已覆盖全部 61 个 active
 tools；最终 release matrix 仍开放。** 统一 `ToolEnvelope<T>`、闭合 output schema、
 text/structured 同对象镜像、exact-integer wire projection、reviewed per-section
 contracts、manifest-declared fitting 和原子超限失败已接入 production wrapper。
+完整 output schema 默认不再内嵌于 `tools/list`，但 server validation、Resource/
+`get_tool_contract` 重组结果与 contract snapshot 都使用同一 canonical schema；该发现
+投影变化不改变任何工具的实际 Contract 2.0 result shape。
 `list_processes`、`thread_lifetime`、`process_create_timing`、`image_load_timing` 已使用
 generation/principal/query/scope/privacy 绑定的 `qrc_` inventory/timeline
 continuation，不再是未迁移项。
@@ -1063,9 +1116,9 @@ continuation，不再是未迁移项。
 nextCursor/truncationReason=response_budget`。若连最小可信成功响应都装不下，结果
 原子转成 terminal `response_too_large` failure：`data=null`、`scope=null`、空
 `sections/failedSections`、`hasMore=false`，并保留 unmeasured/not-concluded 的预算
-证据；它不是“原 scope 下的空分析”，也没有可继续 cursor。最终关闭仍要求当前
-shared tree 的 active baselines、全部真实 stdio outcome、hostile/privacy/cancel 与
-package hash gate 同时通过。
+证据；它不是“原 scope 下的空分析”，也没有可继续 cursor。active baseline component
+已关闭；全部真实 stdio outcome、hostile/privacy/cancel、完整测试与 package hash gate
+仍由各自自动验证报告，本文不提前声明结果。
 
 交付：
 
@@ -1079,8 +1132,8 @@ package hash gate 同时通过。
 
 ### Phase 5：能力地图与路由
 
-实施状态（2026-08-01）：**能力地图与同源导航 runtime 已完成，agent/client 质量
-门仍开放。** validated model 当前闭合 51 个 declared capabilities、60 个 tools、15 个 goals
+实施状态（2026-08-02）：**能力地图与同源导航 runtime 已完成，agent/client 质量
+门仍开放。** validated model 当前闭合 51 个 declared capabilities、61 个 tools、15 个 goals
 和 15 个 workflows。`list_capabilities` 提供 Tools-only cursor 路径；
 `inspect_trace.TraceEvidenceMap` 对同一 universe 逐 capability/workflow 公开当前
 trace 的 available/partial/unavailable/unknown、capture integrity、evaluator 和
@@ -1093,6 +1146,11 @@ domain/workflow page 提供完整分片；每个 active tool 还暴露
 role、ordering/tie-breakers、proof mode/limit source、evidence IDs、measurement basis、
 relationship 与 declared conclusion。支持 Resources 的客户端必须跟完 index 中所有
 page；Tools-only 客户端仍可通过标准 tool 路径完成调查。
+
+每个 active tool 还从 lean descriptor 链到
+`wpa://contracts/tools/{toolName}/{sha256}`；Tools-only client 通过
+`get_tool_contract(toolName,page)` 得到等价 canonical schema fragments。host/client
+负责遍历、缓存与渐进式 LLM 注入；server active set 始终静态完整。
 
 `inspect_trace` 使用 generation/principal/filter/privacy 绑定的 `qrc_`，按
 capability 后 workflow 的固定顺序完整遍历；首屏/续页证据上下文和各 section
@@ -1132,33 +1190,42 @@ single-pass。实际 2GB ETL 的 wall-time、peak memory、cancel 和 response b
 
 ### Phase 7：默认切换与遗留清理
 
-实施状态（2026-08-01）：**启动级 rollout policy 与 release enforcement 已实现，
+实施状态（2026-08-02）：**启动级 rollout policy 与 release enforcement 已实现，
 但 Phase 7 尚未完成，也没有切换版本。** `RuntimeCompatibilityPolicy` 在读取 stdin
 前一次性解析 `WPAMCP_CONTRACT_MODE` / `--contract-mode` 与既有
 `WPAMCP_TRACE_REFERENCE_MODE` / `--trace-reference-mode`，CLI 覆盖 env；tool call
 不能切换。真实选择通过 `wpa://runtime/profile` 暴露，并进入 `tools/list` cursor
 binding 与 privacy-safe telemetry。当前 0.3.0 保留已实现的 2.0 + ID-only 开发默认，
-但机器状态为 `release_blocked`。仓库没有可信 legacy result adapter，选择 legacy
-会 fail closed；所以 0.4 所要求的 legacy + raw 默认尚不可发布。1.0 也因缺少完整
-0.5.x 弃用窗口与 usage telemetry review 而被硬门禁阻断。release workflow 已将
+但机器状态为 `release_blocked`，因为 ADR 0005 从 0.4.x 才定义可发布 window。0.4.x
+默认且唯一 result shape 是 Contract 2.0，并使用 ID-only secure default；raw-path
+compatibility 仅是到 1.0 前的显式 startup switch。此前没有 released legacy wire
+contract，选择 `legacy` 会 fail closed；没有一个从未发布的 adapter 不阻断 0.4.x。
+1.0 因缺少完整 0.5.x raw-path 弃用窗口与 usage telemetry review 而被硬门禁阻断。
+release workflow 已将
 exact packaged executable 的 runtime profile、version、commit、package stdio、
 active snapshots、manifest 和 artifact hashes 绑定到同一证据链。详见 ADR 0005、
 `CONTRACT_MIGRATION.zh-CN.md` 与 `CLIENT_COMPATIBILITY.zh-CN.md`。
 
-当前 active snapshots 已生成，但仍未被 runtime 常量标记为 release-approved；
-supported-client matrix 与 opaque converter transient-peak artifact 也仍缺少通过证据。
+当前 active snapshots、lean discovery、pagination 与 full-contract registry baseline
+已经审查并由自动 gate 绑定，不再是 runtime release blocker。opaque converter
+transient-peak artifact 仍缺少通过证据，是当前保留的外部 release blocker。具名 client 的
+paging/token/cache 测量只更新兼容指导，不是全局 release blocker；exact package
+stdio 必须自行证明 host-side 全页遍历、lean aggregate budget 与两条 full-contract
+lookup path。
+
 此外，安装/配置脚本必须通过 package stdio gate 证明只使用当前允许的 secure symbol
 options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须在发布前修正。故本节
 只声明 rollout machinery 已实现，不声明 0.4/0.5/1.0 任一 release window 已满足。
 
 交付：
 
-- 在已公告版本切换 secure-default Contract 2.0/ID-only。
-- 删除旧 numeric authoritative ID、legacy raw-path query 和 legacy response mode。
+- 在 0.4.x 发布 secure-default Contract 2.0/ID-only；不引入 legacy response adapter。
+- 删除旧 numeric authoritative ID；在公告窗口后删除 raw-path compatibility 与已拒绝的 legacy 配置值。
 - 更新 README、Architecture、Capability Gaps、compatibility 和 changelog。
 - release workflow 强制 package stdio E2E、schema snapshot、capability evidence 和 immutable version gate。
 
-禁止通过永久并存一套 legacy 工具和一套同名/版本后缀工具完成迁移；兼容层必须有明确删除版本。
+禁止通过永久并存一套 legacy 工具和一套同名/版本后缀工具完成迁移；原生工具名与
+参数保持稳定，也不引入万能 dispatcher。
 
 ## 17. 测试与验收矩阵
 
@@ -1171,12 +1238,14 @@ options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须�
 - `tools/list` 所有页面合并后恰好发现全部启用工具。
 - `tools/list` cursor 由 registry 或 MAC 保护，并绑定 catalog hash/version、contract mode、server instance 和 next index；无效 base64、篡改内容、错误 mode/hash/server instance、负数/溢出 index 和已失效 cursor 都返回批准的 MCP/JSON-RPC 协议错误，不伪装成 tool result。
 - page size 为 1、普通值和边界值时分别覆盖第一页、中间页和末页；有剩余工具时不得返回空页，遍历中不得重复、遗漏或改变排序。
-- 每页首尾工具的 input/output schema 必须完整且 Schema-valid；任何单个 tool+schema 无法装入 hard cap 时启动失败。
+- 每个 lean descriptor 的工具名、description、完整 input schema、annotations 与 contract URI/version/hash/bytes 都不可拆分；默认 descriptor 不内嵌 output schema。
+- 所有 `tools/list` 页面合并后的 aggregate lean JSON 不超过 250,000 bytes，且 page frame 各自满足 hard cap；不得通过隐藏工具、弱化 input schema 或丢 contract locator 达标。
+- 每个 advertised URI/hash 必须分别通过 Resource index/pages 与 `get_tool_contract(toolName,page)` 重组为同一 canonical schema，byte count 与 SHA-256 精确匹配；缺页、错序、hash mismatch 或 external `$ref` 均 fail closed。
 - profile 禁用时 capability map 显示 `disabled_by_policy`。
-- 所有可启动 profile 都保留 `list_capabilities`；提供 trace analysis 的 profile 还保留 `inspect_trace`，否则 profile validation 失败。
+- 所有可启动 profile 都保留 `list_capabilities` 与 `get_tool_contract`；提供 trace analysis 的 profile 还保留 `inspect_trace`，否则 profile validation 失败。
 - 真实 stdio `tools/list` 与 normalized snapshot 一致。
-- E2E 使用至少一个支持 cursor 的真实客户端遍历全部页面，并分别记录 page frame bytes、合并后的 catalog bytes、实际 prompt schema token 和 cache 命中；不能用 mock 只验证 `nextCursor` 存在。
-- 每个 profile/mode 的 baseline artifact 锁定 hash、catalog/schema bytes、token、largest tool、page count、client behavior 和 threshold；超过时 CI 要求仓库内显式批准和成本证据，超过目标 client context 时阻断对应 release。修复不得隐藏工具、删除 schema 或省略后续页。
+- exact package stdio E2E 以 host 角色遍历全部页面并验证双 lookup path；具名第三方 client 可另记录实际注入 descriptors、token 与 cache 命中，但不是未声明 support guarantee 下的全局 release gate。
+- baseline 分开锁定 lean catalog hash/bytes/pages 与 full registry 的逐工具 hash/bytes；任何一侧改变都要求显式 review，不能把历史约 2.5 MB inline measurement 当当前默认成本。
 
 ### 17.2 Schema 与结果
 
@@ -1188,7 +1257,7 @@ options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须�
 - failed ambiguity 结果保持 `Data=null`，但公共 scope-resolution header 包含经授权的 candidate process/thread start/generation，可直接重放。
 - server/lifecycle 工具的公共 trace/scope 字段使用 required nullable + `not_applicable`，不允许各工具随机省略。
 - Contract 2.0 公共 header 与兼容 `Data` 内同义字段从同一内部 outcome 投影，并逐字段等价；任何差异 fail test。
-- legacy contract test 对 Phase 0 已 structured 的每个具体工具执行 golden，而不是只断言数量；兼容模式不得移除既有 output schema、structured content 或错误形状。
+- Phase 0 historical golden 继续逐具体工具执行，作为语义回归输入而不是可执行 legacy wire floor；runtime 只发布 Contract 2.0 result shape。
 - 非回退矩阵逐工具验证 process/thread instance、scope、双口径 domain stack coverage、symbol measurement、count/no-data 和三维 evidence/provenance 字段的适用语义；Contract 2.0 envelope 不得把它们降级为自由文本 warning。
 
 ### 17.3 精度与完整性
@@ -1246,8 +1315,8 @@ options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须�
 
 | 风险 | 固定决策 |
 | --- | --- |
-| output schema 使 catalog 超限 | 分页完整目录；不删除 schema、不隐藏工具 |
-| 分页客户端只读取第一页 | 列入客户端兼容矩阵并 fail test；服务器不伪装成完整目录 |
+| output schema 使 catalog 超限 | 同源双投影：lean descriptor 保留 locator，完整 schema 按需读取；不删 schema、不隐藏工具 |
+| 分页客户端只读取第一页 | package host fail test，具名 client 标为不兼容；服务器不伪装成完整目录 |
 | capability map 与工具实现漂移 | Active Catalog 启动校验和双向完整性测试 |
 | capability map 过大 | Tool/Resource 自身分页，但所有省略都返回明确 `HasMore` |
 | “完整能力”被理解成 WPA 全集 | 顶层声明 catalog universe、非 WPA exhaustive 和 unlisted meaning |
@@ -1262,8 +1331,10 @@ options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须�
 | profile 被用于静默瘦身 | 默认 full；禁用必须由管理员配置且能力地图披露 |
 | Resource 客户端覆盖不足 | 关键发现同时由 Tool 提供，Resource 只做同源镜像 |
 | 旧计划与当前 Wpa 命名/工具数漂移 | 实施前从 active catalog 重新生成 inventory，禁止复制旧常量 |
-| 分页被误认为降低总 prompt 成本 | 分开度量 page bytes、total catalog bytes 和实际注入 token |
-| legacy 模式删除当前已有 schema | Phase 0 snapshot 是兼容下限；已有 structured contract 不得回退 |
+| 分页被误认为降低总 prompt 成本 | 分开度量 page bytes、aggregate lean bytes、按需 registry bytes 和实际注入 token |
+| host 渐进注入被误认为动态 tool activation | server catalog 保持静态完整；host 选择只影响 LLM context，不修改 server state |
+| Resource/Tool fallback 漂移 | 两条路径与 server validator 共用 canonical schema，逐 URI/hash/byte closure test |
+| 缺 legacy adapter 被误报为 0.4 blocker | Phase 0 snapshot 未形成 released wire contract；0.4.x 只发布 Contract 2.0，不实现 adapter |
 | 每次 load 生成新 handle/backend | canonical caller handle + generation-level single-flight，或诚实取消 idempotent hint |
 | trace handle、backend、artifact、symbol revision 混为一体 | 使用四种独立身份和独立生命周期；所有结果记录所用 generation/context |
 | unload 最后 handle 就删除 ETLX | handle retirement 与 artifact retention 解耦，由独立 quota/LRU 回收 |
@@ -1281,13 +1352,13 @@ options；任何仍传入已拒绝的 `--symbol-path` 的发行路径都必须�
 
 1. `CapabilityId` 的版本和废弃规则。
 2. capability/tool manifest 是声明式文件、生成代码还是二者组合；目标必须是一个 validated active model。
-3. Contract 2.0 `ToolEnvelope<T>` 的版本号、公共 header、failed scope candidates、section NoData、required-nullable 与 legacy 双投影规则。
+3. Contract 2.0 `ToolEnvelope<T>` 的版本号、公共 header、failed scope candidates、section NoData、required-nullable，以及 lean discovery/full contract 同源双投影规则。
 4. 64 位 ID 的规范字符串格式及兼容字段删除版本。
 5. `ToolSectionPage` 的兼容扩展方式；timeline cursor 的 MAC/registry、principal/symbol/privacy binding 和 tool error。
-6. `tools/list` discovery priority、协议 cursor error、单页/aggregate catalog gate 和支持客户端矩阵。
+6. `tools/list` discovery priority、协议 cursor error、单页/aggregate lean gate、full-registry closure 与 host/client 分页责任。
 7. `list_capabilities` 与 `inspect_trace` 的 catalog universe、capture-integrity、分页/goal filter 和 symbol-context 契约。
 8. `MeasurementBasis/Relationship/ConclusionStatus` registry，以及允许 causal 的证据规则。
-9. compatibility mode 到 secure-default ID-only 的版本窗口。
+9. raw-path compatibility 到完全 ID-only 的版本窗口；Phase 0 result snapshot 不形成 legacy runtime obligation。
 10. canonical per-principal trace ID、opaque generation alias、raw-path ephemeral/canonical TraceRef、共享 backend、artifact retention 和 unload 的生命周期关系。
 11. `SymbolContextId` 的创建、复用、principal binding、artifact pin/expiry、cache key 和 analysis 参数契约；同步 `symbol_context_expired` error。
 12. `load_trace`、`prepare_symbols`、`unload_trace` 的最终 annotations 和 `IdempotentHint`。
@@ -1303,6 +1374,9 @@ ADR 未决不能成为静默猜测实现的理由；不影响 Phase 1 正确性�
 - 默认完整能力通过标准 MCP Tool 路径可发现，且无需私有说明或 Resources。
 - capability、tool、workflow 和 evidence reference 由一个 validated active model 生成或验证。
 - 每个启用工具都有精确 input/output schema 和 Schema-valid structured result。
+- 默认 `tools/list` 保留全部静态工具、完整 input schema 与 contract locator，不内嵌深层 output schema；所有页面合并后的 lean JSON 不超过 250,000 bytes。
+- 每个完整 Contract 2.0 schema 都可通过 content-addressed Resource 和 `get_tool_contract(toolName,page)` 重组并验证 byte/hash，且与 server 发送前校验所用 schema 完全同源。
+- host/client 负责遍历分页、缓存并渐进注入 task-relevant descriptors；server 不做 session-time 动态激活，也不引入万能 dispatcher。
 - 每个结果机器可读地披露 scope、capability、completeness、precision 和 evidence boundary。
 - 不存在不可观察截断、unsafe opaque 64 位 JSON number 或把 raw event count 当 total groups 的契约。
 - 当前 trace 不支持的能力仍可发现，并准确说明 unavailable/partial 原因。
@@ -1311,6 +1385,7 @@ ADR 未决不能成为静默猜测实现的理由；不影响 Phase 1 正确性�
 - capability detector/metadata 的公共 facts 至多一次物理扫描，目标 composites 满足批准的 pass 上限。
 - 真实 stdio、全部目录分页、hostile input、取消、large trace、schema snapshot 和 LLM 对抗 gate 通过。
 - breaking changes、compatibility flags、弃用截止版本和迁移示例写入 changelog。
+- 0.4.x 只发布 Contract 2.0 result shape 与 ID-only secure default；未发布的 legacy adapter 不属于完成条件或 release blocker。
 - release tag、程序集版本、被测试包、能力文档和上传资产来自同一 gated commit。
 
 最终判定标准不是“工具都能返回 JSON”，而是：

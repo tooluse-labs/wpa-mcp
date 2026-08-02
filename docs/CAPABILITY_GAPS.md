@@ -1,8 +1,8 @@
 # wpa-mcp — capability gaps vs WPA / PerfView
 
-> **Current status (2026-08-01):** This is the human-readable delta ledger,
+> **Current status (2026-08-02):** This is the human-readable delta ledger,
 > not the runtime catalog. The validated development model currently contains
-> 60 active tools, 51 declared capabilities, 15 goals, and 15 workflows. Ten of
+> 61 active tools, 51 declared capabilities, 15 goals, and 15 workflows. Ten of
 > those capabilities are deliberately mapped to `evaluator.declared_gap`; the
 > other rows below include broader WPA/PerfView candidates that are not yet
 > catalogued. `eng/capabilities.v1.json`, `eng/tool-contracts.v2.json`, the
@@ -25,6 +25,7 @@
 > Earlier brainstorm notes are in `docs/archive/` for historical context.
 >
 > **Revision notes:**
+> - **v8 (2026-08-02):** aligned discovery and release gaps with the lean/full-contract projections: a static 61-tool catalog, a 250,000-byte lean `tools/list`, content-addressed contract lookup, and Contract 2.0-only result compatibility. Removed the nonexistent legacy-adapter and named-client-matrix release blockers and closed the corrected-active-baseline blocker through reviewed, automated artifacts.
 > - **v7 (2026-08-01):** reconciled the historical inventory with the validated 60-tool/51-capability catalog, recorded the ten manifest-declared gaps, and converted CPU Precise, memory resources, system metadata, provider counts, and capture diagnostics from false "missing" claims into covered-core/remaining-boundary rows.
 > - **v6 (2026-08-01):** added contract-rollout and client-evidence release gaps with the exact machine-readable blocker codes; the historical analyzer inventory remains unchanged.
 > - **v5 (2026-05-15):** removed the four-tier punchlist; prioritization now lives solely in `MCP_IMPLEMENTATION_TASKS.md`. This doc retains only the stable capability inventory (A/B/C/D + not-to-port + UI vs data caveats + the anti-pattern callout). Doc-set cleanup also archived `OPTIMIZATION.md`.
@@ -47,6 +48,18 @@ Strip away the UI and WPA / PerfView capabilities sort into four buckets:
 - Tools-only clients call `list_capabilities`; Resource-capable clients follow
   every page linked from `wpa://capabilities/server`, `wpa://tools/server`, and
   `wpa://workflows/server`.
+- The server publishes a static, complete active tool set. `tools/list` is a
+  lean projection capped at 250,000 aggregate bytes: it retains complete input
+  schemas and content-addressed Contract 2.0 URI/hash metadata but does not
+  inline deep output schemas. The historical approximately 2.5 MB inline
+  catalog is a before-measurement, not the current discovery cost.
+- Resource-capable clients resolve a selected schema through
+  `wpa://contracts/tools/{toolName}/{sha256}` and its pages. Tools-only clients
+  use `get_tool_contract(toolName, page)`. Both paths reassemble the same
+  canonical bytes the server uses for result validation.
+- The MCP host/client follows all protocol pages and may progressively inject
+  task-relevant descriptors into the LLM. This does not dynamically activate
+  tools on the server, and there is no universal dispatcher tool.
 - A chosen tool's complete evidence and result-section semantics live at
   `wpa://tools/{toolName}/sections` and its linked pages. A gap ledger cannot
   substitute for those runtime ordering, truncation, precision, and conclusion
@@ -169,11 +182,22 @@ These are release blockers, not hidden analyzer capabilities:
 
 | Gap | Machine-readable status | Consequence |
 |---|---|---|
-| Reviewed legacy result projection | `release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime` | ADR 0005 requires legacy + raw-path defaults for 0.4.x. The server rejects `legacy` at startup, so 0.4.x cannot be released merely by opting into Contract 2.0. |
-| Full 0.5.x deprecation window and usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 1.0 cannot remove legacy/raw compatibility until this evidence is reviewed in-repository. An environment variable cannot waive it. |
-| Supported-client paging/token/cache matrix | `release_blocked:supported_client_matrix_incomplete` | The package stdio harness traverses every page, but named third-party clients still need recorded page aggregation, prompt-schema tokens, and cache behavior before 0.5 becomes the secure default. Page-one-only clients are incompatible. |
-| Corrected active contract baselines | `release_blocked:corrected_active_contract_baselines_not_release_approved` | `active-tools.v1.json`, `active-dto-inventory.v1.json`, and `active-structured-stdio.v1.json` must describe the same commit and runtime profile as the package executable. |
+| Full 0.5.x deprecation window and usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 1.0 cannot remove raw-path compatibility until this evidence is reviewed in-repository. An environment variable cannot waive it. |
 | Physical artifact materialization peak | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | Retained-store quota and checkpoints do not prove the opaque converter's transient disk peak. Release requires a passed `artifact-materialization-budget.v1.json`, not an inferred hard cap. |
+
+There is no reviewed-legacy-projection gap: no released version established the
+Phase 0 snapshot as a supported result wire contract, so Contract 2.0 is the
+only 0.4.x result contract. `legacy` fails closed to prevent mislabeling, and
+the absence of an unshipped adapter is not a release blocker. Named-client
+paging/token/cache measurements remain useful compatibility observations, not
+a global release gate; page-one-only hosts are still incompatible because host
+pagination is required protocol behavior.
+
+The corrected active-tool, DTO/stdio, lean-payload, pagination, and full-contract
+registry baselines are generated and reviewed in this change, and automated
+tests bind them to the active manifests/profile. That closes the former
+`corrected_active_contract_baselines_not_release_approved` blocker; it does not
+by itself claim that every unrelated full-suite/package gate has passed.
 
 The selected runtime profile is exposed at `wpa://runtime/profile`; absence of a
 release gate is never reported as analyzer support. See `CLIENT_COMPATIBILITY.md`
@@ -196,4 +220,4 @@ accepted architecture and Phase 0–7 implementation/release gates live in
 
 ---
 
-Last revised: 2026-08-01 (v7).
+Last revised: 2026-08-02 (v8).

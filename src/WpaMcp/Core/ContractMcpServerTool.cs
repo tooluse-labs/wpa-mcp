@@ -18,6 +18,7 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
     private readonly IToolArgumentRewriter _argumentRewriter;
     private readonly Type _dataType;
     private readonly JsonObject _outputSchema;
+    private readonly Tool _protocolTool;
 
     internal ContractMcpServerTool(
         McpServerTool innerTool,
@@ -34,8 +35,19 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
         _fitter = fitter ?? throw new ArgumentNullException(nameof(fitter));
         _argumentRewriter = argumentRewriter ?? throw new ArgumentNullException(nameof(argumentRewriter));
         _dataType = tool.OutputDataType;
-        _outputSchema = ToolOutputSchemaFactory.CreateEnvelopeSchema(_dataType);
+        _outputSchema = tool.OutputContract.ParseSchema();
+        _protocolTool = JsonSerializer.Deserialize<Tool>(
+                JsonSerializer.Serialize(innerTool.ProtocolTool, McpJsonUtilities.DefaultOptions),
+                McpJsonUtilities.DefaultOptions)
+            ?? throw new InvalidOperationException(
+                $"The protocol descriptor for '{tool.ToolName}' could not be cloned.");
+        var meta = _protocolTool.Meta?.DeepClone() as JsonObject ?? new JsonObject();
+        meta[ToolOutputContract.MetadataKey] = tool.OutputContract.ToDiscoveryMetadata();
+        _protocolTool.Meta = meta;
+        _protocolTool.OutputSchema = null;
     }
+
+    public override Tool ProtocolTool => _protocolTool;
 
     public override async ValueTask<CallToolResult> InvokeAsync(
         RequestContext<CallToolRequestParams> request,
@@ -100,23 +112,11 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
 
             var rawNode = JsonNode.Parse(raw.StructuredContent.Value.GetRawText())
                 ?? throw new InvalidOperationException("The typed tool returned JSON null.");
-            var reviewed = plan.Adapt(rawNode);
-            var data = reviewed.Domain.Deserialize(_dataType, McpJsonUtilities.DefaultOptions)
-                ?? throw new InvalidOperationException("The typed tool result could not be materialized.");
-            CompositeResultContractValidator.Validate(data);
-            var envelope = ToolEnvelopeProjection.Success(
-                _tool,
-                data,
-                reviewed,
-                plan.PublicArguments,
-                EvaluateCapabilities(reviewed, failed: false));
-            var projected = ToolWireJson.ProjectEnvelope(envelope, _dataType);
-            var fitted = _fitter.Fit(
+            var fitted = ProjectSuccess(
                 request.JsonRpcRequest.Id,
-                projected,
-                _outputSchema,
-                _tool,
-                plan.PublicArguments);
+                rawNode,
+                plan,
+                enforceResponseBudget: true);
             cancellationToken.ThrowIfCancellationRequested();
             return fitted.Result;
         }
@@ -136,6 +136,66 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
                 MapException(exception),
                 FailureArguments(plan, request.Params?.Arguments));
         }
+    }
+
+    internal FittedToolResponse MeasureSuccessfulDataForPreflight(
+        RequestId requestId,
+        object data,
+        IReadOnlyDictionary<string, JsonElement> arguments)
+    {
+        if (!string.Equals(_tool.ToolName, "get_tool_contract", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Only get_tool_contract has a startup success-frame preflight.");
+        }
+        ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(arguments);
+        if (!_dataType.IsInstanceOfType(data))
+        {
+            throw new ArgumentException(
+                $"Expected preflight data of type '{_dataType.FullName}'.",
+                nameof(data));
+        }
+
+        var plan = _adapters.Plan(_tool, arguments);
+        var rawNode = JsonSerializer.SerializeToNode(data, McpJsonUtilities.DefaultOptions)
+            ?? throw new InvalidOperationException("The preflight tool data serialized to JSON null.");
+        return ProjectSuccess(
+            requestId,
+            rawNode,
+            plan,
+            enforceResponseBudget: false);
+    }
+
+    private FittedToolResponse ProjectSuccess(
+        RequestId requestId,
+        JsonNode rawNode,
+        ReviewedToolInvocationPlan plan,
+        bool enforceResponseBudget)
+    {
+        var reviewed = plan.Adapt(rawNode);
+        var data = reviewed.Domain.Deserialize(_dataType, McpJsonUtilities.DefaultOptions)
+            ?? throw new InvalidOperationException("The typed tool result could not be materialized.");
+        CompositeResultContractValidator.Validate(data);
+        var envelope = ToolEnvelopeProjection.Success(
+            _tool,
+            data,
+            reviewed,
+            plan.PublicArguments,
+            EvaluateCapabilities(reviewed, failed: false));
+        var projected = ToolWireJson.ProjectEnvelope(envelope, _dataType);
+        return enforceResponseBudget
+            ? _fitter.Fit(
+                requestId,
+                projected,
+                _outputSchema,
+                _tool,
+                plan.PublicArguments)
+            : _fitter.MeasureUnboundedSuccess(
+                requestId,
+                projected,
+                _outputSchema,
+                _tool);
     }
 
     private static IReadOnlyDictionary<string, JsonElement>? FailureArguments(

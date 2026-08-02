@@ -1,22 +1,33 @@
 # MCP 客户端兼容性
 
 wpa-mcp 完整暴露能力，也完整暴露证据边界。兼容客户端应降低 discovery 成本，
-但不能静默丢弃工具、schema、continuation 或 uncertainty 字段。
+但不能静默丢弃 tool descriptor、continuation 或 uncertainty 字段。完整结果契约
+按需提供，不再随每个 descriptor 内嵌广播。
 
-当前 validated development surface 是 60 个 active tools，对应 51 个
-declared capabilities、15 个 goals、15 个 workflows。这些数量只用于核对完整遍历；客户端
-必须读取实际 catalog version 与 totals，不能把数字写死。
+validated development surface 会随 catalog 发布当前 tool、capability、goal 和
+workflow totals。客户端必须读取实际 catalog version 与 totals，不能把某次 snapshot
+数字写死。
 
 ## 必需行为
 
 - 在 stateful stdio 上协商仓库锁定的 MCP protocol profile。
-- 持续跟随 `tools/list.nextCursor` 直到为空，合并时不得遗漏、重复或重排。只消费
-  第一页的客户端不兼容。
-- 保留每个工具的完整 input/output schema；tool + schema 是不可拆分分页单元。
-- 按 schema 声明的 JSON Schema 2020-12 dialect 解析每个 output schema。server
+- 持续跟随 `tools/list.nextCursor` 直到为空，合并时不得遗漏、重复或重排。这是
+  MCP client/host 的职责，不是 LLM 的推理任务。
+- 保留每个完整的 lean discovery descriptor：name、description、input schema、
+  annotations 以及 Contract 2.0 URI/version/hash。descriptor 是不可拆分页单元；
+  完整 output schema 不要求内嵌其中。
+- 只有需要深层客户端结果校验时才读取
+  `wpa://contracts/tools/{toolName}/{sha256}`。跟随其不可变 byte-range page
+  index，按顺序拼接 fragment，再校验声明的 UTF-8 size 与 SHA-256。Tools-only
+  客户端通过 `get_tool_contract(toolName, page)` 的确定性分页取得同一份 canonical
+  bytes。两条路径共享固定 8,192 UTF-8-byte 页边界；如果配置的 response cap 无法
+  投递每个 Resource 页及其 Contract 2.0 镜像 Tool 页，server 会在启动读取 stdin 前
+  失败。当前已审查 catalog 的统一最小值是 35,858 bytes，不能用较低的纯
+  `tools/list` 分页最小值代替。
+- 按声明的 JSON Schema 2020-12 dialect 解析已取得的 output schema。server
   只允许 `#/$defs/<safe-id>` 形式的单段同文档引用，并拒绝 dangling、cycle、
-  multi-segment、anchor 与 external ref。忽略或不能解析这些 local refs 的客户端
-  不兼容，不能把被引用 schema 静默当成 permissive；external ref 绝不能触发网络请求。
+  multi-segment、anchor 与 external ref。validator 不能把被引用 schema 静默当成
+  permissive；external ref 绝不能触发网络请求。
 - 消费 Contract 2.0 `structuredContent`；`content` text 是其同步渲染。存在结构化
   结果时不得反过来把 text 当权威数据源。
 - 原样保留 JSON string identifier。TraceId、SymbolContextId、connection/file/
@@ -44,39 +55,43 @@ declared capabilities、15 个 goals、15 个 workflows。这些数量只用于�
 
 支持 Resource 的客户端应先读 `wpa://capabilities/server`、
 `wpa://tools/server`、`wpa://workflows/server` 的小索引，再跟完其中列出的每一页。
-选择工具后，读取 `wpa://tools/{toolName}/sections` 及其全部页，才能依赖该工具每个
-section 的排序与证据语义。这些 Resource 是 Active Catalog 的同源、frame-budgeted
-投影；它们不允许客户端跳过 `tools/list` 后续页，也不能对 Tools-only 模型隐藏能力。
+所选工具的 discovery descriptor 会给出不可变完整契约资源
+`wpa://contracts/tools/{toolName}/{sha256}`；只有 UI、validator、code generator
+或诊断需要深层 schema 时才读取，并按 page index 拼接、校验完整 bytes。还应读取
+`wpa://tools/{toolName}/sections` 及其全部页，才能依赖该工具每个 section 的排序与
+证据语义。这些 Resource 都是 Active Catalog 的同源、frame-budgeted 投影。
+
+host 应完整合并并缓存 lean discovery catalog，再依据 capability map 与当前任务，
+只把相关 descriptor 注入 LLM context。这种 progressive injection 是 host 的责任，
+不会改变 server catalog。host 没有注入某 descriptor 时，不能把对应能力报告成
+wpa-mcp 不存在。
 
 ## 证据状态
 
-仓库内 package harness 会通过 raw stdio 测试实际发布 executable：使用最大允许
-serialized request-ID 初始化、遍历全部 tool/capability page、验证 schema 与同步
-structured/text、读取 capability/runtime resource、检查完整 frame budget，并确认
-测试前后 executable hash 不变。另一条用例证明恶意首帧会在 telemetry/trace/
-symbol 可变副作用之前被拒绝。
+release evidence 要求仓库内 package harness 必须通过 raw stdio 测试实际发布
+executable：使用最大允许 serialized request-ID 初始化、遍历全部 tool/capability
+page、验证 lean descriptor、通过 Resource 和 Tools-only 两条路径解析每个完整契约
+URI/hash、校验同步 structured/text、读取 capability/runtime resource、检查完整
+frame budget，并确认测试前后 executable hash 不变。另一条用例必须证明恶意首帧
+会在 telemetry/trace/symbol 可变副作用之前被拒绝。
 
-这是 protocol/package 证据，不等于每个具名第三方客户端都已验证。各支持客户端/
-版本的 prompt-schema token、prefix-cache 行为与完整分页合并证据仍为
-`release_blocked:supported_client_matrix_incomplete`。server 不会为迁就忽略 cursor
-的客户端而隐藏后续工具。
+这是 protocol/package 证据，不等于每个具名第三方客户端都已验证。具名
+client/version 运行可以记录 page aggregation、host 实际注入的 descriptor、
+prompt-schema token 与 prefix-cache 行为。这些观测用于更新兼容性表和 host 指南；
+除非未来 ADR 显式承诺该具名 client/version 并定义验收条件，否则它们不是全局
+release blocker。server 不会为迁就忽略 cursor 的 host 而隐藏后续 descriptor。
 
-release workflow 要求通过的
-`eng/contract-baselines/supported-client-matrix.v1.json`；其中每个 client row 都
-必须记录 full-page consumption、实测 schema token 与实测 prompt-cache 行为。
-该文件当前不存在，因此 runtime profile 与 workflow 都保持 blocked，不会把 raw
-stdio harness 冒充 client evidence。
-
-corrected active snapshot 文件可以在 release approval 之前存在。runtime 会继续保留
-`release_blocked:corrected_active_contract_baselines_not_release_approved`，直到
-snapshots、manifests、profile、package executable 与 commit 被作为同一证据集审查。
+corrected active-tool、DTO/stdio、lean-payload、pagination、历史 hash 与完整契约
+registry baseline 已在本轮审查，并由自动测试绑定到 active manifests/profile；原
+corrected-active-baseline blocker 因此关闭。独立的 opaque converter transient
+physical-peak blocker 仍保留；catalog gate 通过不会豁免它。
 
 ## Profile 支持
 
 | Runtime profile | 客户端预期 | 当前实现 |
 |---|---|---|
-| Contract 2.0 + ID-only | closed envelope schema；`load_trace`/TraceId lifecycle | 可运行的开发 profile |
-| Contract 2.0 + raw compatibility | 同一 envelope；raw path 已弃用并可能创建 canonical handle | 仅显式启动兼容；1.0 删除 |
-| Legacy + 任一 trace mode | Phase 0 legacy golden，而不是重命名后的 Contract 2.0 | 未实现；启动 fail closed |
+| Contract 2.0 + ID-only | lean discovery + 按需 closed envelope contract；`load_trace`/TraceId lifecycle | 可运行的开发 profile |
+| Contract 2.0 + raw compatibility | 同一 discovery/contract 投影；raw path 已弃用并可能创建 canonical handle | 仅显式启动兼容；1.0 删除 |
+| Legacy + 任一 trace mode | 没有已发布 compatibility contract；Phase 0 golden 只作 regression evidence | 不支持；启动 fail closed，但不阻断 Contract 2.0 发布 |
 
 版本默认值和删除日期见 `CONTRACT_MIGRATION.zh-CN.md` 与 ADR 0005。

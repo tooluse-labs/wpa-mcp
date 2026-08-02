@@ -130,31 +130,30 @@ public class TelemetryTests
     }
 
     [Fact]
-    public void ToolListPayload_ReportsAggregateCostSeparatelyFromFittedPageLimit()
+    public void ToolListPayload_ReportsLeanAggregateWithinDiscoveryBudget()
     {
         var stats = ToolListPayload.MeasureCurrentAssembly();
         var tools = ToolListPayload.MeasureCurrentTools();
+        var perTool = ToolListPayload.MeasureCurrentToolPayloads();
         var preflight = ToolsListPageFitter.Preflight(
             tools,
             ToolsListPaginationOptions.HardMaxResponseFrameBytes);
-        var largest = string.Join(
-            ", ",
-            ToolListPayload.MeasureCurrentToolPayloads()
-                .Take(8)
-                .Select(tool =>
-                    $"{tool.ToolName}={tool.PayloadBytes}" +
-                    (tool.HasOutputSchema
-                        ? $"(schema={tool.OutputSchemaBytes})"
-                        : string.Empty)));
 
-        Assert.True(stats.ToolCount >= 50);
-        Assert.True(stats.PayloadBytes > 0);
-        Assert.True(
-            stats.PayloadBytes > preflight.MaxResponseFrameBytes,
-            $"Aggregate tools/list cost was unexpectedly conflated with one fitted page: {stats.PayloadBytes} bytes; largest tools: {largest}.");
+        Assert.Equal(61, stats.ToolCount);
+        Assert.Equal(stats.ToolCount, tools.Count);
+        Assert.All(tools, tool => Assert.Null(tool.OutputSchema));
+        Assert.All(perTool, tool =>
+        {
+            Assert.False(tool.HasOutputSchema);
+            Assert.Equal(0, tool.OutputSchemaBytes);
+        });
+        Assert.InRange(
+            stats.PayloadBytes,
+            1,
+            ToolListPayload.DefaultMaxPayloadBytes);
         Assert.Equal(stats.PayloadBytes, preflight.AggregateCatalogResultBytes);
         Assert.True(preflight.MinimumViableFrameBytes <= preflight.MaxResponseFrameBytes);
-        Assert.True(stats.ExceedsLimit);
+        Assert.False(stats.ExceedsLimit);
     }
 
     [Fact]

@@ -19,6 +19,7 @@ public sealed class LegacyStructuredStdioGoldenTests
     private const string FixtureRelativePath = "tests/WpaMcp.Tests/fixtures/small_wait_bound.etl";
     private const string FixtureSha256 = "6f65fad5e6b25e1bf6d28c6ae0e27a002421df5a13f05692f9391e8fcbfcc95a";
     private const string StructuredTextMarker = "<JSON_TEXT_EQUALS_STRUCTURED_CONTENT>";
+    private const int ReviewedRuntimeFrameCapBytes = 87_542;
 
     private static readonly string[] ExpectedLegacyStructuredTools =
     [
@@ -149,11 +150,12 @@ public sealed class LegacyStructuredStdioGoldenTests
         {
             var catalog = ActiveToolCatalog.LoadAndValidate();
             var tools = catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
-            var frameCap = ToolsListPageFitter.Preflight(
+            var preflight = ToolsListPageFitter.Preflight(
                 tools,
-                ToolsListPaginationOptions.HardMaxResponseFrameBytes).MinimumViableFrameBytes;
-            var loadSchema = JsonNode.Parse(tools.Single(tool => tool.Name == "load_trace")
-                .OutputSchema!.Value.GetRawText())!.AsObject();
+                ToolsListPaginationOptions.HardMaxResponseFrameBytes);
+            Assert.True(preflight.MinimumViableFrameBytes <= ReviewedRuntimeFrameCapBytes);
+            var frameCap = ReviewedRuntimeFrameCapBytes;
+            var loadSchema = catalog.OutputContracts["load_trace"].ParseSchema();
             await using var client = await ProductionStdioClient.StartAsync(
                 repoRoot,
                 scenarioRoot,
@@ -269,9 +271,12 @@ public sealed class LegacyStructuredStdioGoldenTests
             var runtimeCatalog = ActiveToolCatalog.LoadAndValidate();
             var runtimeTools = runtimeCatalog.CreateProtocolTools(
                 new DeferredCatalogServiceProvider());
-            var toolsListFrameCap = ToolsListPageFitter.Preflight(
+            var toolsListPreflight = ToolsListPageFitter.Preflight(
                 runtimeTools,
-                ToolsListPaginationOptions.HardMaxResponseFrameBytes).MinimumViableFrameBytes;
+                ToolsListPaginationOptions.HardMaxResponseFrameBytes);
+            Assert.True(
+                toolsListPreflight.MinimumViableFrameBytes <= ReviewedRuntimeFrameCapBytes);
+            var toolsListFrameCap = ReviewedRuntimeFrameCapBytes;
             await using var client = await ProductionStdioClient.StartAsync(
                 repoRoot,
                 scenarioRoot,
@@ -323,7 +328,8 @@ public sealed class LegacyStructuredStdioGoldenTests
             Assert.Equal(activeCatalog.ToolCount, catalog.Count);
             Assert.Equal(activeCatalog.CatalogBytes, listResultBytes.Length);
             Assert.Equal(activeCatalog.CatalogSha256, Sha256(listResultBytes));
-            var schemas = BuildStructuredSchemaMap(catalog);
+            AssertLeanCatalogContractProjection(catalog, runtimeCatalog);
+            var schemas = BuildStructuredSchemaMap(runtimeCatalog);
             var inputSchemas = BuildInputSchemaMap(catalog);
             var activeToolNames = catalog
                 .Select(node => node!["name"]!.GetValue<string>())
@@ -382,6 +388,18 @@ public sealed class LegacyStructuredStdioGoldenTests
                 "primary",
                 "complete_declared_capability_page",
                 new JsonObject());
+            var inspectedContract = runtimeCatalog.OutputContracts["inspect_trace"];
+            var contractArguments = new JsonObject
+            {
+                ["toolName"] = inspectedContract.ToolName,
+                ["page"] = 1,
+            };
+            var contractPageResponse = await Capture(
+                "get_tool_contract",
+                "primary",
+                "first_content_addressed_contract_page",
+                contractArguments);
+            AssertContractPageMatchesRegistry(contractPageResponse, inspectedContract);
             var loadResponse = await Capture(
                 "load_trace",
                 "primary",
@@ -422,7 +440,7 @@ public sealed class LegacyStructuredStdioGoldenTests
             foreach (var tool in activeToolNames)
             {
                 if (tool is "list_capabilities" or "load_trace" or "inspect_trace" or
-                    "list_processes" or "unload_trace")
+                    "list_processes" or "unload_trace" or "get_tool_contract")
                 {
                     continue;
                 }
@@ -467,12 +485,12 @@ public sealed class LegacyStructuredStdioGoldenTests
             var tools = new JsonArray();
             foreach (var tool in activeToolNames)
             {
-                var schemaBytes = Encoding.UTF8.GetBytes(schemas[tool].ToJsonString(CompactJson));
+                var contract = runtimeCatalog.OutputContracts[tool];
                 tools.Add(new JsonObject
                 {
                     ["name"] = tool,
-                    ["outputSchemaBytes"] = schemaBytes.Length,
-                    ["outputSchemaSha256"] = Sha256(schemaBytes),
+                    ["outputSchemaBytes"] = contract.Utf8Bytes,
+                    ["outputSchemaSha256"] = contract.Sha256,
                     ["cases"] = new JsonArray(cases[tool]
                         .Select(item => (JsonNode?)item)
                         .ToArray()),
@@ -535,12 +553,14 @@ public sealed class LegacyStructuredStdioGoldenTests
                     ["asserted"] = new JsonArray(
                         "newline-delimited JSON-RPC framing",
                         "complete paged Active Catalog traversal",
+                        "tools/list omits outputSchema and carries exact content-addressed contract metadata",
                         "every active tool has two schema-valid terminating Contract 2.0 wire cases",
+                        "get_tool_contract deterministic success and failed-boundary cases",
                         "ID-only analysis uses load_trace and canonical TraceId",
                         "structuredContent presence for succeeded, partial, no-data, and failed outcomes when observed",
                         "text JSON semantic equality with structuredContent",
-                        "recursive outputSchema required-property presence",
-                        "recursive outputSchema nullability and JSON primitive/container types",
+                        "recursive registry output contract required-property presence",
+                        "recursive registry output contract nullability and JSON primitive/container types",
                         "array items and object additionalProperties schema traversal",
                         "complete response frame remains within the configured hard cap",
                         "strict privacy profile production-wire scenario"),
@@ -658,6 +678,14 @@ public sealed class LegacyStructuredStdioGoldenTests
     {
         if (tool == "list_capabilities")
             return new JsonObject { ["cursor"] = "cpc_11111111111111111111111111111111" };
+        if (tool == "get_tool_contract")
+        {
+            return new JsonObject
+            {
+                ["toolName"] = "not_an_active_tool",
+                ["page"] = 1,
+            };
+        }
         if (tool == "load_trace")
             return new JsonObject { ["path"] = Path.Combine(sourceRoot, "missing.etl") };
 
@@ -778,21 +806,68 @@ public sealed class LegacyStructuredStdioGoldenTests
         return evidence;
     }
 
-    private static SortedDictionary<string, JsonObject> BuildStructuredSchemaMap(JsonArray tools)
+    private static void AssertLeanCatalogContractProjection(
+        JsonArray tools,
+        ActiveToolCatalog catalog)
     {
-        var result = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
         foreach (var node in tools)
         {
             var tool = Assert.IsType<JsonObject>(node);
-            if (tool["outputSchema"] is not JsonObject schema)
-                continue;
-
             var name = tool["name"]?.GetValue<string>()
                 ?? throw new JsonException("Catalog tool omitted name.");
-            result.Add(name, (JsonObject)schema.DeepClone());
+            Assert.False(
+                tool.ContainsKey("outputSchema"),
+                $"tools/list must not inline the full output schema for '{name}'.");
+
+            var metadata = Assert.IsType<JsonObject>(
+                tool["_meta"]?[ToolOutputContract.MetadataKey]);
+            var contract = catalog.OutputContracts[name];
+            Assert.Equal(contract.SchemaUri, metadata["uri"]?.GetValue<string>());
+            Assert.Equal(contract.Sha256, metadata["sha256"]?.GetValue<string>());
+            Assert.Equal(contract.Utf8Bytes, metadata["utf8Bytes"]?.GetValue<int>());
+            Assert.True(JsonNode.DeepEquals(contract.ToDiscoveryMetadata(), metadata));
+        }
+    }
+
+    private static SortedDictionary<string, JsonObject> BuildStructuredSchemaMap(
+        ActiveToolCatalog catalog)
+    {
+        var result = new SortedDictionary<string, JsonObject>(StringComparer.Ordinal);
+        foreach (var contract in catalog.OutputContracts.Values)
+        {
+            var schema = contract.ParseSchema();
+            Assert.Equal(contract.CanonicalJson, schema.ToJsonString(McpJsonUtilities.DefaultOptions));
+            Assert.Equal(contract.Utf8Bytes, Encoding.UTF8.GetByteCount(contract.CanonicalJson));
+            Assert.Equal(contract.Sha256, Sha256(Encoding.UTF8.GetBytes(contract.CanonicalJson)));
+            result.Add(contract.ToolName, schema);
         }
 
         return result;
+    }
+
+    private static void AssertContractPageMatchesRegistry(
+        JsonNode response,
+        ToolOutputContract contract)
+    {
+        var data = Assert.IsType<JsonObject>(RequireStructuredContent(response)["data"]);
+        Assert.Equal(contract.ToolName, data["toolName"]?.GetValue<string>());
+        Assert.Equal(contract.ContractVersion, data["contractVersion"]?.GetValue<string>());
+        Assert.Equal(contract.SchemaUri, data["schemaUri"]?.GetValue<string>());
+        Assert.Equal(contract.Sha256, data["sha256"]?.GetValue<string>());
+        Assert.Equal(contract.MediaType, data["mediaType"]?.GetValue<string>());
+        Assert.Equal(contract.Utf8Bytes, data["utf8Bytes"]?.GetValue<int>());
+        Assert.Equal(1, data["page"]?.GetValue<int>());
+        Assert.Equal(0, data["startUtf8Byte"]?.GetValue<int>());
+
+        var fragment = data["schemaFragment"]?.GetValue<string>()
+            ?? throw new JsonException("get_tool_contract omitted data.schemaFragment.");
+        var returnedBytes = data["returnedUtf8Bytes"]?.GetValue<int>()
+            ?? throw new JsonException("get_tool_contract omitted data.returnedUtf8Bytes.");
+        Assert.Equal(returnedBytes, Encoding.UTF8.GetByteCount(fragment));
+        Assert.StartsWith(fragment, contract.CanonicalJson, StringComparison.Ordinal);
+        Assert.Equal(
+            data["pageCount"]?.GetValue<int>() > 1 ? 2 : null,
+            data["nextPage"]?.GetValue<int?>());
     }
 
     private static SortedDictionary<string, JsonObject> BuildInputSchemaMap(JsonArray tools)

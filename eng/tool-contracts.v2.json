@@ -70,6 +70,61 @@
       ]
     },
     {
+      "toolName": "get_tool_contract",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.CapabilityDiscoveryTools",
+      "method": "GetToolContract",
+      "inputType": "parameters(toolName:System.String,page:System.Int32)",
+      "outputType": "WpaMcp.Output.ToolContractPageResponse",
+      "capabilityIds": [
+        "catalog.capability.list"
+      ],
+      "requiredCapabilities": [
+        "runtime.validated_active_catalog"
+      ],
+      "selectableScopes": [
+        "server"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "none"
+      ],
+      "costClass": "bootstrap",
+      "discoveryPriority": 0,
+      "domain": "bootstrap",
+      "ordinal": 5,
+      "defaultOrdering": "not_applicable",
+      "tieBreakers": [],
+      "pageableSections": [],
+      "paginationMode": "none",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "catalog.output_contract.read"
+      ],
+      "allowedMeasurementBases": [
+        "metadata"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "CATALOG_DECLARED_NOT_WPA_EXHAUSTIVE",
+        "UNLISTED_CAPABILITY_UNKNOWN"
+      ],
+      "evidenceReferences": [
+        "evidence.catalog.capability.list"
+      ]
+    },
+    {
       "toolName": "alpc_caller_callee",
       "enabled": true,
       "contractVersion": "2.0",

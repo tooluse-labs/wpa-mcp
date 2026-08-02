@@ -7,11 +7,12 @@
     "structuredToolCount": 5,
     "catalogBytes": 178923
   },
-  "toolCount": 60,
-  "catalogBytes": 2498170,
-  "catalogSha256": "916a478f403a773e3535941195bcdb2aa241614872d6d1a67112e067e7dedd10",
+  "toolCount": 61,
+  "catalogBytes": 203626,
+  "catalogSha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940",
   "structuredToolNames": [
     "list_capabilities",
+    "get_tool_contract",
     "inspect_trace",
     "list_processes",
     "load_trace",
@@ -113,7 +114,42 @@
       "inputSchemaSha256": "9c62ca1605081ea043b9d629fe9fc2a1c2ab7e0d677d6972e2870d34e3643495",
       "outputSchemaBytes": 26251,
       "outputSchemaSha256": "0d93a8b89e5fd69a22846fc403a36f0c3c377e4520e39fcb6045f90f14447a34",
-      "toolBytes": 27918
+      "toolBytes": 2060
+    },
+    {
+      "name": "get_tool_contract",
+      "declaringType": "WpaMcp.Tools.CapabilityDiscoveryTools",
+      "method": "GetToolContract",
+      "returnType": "WpaMcp.Output.ToolContractPageResponse",
+      "description": "Returns one deterministic random-access page of an active tool\u0027s complete Contract 2.0 output schema. Page numbering is one-based; concatenate schemaFragment values in page order without separators, then verify sha256. The complete content-addressed Resource index is schemaUri. This paged Tool is the Tools-only fallback and never returns the full schema in one mirrored response. No startUs/endUs: this reads immutable contract metadata and does not analyze trace events.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "useStructuredContent": true,
+      "parameters": [
+        {
+          "name": "toolName",
+          "type": "System.String",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Exact active MCP tool name from tools/list or list_capabilities."
+        },
+        {
+          "name": "page",
+          "type": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValueJson": "1",
+          "description": "One-based deterministic 8192-UTF-8-byte page number. Start at 1 and follow nextPage until null."
+        }
+      ],
+      "inputSchemaBytes": 316,
+      "inputSchemaSha256": "4b9ecde0d301e85c37c7d035804c1f05752c8f03fe95938345b092c19a3b9dbd",
+      "outputSchemaBytes": 23038,
+      "outputSchemaSha256": "18a750a79413922d983b683e2861faf057b2c0245050d2e58009fbb6a9d50845",
+      "toolBytes": 1367
     },
     {
       "name": "inspect_trace",
@@ -169,7 +205,7 @@
       "inputSchemaSha256": "7c25393a172ec6e759813302f6b1b547743972657ba56ceb42942b4a14b10bac",
       "outputSchemaBytes": 71797,
       "outputSchemaSha256": "910aca43c36dec20b6d0d44ca9b33ad9b0c6fe86ed8bd7f198bf2e2079ee9588",
-      "toolBytes": 74638
+      "toolBytes": 3230
     },
     {
       "name": "list_processes",
@@ -232,7 +268,7 @@
       "inputSchemaSha256": "5516fe890a95c85027171138db3ceaaf1f527bc4f66e612e2ec6be6856f5c17b",
       "outputSchemaBytes": 26248,
       "outputSchemaSha256": "3307f712e1540bfebf52e97c6c476acfe91eea5adac86f2d68256cf47a3f28fa",
-      "toolBytes": 28241
+      "toolBytes": 2383
     },
     {
       "name": "load_trace",
@@ -274,7 +310,7 @@
       "inputSchemaSha256": "c067f5cf0663b1cf924e9a1878f9232d8a19295887629087c0d25b89f695d4bb",
       "outputSchemaBytes": 42384,
       "outputSchemaSha256": "0d3700b0e06a130ea2f2e1930a38c3f4a83cbb5776fc827d867ffc76262ed4c6",
-      "toolBytes": 43868
+      "toolBytes": 1870
     },
     {
       "name": "clr_alloc_caller_callee",
@@ -351,7 +387,7 @@
       "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45397
+      "toolBytes": 3202
     },
     {
       "name": "clr_alloc_top_stacks",
@@ -442,7 +478,7 @@
       "inputSchemaSha256": "5958ec2c8eaac4765a649f0b277827c527f0524183a2bdadd32eba42ed9f6dad",
       "outputSchemaBytes": 40359,
       "outputSchemaSha256": "98572256bc2dd9fdfa20688fafdd088f8632d32a7aee9ca6bd028ae8d046f4bb",
-      "toolBytes": 44106
+      "toolBytes": 4143
     },
     {
       "name": "clr_contention_caller_callee",
@@ -519,7 +555,7 @@
       "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45410
+      "toolBytes": 3220
     },
     {
       "name": "clr_contention_top_stacks",
@@ -610,7 +646,7 @@
       "inputSchemaSha256": "2e59b8c82b322c99b75f6250571ec45de99e60ea5572c3b09e131eb2d73e44ac",
       "outputSchemaBytes": 44041,
       "outputSchemaSha256": "2848c01ee736d4aaa48e80064e1c0f03d0955dea3ea2f6e79e672a9926608849",
-      "toolBytes": 47969
+      "toolBytes": 4329
     },
     {
       "name": "clr_exception_caller_callee",
@@ -687,7 +723,7 @@
       "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45396
+      "toolBytes": 3205
     },
     {
       "name": "clr_exception_top_stacks",
@@ -778,7 +814,7 @@
       "inputSchemaSha256": "e09fbe5cb72fe387bb8ce9c703a2b36d0c904dc8735b73dcb71952143083ce8e",
       "outputSchemaBytes": 39108,
       "outputSchemaSha256": "4e33c01e588116bcd56a37dd7f3cea61ae97617f9dad84e3ba4e7538e202213b",
-      "toolBytes": 42822
+      "toolBytes": 4114
     },
     {
       "name": "clr_finalizer_analysis",
@@ -834,7 +870,7 @@
       "inputSchemaSha256": "39c1f36d01e9913938da3ced7592f345864e7235e4658ec4bdd77f6520fd971c",
       "outputSchemaBytes": 27365,
       "outputSchemaSha256": "9115ad4d99071ef362c0aa4a8bc7018b7aed12858444dc30155ed31b0a299618",
-      "toolBytes": 29469
+      "toolBytes": 2502
     },
     {
       "name": "clr_gc_analysis",
@@ -890,7 +926,7 @@
       "inputSchemaSha256": "d039590bf9cc1b50437ab9f54fe7c7b0f522b0a17122cdcd283b840c38c108a0",
       "outputSchemaBytes": 32199,
       "outputSchemaSha256": "7d9f5495edeb8a063383b872702389836e9c331581b83084e61e284d196fee38",
-      "toolBytes": 34502
+      "toolBytes": 2694
     },
     {
       "name": "clr_gc_heap_stats",
@@ -946,7 +982,7 @@
       "inputSchemaSha256": "913b257be0acf8dd97ca60006fcbac8870f341633a058175a16ecb413f0202f5",
       "outputSchemaBytes": 25672,
       "outputSchemaSha256": "c0b24af25c92fe8e5e9a41f5257adb0b1eb95f6298042abecb233d0d3e5163ed",
-      "toolBytes": 27870
+      "toolBytes": 2591
     },
     {
       "name": "clr_jit_analysis",
@@ -1009,7 +1045,7 @@
       "inputSchemaSha256": "981eb7ac2e98685ca33a52ecfa3bc9752aa9c493043f68397eb13961809859e4",
       "outputSchemaBytes": 29118,
       "outputSchemaSha256": "305642aa30003c43c0a5a6a82910299bb8cbdf075a62f1ae46dfeeabacfb6eff",
-      "toolBytes": 31521
+      "toolBytes": 2795
     },
     {
       "name": "cpu_caller_callee",
@@ -1114,7 +1150,7 @@
       "inputSchemaSha256": "4fec08b6fcaf1e11ab92bea9f86b0a8d53daba254bb5443a17edcb39a94a5af0",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 46515
+      "toolBytes": 4314
     },
     {
       "name": "cpu_top_functions",
@@ -1219,7 +1255,7 @@
       "inputSchemaSha256": "4db362121ae2a492616bfb167cda6d80d9aaede707f5b8aab3882d535c3c9ede",
       "outputSchemaBytes": 37077,
       "outputSchemaSha256": "683c0758ac55943680b6de36e7f988c295c606629602af9498651bdf9b2af061",
-      "toolBytes": 42104
+      "toolBytes": 5420
     },
     {
       "name": "cpu_top_functions_batch",
@@ -1310,7 +1346,7 @@
       "inputSchemaSha256": "1857af151d38d5a7622a30f1ad86f8ad707338294e49d76cdf9eba1fbf5cc2df",
       "outputSchemaBytes": 42902,
       "outputSchemaSha256": "e5cde94a1e6350b8b491fc8681b229cfd60905ebddff199ef2f65d549b2c7a8f",
-      "toolBytes": 46643
+      "toolBytes": 4140
     },
     {
       "name": "diagnose_high_wait",
@@ -1401,7 +1437,7 @@
       "inputSchemaSha256": "7a69454a4082c31849cdcbf24cd943d236263c07f706f9f4016b12ad233e6f69",
       "outputSchemaBytes": 44936,
       "outputSchemaSha256": "ef4bb01db3a5803c5b34120e812696ae40e33ca2282ada7e4e88bac3e3e78134",
-      "toolBytes": 47448
+      "toolBytes": 2906
     },
     {
       "name": "diagnose_slow_startup",
@@ -1492,7 +1528,7 @@
       "inputSchemaSha256": "0702638c3e59f0d65d2a2c0f30695bdf0fdc1dbf5c2734b7310c3aff0350c354",
       "outputSchemaBytes": 84635,
       "outputSchemaSha256": "581a72f0b60eed59cf886a59ff6c5b0501d84ab2552cee6735dd9706fbddaf0c",
-      "toolBytes": 87316
+      "toolBytes": 3078
     },
     {
       "name": "diagnose_window",
@@ -1562,7 +1598,7 @@
       "inputSchemaSha256": "20e3c40a54475f53b7efeeab28e2727689a89059c039ea74a286330d3490a0ab",
       "outputSchemaBytes": 65864,
       "outputSchemaSha256": "158365f3198e5e1e5e6f10c040d5f9043b6ca03b168c012e9cc59a1a383ac4f8",
-      "toolBytes": 68039
+      "toolBytes": 2566
     },
     {
       "name": "interrupt_caller_callee",
@@ -1625,7 +1661,7 @@
       "inputSchemaSha256": "1ab64fe8895cfd4b0f97da89f6b7e42d71c58e5c27be2acc735f29013b654fd0",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45023
+      "toolBytes": 2828
     },
     {
       "name": "interrupt_top_stacks",
@@ -1702,7 +1738,7 @@
       "inputSchemaSha256": "f5830d53238218206f1d593759eeedc4c6db52748832ae2cb2ad5aaf62a9b3f4",
       "outputSchemaBytes": 40253,
       "outputSchemaSha256": "24454ad320006229c4653cd24574d7aab23fe1e4fbe0de9ab98ed38fb698bbff",
-      "toolBytes": 43972
+      "toolBytes": 4115
     },
     {
       "name": "heap_alloc_caller_callee",
@@ -1779,7 +1815,7 @@
       "inputSchemaSha256": "9a29fbc63dc68ed7b79f3fc4687d2d4e5b59c1b8e9a25263cedc84bafbb48173",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45389
+      "toolBytes": 3195
     },
     {
       "name": "heap_alloc_top_stacks",
@@ -1870,7 +1906,7 @@
       "inputSchemaSha256": "5c305252d8049dba07884ffbe8b1f32323fd45f6b85e049dcd1f7006939d9afe",
       "outputSchemaBytes": 40304,
       "outputSchemaSha256": "9b7b540578db929975c103b4332a1566fac141ba2497c2b7f1598c29ec7a80cd",
-      "toolBytes": 44354
+      "toolBytes": 4447
     },
     {
       "name": "image_load_caller_callee",
@@ -1947,7 +1983,7 @@
       "inputSchemaSha256": "bf5329546f79694ff74a656268a0eb182ca719edb618d4e75f6cb3ccc3a997f7",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45498
+      "toolBytes": 3304
     },
     {
       "name": "image_load_timing",
@@ -2003,7 +2039,7 @@
       "inputSchemaSha256": "e60d861458566b59b7a514243ffc4c574bf2656bd0242026489c34441d22fb05",
       "outputSchemaBytes": 27705,
       "outputSchemaSha256": "384273a1bced04691a9c39ad37ff8e7ff7c139abfc1c8085805c00d437695bb2",
-      "toolBytes": 30485
+      "toolBytes": 3173
     },
     {
       "name": "image_load_top_gaps",
@@ -2052,7 +2088,7 @@
       "inputSchemaSha256": "7aa445cbbebfbef03b0c79be07620c333dfda379df27d8ec12864f68afa77f67",
       "outputSchemaBytes": 25740,
       "outputSchemaSha256": "ec1f0820e00b18cc00d313fdc0303e7f85dd7ea468ea41be15b551d89fa68e67",
-      "toolBytes": 27336
+      "toolBytes": 1991
     },
     {
       "name": "image_load_top_stacks",
@@ -2143,7 +2179,7 @@
       "inputSchemaSha256": "7382747ace746cb144631cb69dbb3db3e2c3868ec85afd7390901082bd2b1bde",
       "outputSchemaBytes": 38183,
       "outputSchemaSha256": "06791db04bc53f9bbff0448667ea1cba013be239102a7f2099efa47e7ca5e673",
-      "toolBytes": 41986
+      "toolBytes": 4200
     },
     {
       "name": "disk_io_caller_callee",
@@ -2220,7 +2256,7 @@
       "inputSchemaSha256": "b4079e116ea9dd2c907b3d459b9ac90abefd2c6d2c3489f2b0d2f9a1bcfb5ca3",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45383
+      "toolBytes": 3186
     },
     {
       "name": "disk_io_top_stacks",
@@ -2311,7 +2347,7 @@
       "inputSchemaSha256": "ccbd8e4765aa6e2bd72de271e9c3a2eb2fa4b3ce4e7fbd3e46128ae543fa92e0",
       "outputSchemaBytes": 40110,
       "outputSchemaSha256": "c4e6455acce9acfa561979b595f66d2e31b8fe1f87fa06468b5207bc918c865a",
-      "toolBytes": 43890
+      "toolBytes": 4174
     },
     {
       "name": "file_io_caller_callee",
@@ -2388,7 +2424,7 @@
       "inputSchemaSha256": "343f57c615b497573eb20e05b5f300246b45e5f55e7c145608c6e9367e574aca",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45458
+      "toolBytes": 3261
     },
     {
       "name": "file_io_top_files",
@@ -2451,7 +2487,7 @@
       "inputSchemaSha256": "a85873c511be5936ca532956b3dec141bc22d0653288543ed6b4d2bf1b1860f9",
       "outputSchemaBytes": 25922,
       "outputSchemaSha256": "92ec1a04e20e2df7ccd0db313de1164dbea355d0e196dcbf2cedef0a8a2e5c85",
-      "toolBytes": 27484
+      "toolBytes": 1955
     },
     {
       "name": "file_io_top_stacks",
@@ -2542,7 +2578,7 @@
       "inputSchemaSha256": "c786b6ee4f086d9a6ff6e2be36d2ce19fa0273e333da86e9b8a8fbaa03067ca1",
       "outputSchemaBytes": 40110,
       "outputSchemaSha256": "d039abc5c42ccd4643f4d445e10ca6f8e98912482ef93c405ea70377461a3a9b",
-      "toolBytes": 43921
+      "toolBytes": 4205
     },
     {
       "name": "alpc_caller_callee",
@@ -2619,7 +2655,7 @@
       "inputSchemaSha256": "9ae19782b4118a3f0fb559a337869e35871455bb4eb56083cf31a42e075e22bb",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45355
+      "toolBytes": 3155
     },
     {
       "name": "alpc_top_stacks",
@@ -2710,7 +2746,7 @@
       "inputSchemaSha256": "2f74a620352543344abcb40ef19a762077c614b09abc9f28f2d307ff52755255",
       "outputSchemaBytes": 39028,
       "outputSchemaSha256": "ceab26b830a04388df601486ec0d2fc433ec229d9155e455c837929ac4d0dd0c",
-      "toolBytes": 42895
+      "toolBytes": 4258
     },
     {
       "name": "prepare_symbols",
@@ -2759,7 +2795,7 @@
       "inputSchemaSha256": "2f9a071a92619bea9627922a2091c80a2268f0f6fc53ba8e0dc57bdf478a4fd0",
       "outputSchemaBytes": 23958,
       "outputSchemaSha256": "d42e1dc71305ca2a47b2db3eb0c1c006ed1f70305a405e14130807277fc46107",
-      "toolBytes": 25692
+      "toolBytes": 2125
     },
     {
       "name": "unload_trace",
@@ -2801,7 +2837,7 @@
       "inputSchemaSha256": "64898e31cbf8efc2c9e76f829ab40f87bd8e7be316889363dc20d58ca32c08a5",
       "outputSchemaBytes": 21903,
       "outputSchemaSha256": "369ed313755914d32fd826543606c59514af6fcea7b8861988bec8e0a8fc70e0",
-      "toolBytes": 22831
+      "toolBytes": 1316
     },
     {
       "name": "hard_fault_by_file",
@@ -2871,7 +2907,7 @@
       "inputSchemaSha256": "2cc8aa2b9bd1d36f4631306ee59a03bef4e4fa0879f3836dcc9e6c0ff4938cfd",
       "outputSchemaBytes": 25081,
       "outputSchemaSha256": "8d11e3249da60ec09ae7ad769193dcf545a872571e45138d4d7d5fa865023e95",
-      "toolBytes": 27252
+      "toolBytes": 2565
     },
     {
       "name": "hard_fault_caller_callee",
@@ -2948,7 +2984,7 @@
       "inputSchemaSha256": "29bf895fad021acf36a555b9f0fae312f58e09bba0e4a62967c5505708b6fc94",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45432
+      "toolBytes": 3238
     },
     {
       "name": "hard_fault_top_stacks",
@@ -3039,7 +3075,7 @@
       "inputSchemaSha256": "7a4cfd11fa79401553bfaa7fdb3a366c4dae0959ef98f40a52e5909174529cde",
       "outputSchemaBytes": 40050,
       "outputSchemaSha256": "bbfc5f316b8981b39957f67a32f43140a8ddc076c84f57b5a2c5fd1dc7c9dbcb",
-      "toolBytes": 43917
+      "toolBytes": 4264
     },
     {
       "name": "memory_resource_analysis",
@@ -3102,7 +3138,7 @@
       "inputSchemaSha256": "24587b68d1f2bb41e0a8785239121ca2ca8e3fa7c6e5d8e218baf2566f7ec253",
       "outputSchemaBytes": 37595,
       "outputSchemaSha256": "1f44d36d57549c6832ea934cb4839d8c6a2e7c0c0ecb099dacb7113db5c2b4ea",
-      "toolBytes": 40576
+      "toolBytes": 3381
     },
     {
       "name": "virtual_alloc_caller_callee",
@@ -3179,7 +3215,7 @@
       "inputSchemaSha256": "ba475f31df6e8d9b397bb6933d417e83025b02c6f6122870cb0632ebf750dd39",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45510
+      "toolBytes": 3319
     },
     {
       "name": "virtual_alloc_top_stacks",
@@ -3270,7 +3306,7 @@
       "inputSchemaSha256": "5e1ba529ae0b0fd65e22ed4f5e149de3135f7fe0f9645cc0c9ceffc5127df23d",
       "outputSchemaBytes": 42042,
       "outputSchemaSha256": "b3f5d76c4fcb33e2332c954b04e216be016f7bfcca669a297e7e965def9b1171",
-      "toolBytes": 45988
+      "toolBytes": 4346
     },
     {
       "name": "net_caller_callee",
@@ -3347,7 +3383,7 @@
       "inputSchemaSha256": "711a9dbced447d5734201c452e61b298dd6a312826b8382bebd2c642e348fe9b",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45406
+      "toolBytes": 3205
     },
     {
       "name": "net_connections",
@@ -3410,7 +3446,7 @@
       "inputSchemaSha256": "78c4f55bc4a8619dab1d444a95067cf76555bd005f6111a8bc882caa011e750b",
       "outputSchemaBytes": 27866,
       "outputSchemaSha256": "502c68af420a72006fff71f62133da5d36814a780a3276b0981ff8949a837244",
-      "toolBytes": 31014
+      "toolBytes": 3539
     },
     {
       "name": "net_top_stacks",
@@ -3501,7 +3537,7 @@
       "inputSchemaSha256": "968c5459e946d9c3c8ae46287b842cd5dabaec97acde9ec50cc5a051536bb20f",
       "outputSchemaBytes": 40278,
       "outputSchemaSha256": "33b7ecbe01e6b5a2426c37c661b3c2688192dcf0d92271a87f9360dfe43972e7",
-      "toolBytes": 44295
+      "toolBytes": 4407
     },
     {
       "name": "generic_event_caller_callee",
@@ -3592,7 +3628,7 @@
       "inputSchemaSha256": "22f9538fdd58e98ddede8c1d656e0105caecf05c8b6c8505e95e520e63542303",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45699
+      "toolBytes": 3508
     },
     {
       "name": "generic_event_top_stacks",
@@ -3697,7 +3733,7 @@
       "inputSchemaSha256": "3a90377832ea037f0739f092269ff21972ded884af185128a3a8b18da232b54a",
       "outputSchemaBytes": 39246,
       "outputSchemaSha256": "06ab5bc1deaf9ea0aee0eeb24a56c8542db83eec0200943e28933d657f403a5c",
-      "toolBytes": 43635
+      "toolBytes": 4789
     },
     {
       "name": "registry_caller_callee",
@@ -3774,7 +3810,7 @@
       "inputSchemaSha256": "87635faa0a903b9d76d1db24a1a8c0db5b97ad558a6f0b586a93248a2042f196",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45359
+      "toolBytes": 3163
     },
     {
       "name": "registry_top_stacks",
@@ -3865,7 +3901,7 @@
       "inputSchemaSha256": "adaff45a69092ede9a6cc542eb54592320caac7f4d6c553c8e39dfdf59d76ef6",
       "outputSchemaBytes": 38734,
       "outputSchemaSha256": "c3f34fbaa8125782286fb277f48a2f3c753e33d29c6abe6402c754b8f63ba010",
-      "toolBytes": 42593
+      "toolBytes": 4254
     },
     {
       "name": "cpu_precise_analysis",
@@ -3949,7 +3985,7 @@
       "inputSchemaSha256": "52c077897802f67d3ae45fc35a438a12d391b8df50faf269f01bb2cc6b33f6a1",
       "outputSchemaBytes": 31247,
       "outputSchemaSha256": "a335b892f70d5b176966672c4f405a4b153ac1614fda58cdb997d9adc1bcb269",
-      "toolBytes": 33827
+      "toolBytes": 2976
     },
     {
       "name": "ready_thread_caller_callee",
@@ -4026,7 +4062,7 @@
       "inputSchemaSha256": "a71b6de901fda8951445e2345d0fdd854f38a422aa29eaadc19427399d4231f6",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 45586
+      "toolBytes": 3394
     },
     {
       "name": "ready_thread_top_stacks",
@@ -4117,7 +4153,7 @@
       "inputSchemaSha256": "425a4eed524d2ae7c111c8cd6382ced6eaa6267ce84889edd621e5eedf342601",
       "outputSchemaBytes": 38771,
       "outputSchemaSha256": "064bf740530cd9e230f50f023eaca72204f88d937726b72857dbed4aab278723",
-      "toolBytes": 42633
+      "toolBytes": 4261
     },
     {
       "name": "wait_analysis",
@@ -4201,7 +4237,7 @@
       "inputSchemaSha256": "6a9e8019fd09323ad246e1b7542206b8991d0a22c7c38a5b7e98007981e5a9c4",
       "outputSchemaBytes": 32690,
       "outputSchemaSha256": "6533bf2e6807e313cfca3b932a2f607c1fe58af70dd2a227884becf97fba09d9",
-      "toolBytes": 36033
+      "toolBytes": 3732
     },
     {
       "name": "wait_caller_callee",
@@ -4299,7 +4335,7 @@
       "inputSchemaSha256": "c72e6c17af3bc3f5dd3b9b297999ca8bdc6ada9db6e2dc5619217f4f762b9d39",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 46210
+      "toolBytes": 4010
     },
     {
       "name": "wait_top_stacks",
@@ -4411,7 +4447,7 @@
       "inputSchemaSha256": "eb70adfe583d68af5c1ddb57642cd18b4ee63f5635cb93bdc0c5186c566c0c48",
       "outputSchemaBytes": 44848,
       "outputSchemaSha256": "9b00327cc132f77d1f2dc99a6c2e8dc7d9e98c355ac6081a10c2403ef0064d94",
-      "toolBytes": 49563
+      "toolBytes": 5106
     },
     {
       "name": "security_scan_analysis",
@@ -4495,7 +4531,7 @@
       "inputSchemaSha256": "2d6ad9d139213616efe39fee15ba7d195b7027dd37c04b7d72c7f5eab4bd2e96",
       "outputSchemaBytes": 32037,
       "outputSchemaSha256": "0c450d20f6a9c9f9efc4cd4858017cb7d283d7fb8331e24d4f4870f54aed92c4",
-      "toolBytes": 35060
+      "toolBytes": 3421
     },
     {
       "name": "find_marker",
@@ -4551,7 +4587,7 @@
       "inputSchemaSha256": "ca9e2d7e11453f1e035eeb08764ca26132af9b4a1c7802dd80600d9f1c59d9a8",
       "outputSchemaBytes": 23166,
       "outputSchemaSha256": "83dcaec0a0a94284f5e4ef325b22d351627853eb7e7f4ed41d528930f4d16f67",
-      "toolBytes": 24626
+      "toolBytes": 1847
     },
     {
       "name": "process_create_timing",
@@ -4607,7 +4643,7 @@
       "inputSchemaSha256": "b790f22d4decc75dcb92f15ff946f0b7e42a9d23203aeba6b968c4cf5cf3e978",
       "outputSchemaBytes": 29861,
       "outputSchemaSha256": "cceb11b7de3b01db25683885d0f3238c60873e4c4cfb7572ca16397979d6a78f",
-      "toolBytes": 32248
+      "toolBytes": 2784
     },
     {
       "name": "thread_lifetime",
@@ -4663,7 +4699,7 @@
       "inputSchemaSha256": "75a737c2a42144e6448d5236b048ae1fbff8a56bc339af1116cfbae985000c6c",
       "outputSchemaBytes": 28856,
       "outputSchemaSha256": "7afef6a45cb5ffd3d71646942b72074d20378a06be306a3ddcae69dad882eb21",
-      "toolBytes": 31493
+      "toolBytes": 3028
     }
   ]
 }

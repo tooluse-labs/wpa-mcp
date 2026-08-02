@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using ModelContextProtocol;
 using WpaMcp.Core;
 using WpaMcp.Core.Catalog;
+using WpaMcp.Output;
 
 namespace WpaMcp.Tests;
 
@@ -22,6 +25,9 @@ public sealed class ReleasePackageStdioTests
             return;
 
         var expected = ActiveToolCatalog.LoadAndValidate();
+        var expectedProtocolTools = expected
+            .CreateProtocolTools(new DeferredCatalogServiceProvider())
+            .ToDictionary(tool => tool.Name, StringComparer.Ordinal);
         var executableHashBefore = Sha256(serverPath);
         await using var server = await PackageServer.StartAsync(serverPath);
 
@@ -43,6 +49,8 @@ public sealed class ReleasePackageStdioTests
         await server.NotifyAsync("notifications/initialized", new JsonObject());
 
         var toolNames = new List<string>();
+        var toolNodes = new List<JsonNode>();
+        var advertisedContracts = new List<PackagedContractAdvertisement>();
         string? toolsCursor = null;
         var toolPage = 0;
         do
@@ -59,9 +67,41 @@ public sealed class ReleasePackageStdioTests
             foreach (var item in tools)
             {
                 var tool = Assert.IsType<JsonObject>(item);
-                toolNames.Add(tool["name"]!.GetValue<string>());
+                var toolName = tool["name"]!.GetValue<string>();
+                var contract = expected.OutputContracts[toolName];
+                toolNames.Add(toolName);
+                toolNodes.Add(tool.DeepClone());
+                Assert.True(JsonNode.DeepEquals(
+                    JsonSerializer.SerializeToNode(
+                        expectedProtocolTools[toolName],
+                        McpJsonUtilities.DefaultOptions),
+                    tool));
                 Assert.IsType<JsonObject>(tool["inputSchema"]);
-                Assert.IsType<JsonObject>(tool["outputSchema"]);
+                Assert.Null(tool["outputSchema"]);
+                var metadata = Assert.IsType<JsonObject>(
+                    tool["_meta"]?[ToolOutputContract.MetadataKey]);
+                Assert.Equal(contract.SchemaUri, metadata["uri"]!.GetValue<string>());
+                Assert.Equal(contract.Sha256, metadata["sha256"]!.GetValue<string>());
+                Assert.Equal(contract.Utf8Bytes, metadata["utf8Bytes"]!.GetValue<int>());
+                Assert.True(JsonNode.DeepEquals(contract.ToDiscoveryMetadata(), metadata));
+                var advertised = new PackagedContractAdvertisement(
+                    toolName,
+                    metadata["contractVersion"]!.GetValue<string>(),
+                    metadata["schemaDialect"]!.GetValue<string>(),
+                    metadata["uri"]!.GetValue<string>(),
+                    metadata["sha256"]!.GetValue<string>(),
+                    metadata["mediaType"]!.GetValue<string>(),
+                    metadata["utf8Bytes"]!.GetValue<int>());
+                Assert.Equal(ToolContractVersions.V2, advertised.ContractVersion);
+                Assert.Equal(ToolOutputContract.Draft202012, advertised.SchemaDialect);
+                Assert.Equal(ToolOutputContract.ContractMediaType, advertised.MediaType);
+                Assert.Equal("utf8_json_pages", metadata["representation"]!.GetValue<string>());
+                Assert.Matches("^[0-9a-f]{64}$", advertised.Sha256);
+                Assert.Equal(
+                    $"wpa://contracts/tools/{toolName}/{advertised.Sha256}",
+                    advertised.SchemaUri);
+                Assert.InRange(advertised.Utf8Bytes, 1, int.MaxValue);
+                advertisedContracts.Add(advertised);
             }
             toolsCursor = result["nextCursor"]?.GetValue<string>();
             toolPage++;
@@ -70,7 +110,54 @@ public sealed class ReleasePackageStdioTests
         while (toolsCursor is not null);
 
         Assert.Equal(expected.Tools.Select(tool => tool.ToolName), toolNames);
+        Assert.Equal(61, toolNames.Count);
         Assert.Equal(toolNames.Count, toolNames.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(toolNames, advertisedContracts.Select(contract => contract.ToolName));
+        var aggregateToolsList = new JsonObject
+        {
+            ["tools"] = new JsonArray(toolNodes.Select(tool => tool.DeepClone()).ToArray()),
+        };
+        var aggregateToolsListBytes = Encoding.UTF8.GetByteCount(
+            aggregateToolsList.ToJsonString());
+        Assert.InRange(
+            aggregateToolsListBytes,
+            1,
+            ToolListPayload.DefaultMaxPayloadBytes);
+
+        var outputContractResourcePageCount = 0;
+        var outputContractToolPageCount = 0;
+        var outputContractCanonicalBytes = 0;
+        for (var index = 0; index < advertisedContracts.Count; index++)
+        {
+            var advertised = advertisedContracts[index];
+            var resourceProjection = await ReadContractResourceAsync(server, advertised, index);
+            var toolProjection = await ReadContractToolAsync(server, advertised, index);
+
+            Assert.True(
+                resourceProjection.CanonicalUtf8.AsSpan().SequenceEqual(toolProjection.CanonicalUtf8),
+                $"Resource and tools-only contract projections differ for '{advertised.ToolName}'.");
+            Assert.Equal(resourceProjection.Pages, toolProjection.Pages);
+            Assert.Equal(advertised.Utf8Bytes, resourceProjection.CanonicalUtf8.Length);
+            Assert.Equal(advertised.Sha256, Sha256Bytes(resourceProjection.CanonicalUtf8));
+            Assert.Equal(
+                expected.OutputContracts[advertised.ToolName].CanonicalJson,
+                Encoding.UTF8.GetString(resourceProjection.CanonicalUtf8));
+
+            outputContractResourcePageCount += resourceProjection.PageCount;
+            outputContractToolPageCount += toolProjection.PageCount;
+            outputContractCanonicalBytes += resourceProjection.CanonicalUtf8.Length;
+        }
+        Assert.Equal(61, advertisedContracts.Count);
+        Assert.InRange(outputContractResourcePageCount, advertisedContracts.Count, int.MaxValue);
+        Assert.Equal(outputContractResourcePageCount, outputContractToolPageCount);
+        Assert.Equal(
+            expected.OutputContracts.Values.Sum(contract =>
+                (contract.Utf8Bytes + CapabilityDiscoveryRuntime.ToolContractPageUtf8Bytes - 1) /
+                CapabilityDiscoveryRuntime.ToolContractPageUtf8Bytes),
+            outputContractResourcePageCount);
+        Assert.Equal(
+            expected.OutputContracts.Values.Sum(contract => contract.Utf8Bytes),
+            outputContractCanonicalBytes);
 
         var capabilityIds = new List<string>();
         string? capabilityCursor = null;
@@ -171,6 +258,11 @@ public sealed class ReleasePackageStdioTests
                 ["catalogVersion"] = expected.CatalogVersion,
                 ["toolCount"] = toolNames.Count,
                 ["toolPageCount"] = toolPage,
+                ["toolsListAggregateBytes"] = aggregateToolsListBytes,
+                ["outputContractCount"] = advertisedContracts.Count,
+                ["outputContractResourcePageCount"] = outputContractResourcePageCount,
+                ["outputContractToolPageCount"] = outputContractToolPageCount,
+                ["outputContractCanonicalBytes"] = outputContractCanonicalBytes,
                 ["capabilityCount"] = capabilityIds.Count,
                 ["capabilityPageCount"] = capabilityPage,
                 ["maxResponseFrameBytes"] = server.MaxResponseFrameBytes,
@@ -263,6 +355,177 @@ public sealed class ReleasePackageStdioTests
 
     private static string Sha256(string path) =>
         Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
+    private static string Sha256Bytes(byte[] bytes) =>
+        Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    private static async Task<ContractProjection> ReadContractResourceAsync(
+        PackageServer server,
+        PackagedContractAdvertisement advertised,
+        int contractIndex)
+    {
+        var indexResponse = await server.RequestAsync(
+            $"contract-resource-{contractIndex}-index",
+            "resources/read",
+            new JsonObject { ["uri"] = advertised.SchemaUri });
+        var indexContents = Assert.IsType<JsonArray>(indexResponse.Node["result"]?["contents"]);
+        var indexContent = Assert.IsType<JsonObject>(Assert.Single(indexContents));
+        Assert.Equal(advertised.SchemaUri, indexContent["uri"]?.GetValue<string>());
+        Assert.Equal("application/json", indexContent["mimeType"]?.GetValue<string>());
+        var resourceIndex = Assert.IsType<JsonObject>(
+            JsonNode.Parse(indexContent["text"]!.GetValue<string>()));
+        Assert.Equal(advertised.ToolName, resourceIndex["toolName"]?.GetValue<string>());
+        Assert.Equal(advertised.ContractVersion, resourceIndex["contractVersion"]?.GetValue<string>());
+        Assert.Equal(advertised.SchemaUri, resourceIndex["schemaUri"]?.GetValue<string>());
+        Assert.Equal(advertised.Sha256, resourceIndex["sha256"]?.GetValue<string>());
+        Assert.Equal(advertised.MediaType, resourceIndex["mediaType"]?.GetValue<string>());
+        Assert.Equal(advertised.Utf8Bytes, resourceIndex["utf8Bytes"]?.GetValue<int>());
+        var pageCount = resourceIndex["pageCount"]?.GetValue<int>()
+            ?? throw new JsonException("Contract resource index omitted pageCount.");
+        Assert.InRange(pageCount, 1, int.MaxValue);
+        Assert.Equal(
+            $"{advertised.SchemaUri}/pages/{{page}}",
+            resourceIndex["pageUriTemplate"]?.GetValue<string>());
+        Assert.Equal("page_asc_start_utf8_byte_asc", resourceIndex["ordering"]?.GetValue<string>());
+
+        using var assembled = new MemoryStream(advertised.Utf8Bytes);
+        var boundaries = new List<ContractPageBoundary>(pageCount);
+        var nextStart = 0;
+        for (var pageNumber = 1; pageNumber <= pageCount; pageNumber++)
+        {
+            var pageUri = $"{advertised.SchemaUri}/pages/{pageNumber}";
+            var pageResponse = await server.RequestAsync(
+                $"contract-resource-{contractIndex}-{pageNumber}",
+                "resources/read",
+                new JsonObject { ["uri"] = pageUri });
+            var contents = Assert.IsType<JsonArray>(pageResponse.Node["result"]?["contents"]);
+            var content = Assert.IsType<JsonObject>(Assert.Single(contents));
+            Assert.Equal(pageUri, content["uri"]?.GetValue<string>());
+            Assert.Equal("application/json", content["mimeType"]?.GetValue<string>());
+            var page = Assert.IsType<JsonObject>(JsonNode.Parse(content["text"]!.GetValue<string>()));
+            Assert.Equal(advertised.ToolName, page["toolName"]?.GetValue<string>());
+            Assert.Equal(advertised.Sha256, page["sha256"]?.GetValue<string>());
+            Assert.Equal(pageNumber, page["page"]?.GetValue<int>());
+            Assert.Equal(pageCount, page["pageCount"]?.GetValue<int>());
+            Assert.Equal(nextStart, page["startUtf8Byte"]?.GetValue<int>());
+
+            var fragment = page["schemaFragment"]?.GetValue<string>()
+                ?? throw new JsonException("Contract resource page omitted schemaFragment.");
+            var fragmentBytes = Encoding.UTF8.GetBytes(fragment);
+            Assert.Equal(fragmentBytes.Length, page["returnedUtf8Bytes"]?.GetValue<int>());
+            Assert.InRange(
+                fragmentBytes.Length,
+                1,
+                CapabilityDiscoveryRuntime.ToolContractPageUtf8Bytes);
+            boundaries.Add(new ContractPageBoundary(
+                pageNumber,
+                nextStart,
+                fragmentBytes.Length));
+            assembled.Write(fragmentBytes);
+            nextStart = checked(nextStart + fragmentBytes.Length);
+        }
+
+        Assert.Equal(advertised.Utf8Bytes, nextStart);
+        return new ContractProjection(assembled.ToArray(), boundaries);
+    }
+
+    private static async Task<ContractProjection> ReadContractToolAsync(
+        PackageServer server,
+        PackagedContractAdvertisement advertised,
+        int contractIndex)
+    {
+        using var assembled = new MemoryStream(advertised.Utf8Bytes);
+        var boundaries = new List<ContractPageBoundary>();
+        var pageNumber = 1;
+        int? pageCount = null;
+        var nextStart = 0;
+        while (true)
+        {
+            var response = await server.RequestAsync(
+                $"contract-tool-{contractIndex}-{pageNumber}",
+                "tools/call",
+                new JsonObject
+                {
+                    ["name"] = "get_tool_contract",
+                    ["arguments"] = new JsonObject
+                    {
+                        ["toolName"] = advertised.ToolName,
+                        ["page"] = pageNumber,
+                    },
+                });
+            var result = Assert.IsType<JsonObject>(response.Node["result"]);
+            Assert.False(result["isError"]?.GetValue<bool>() ?? false);
+            var structured = Assert.IsType<JsonObject>(result["structuredContent"]);
+            var content = Assert.IsType<JsonArray>(result["content"]);
+            var text = Assert.IsType<JsonObject>(Assert.Single(content));
+            Assert.Equal("text", text["type"]?.GetValue<string>());
+            Assert.True(JsonNode.DeepEquals(
+                structured,
+                JsonNode.Parse(text["text"]!.GetValue<string>())));
+            var data = Assert.IsType<JsonObject>(structured["data"]);
+
+            Assert.Equal(advertised.ToolName, data["toolName"]?.GetValue<string>());
+            Assert.Equal(advertised.ContractVersion, data["contractVersion"]?.GetValue<string>());
+            Assert.Equal(advertised.SchemaUri, data["schemaUri"]?.GetValue<string>());
+            Assert.Equal(advertised.Sha256, data["sha256"]?.GetValue<string>());
+            Assert.Equal(advertised.MediaType, data["mediaType"]?.GetValue<string>());
+            Assert.Equal(advertised.Utf8Bytes, data["utf8Bytes"]?.GetValue<int>());
+            Assert.Equal(pageNumber, data["page"]?.GetValue<int>());
+            var currentPageCount = data["pageCount"]?.GetValue<int>()
+                ?? throw new JsonException("get_tool_contract omitted data.pageCount.");
+            Assert.InRange(currentPageCount, 1, int.MaxValue);
+            pageCount ??= currentPageCount;
+            Assert.Equal(pageCount.Value, currentPageCount);
+            Assert.Equal(nextStart, data["startUtf8Byte"]?.GetValue<int>());
+
+            var fragment = data["schemaFragment"]?.GetValue<string>()
+                ?? throw new JsonException("get_tool_contract omitted data.schemaFragment.");
+            var fragmentBytes = Encoding.UTF8.GetBytes(fragment);
+            Assert.Equal(fragmentBytes.Length, data["returnedUtf8Bytes"]?.GetValue<int>());
+            Assert.InRange(
+                fragmentBytes.Length,
+                1,
+                CapabilityDiscoveryRuntime.ToolContractPageUtf8Bytes);
+            boundaries.Add(new ContractPageBoundary(
+                pageNumber,
+                nextStart,
+                fragmentBytes.Length));
+            assembled.Write(fragmentBytes);
+            nextStart = checked(nextStart + fragmentBytes.Length);
+
+            var nextPage = data["nextPage"]?.GetValue<int?>();
+            Assert.Equal(pageNumber < currentPageCount ? pageNumber + 1 : null, nextPage);
+            if (nextPage is null)
+                break;
+            pageNumber = nextPage.Value;
+        }
+
+        Assert.NotNull(pageCount);
+        Assert.Equal(pageCount.Value, pageNumber);
+        Assert.Equal(advertised.Utf8Bytes, nextStart);
+        return new ContractProjection(assembled.ToArray(), boundaries);
+    }
+
+    private sealed record PackagedContractAdvertisement(
+        string ToolName,
+        string ContractVersion,
+        string SchemaDialect,
+        string SchemaUri,
+        string Sha256,
+        string MediaType,
+        int Utf8Bytes);
+
+    private sealed record ContractProjection(
+        byte[] CanonicalUtf8,
+        IReadOnlyList<ContractPageBoundary> Pages)
+    {
+        internal int PageCount => Pages.Count;
+    }
+
+    private sealed record ContractPageBoundary(
+        int Page,
+        int StartUtf8Byte,
+        int ReturnedUtf8Bytes);
 
     private sealed record ReceivedFrame(JsonObject Node, int Utf8Bytes);
 

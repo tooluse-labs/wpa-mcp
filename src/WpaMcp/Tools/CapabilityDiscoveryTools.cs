@@ -32,6 +32,23 @@ public sealed class CapabilityDiscoveryTools(CapabilityDiscoveryRuntime runtime)
         [Description("Opaque continuation returned by the preceding page. It is bound to this principal, catalog version, filters, and ordering.")]
         string? cursor = null) =>
         _runtime.ListForDelivery(domain, goal, cursor);
+
+    [McpServerTool(
+        ReadOnly = true,
+        Idempotent = true,
+        OpenWorld = false,
+        Destructive = false,
+        UseStructuredContent = true), Description(
+        "Returns one deterministic random-access page of an active tool's complete Contract 2.0 output schema. " +
+        "Page numbering is one-based; concatenate schemaFragment values in page order without separators, then verify sha256. " +
+        "The complete content-addressed Resource index is schemaUri. This paged Tool is the Tools-only fallback and never returns the full schema in one mirrored response. " +
+        "No startUs/endUs: this reads immutable contract metadata and does not analyze trace events.")]
+    public ToolContractPageResponse GetToolContract(
+        [Description("Exact active MCP tool name from tools/list or list_capabilities.")]
+        string toolName,
+        [Description("One-based deterministic 8192-UTF-8-byte page number. Start at 1 and follow nextPage until null.")]
+        int page = 1) =>
+        _runtime.ToolContractPage(toolName, page);
 }
 
 [McpServerResourceType]
@@ -136,6 +153,27 @@ public sealed class CapabilityDiscoveryResources(CapabilityDiscoveryRuntime runt
         "The complete, untruncated ServerToolResourceRecord for one active tool. Its sectionContractsResourceUri links the complete byte-budgeted section contracts.")]
     public TextResourceContents GetToolDetail(string toolName) =>
         _runtime.ToolDetailResource(toolName);
+
+    [McpServerResource(
+        UriTemplate = "wpa://contracts/tools/{toolName}/{sha256}",
+        Name = "wpa_tool_output_contract",
+        Title = "wpa-mcp content-addressed tool output contract index",
+        MimeType = "application/json"), Description(
+        "Small immutable index for one active tool's complete Contract 2.0 output schema. Resource and get_tool_contract lookups share fixed 8192-UTF-8-byte page boundaries. Read every listed page, concatenate schemaFragment UTF-8 bytes in ascending page order without separators or normalization, and verify the lowercase SHA-256 in this URI.")]
+    public TextResourceContents GetToolOutputContract(string toolName, string sha256) =>
+        _runtime.ToolOutputContractIndexResource(toolName, sha256);
+
+    [McpServerResource(
+        UriTemplate = "wpa://contracts/tools/{toolName}/{sha256}/pages/{page}",
+        Name = "wpa_tool_output_contract_page",
+        Title = "wpa-mcp content-addressed tool output contract page",
+        MimeType = "application/json"), Description(
+        "One immutable canonical UTF-8 schema fragment. Fixed 8192-byte boundaries match get_tool_contract and are independent of the server frame cap. The page is not standalone JSON; reconstruct the exact schema according to the linked index assembly and hashing rules.")]
+    public TextResourceContents GetToolOutputContractPage(
+        string toolName,
+        string sha256,
+        int page) =>
+        _runtime.ToolOutputContractPageResource(toolName, sha256, page);
 
     [McpServerResource(
         UriTemplate = "wpa://tools/{toolName}/sections",

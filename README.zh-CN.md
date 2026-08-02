@@ -216,11 +216,12 @@ claude mcp add wpa-mcp --scope user -- dotnet C:/Users/me/Dev/wpa-mcp/src/WpaMcp
 
 ## 工具
 
-当前 validated development surface 包含 **60 个 active tools、51 个 declared
+当前 validated development surface 包含 **61 个 active tools、51 个 declared
 capabilities、15 个 goals、15 个 workflows**。capability 数量包含显式声明的 gap；
 它只对本 server catalog 完整，并不覆盖整个 WPA/ETW universe。客户端必须跟完
 `tools/list` 和 `list_capabilities` 的每个 cursor page，不能把第一页或这里的快照数字
-硬编码成完整目录。
+硬编码成完整目录。同一 server profile 的 active tool set 是静态的；加载 trace 不会
+激活、删除或重排工具。
 
 底层使用 PerfView 同款 `Microsoft.Diagnostics.Tracing.TraceEvent` 库，但共用 parser
 不等于视图天然等价。每个 analyzer 都公开 scope、source capability evidence、
@@ -231,6 +232,27 @@ completeness、precision 与 conclusion boundary，让调用方判断结果究�
 选定工具后，应跟完 `wpa://tools/{toolName}/sections` 的全部页，取得每个 section 的
 ordering、truncation proof、evidence、measurement、relationship 与 conclusion
 contract。Resource 用来降低选择成本，不允许客户端据此隐藏工具或跳过 `tools/list` 页。
+
+默认 `tools/list` 是 lean discovery projection，aggregate 有 **250,000-byte hard
+budget**。每个 descriptor 仍保留工具名、description、完整 `inputSchema`、annotations
+与 `_meta["wpa-mcp/outputContract"]`，但不会内嵌深层 `outputSchema`。这段 metadata
+携带 Contract 2.0 版本、JSON Schema dialect、content-addressed URI、SHA-256、media
+type 与 canonical UTF-8 byte count。
+
+选定工具后，从 `wpa://contracts/tools/{toolName}/{sha256}` 及其列出的 page 获取完整
+schema。Tools-only client 调 `get_tool_contract(toolName, page)`，从第 1 页开始跟随
+`nextPage`；按页序无分隔符、无 normalization 地拼接 `schemaFragment` UTF-8 bytes，
+再校验 `utf8Bytes` 与 `sha256`。两条路径都来自 server 用于逐结果验证的同一份 immutable
+schema，并共享固定 8,192 UTF-8-byte 页边界，因此 content-addressed index/page 不会
+随实例 frame 配置改变。启动时会用最大合法 request ID 精确测量全部 Resource/Tool 页；
+配置上限无法投递完整 lookup 时，在读取 stdin 前 fail closed（当前已审查 catalog 为
+35,858 bytes）。历史约 2.5 MB 目录是“把全部深层 schema 内嵌进 `tools/list`”的 before
+measurement，不是当前默认目录或 LLM context 成本。
+
+协议分页遍历、descriptor/contract cache 以及把 task-relevant descriptors 渐进注入
+模型，都是 MCP host/client 的责任，不是 LLM 自己的推理任务。host 选择不会改变 server
+catalog；wpa-mcp 不做 session-time 动态工具激活，也没有万能 dispatcher tool，原生
+工具名和调用参数保持不变。
 
 ### wpa-mcp 相对 PerfView 加了什么
 
@@ -250,7 +272,7 @@ wpa-mcp 遵循一个总原则：**完整暴露能力，用能力地图降低选�
 
 ### Contract 2.0 证据 envelope
 
-全部 60 个 active tools 都返回同一 closed structured envelope。解释领域行之前必须
+全部 61 个 active tools 都返回同一 closed structured envelope。解释领域行之前必须
 先解释它：
 
 | 字段 | 契约 |
@@ -274,7 +296,7 @@ tool-wide 排序或证明声明。
 opaque ID 是 JSON string，绝不能经过 JavaScript `number`。重放进程行必须保留
 `pid + processStartUs`；线程还要保留 `tid + threadStartUs + threadGeneration`。
 
-secure ID-only profile 下，57 个分析/发现工具声明为 read-only、idempotent、
+secure ID-only profile 下，58 个分析/发现工具声明为 read-only、idempotent、
 closed-world、non-destructive。`load_trace` 会写 owned artifact store，
 `prepare_symbols` 可能写 private verified-symbol store，`unload_trace` 会 retire handle。
 启动时选定 profile 的投影 annotation 才是权威；应读取 `wpa://runtime/profile`，不要
@@ -363,6 +385,7 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 | 工具 | 功能 | PerfView 对应 |
 |---|---|---|
 | **`list_capabilities`** | 可分页 Server Capability Map：declared capability（含显式 gap）、goal、workflow、可调用工具、cost/scope/symbol requirement 与 evidence boundary。只对本 server catalog 完整，不代表 WPA 全集。 | **[程序化]**——无直接 GUI 等价物 |
+| **`get_tool_contract`** | 为 Tools-only client 按确定性 8,192-byte page 返回某个 active tool 的 canonical Contract 2.0 output schema；必须重组全部页并校验 size/SHA-256。 | **[程序化]**——无直接 GUI 等价物 |
 | **`load_trace`** | 唯一 raw trace-source 入口。校验允许的本地 `.etl`/`.etlx`，从已打开 handle 快照进 owned immutable artifact store，并返回 canonical principal-scoped TraceId。parsed event count 不是 raw ETW record count。 | 打开 trace 文件（无 TraceId 等价物） |
 | **`unload_trace`** | retire TraceId、拒绝新 acquire，并可等待 lease drain。它不删除 immutable artifact，也不宣称物理空间已经释放。 | 关闭 trace handle |
 | **`inspect_trace`** | 可分页 Trace Evidence Map：parsed capability assessment、system metadata、provider count、同域 stack coverage、trace PDB identity、quality boundary、self-attribution、适用工具与 workflow。它不探测本地 PDB，也不测 frame resolution；`prepare_symbols` 只建立 verified local readiness，当前 build 的 context-bound frame lookup 仍不可用。 | **[程序化]**——替代手工跨 Events、Modules、capture metadata 做 trace 质量检查 |
@@ -524,10 +547,13 @@ PID 被复用时，进程级工具应同时传入 `list_processes` 返回的 `pr
 `legacy` / `2.0`，trace reference 值为 `compatibility` / `id_only`。
 
 当前源码版本仍是 `0.3.0`：可运行的开发 profile 是 Contract 2.0 + ID-only，
-但 ADR 0005 明确把 0.4 之前的 release line 标成 `releaseStatus=blocked`。
-`legacy` 值已进入显式矩阵，但仓库尚无经过审查的 legacy result adapter，因此
-选择它会在启动时 fail closed，不能把 active Contract 2.0 envelope 冒充 legacy。
-raw-path compatibility 只能通过显式启动开关启用，并会给出 1.0.0 删除告警。
+但 ADR 0005 明确把 0.4 之前的 release line 标成 `releaseStatus=blocked`。0.4.x 默认
+profile 是 Contract 2.0 + ID-only，且结果形状只有 Contract 2.0；此前没有任何
+released wpa-mcp 把 Phase 0 snapshot 建立为受支持的 legacy wire contract。`legacy`
+值只为显式 fail closed 而保留，避免把
+active Contract 2.0 envelope 冒充 legacy；没有未发布的 legacy adapter 不会阻断原生
+Contract 2.0 的 0.4.x。raw-path compatibility 只能通过显式启动开关启用，并会给出
+1.0.0 删除告警。
 固定 profile 前请阅读[契约迁移](docs/CONTRACT_MIGRATION.zh-CN.md)与
 [客户端兼容性](docs/CLIENT_COMPATIBILITY.zh-CN.md)。
 

@@ -96,7 +96,7 @@ public sealed class Phase0CorrectnessBaselineTests
         var document = baseline.RootElement;
 
         Assert.Equal(1, document.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("2026-08-01", document.GetProperty("baselineDate").GetString());
+        Assert.Equal("2026-08-02", document.GetProperty("baselineDate").GetString());
 
         var designPath = document.GetProperty("design").GetString()!;
         var decisionPath = document.GetProperty("acceptedDecision").GetString()!;
@@ -122,9 +122,9 @@ public sealed class Phase0CorrectnessBaselineTests
                 gate => gate.GetProperty("id").GetString()!,
                 gate => gate.GetProperty("status").GetString()!,
                 StringComparer.Ordinal);
-        Assert.Equal("external_validation_pending", unresolvedGates["third_party_client_matrix"]);
+        Assert.DoesNotContain("third_party_client_matrix", unresolvedGates.Keys);
         Assert.Equal("release_blocked_measurement_pending", unresolvedGates["opaque_converter_physical_peak"]);
-        Assert.Equal("rollout_telemetry_pending", unresolvedGates["contract_0_5_deprecation_telemetry"]);
+        Assert.Equal("rollout_telemetry_pending", unresolvedGates["raw_path_0_5_deprecation_telemetry"]);
         Assert.Equal("release_approval_pending", unresolvedGates["release_approval_tag_and_assets"]);
 
         foreach (var item in dispositions)
@@ -248,7 +248,8 @@ public sealed class Phase0CorrectnessBaselineTests
             ToolListPayload.DefaultMaxPayloadBytes,
             document.GetProperty("aggregateWarningThresholdBytes").GetInt32());
         Assert.False(disposition.GetProperty("toolsHidden").GetBoolean());
-        Assert.False(disposition.GetProperty("schemasRemoved").GetBoolean());
+        Assert.False(disposition.GetProperty("fullSchemasRemovedFromContract").GetBoolean());
+        Assert.True(disposition.GetProperty("fullSchemasOmittedFromDefaultDiscovery").GetBoolean());
         Assert.False(disposition.GetProperty("typedFieldsReplacedWithOpenDictionary").GetBoolean());
         Assert.True(disposition.GetProperty("correctnessFieldsPreserved").GetBoolean());
 
@@ -273,10 +274,30 @@ public sealed class Phase0CorrectnessBaselineTests
             ToolsListPaginationOptions.HardMaxResponseFrameBytes,
             active.GetProperty("pageFrameLimitBytes").GetInt32());
         Assert.True(preflight.MinimumViableFrameBytes <= preflight.MaxResponseFrameBytes);
-        Assert.True(current.ExceedsLimit);
-        Assert.True(current.PayloadBytes > preflight.MaxResponseFrameBytes);
+        Assert.False(current.ExceedsLimit);
+        Assert.True(current.PayloadBytes <= ToolListPayload.DefaultMaxPayloadBytes);
+        Assert.All(tools, tool => Assert.Null(tool.OutputSchema));
         Assert.Equal(
-            "full_cost_not_reduced_by_paging",
+            tools.Count,
+            tools.Count(tool => tool.Meta?[ToolOutputContract.MetadataKey] is not null));
+        Assert.Equal(0, active.GetProperty("embeddedOutputSchemaCount").GetInt32());
+        Assert.Equal(tools.Count,
+            active.GetProperty("outputContractMetadataCount").GetInt32());
+        Assert.True(active.GetProperty("withinLeanDiscoveryBudget").GetBoolean());
+        Assert.Equal(
+            "eng/contract-baselines/tool-output-contract-registry.v1.json",
+            active.GetProperty("fullContractRegistryArtifact").GetString());
+        Assert.True(File.Exists(RepoPath(
+            root,
+            active.GetProperty("fullContractRegistryArtifact").GetString()!)));
+        using var registry = JsonDocument.Parse(File.ReadAllBytes(RepoPath(
+            root,
+            active.GetProperty("fullContractRegistryArtifact").GetString()!)));
+        Assert.Equal(
+            active.GetProperty("fullContractRegistryCanonicalUtf8Bytes").GetInt64(),
+            registry.RootElement.GetProperty("totalCanonicalUtf8Bytes").GetInt64());
+        Assert.Equal(
+            "lean_discovery_with_on_demand_full_contracts",
             active.GetProperty("aggregatePromptCostState").GetString());
     }
 

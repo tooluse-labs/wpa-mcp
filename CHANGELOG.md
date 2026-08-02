@@ -13,15 +13,25 @@ GitHub Releases and the git tag history.
   Configure `WPAMCP_CONTRACT_MODE=2.0|legacy` / `--contract-mode` and
   `WPAMCP_TRACE_REFERENCE_MODE=id_only|compatibility` /
   `--trace-reference-mode`; command-line values win. The active runtime has no
-  reviewed legacy result adapter, so `legacy` fails closed instead of returning
-  a mislabeled Contract 2.0 envelope. Raw-path compatibility is deprecated and
-  removed in 1.0.0. Read `wpa://runtime/profile` for the selected pair and
-  blockers; see `docs/CONTRACT_MIGRATION.md`.
+  released legacy result contract, so `legacy` is recognized only to fail
+  closed instead of returning a mislabeled Contract 2.0 envelope. Contract 2.0
+  + ID-only is the 0.4.x default, and Contract 2.0 is its only result shape.
+  The absence of an unshipped legacy adapter is not a release blocker. Raw-path compatibility is
+  deprecated and removed in 1.0.0. Read `wpa://runtime/profile` for the selected
+  pair and blockers; see `docs/CONTRACT_MIGRATION.md`.
 
-- The validated development catalog is now 60 active tools joined to 51
+- The validated development catalog is now 61 active tools joined to 51
   declared capabilities, 15 goals, and 15 workflows. The capability map is
   exhaustive for this server surface, not for the complete WPA/ETW universe;
   clients must follow every `tools/list` and `list_capabilities` cursor page.
+- Default `tools/list` is now a lean projection capped at 250,000 aggregate
+  bytes. It retains each native tool name, description, complete input schema,
+  annotations, and content-addressed Contract 2.0 URI/hash metadata, but no
+  longer broadcasts deep output schemas inline. The historical approximately
+  2.5 MB inline catalog remains a before-measurement only.
+- MCP hosts/clients must traverse all discovery pages, cache the static catalog,
+  and may progressively inject task-relevant descriptors into the model. The
+  server does not dynamically activate tools and adds no universal dispatcher.
 - All active tools now use the closed Contract 2.0 envelope. Consumers must
   interpret `scope`, `capabilityEvidence`, `completeness`, per-section state,
   `evidenceBoundary`, `precision`, `noData`, and `error` before domain data.
@@ -45,7 +55,7 @@ GitHub Releases and the git tag history.
   This build has no context-bound TraceEvent frame adapter, so
   `resolveSymbols=true` fails closed with `symbol_resolution_unavailable` rather
   than relabeling readiness or unsymbolized stacks as measured resolution.
-- In the ID-only profile, 57 discovery/analysis tools are read-only,
+- In the ID-only profile, 58 discovery/analysis tools are read-only,
   idempotent, closed-world, and non-destructive. The three stateful boundaries
   are `load_trace`, `prepare_symbols`, and `unload_trace`; profile-projected
   annotations remain authoritative in compatibility mode.
@@ -60,11 +70,17 @@ GitHub Releases and the git tag history.
   `wpa://tools/server`, per-domain tool pages, workflow resources, and complete
   per-tool section-contract resources. Tools-only clients retain full discovery
   through `tools/list` plus `list_capabilities`.
+- Added immutable full-output-contract Resources at
+  `wpa://contracts/tools/{toolName}/{sha256}` with linked canonical UTF-8 pages,
+  plus `get_tool_contract(toolName, page)` as the deterministic 8,192-byte
+  Tools-only fallback. Clients reassemble fragments without normalization and
+  verify the advertised byte count and SHA-256; the server validates results
+  against the same schema source.
 - Added the paged Trace Evidence Map to `inspect_trace`, including runtime
   capability evaluators, same-domain stack coverage, capture/symbol boundaries,
   self-attribution status, applicable tools, and workflows.
 - Added closed output schemas and synchronized structured/text Contract 2.0
-  envelopes for all 60 active tools, with section-local order, tie-breakers,
+  envelopes for all 61 active tools, with section-local order, tie-breakers,
   total/more state, proof mode, continuation, evidence IDs, measurement basis,
   relationship, and conclusion status.
 - Added exact full-frame fitting and terminal structured budget failure.
@@ -79,7 +95,8 @@ GitHub Releases and the git tag history.
   disclose that they do not prove a single shared planner dispatch.
 - Added a version-aware ADR 0005 rollout policy for the 0.4, 0.5, and 1.0
   default/removal windows. The current 0.3.0 development profile remains
-  runnable as Contract 2.0 + ID-only but is machine-marked release-blocked.
+  runnable as Contract 2.0 + ID-only but is machine-marked release-blocked
+  because pre-0.4 is not a publishable ADR release line.
 - Added `wpa://runtime/profile`, privacy-safe runtime-profile telemetry, and
   `--runtime-profile` / `--validate-release-profile`. `tools/list` cursors now
   receive the selected startup contract mode from the same profile.
@@ -152,11 +169,16 @@ GitHub Releases and the git tag history.
 ### Known boundary
 
 - The current 0.3.0 Contract 2.0 + ID-only profile is runnable for development
-  but release-blocked. A reviewed legacy result adapter does not exist and
-  `legacy` fails closed.
-- Corrected active baseline files may exist without being release-approved.
-  Release still requires a same-commit package/profile/manifests/baselines/hash
-  evidence set and the supported-client paging/token/cache matrix where required.
+  but release-blocked because ADR 0005 defines publishable windows starting at
+  0.4.x. `legacy` fails closed because no released compatibility contract
+  exists; that deliberate lack of an adapter does not block Contract 2.0.
+- Corrected active-tool, DTO/stdio, lean-payload, pagination, and full-contract
+  registry baselines are regenerated and reviewed together; automated gates
+  bind them to the active manifests/profile. This closes the former active-
+  baseline blocker without, by itself, asserting every full-suite/package gate.
+  Named-client paging/token/cache measurements remain compatibility observations,
+  while the package harness must prove complete pagination and both
+  full-contract lookup paths.
 - Retained artifact quotas do not prove the opaque converter's transient
   physical disk peak; the independent materialization-budget gate remains open.
 - `inspect_trace` uses the typed planner and generation snapshot. Composites not

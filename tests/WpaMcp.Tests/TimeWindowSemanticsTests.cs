@@ -52,6 +52,7 @@ public class TimeWindowSemanticsTests
     {
         var expectedNoWindowTools = new HashSet<string>(StringComparer.Ordinal)
         {
+            $"{nameof(CapabilityDiscoveryTools)}.{nameof(CapabilityDiscoveryTools.GetToolContract)}",
             $"{nameof(CapabilityDiscoveryTools)}.{nameof(CapabilityDiscoveryTools.ListCapabilities)}",
             $"{nameof(DiagnoseTools)}.{nameof(DiagnoseTools.DiagnoseSlowStartup)}",
             $"{nameof(ImageLoadTools)}.{nameof(ImageLoadTools.ImageLoadTiming)}",

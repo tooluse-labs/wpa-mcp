@@ -77,9 +77,7 @@ internal static class LegacyActiveToolSnapshotBuilder
     {
         var toolPayload = SerializeProtocol(tool);
         var inputSchema = SerializeProtocol(tool.InputSchema);
-        var outputSchema = tool.OutputSchema is null
-            ? null
-            : SerializeProtocol(tool.OutputSchema);
+        var outputSchema = Encoding.UTF8.GetBytes(binding.OutputContract.CanonicalJson);
         var annotations = tool.Annotations is null
             ? (JsonElement?)null
             : JsonSerializer.SerializeToElement(tool.Annotations, McpJsonUtilities.DefaultOptions);
@@ -91,17 +89,16 @@ internal static class LegacyActiveToolSnapshotBuilder
             ReturnType: TypeIdentity(binding.Method.ReturnType),
             Description: tool.Description,
             Annotations: annotations,
-            // The active snapshot records the executable protocol Tool, including
-            // catalog wrappers that add contract-2.0 output schemas/structured results.
-            // The method attribute alone describes only the legacy SDK binding.
-            UseStructuredContent: tool.OutputSchema is not null,
+            // The discovery descriptor is lean, while the reviewed full schema comes
+            // from the same Active Catalog contract used for server-side validation.
+            UseStructuredContent: true,
             Parameters: binding.Method.GetParameters()
                 .Select(BuildParameterSnapshot)
                 .ToList(),
             InputSchemaBytes: inputSchema.Length,
             InputSchemaSha256: Sha256(inputSchema),
-            OutputSchemaBytes: outputSchema?.Length ?? 0,
-            OutputSchemaSha256: outputSchema is null ? null : Sha256(outputSchema),
+            OutputSchemaBytes: outputSchema.Length,
+            OutputSchemaSha256: Sha256(outputSchema),
             ToolBytes: toolPayload.Length);
     }
 
@@ -137,6 +134,7 @@ internal static class LegacyActiveToolSnapshotBuilder
             .Select(tool => new ToolBinding(
                 tool.ToolName,
                 tool.Method,
+                tool.OutputContract,
                 tool.Method.GetCustomAttribute<McpServerToolAttribute>()
                     ?? throw new InvalidOperationException(
                         $"Validated active tool '{tool.ToolName}' lost its SDK attribute.")))
@@ -169,6 +167,7 @@ internal static class LegacyActiveToolSnapshotBuilder
     private sealed record ToolBinding(
         string ToolName,
         MethodInfo Method,
+        ToolOutputContract OutputContract,
         McpServerToolAttribute Attribute);
 }
 

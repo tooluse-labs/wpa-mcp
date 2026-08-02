@@ -1,6 +1,5 @@
 using System.Reflection;
-using System.Text.Json;
-using ModelContextProtocol;
+using System.Text.Json.Nodes;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WpaMcp.Core;
@@ -111,16 +110,32 @@ public sealed class McpSdkSurfaceTests
     }
 
     [Fact]
-    public void InspectTrace_OutputSchemaExposesAnalysisContractToMcpClients()
+    public void ProtocolTools_ExposeLeanDescriptorsWithExactContractLocators()
     {
-        var inspect = Assert.Single(
-            ToolListPayload.MeasureCurrentTools(),
-            tool => tool.Name == "inspect_trace");
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var protocolTools = catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
 
-        Assert.NotNull(inspect.OutputSchema);
-        var schema = JsonSerializer.Serialize(
-            inspect.OutputSchema,
-            McpJsonUtilities.DefaultOptions);
+        Assert.Equal(61, protocolTools.Count);
+        foreach (var protocolTool in protocolTools)
+        {
+            var contract = catalog.OutputContracts[protocolTool.Name];
+            Assert.Null(protocolTool.OutputSchema);
+            var metadata = Assert.IsType<JsonObject>(
+                protocolTool.Meta?[ToolOutputContract.MetadataKey]);
+            Assert.Equal(contract.SchemaUri, metadata["uri"]!.GetValue<string>());
+            Assert.Equal(contract.Sha256, metadata["sha256"]!.GetValue<string>());
+            Assert.Equal(contract.Utf8Bytes, metadata["utf8Bytes"]!.GetValue<int>());
+            Assert.True(JsonNode.DeepEquals(contract.ToDiscoveryMetadata(), metadata));
+        }
+    }
+
+    [Fact]
+    public void InspectTrace_FullRegistrySchemaExposesAnalysisContract()
+    {
+        var schema = ActiveToolCatalog.LoadAndValidate()
+            .OutputContracts["inspect_trace"]
+            .CanonicalJson;
+
         Assert.Contains("analysisContract", schema, StringComparison.Ordinal);
         Assert.Contains("Trace* fields are whole-trace diagnostics", schema, StringComparison.Ordinal);
         Assert.Contains("source_events_unattributed", schema, StringComparison.Ordinal);
@@ -129,16 +144,12 @@ public sealed class McpSdkSurfaceTests
     }
 
     [Fact]
-    public void WaitAnalysis_ExposesTraceScopedContractInOutputSchema()
+    public void WaitAnalysis_FullRegistrySchemaExposesTraceScopedContract()
     {
-        var tool = Assert.Single(
-            ToolListPayload.MeasureCurrentTools(),
-            candidate => candidate.Name == "wait_analysis");
+        var schema = ActiveToolCatalog.LoadAndValidate()
+            .OutputContracts["wait_analysis"]
+            .CanonicalJson;
 
-        Assert.NotNull(tool.OutputSchema);
-        var schema = JsonSerializer.Serialize(
-            tool.OutputSchema,
-            McpJsonUtilities.DefaultOptions);
         Assert.Contains("matchedEventCount", schema, StringComparison.Ordinal);
         Assert.Contains("matchedIntervalCount", schema, StringComparison.Ordinal);
         Assert.Contains("traceIdentityUnresolvedCSwitchSideCount", schema, StringComparison.Ordinal);
@@ -150,14 +161,11 @@ public sealed class McpSdkSurfaceTests
     [InlineData("clr_jit_analysis")]
     [InlineData("net_connections")]
     [InlineData("prepare_symbols")]
-    public void LargeLeafContracts_ExposeCompleteOutputSchemaWithoutHidingTools(string toolName)
+    public void LargeLeafContracts_RemainCompleteInTheOnDemandRegistry(string toolName)
     {
-        var tool = Assert.Single(
-            ToolListPayload.MeasureCurrentTools(),
-            candidate => candidate.Name == toolName);
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var schema = catalog.OutputContracts[toolName].CanonicalJson;
 
-        Assert.NotNull(tool.OutputSchema);
-        var schema = JsonSerializer.Serialize(tool.OutputSchema, McpJsonUtilities.DefaultOptions);
         Assert.Contains("\"scope\"", schema, StringComparison.Ordinal);
         Assert.Contains("\"completeness\"", schema, StringComparison.Ordinal);
         Assert.Contains("\"evidenceBoundary\"", schema, StringComparison.Ordinal);

@@ -19,12 +19,14 @@
     "asserted": [
       "newline-delimited JSON-RPC framing",
       "complete paged Active Catalog traversal",
+      "tools/list omits outputSchema and carries exact content-addressed contract metadata",
       "every active tool has two schema-valid terminating Contract 2.0 wire cases",
+      "get_tool_contract deterministic success and failed-boundary cases",
       "ID-only analysis uses load_trace and canonical TraceId",
       "structuredContent presence for succeeded, partial, no-data, and failed outcomes when observed",
       "text JSON semantic equality with structuredContent",
-      "recursive outputSchema required-property presence",
-      "recursive outputSchema nullability and JSON primitive/container types",
+      "recursive registry output contract required-property presence",
+      "recursive registry output contract nullability and JSON primitive/container types",
       "array items and object additionalProperties schema traversal",
       "complete response frame remains within the configured hard cap",
       "strict privacy profile production-wire scenario"
@@ -85,374 +87,39 @@
       "jsonrpc": "2.0"
     },
     "toolsList": {
-      "toolCount": 60,
-      "pageCount": 45,
+      "toolCount": 61,
+      "pageCount": 3,
       "configuredFrameCapBytes": 87542,
-      "maximumObservedPageFrameBytes": 87429,
+      "maximumObservedPageFrameBytes": 87329,
       "pages": [
         {
           "pageIndex": 0,
-          "returnedTools": 1,
+          "returnedTools": 27,
           "firstTool": "list_capabilities",
-          "lastTool": "list_capabilities",
+          "lastTool": "image_load_timing",
           "hasMore": true,
-          "frameBytes": 28030
+          "frameBytes": 87329
         },
         {
           "pageIndex": 1,
-          "returnedTools": 1,
-          "firstTool": "inspect_trace",
-          "lastTool": "inspect_trace",
+          "returnedTools": 25,
+          "firstTool": "image_load_top_gaps",
+          "lastTool": "cpu_precise_analysis",
           "hasMore": true,
-          "frameBytes": 74750
+          "frameBytes": 84916
         },
         {
           "pageIndex": 2,
-          "returnedTools": 2,
-          "firstTool": "list_processes",
-          "lastTool": "load_trace",
-          "hasMore": true,
-          "frameBytes": 72222
-        },
-        {
-          "pageIndex": 3,
-          "returnedTools": 1,
-          "firstTool": "clr_alloc_caller_callee",
-          "lastTool": "clr_alloc_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45509
-        },
-        {
-          "pageIndex": 4,
-          "returnedTools": 1,
-          "firstTool": "clr_alloc_top_stacks",
-          "lastTool": "clr_alloc_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44218
-        },
-        {
-          "pageIndex": 5,
-          "returnedTools": 1,
-          "firstTool": "clr_contention_caller_callee",
-          "lastTool": "clr_contention_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45522
-        },
-        {
-          "pageIndex": 6,
-          "returnedTools": 1,
-          "firstTool": "clr_contention_top_stacks",
-          "lastTool": "clr_contention_top_stacks",
-          "hasMore": true,
-          "frameBytes": 48081
-        },
-        {
-          "pageIndex": 7,
-          "returnedTools": 1,
-          "firstTool": "clr_exception_caller_callee",
-          "lastTool": "clr_exception_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45508
-        },
-        {
-          "pageIndex": 8,
-          "returnedTools": 2,
-          "firstTool": "clr_exception_top_stacks",
-          "lastTool": "clr_finalizer_analysis",
-          "hasMore": true,
-          "frameBytes": 72404
-        },
-        {
-          "pageIndex": 9,
-          "returnedTools": 2,
-          "firstTool": "clr_gc_analysis",
-          "lastTool": "clr_gc_heap_stats",
-          "hasMore": true,
-          "frameBytes": 62485
-        },
-        {
-          "pageIndex": 10,
-          "returnedTools": 2,
-          "firstTool": "clr_jit_analysis",
-          "lastTool": "cpu_caller_callee",
-          "hasMore": true,
-          "frameBytes": 78150
-        },
-        {
-          "pageIndex": 11,
-          "returnedTools": 1,
-          "firstTool": "cpu_top_functions",
-          "lastTool": "cpu_top_functions",
-          "hasMore": true,
-          "frameBytes": 42217
-        },
-        {
-          "pageIndex": 12,
-          "returnedTools": 1,
-          "firstTool": "cpu_top_functions_batch",
-          "lastTool": "cpu_top_functions_batch",
-          "hasMore": true,
-          "frameBytes": 46756
-        },
-        {
-          "pageIndex": 13,
-          "returnedTools": 1,
-          "firstTool": "diagnose_high_wait",
-          "lastTool": "diagnose_high_wait",
-          "hasMore": true,
-          "frameBytes": 47561
-        },
-        {
-          "pageIndex": 14,
-          "returnedTools": 1,
-          "firstTool": "diagnose_slow_startup",
-          "lastTool": "diagnose_slow_startup",
-          "hasMore": true,
-          "frameBytes": 87429
-        },
-        {
-          "pageIndex": 15,
-          "returnedTools": 1,
-          "firstTool": "diagnose_window",
-          "lastTool": "diagnose_window",
-          "hasMore": true,
-          "frameBytes": 68152
-        },
-        {
-          "pageIndex": 16,
-          "returnedTools": 1,
-          "firstTool": "interrupt_caller_callee",
-          "lastTool": "interrupt_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45136
-        },
-        {
-          "pageIndex": 17,
-          "returnedTools": 1,
-          "firstTool": "interrupt_top_stacks",
-          "lastTool": "interrupt_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44085
-        },
-        {
-          "pageIndex": 18,
-          "returnedTools": 1,
-          "firstTool": "heap_alloc_caller_callee",
-          "lastTool": "heap_alloc_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45502
-        },
-        {
-          "pageIndex": 19,
-          "returnedTools": 1,
-          "firstTool": "heap_alloc_top_stacks",
-          "lastTool": "heap_alloc_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44467
-        },
-        {
-          "pageIndex": 20,
-          "returnedTools": 2,
-          "firstTool": "image_load_caller_callee",
-          "lastTool": "image_load_timing",
-          "hasMore": true,
-          "frameBytes": 76097
-        },
-        {
-          "pageIndex": 21,
-          "returnedTools": 2,
-          "firstTool": "image_load_top_gaps",
-          "lastTool": "image_load_top_stacks",
-          "hasMore": true,
-          "frameBytes": 69436
-        },
-        {
-          "pageIndex": 22,
-          "returnedTools": 1,
-          "firstTool": "disk_io_caller_callee",
-          "lastTool": "disk_io_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45496
-        },
-        {
-          "pageIndex": 23,
-          "returnedTools": 1,
-          "firstTool": "disk_io_top_stacks",
-          "lastTool": "disk_io_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44003
-        },
-        {
-          "pageIndex": 24,
-          "returnedTools": 2,
-          "firstTool": "file_io_caller_callee",
-          "lastTool": "file_io_top_files",
-          "hasMore": true,
-          "frameBytes": 73056
-        },
-        {
-          "pageIndex": 25,
-          "returnedTools": 1,
-          "firstTool": "file_io_top_stacks",
-          "lastTool": "file_io_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44034
-        },
-        {
-          "pageIndex": 26,
-          "returnedTools": 1,
-          "firstTool": "alpc_caller_callee",
-          "lastTool": "alpc_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45468
-        },
-        {
-          "pageIndex": 27,
-          "returnedTools": 2,
-          "firstTool": "alpc_top_stacks",
-          "lastTool": "prepare_symbols",
-          "hasMore": true,
-          "frameBytes": 68701
-        },
-        {
-          "pageIndex": 28,
-          "returnedTools": 2,
-          "firstTool": "unload_trace",
-          "lastTool": "hard_fault_by_file",
-          "hasMore": true,
-          "frameBytes": 50197
-        },
-        {
-          "pageIndex": 29,
-          "returnedTools": 1,
-          "firstTool": "hard_fault_caller_callee",
-          "lastTool": "hard_fault_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45545
-        },
-        {
-          "pageIndex": 30,
-          "returnedTools": 2,
-          "firstTool": "hard_fault_top_stacks",
-          "lastTool": "memory_resource_analysis",
-          "hasMore": true,
-          "frameBytes": 84607
-        },
-        {
-          "pageIndex": 31,
-          "returnedTools": 1,
-          "firstTool": "virtual_alloc_caller_callee",
-          "lastTool": "virtual_alloc_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45623
-        },
-        {
-          "pageIndex": 32,
-          "returnedTools": 1,
-          "firstTool": "virtual_alloc_top_stacks",
-          "lastTool": "virtual_alloc_top_stacks",
-          "hasMore": true,
-          "frameBytes": 46101
-        },
-        {
-          "pageIndex": 33,
-          "returnedTools": 2,
-          "firstTool": "net_caller_callee",
-          "lastTool": "net_connections",
-          "hasMore": true,
-          "frameBytes": 76534
-        },
-        {
-          "pageIndex": 34,
-          "returnedTools": 1,
-          "firstTool": "net_top_stacks",
-          "lastTool": "net_top_stacks",
-          "hasMore": true,
-          "frameBytes": 44408
-        },
-        {
-          "pageIndex": 35,
-          "returnedTools": 1,
-          "firstTool": "generic_event_caller_callee",
-          "lastTool": "generic_event_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45812
-        },
-        {
-          "pageIndex": 36,
-          "returnedTools": 1,
-          "firstTool": "generic_event_top_stacks",
-          "lastTool": "generic_event_top_stacks",
-          "hasMore": true,
-          "frameBytes": 43748
-        },
-        {
-          "pageIndex": 37,
-          "returnedTools": 1,
-          "firstTool": "registry_caller_callee",
-          "lastTool": "registry_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45472
-        },
-        {
-          "pageIndex": 38,
-          "returnedTools": 2,
-          "firstTool": "registry_top_stacks",
-          "lastTool": "cpu_precise_analysis",
-          "hasMore": true,
-          "frameBytes": 76534
-        },
-        {
-          "pageIndex": 39,
-          "returnedTools": 1,
+          "returnedTools": 9,
           "firstTool": "ready_thread_caller_callee",
-          "lastTool": "ready_thread_caller_callee",
-          "hasMore": true,
-          "frameBytes": 45699
-        },
-        {
-          "pageIndex": 40,
-          "returnedTools": 2,
-          "firstTool": "ready_thread_top_stacks",
-          "lastTool": "wait_analysis",
-          "hasMore": true,
-          "frameBytes": 78780
-        },
-        {
-          "pageIndex": 41,
-          "returnedTools": 1,
-          "firstTool": "wait_caller_callee",
-          "lastTool": "wait_caller_callee",
-          "hasMore": true,
-          "frameBytes": 46323
-        },
-        {
-          "pageIndex": 42,
-          "returnedTools": 2,
-          "firstTool": "wait_top_stacks",
-          "lastTool": "security_scan_analysis",
-          "hasMore": true,
-          "frameBytes": 84737
-        },
-        {
-          "pageIndex": 43,
-          "returnedTools": 2,
-          "firstTool": "find_marker",
-          "lastTool": "process_create_timing",
-          "hasMore": true,
-          "frameBytes": 56988
-        },
-        {
-          "pageIndex": 44,
-          "returnedTools": 1,
-          "firstTool": "thread_lifetime",
           "lastTool": "thread_lifetime",
           "hasMore": false,
-          "frameBytes": 31554
+          "frameBytes": 31651
         }
       ],
       "structuredToolNames": [
         "list_capabilities",
+        "get_tool_contract",
         "inspect_trace",
         "list_processes",
         "load_trace",
@@ -513,10 +180,10 @@
         "process_create_timing",
         "thread_lifetime"
       ],
-      "resultBytes": 2498170,
-      "resultSha256": "916a478f403a773e3535941195bcdb2aa241614872d6d1a67112e067e7dedd10"
+      "resultBytes": 203626,
+      "resultSha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940"
     },
-    "stdoutLineCount": 166,
+    "stdoutLineCount": 126,
     "allStdoutLinesWereJson": true,
     "exitCode": 0
   },
@@ -729,8 +396,8 @@
           "missingTopLevelRequiredProperties": [],
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
-          "normalizedCompactFrameBytes": 66416,
-          "normalizedCompactFrameSha256": "40f524e450d62b7b9a9d8a97670289a5c32d8f946d782df7c086054adefd2457",
+          "normalizedCompactFrameBytes": 66516,
+          "normalizedCompactFrameSha256": "73072bc06b2eed2042d9306e2eed36c894ed884faf7889a6810eb0565b617a19",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -754,8 +421,8 @@
                 "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
               }
             ],
-            "structuredContentBytes": 27547,
-            "structuredContentSha256": "52d0bd1ffa410dd7d28d3a3fdd3ef811c6b4c73f3bca81ee8c48a5b788037a17",
+            "structuredContentBytes": 27587,
+            "structuredContentSha256": "0d0e97f01abefad1ca7e8c097603503acd0f5e282fa33417a57e5afb6e103220",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -778,8 +445,8 @@
                 "kind": "object",
                 "itemCount": null,
                 "propertyCount": 15,
-                "bytes": 24909,
-                "sha256": "856f33d9478033e7cdb4216c36c6a203a80137ee707b58c1adf6c88b6baf91ef"
+                "bytes": 24949,
+                "sha256": "2e786d3c0fad56fc20d5984f3d45f8fee715d76d27982ced0ca5129567fc7a51"
               },
               {
                 "name": "error",
@@ -1081,6 +748,399 @@
               "contractVersion": "2.0",
               "status": "failed",
               "error.code": "invalid_cursor",
+              "error.retryable": false,
+              "hasMore": false,
+              "scope.status": "not_evaluated",
+              "scope.mode": "server",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "failed",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 0,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "get_tool_contract",
+      "outputSchemaBytes": 23038,
+      "outputSchemaSha256": "18a750a79413922d983b683e2861faf057b2c0245050d2e58009fbb6a9d50845",
+      "cases": [
+        {
+          "case": "first_content_addressed_contract_page",
+          "arguments": {
+            "toolName": "inspect_trace",
+            "page": 1
+          },
+          "terminal": "success_result",
+          "contractStatus": "succeeded",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 33964,
+          "normalizedCompactFrameSha256": "3accc0091b22f23bbdda8a75c8b45e7515bdc711dfe7ae4897c6da6d22fbf32b",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "get_tool_contract-primary",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 15778,
+            "structuredContentSha256": "556572095d71bb9fdf66569060e579a254a1077c120a9fbc727251ff4c7a17ad",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 11,
+                "sha256": "b96b3eb9f8f68bef1e5e08ed887d878f7cc9b095a6b734851b578dd1003b3623"
+              },
+              {
+                "name": "data",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 12,
+                "bytes": 13691,
+                "sha256": "214e07a39ea791cfffb313a3bc8551ad8601926f14ef62704b92bd5c7e3b98fa"
+              },
+              {
+                "name": "error",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 72,
+                "sha256": "87145962607008617dd07cc37ab51f4505fd24f956c05fce9d2a1c225f52b115"
+              },
+              {
+                "name": "traceRef",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 361,
+                "sha256": "27dac11ab50f977e369ea777aa7275111fdec0521b93e83c4bdc4f2c3a3f954e"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 701,
+                "sha256": "bb27553e4f7766a077ed84756ce9524046411683299efcbeba8a1b98478dabc0"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 107,
+                "sha256": "30d01c7e428ec386decde436aeda870d67dee3393bc43ee0cac314bdb5c9c831"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 417,
+                "sha256": "91cc6c57c9d65b0478b0ffe84a7baecc6a7e4769438229c9f2c484314d6dc572"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 177,
+                "sha256": "8ad21a043dae8c340755176d29c8694152e0c56085eae9872c2a61461e5ba02a"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "succeeded",
+              "hasMore": false,
+              "scope.status": "not_applicable",
+              "scope.mode": "not_applicable",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "complete",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 1,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        },
+        {
+          "case": "stable_failed_boundary",
+          "arguments": {
+            "toolName": "not_an_active_tool",
+            "page": 1
+          },
+          "terminal": "tool_error_result",
+          "contractStatus": "failed",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 5647,
+          "normalizedCompactFrameSha256": "e83ddc4b23495c5e7ae9117db0201af29dda3935e3cb07e4787f81a4f986db62",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "get_tool_contract-failure",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 2196,
+            "structuredContentSha256": "a9e5133af664b2e5257aa4c8148e30df4e516d2cbbca2af8a2facd21fa6d8179",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 8,
+                "sha256": "33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740"
+              },
+              {
+                "name": "data",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "error",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 3,
+                "bytes": 123,
+                "sha256": "c58616fcc3cd48734ee97d9230f68f4ad4b8e7190d4b5baea6a4d2f2562fa1e8"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 72,
+                "sha256": "87145962607008617dd07cc37ab51f4505fd24f956c05fce9d2a1c225f52b115"
+              },
+              {
+                "name": "traceRef",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 352,
+                "sha256": "7223b079c89d1ed68b336889946b6d8975074fe38eef6da3cb47d70b001aefb0"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 701,
+                "sha256": "bb27553e4f7766a077ed84756ce9524046411683299efcbeba8a1b98478dabc0"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 105,
+                "sha256": "33c328f78b6f923f2e751cf0f51aed678205c28893728e344eb7311857ae0e19"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 417,
+                "sha256": "91cc6c57c9d65b0478b0ffe84a7baecc6a7e4769438229c9f2c484314d6dc572"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 177,
+                "sha256": "8ad21a043dae8c340755176d29c8694152e0c56085eae9872c2a61461e5ba02a"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "failed",
+              "error.code": "invalid_argument",
               "error.retryable": false,
               "hasMore": false,
               "scope.status": "not_evaluated",

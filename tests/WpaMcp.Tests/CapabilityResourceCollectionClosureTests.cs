@@ -22,6 +22,8 @@ public sealed class CapabilityResourceCollectionClosureTests
             [nameof(CapabilityDiscoveryResources.GetToolDomain)] = typeof(CatalogResourcePageIndexRecord),
             [nameof(CapabilityDiscoveryResources.GetToolDomainPage)] = typeof(ServerToolResourceShardResource),
             [nameof(CapabilityDiscoveryResources.GetToolDetail)] = typeof(ServerToolResourceRecord),
+            [nameof(CapabilityDiscoveryResources.GetToolOutputContract)] = typeof(ToolOutputContractResourceIndex),
+            [nameof(CapabilityDiscoveryResources.GetToolOutputContractPage)] = typeof(ToolOutputContractResourcePage),
             [nameof(CapabilityDiscoveryResources.GetToolSectionContracts)] = typeof(CatalogResourcePageIndexRecord),
             [nameof(CapabilityDiscoveryResources.GetToolSectionContractPage)] = typeof(ServerToolSectionContractPageResource),
             [nameof(CapabilityDiscoveryResources.GetWorkflowCatalog)] = typeof(CatalogResourceIndexRecord),

@@ -1,20 +1,16 @@
 {
   "schemaVersion": 1,
-  "baselineDate": "2026-08-01",
+  "baselineDate": "2026-08-02",
   "design": "docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md",
   "acceptedDecision": "docs/decisions/0002-capability-map-evidence-contract.md",
   "dispositionSemantics": "The disposition records the reviewed legacy migration treatment. currentImplementationStatus records later implementation evidence without erasing the original defect classification.",
   "unresolvedProgramGates": [
     {
-      "id": "third_party_client_matrix",
-      "status": "external_validation_pending"
-    },
-    {
       "id": "opaque_converter_physical_peak",
       "status": "release_blocked_measurement_pending"
     },
     {
-      "id": "contract_0_5_deprecation_telemetry",
+      "id": "raw_path_0_5_deprecation_telemetry",
       "status": "rollout_telemetry_pending"
     },
     {

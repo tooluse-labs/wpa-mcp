@@ -2,15 +2,16 @@
 
 - Status: Accepted
 - Decision date: 2026-08-01
+- Amended: 2026-08-02 — Contract 2.0-only rollout, lean discovery, and
+  non-blocking client observations
 - Decision source: implementation authorization through `/goal`
 - Depends on: ADR 0001, ADR 0003, ADR 0004
-- Implementation status: partially implemented; rollout selection and release
-  enforcement are active, but no legacy result adapter or reviewed 1.0
-  deprecation-window evidence exists
+- Implementation status: partially implemented; Contract 2.0 is the only result
+  runtime, while reviewed 1.0 raw-path deprecation-window evidence does not yet exist
 
 ## Context
 
-The capability/evidence refactor needs an explicit rollout that does not publish a half-structured contract, silently remove legacy behavior, or use planner optimization to change evidence. It must also remain on the already selected stable .NET/MCP protocol profile until a new platform matrix approves an upgrade.
+The capability/evidence refactor needs an explicit rollout that does not publish a half-structured contract, invent compatibility obligations for an unpublished legacy snapshot, or use planner optimization to change evidence. It must also remain on the already selected stable .NET/MCP protocol profile until a new platform matrix approves an upgrade.
 
 ## Decision
 
@@ -24,12 +25,12 @@ The implementation and compatibility window are:
 
 | Release | Default | Optional compatibility | Required gate |
 | --- | --- | --- | --- |
-| `0.4.x` | legacy result + raw-path compatibility | opt-in contract `2.0`; opt-in ID-only | Phase 0–4 schemas, stdio and lifecycle security pass |
-| `0.5.x` | contract `2.0` + ID-only secure default | explicit legacy/result and raw-path switches | supported-client catalog paging, capability map and migration docs pass |
+| `0.4.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | Phase 0–4 schemas, lean catalog, full-contract lookup, stdio and lifecycle security pass |
+| `0.5.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | capability map, migration docs, and deprecation telemetry pass |
 | `1.0.0` | contract `2.0` + ID-only only | none | one full `0.5.x` deprecation window, usage telemetry review, release gate |
 | contract `3.0` | exact string identifiers only | none | deprecated numeric projections removed with a separate breaking-contract changelog |
 
-The repository may implement later-stage code before publishing it, but defaults and removal happen only at their release gates. A tool call cannot select contract or trace-reference mode. Startup rejects incompatible combinations and profiles that hide `list_capabilities` or, while analysis is enabled, `inspect_trace`.
+The repository may implement later-stage code before publishing it, but defaults and removal happen only at their release gates. A tool call cannot select contract or trace-reference mode. Startup rejects incompatible combinations and profiles that hide `list_capabilities`, the Tools-only `get_tool_contract` fallback, or, while analysis is enabled, `inspect_trace`.
 
 Implementation note (2026-08-01): `RuntimeCompatibilityPolicy` now applies this
 matrix once at startup. `WPAMCP_CONTRACT_MODE` / `--contract-mode` and
@@ -39,24 +40,27 @@ into `tools/list` cursors, and recorded in privacy-safe telemetry. The current
 0.3.0 development line retains its already implemented Contract 2.0 + ID-only
 default but is release-blocked because it precedes 0.4.0.
 
-The runtime does **not** claim a legacy adapter exists. `legacy` selection fails
-closed with
-`release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime`.
-Consequently a 0.4.x artifact remains release-blocked even if its explicit
-Contract 2.0 profile can start: its required legacy default is unavailable.
-The 1.0 gate likewise remains
+The runtime does **not** claim a legacy adapter exists. No released wpa-mcp
+version established the Phase 0 snapshot as a supported public result wire
+contract, so that snapshot is regression evidence, not a compatibility floor.
+`legacy` selection fails closed with an explicit unsupported status; missing
+legacy projection does not block a Contract 2.0-native `0.4.x` release. The 1.0
+gate for removing raw-path compatibility remains
 `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence`;
 it cannot be waived by environment configuration.
 
 `releaseStatus` is not a vague "eligible subject to external gates" value.
 Known repository-wide blockers are listed separately as
 `externalKnownBlockers` and also participate in the terminal release decision.
-At this implementation checkpoint they include corrected active baselines,
-the unproven opaque-converter transient artifact peak, and for 0.5+ the
-supported-client paging/token/cache matrix. The workflow independently requires
-passed evidence documents for these gates before artifact creation.
+At this implementation checkpoint the corrected active baselines are reviewed
+and closed. The remaining external blocker is the unproven opaque-converter
+transient artifact peak. The workflow independently validates the catalog and
+contract baselines and requires passed evidence for the remaining blocker
+before artifact creation.
 
-Legacy mode preserves the Phase 0 per-tool catalog/schema and success/failure/boundary goldens except for explicitly approved correctness fixes. Known incorrect behavior receives a dedicated migration golden and is never protected as an eternal compatibility requirement.
+Phase 0 per-tool snapshots remain historical regression inputs for explicitly
+reviewed correctness changes. They are not executable wire modes and are never
+treated as an eternal compatibility requirement.
 
 ### 3. Atomic contract activation
 
@@ -69,7 +73,7 @@ Contract 2.0 is considered activatable only when every enabled tool has:
 - exact identifier and section-completeness treatment;
 - truthful worst-case annotations and side-effect tests.
 
-Until then, contract 2.0 remains opt-in development mode. The server does not advertise a mixture where some active tools use the new envelope and others silently return unstructured legacy data.
+The server does not advertise a mixture where some active tools use the new envelope and others silently return unstructured legacy data.
 
 ### 4. Query planner admission
 
@@ -93,21 +97,35 @@ Every planned composite exposes logical analyzers, physical pass count, scanned/
 
 ### 6. Wire and client gates
 
-Before `0.5.x` becomes default, production stdio tests must traverse every `tools/list` page with each supported client behavior, combine pages without omission/duplication, and record page bytes, aggregate bytes, schema tokens, and prompt-cache behavior. Clients that only consume page one are declared incompatible; the server does not hide later tools.
+Before a Contract 2.0-native `0.4.x` artifact is released, production stdio
+tests must traverse every
+`tools/list` page, combine discovery descriptors without omission or
+duplication, and prove that every advertised contract URI/hash resolves to the
+same closed output schema through the Resource path and the Tools-only
+`get_tool_contract` fallback. The gate records page bytes, aggregate lean
+discovery bytes, full-contract-registry bytes, and the hash closure between the
+two projections. The server does not hide later tools.
+
+Named third-party client/version runs may additionally record page aggregation,
+the descriptors actually injected into the model, prompt-schema tokens, and
+cache behavior. Those observations inform the compatibility table and host
+guidance; absence or failure of such an observation does not block the global
+release unless a later ADR explicitly makes that named client/version a support
+guarantee. MCP pagination is performed by the client or host, not by the LLM.
 
 Every outbound result uses exact complete-frame fitting after redaction and after text regeneration. Cancellation, hostile request IDs, UTF-8 boundaries, minimum legal failure, cursor expiry/tamper, and large-trace budget behavior are release gates. The release tag, assembly/package version, generated catalog hash, schemas, capability documentation, and uploaded artifacts must come from the same gated commit.
 
 ### 7. Documentation and removal
 
-Each default change and removal updates README, architecture, capability gaps, changelog, startup examples, client compatibility, and migration examples. Deprecation warnings name the replacement and removal release. No permanent duplicate `*_v2` tool family is introduced; compatibility is an adapter around the same active implementation and has an explicit end.
+Each default change and removal updates README, architecture, capability gaps, changelog, startup examples, client compatibility, and migration examples. Raw-path deprecation warnings name the replacement and removal release. No permanent duplicate `*_v2` tool family or unshipped legacy result adapter is introduced.
 
 ## Consequences
 
-The project carries compatibility adapters through one minor-release window and must maintain two startup contract modes temporarily. In return, the secure default and planner optimization are released only after complete catalog, schema, lifecycle, client, and semantic-equivalence evidence exists.
+The project carries only the explicitly implemented raw-path compatibility window; Contract 2.0 is the single result shape. The secure default and planner optimization are released only after complete discovery, contract-registry, lifecycle, package-transport, and semantic-equivalence evidence exists. Named-client observations remain useful support evidence without becoming an implicit release veto.
 
 The release workflow now asks the exact published executable for its immutable
 default runtime profile, rejects any blocked/default-explicit mismatch, runs the
 package stdio gate, and binds profile, project version, commit, manifests,
-active snapshots, package evidence, and release artifacts by hash. This makes
-the missing legacy and deprecation-history evidence release blockers rather
-than documentation-only warnings.
+active snapshots, package evidence, and release artifacts by hash. Missing
+raw-path deprecation-history evidence remains a 1.0 removal blocker rather than
+a documentation-only warning.

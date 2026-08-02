@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol;
@@ -201,8 +202,23 @@ public sealed class CapabilityDiscoveryRuntime
 {
     private const string Ordering = "domain_asc_capability_id_asc";
     private const int HardMaxPageDataBytes = 32_000;
+    // Contract page identities must not depend on an instance's configured frame
+    // budget. Resources and the Tools-only fallback share this immutable layout;
+    // the production startup preflight rejects any cap that cannot deliver it.
+    internal const int ToolContractPageUtf8Bytes = 8_192;
+    internal const string ToolContractPageOrdering = "page_asc_start_utf8_byte_asc";
+    internal const string ToolContractAssemblyRule =
+        "Concatenate schemaFragment UTF-8 bytes in ascending page order without separators or normalization.";
+    internal const string ToolContractHashRule =
+        "Lowercase hexadecimal SHA-256 of the reassembled canonical UTF-8 bytes.";
+    private static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
     private static readonly Regex FilterPattern = new(
         "^[a-z][a-z0-9_]{0,63}$",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private static readonly Regex Sha256Pattern = new(
+        "^[0-9a-f]{64}$",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Regex WorkflowKeyPattern = new(
         "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
@@ -215,6 +231,7 @@ public sealed class CapabilityDiscoveryRuntime
     private readonly IReadOnlyList<CapabilityWorkflowRecord> _workflows;
     private readonly IReadOnlyList<ServerToolCatalogRecord> _tools;
     private readonly IReadOnlyList<ServerToolResourceRecord> _toolResources;
+    private readonly IReadOnlyDictionary<string, ToolOutputContract> _toolOutputContracts;
     private readonly string _canonicalContentHash;
     private readonly CapabilityPolicyRecord _capabilityPolicy;
     private readonly CapabilityPolicyResourceReference _capabilityPolicyResourceReference;
@@ -227,6 +244,7 @@ public sealed class CapabilityDiscoveryRuntime
     private readonly IReadOnlyList<ResourcePage<string>> _capabilityPolicyResourcePages;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ResourcePage<ListedToolResourceRecord>>> _toolResourcePages;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ResourcePage<ServerToolSectionContractRecord>>> _toolSectionContractResourcePages;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ToolOutputContractPage>> _toolOutputContractResourcePages;
 
     internal ActiveToolCatalog Catalog => _catalog;
     internal QueryResultCursorCoordinator QueryResults => _queryResults;
@@ -319,6 +337,22 @@ public sealed class CapabilityDiscoveryRuntime
             .ToArray();
         var outcomeContracts = new ReviewedToolOutcomeAdapterRegistry(catalog.AllTools);
         _tools = ProjectTools(catalog, outcomeContracts);
+        _toolOutputContracts = catalog.Tools
+            .Select(tool =>
+            {
+                if (!string.Equals(
+                        tool.ToolName,
+                        tool.OutputContract.ToolName,
+                        StringComparison.Ordinal))
+                {
+                    throw new CatalogValidationException(
+                        $"OUTPUT-CONTRACT-TOOL: '{tool.ToolName}' is bound to " +
+                        $"'{tool.OutputContract.ToolName}'.");
+                }
+                ValidateToolOutputContract(tool.OutputContract);
+                return tool.OutputContract;
+            })
+            .ToDictionary(contract => contract.ToolName, StringComparer.Ordinal);
         _toolResources = ProjectToolResources(_tools);
         _canonicalContentHash = ComputeCanonicalContentHash(
             catalog,
@@ -330,6 +364,7 @@ public sealed class CapabilityDiscoveryRuntime
         _capabilityResourcePages = BuildCapabilityResourcePages();
         _toolResourcePages = BuildToolResourcePages();
         _toolSectionContractResourcePages = BuildToolSectionContractResourcePages();
+        _toolOutputContractResourcePages = BuildToolOutputContractResourcePages();
         ValidateResourceSetFitsWireBudget();
     }
 
@@ -742,6 +777,68 @@ public sealed class CapabilityDiscoveryRuntime
         return CreateResource($"wpa://tools/detail/{normalized}", tool);
     }
 
+    internal TextResourceContents ToolOutputContractIndexResource(
+        string toolName,
+        string sha256)
+    {
+        var contract = GetToolOutputContract(toolName, sha256);
+        var pages = _toolOutputContractResourcePages[contract.ToolName];
+        return CreateResource(
+            contract.SchemaUri,
+            new ToolOutputContractResourceIndex(
+                contract.ToolName,
+                contract.ContractVersion,
+                contract.SchemaUri,
+                contract.Sha256,
+                contract.MediaType,
+                contract.Utf8Bytes,
+                pages.Count,
+                $"{contract.SchemaUri}/pages/{{page}}",
+                ToolContractPageOrdering,
+                ToolContractAssemblyRule,
+                ToolContractHashRule));
+    }
+
+    internal TextResourceContents ToolOutputContractPageResource(
+        string toolName,
+        string sha256,
+        int page)
+    {
+        var contract = GetToolOutputContract(toolName, sha256);
+        var pages = _toolOutputContractResourcePages[contract.ToolName];
+        var selected = GetToolOutputContractPage(pages, page);
+        return CreateResource(
+            selected.Uri,
+            new ToolOutputContractResourcePage(
+                contract.ToolName,
+                contract.Sha256,
+                selected.Number,
+                pages.Count,
+                selected.StartUtf8Byte,
+                selected.ReturnedUtf8Bytes,
+                selected.SchemaFragment));
+    }
+
+    internal ToolContractPageResponse ToolContractPage(string toolName, int page)
+    {
+        var contract = GetToolOutputContract(toolName);
+        var pages = _toolOutputContractResourcePages[contract.ToolName];
+        var selected = GetToolOutputContractPage(pages, page);
+        return new ToolContractPageResponse(
+            contract.ToolName,
+            contract.ContractVersion,
+            contract.SchemaUri,
+            contract.Sha256,
+            contract.MediaType,
+            contract.Utf8Bytes,
+            page,
+            pages.Count,
+            selected.StartUtf8Byte,
+            selected.ReturnedUtf8Bytes,
+            selected.SchemaFragment,
+            page < pages.Count ? page + 1 : null);
+    }
+
     internal CatalogResourcePageIndexRecord ToolSectionContractPageIndex(string toolName)
     {
         var normalized = RequireResourceKey(toolName, nameof(toolName));
@@ -845,14 +942,14 @@ public sealed class CapabilityDiscoveryRuntime
         return content;
     }
 
-    private static TextResourceContents CreateResourceContent<T>(string uri, T value) => new()
+    internal static TextResourceContents CreateResourceContent<T>(string uri, T value) => new()
     {
         Uri = uri,
         MimeType = "application/json",
         Text = JsonSerializer.Serialize(value, McpJsonUtilities.DefaultOptions),
     };
 
-    private static int MeasureReadResourceFrame(TextResourceContents content)
+    internal static int MeasureReadResourceFrame(TextResourceContents content)
     {
         // Request ingress permits at most 128 serialized UTF-8 bytes for the id.
         // A 126-byte ASCII string plus its JSON quotes exercises that exact bound.
@@ -898,6 +995,12 @@ public sealed class CapabilityDiscoveryRuntime
         }
         foreach (var tool in _toolResources)
             _ = ToolDetailResource(tool.ToolName);
+        // Output-contract Resources use the same immutable pages as the
+        // get_tool_contract fallback. Production validates both projections
+        // together in ToolContractDiscoveryPreflight; embedded runtimes may use
+        // a smaller budget when they do not expose contract discovery. An
+        // attempted Resource read still enforces this instance's wire budget in
+        // CreateResource.
         foreach (var tool in _tools)
         {
             _ = ToolSectionContractIndexResource(tool.ToolName);
@@ -989,9 +1092,12 @@ public sealed class CapabilityDiscoveryRuntime
                 StringComparer.Ordinal);
     }
 
-    private static IReadOnlyList<ServerToolResourceRecord> ProjectToolResources(
+    private IReadOnlyList<ServerToolResourceRecord> ProjectToolResources(
         IReadOnlyList<ServerToolCatalogRecord> tools) =>
-        tools.Select(tool => new ServerToolResourceRecord(
+        tools.Select(tool =>
+        {
+            _toolOutputContracts.TryGetValue(tool.ToolName, out var outputContract);
+            return new ServerToolResourceRecord(
                 tool.ToolName,
                 tool.AvailabilityState,
                 tool.Callable,
@@ -1014,8 +1120,16 @@ public sealed class CapabilityDiscoveryRuntime
                 tool.MaximumRelationship,
                 tool.DoesNotProve,
                 $"wpa://tools/{tool.ToolName}/sections",
-                tool.PlannerAdmission))
-            .ToArray();
+                tool.PlannerAdmission,
+                outputContract is null
+                    ? "unavailable_by_policy"
+                    : "linked_content_addressed_resource",
+                outputContract?.SchemaUri,
+                outputContract?.Sha256,
+                outputContract?.Utf8Bytes,
+                outputContract?.MediaType);
+        })
+        .ToArray();
 
     private IReadOnlyDictionary<string, IReadOnlyList<ResourcePage<ServerToolSectionContractRecord>>>
         BuildToolSectionContractResourcePages() =>
@@ -1041,6 +1155,132 @@ public sealed class CapabilityDiscoveryRuntime
                     items),
                 "tool section contract"),
             StringComparer.Ordinal);
+
+    private IReadOnlyDictionary<string, IReadOnlyList<ToolOutputContractPage>>
+        BuildToolOutputContractResourcePages() =>
+        _toolOutputContracts.Values.ToDictionary(
+            contract => contract.ToolName,
+            contract => BuildToolOutputContractPages(
+                contract,
+                ToolContractPageUtf8Bytes),
+            StringComparer.Ordinal);
+
+    internal static IReadOnlyList<ToolOutputContractPage> BuildToolOutputContractPages(
+        ToolOutputContract contract,
+        int maximumPageUtf8Bytes)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        if (maximumPageUtf8Bytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumPageUtf8Bytes));
+        var bytes = StrictUtf8.GetBytes(contract.CanonicalJson);
+        var pages = new List<ToolOutputContractPage>();
+        var start = 0;
+        while (start < bytes.Length)
+        {
+            var fragment = SliceCanonicalUtf8(bytes, start, maximumPageUtf8Bytes);
+            var page = pages.Count + 1;
+            pages.Add(new ToolOutputContractPage(
+                page,
+                $"{contract.SchemaUri}/pages/{page}",
+                start,
+                fragment.Utf8Bytes,
+                fragment.Text));
+            start = checked(start + fragment.Utf8Bytes);
+        }
+
+        if (pages.Count == 0)
+        {
+            throw new CatalogValidationException(
+                $"OUTPUT-CONTRACT-EMPTY: '{contract.ToolName}' has no canonical schema bytes.");
+        }
+        return pages;
+    }
+
+    private ToolOutputContract GetToolOutputContract(string toolName)
+    {
+        var canonical = RequireExactToolContractKey(toolName, nameof(toolName));
+        return _toolOutputContracts.TryGetValue(canonical, out var contract)
+            ? contract
+            : throw new ArgumentException(
+                "The tool output contract is not active in this runtime profile.",
+                nameof(toolName));
+    }
+
+    private ToolOutputContract GetToolOutputContract(string toolName, string sha256)
+    {
+        var contract = GetToolOutputContract(toolName);
+        var normalizedHash = RequireSha256(sha256, nameof(sha256));
+        return string.Equals(contract.Sha256, normalizedHash, StringComparison.Ordinal)
+            ? contract
+            : throw new ArgumentException(
+                "The content-addressed tool output contract hash is not active.",
+                nameof(sha256));
+    }
+
+    private static ToolOutputContractPage GetToolOutputContractPage(
+        IReadOnlyList<ToolOutputContractPage> pages,
+        int page) =>
+        pages.SingleOrDefault(candidate => candidate.Number == page)
+        ?? throw new ArgumentOutOfRangeException(
+            nameof(page),
+            "The tool output contract resource page is not declared.");
+
+    private static CanonicalUtf8Fragment SliceCanonicalUtf8(
+        byte[] canonicalUtf8,
+        int start,
+        int maximumBytes)
+    {
+        if (start < 0 || start >= canonicalUtf8.Length)
+            throw new ArgumentOutOfRangeException(nameof(start));
+        if (maximumBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+
+        var end = Math.Min(canonicalUtf8.Length, checked(start + maximumBytes));
+        while (end < canonicalUtf8.Length &&
+               (canonicalUtf8[end] & 0b1100_0000) == 0b1000_0000)
+        {
+            end--;
+        }
+        if (end <= start)
+        {
+            throw new CatalogValidationException(
+                "OUTPUT-CONTRACT-PAGE: the configured page budget cannot contain one UTF-8 scalar.");
+        }
+
+        var length = end - start;
+        return new CanonicalUtf8Fragment(
+            StrictUtf8.GetString(canonicalUtf8, start, length),
+            length);
+    }
+
+    private static void ValidateToolOutputContract(ToolOutputContract contract)
+    {
+        if (!Sha256Pattern.IsMatch(contract.Sha256))
+        {
+            throw new CatalogValidationException(
+                $"OUTPUT-CONTRACT-HASH: '{contract.ToolName}' has a malformed SHA-256.");
+        }
+        var utf8 = StrictUtf8.GetBytes(contract.CanonicalJson);
+        if (utf8.Length != contract.Utf8Bytes)
+        {
+            throw new CatalogValidationException(
+                $"OUTPUT-CONTRACT-LENGTH: '{contract.ToolName}' declares {contract.Utf8Bytes} " +
+                $"bytes but materializes {utf8.Length} bytes.");
+        }
+        var actualHash = Convert.ToHexString(SHA256.HashData(utf8)).ToLowerInvariant();
+        if (!string.Equals(actualHash, contract.Sha256, StringComparison.Ordinal))
+        {
+            throw new CatalogValidationException(
+                $"OUTPUT-CONTRACT-HASH: '{contract.ToolName}' canonical bytes do not match " +
+                "the declared SHA-256.");
+        }
+        var expectedUri = $"wpa://contracts/tools/{contract.ToolName}/{contract.Sha256}";
+        if (!string.Equals(expectedUri, contract.SchemaUri, StringComparison.Ordinal))
+        {
+            throw new CatalogValidationException(
+                $"OUTPUT-CONTRACT-URI: '{contract.ToolName}' must use its content-addressed URI.");
+        }
+    }
 
     private IReadOnlyList<ResourcePage<T>> PackResourcePages<T, TResource>(
         IReadOnlyList<T> items,
@@ -1132,6 +1372,27 @@ public sealed class CapabilityDiscoveryRuntime
         NormalizeFilter(value, parameterName)
         ?? throw new ArgumentException("A resource key is required.", parameterName);
 
+    private static string RequireSha256(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("A SHA-256 resource key is required.", parameterName);
+        return Sha256Pattern.IsMatch(value)
+            ? value
+            : throw new ArgumentException("The SHA-256 resource key is malformed.", parameterName);
+    }
+
+    private static string RequireExactToolContractKey(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            throw new ArgumentException("A tool output contract key is required.", parameterName);
+        }
+        // The active ordinal dictionary is the authority for exact MCP tool-name
+        // identity. Do not impose the narrower capability-filter grammar here.
+        return value;
+    }
+
     private static string RequireCapabilityKey(string value, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1156,6 +1417,17 @@ public sealed class CapabilityDiscoveryRuntime
         int Number,
         string Uri,
         IReadOnlyList<T> Items);
+
+    internal sealed record ToolOutputContractPage(
+        int Number,
+        string Uri,
+        int StartUtf8Byte,
+        int ReturnedUtf8Bytes,
+        string SchemaFragment);
+
+    private readonly record struct CanonicalUtf8Fragment(
+        string Text,
+        int Utf8Bytes);
 
     private ListCapabilitiesResponse Response(
         string? domain,

@@ -1,6 +1,6 @@
 # wpa-mcp 实施任务清单
 
-> **历史任务快照（2026-08-01 对齐说明）：** 本文是早期 P0–P3 清单，不是当前 backlog。后续 accepted Phase 0–7 capability/evidence refactor 已大范围实现：60 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows、全工具 Contract 2.0 envelope、可分页 discovery/Resources、显式 TraceId/SymbolContextId lifecycle 与 exact frame fitting。剩余 release gate 和各 Phase 限制见 [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md) §16 与 ADR 0002–0005。正文中的完成标记和旧工具名只描述当时快照；`list_applicable_tools` 不是当前 capability-map 入口，旧 symbol 配置/诊断工具也不在 active surface。
+> **历史任务快照（2026-08-02 对齐说明）：** 本文是早期 P0–P3 清单，不是当前 backlog。后续 accepted Phase 0–7 capability/evidence refactor 已大范围实现：61 个 active tools、51 个 declared capabilities、15 个 goals、15 个 workflows、全工具 Contract 2.0 invocation envelope、lean 可分页 discovery 与按需 contract Resources、显式 TraceId/SymbolContextId lifecycle 与 exact frame fitting。剩余 release gate 和各 Phase 限制见 [`MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md`](MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md) §16 与 ADR 0002–0005。正文中的完成标记和旧工具名只描述当时快照；`list_applicable_tools` 不是当前 capability-map 入口，旧 symbol 配置/诊断工具也不在 active surface。
 
 > 本文把设计结论拆成可执行任务。
 >

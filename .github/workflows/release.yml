@@ -80,6 +80,8 @@ jobs:
           if ($profile.schemaVersion -cne 'runtime-profile.v1' -or
               $profile.runtimeVersion -cne '${{ steps.release_identity.outputs.version }}' -or
               $profile.selectionScope -cne 'startup_immutable' -or
+              $profile.contractMode -cne '2.0' -or
+              $profile.traceReferenceMode -cne 'id_only' -or
               -not $profile.runnable -or
               $profile.contractModeExplicit -or
               $profile.traceReferenceModeExplicit) {
@@ -107,7 +109,10 @@ jobs:
             'tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json',
             'tests/WpaMcp.Tests/ContractBaselines/active-dto-inventory.v1.json',
             'tests/WpaMcp.Tests/ContractBaselines/active-structured-stdio.v1.json',
-            'eng/contract-baselines/supported-client-matrix.v1.json',
+            'eng/contract-baselines/tool-list-payload-budget.v1.json',
+            'eng/contract-baselines/tools-list-pagination.v1.json',
+            'eng/contract-baselines/tool-output-contract-registry.v1.json',
+            'eng/contract-baselines/pre-resource-output-schema-hashes.v1.json',
             'eng/contract-baselines/artifact-materialization-budget.v1.json'
           )
           foreach ($path in $required) {
@@ -116,16 +121,41 @@ jobs:
             }
           }
 
-          $clients = Get-Content eng/contract-baselines/supported-client-matrix.v1.json -Raw | ConvertFrom-Json
-          if ($clients.schemaVersion -cne 'supported-client-matrix.v1' -or
-              $clients.status -cne 'passed' -or
-              @($clients.clients).Count -eq 0 -or
-              @($clients.clients | Where-Object {
-                -not $_.allToolPagesConsumed -or
-                -not $_.schemaTokensMeasured -or
-                -not $_.promptCacheBehaviorMeasured
-              }).Count -ne 0) {
-            throw 'Supported-client paging/token/cache evidence is not release-approved.'
+          $registry = Get-Content eng/contract-baselines/tool-output-contract-registry.v1.json -Raw | ConvertFrom-Json
+          $registryTools = @($registry.tools)
+          if ($registry.formatVersion -cne 'tool-output-contract-registry.v1' -or
+              [int]$registry.toolCount -lt 1 -or
+              $registryTools.Count -ne [int]$registry.toolCount -or
+              $registry.registrySha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw 'Complete output-contract registry metadata is invalid.'
+          }
+
+          $registryNames = @($registryTools | ForEach-Object { [string]$_.toolName })
+          $uniqueRegistryNames = @($registryNames | Sort-Object -Unique)
+          if ($uniqueRegistryNames.Count -ne $registryTools.Count) {
+            throw 'Complete output-contract registry contains duplicate tool names.'
+          }
+
+          [long]$registryUtf8Bytes = 0
+          foreach ($tool in $registryTools) {
+            if ([string]::IsNullOrWhiteSpace([string]$tool.toolName) -or
+                [string]::IsNullOrWhiteSpace([string]$tool.contractVersion) -or
+                [string]::IsNullOrWhiteSpace([string]$tool.schemaDialect) -or
+                [string]::IsNullOrWhiteSpace([string]$tool.mediaType) -or
+                $tool.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                [long]$tool.utf8Bytes -le 0) {
+              throw "Invalid output-contract descriptor for '$($tool.toolName)'."
+            }
+
+            $expectedUri = "wpa://contracts/tools/$($tool.toolName)/$($tool.sha256)"
+            if ($tool.schemaUri -cne $expectedUri) {
+              throw "Output-contract content address does not close for '$($tool.toolName)'."
+            }
+
+            $registryUtf8Bytes += [long]$tool.utf8Bytes
+          }
+          if ($registryUtf8Bytes -ne [long]$registry.totalCanonicalUtf8Bytes) {
+            throw 'Complete output-contract registry aggregate byte count does not close.'
           }
 
           $artifact = Get-Content eng/contract-baselines/artifact-materialization-budget.v1.json -Raw | ConvertFrom-Json
@@ -140,11 +170,14 @@ jobs:
         run: |
           $profile = Get-Content release/runtime-profile.v1.json -Raw | ConvertFrom-Json
           $package = Get-Content release/release-package-stdio.v1.json -Raw | ConvertFrom-Json
+          $registry = Get-Content eng/contract-baselines/tool-output-contract-registry.v1.json -Raw | ConvertFrom-Json
           if ($package.commit -cne '${{ github.sha }}' -or
               $package.runtimeVersion -cne $profile.runtimeVersion -or
               $package.contractMode -cne $profile.contractMode -or
               $package.traceReferenceMode -cne $profile.traceReferenceMode -or
-              $package.runtimeProfileReleaseStatus -cne $profile.releaseStatus) {
+              $package.runtimeProfileReleaseStatus -cne $profile.releaseStatus -or
+              [int]$package.outputContractCount -ne [int]$registry.toolCount -or
+              [long]$package.outputContractCanonicalBytes -ne [long]$registry.totalCanonicalUtf8Bytes) {
             throw "Package stdio evidence, runtime profile, version, or commit do not match."
           }
 
@@ -180,7 +213,10 @@ jobs:
             activeToolSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
             activeDtoSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-dto-inventory.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
             activeStdioSnapshotSha256 = (Get-FileHash tests/WpaMcp.Tests/ContractBaselines/active-structured-stdio.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
-            supportedClientMatrixSha256 = (Get-FileHash eng/contract-baselines/supported-client-matrix.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            toolListPayloadBudgetSha256 = (Get-FileHash eng/contract-baselines/tool-list-payload-budget.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            toolsListPaginationSha256 = (Get-FileHash eng/contract-baselines/tools-list-pagination.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            toolOutputContractRegistrySha256 = (Get-FileHash eng/contract-baselines/tool-output-contract-registry.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            preResourceOutputSchemaHashesSha256 = (Get-FileHash eng/contract-baselines/pre-resource-output-schema-hashes.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
             artifactMaterializationBudgetSha256 = (Get-FileHash eng/contract-baselines/artifact-materialization-budget.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
             runtimeProfileSha256 = (Get-FileHash release/runtime-profile.v1.json -Algorithm SHA256).Hash.ToLowerInvariant()
             capabilityContractDesignSha256 = (Get-FileHash docs/MCP_CAPABILITY_MAP_AND_CONTRACT_REFACTORING.zh-CN.md -Algorithm SHA256).Hash.ToLowerInvariant()

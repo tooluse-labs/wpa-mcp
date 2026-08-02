@@ -219,6 +219,32 @@ internal sealed class ToolResponseFrameFitter(
         return new(fallback.Result, fallback.FrameBytes, RowsTruncated: true);
     }
 
+    /// <summary>
+    /// Measures the exact validated success projection before any response-budget
+    /// fallback. Startup discovery preflight uses this with the maximum legal request
+    /// id so every advertised immutable contract page is known to be deliverable.
+    /// </summary>
+    internal FittedToolResponse MeasureUnboundedSuccess(
+        RequestId requestId,
+        JsonObject projectedEnvelope,
+        JsonObject outputSchema,
+        ActiveToolDefinition tool)
+    {
+        ToolRequestIdPolicy.Validate(requestId);
+        ArgumentNullException.ThrowIfNull(projectedEnvelope);
+        ArgumentNullException.ThrowIfNull(outputSchema);
+        ArgumentNullException.ThrowIfNull(tool);
+
+        var redacted = _privacy.Redact(projectedEnvelope, tool);
+        var measured = BuildAndValidate(requestId, redacted, outputSchema);
+        if (measured.Result.IsError == true)
+        {
+            throw new InvalidOperationException(
+                $"The successful preflight projection for '{tool.ToolName}' became an error.");
+        }
+        return new(measured.Result, measured.FrameBytes, RowsTruncated: false);
+    }
+
     private static bool CanResumeSection(string toolName, string pointer) =>
         toolName != "inspect_trace" || pointer is
             "/traceEvidenceMap/capabilities" or

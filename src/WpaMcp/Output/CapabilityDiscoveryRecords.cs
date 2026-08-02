@@ -228,7 +228,12 @@ public sealed record ServerToolResourceRecord(
     [property: System.ComponentModel.Description("Index resource for the complete byte-budgeted per-section ordering, truncation-proof, evidence, measurement, relationship, and conclusion contracts.")]
     string SectionContractsResourceUri,
     PlannerAdmissionRecord? PlannerAdmission,
-    string FullContractSource = "tools/list",
+    string FullContractSource,
+    string? OutputContractResourceUri,
+    string? OutputContractSha256,
+    [property: ToolNumericSemantics("metric", "utf8_bytes", "exact", "complete_contract_byte_count", minimum: 1)]
+    int? OutputContractUtf8Bytes,
+    string? OutputContractMediaType,
     string SectionContractCompleteness = "complete_in_linked_resource");
 
 public sealed record ListedToolResourceRecord(
@@ -261,6 +266,54 @@ public sealed record ServerToolSectionContractPageResource(
     int ReturnedSections,
     string Ordering,
     IReadOnlyList<ServerToolSectionContractRecord> SectionContracts);
+
+public sealed record ToolOutputContractResourceIndex(
+    string ToolName,
+    string ContractVersion,
+    string SchemaUri,
+    string Sha256,
+    string MediaType,
+    [property: ToolNumericSemantics("metric", "utf8_bytes", "exact", "complete_contract_byte_count", minimum: 1)]
+    int Utf8Bytes,
+    [property: ToolNumericSemantics("metric", "pages", "exact", "complete_contract_page_count", minimum: 1)]
+    int PageCount,
+    string PageUriTemplate,
+    string Ordering,
+    string AssemblyRule,
+    string HashRule);
+
+public sealed record ToolOutputContractResourcePage(
+    string ToolName,
+    string Sha256,
+    [property: ToolNumericSemantics("identifier", "page_number", "exact", "contract_page_identity", minimum: 1)]
+    int Page,
+    [property: ToolNumericSemantics("metric", "pages", "exact", "complete_contract_page_count", minimum: 1)]
+    int PageCount,
+    [property: ToolNumericSemantics("offset", "utf8_bytes", "exact", "zero_based_fragment_start", minimum: 0)]
+    int StartUtf8Byte,
+    [property: ToolNumericSemantics("metric", "utf8_bytes", "exact", "returned_fragment_byte_count", minimum: 1)]
+    int ReturnedUtf8Bytes,
+    string SchemaFragment);
+
+public sealed record ToolContractPageResponse(
+    string ToolName,
+    string ContractVersion,
+    string SchemaUri,
+    string Sha256,
+    string MediaType,
+    [property: ToolNumericSemantics("metric", "utf8_bytes", "exact", "complete_contract_byte_count", minimum: 1)]
+    int Utf8Bytes,
+    [property: ToolNumericSemantics("identifier", "page_number", "exact", "contract_page_identity", minimum: 1)]
+    int Page,
+    [property: ToolNumericSemantics("metric", "pages", "exact", "complete_contract_page_count", minimum: 1)]
+    int PageCount,
+    [property: ToolNumericSemantics("offset", "utf8_bytes", "exact", "zero_based_fragment_start", minimum: 0)]
+    int StartUtf8Byte,
+    [property: ToolNumericSemantics("metric", "utf8_bytes", "exact", "returned_fragment_byte_count", minimum: 1)]
+    int ReturnedUtf8Bytes,
+    string SchemaFragment,
+    [property: ToolNumericSemantics("identifier", "page_number", "exact", "next_contract_page_identity", minimum: 1)]
+    int? NextPage);
 
 public sealed record ServerToolCatalogResource(
     string CatalogScope,

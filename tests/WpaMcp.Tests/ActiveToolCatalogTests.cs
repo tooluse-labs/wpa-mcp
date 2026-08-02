@@ -36,9 +36,9 @@ public sealed class ActiveToolCatalogTests
                 method.GetCustomAttributes(typeof(McpServerToolAttribute), inherit: false).Length != 0))
             .ToHashSet();
 
-        Assert.Equal(60, catalog.Tools.Count);
-        Assert.Equal(60, catalogNames.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(60, attributedMethods.Count);
+        Assert.Equal(61, catalog.Tools.Count);
+        Assert.Equal(61, catalogNames.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(61, attributedMethods.Count);
         Assert.True(attributedMethods.SetEquals(catalog.Tools.Select(tool => tool.Method)));
         Assert.All(catalog.Tools, tool => Assert.Single(tool.Capabilities));
         Assert.Equal("wpa_mcp_declared_capabilities", catalog.CatalogScope);
@@ -65,7 +65,7 @@ public sealed class ActiveToolCatalogTests
     {
         var tools = ReadNode(ToolPath)["tools"]!.AsArray();
 
-        Assert.Equal(60, tools.Count);
+        Assert.Equal(61, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.NotNull(tool!["selectableScopes"]);
@@ -316,8 +316,8 @@ public sealed class ActiveToolCatalogTests
     {
         var catalog = ActiveToolCatalog.LoadAndValidate();
         Assert.Equal(
-            ["list_capabilities", "inspect_trace", "list_processes", "load_trace"],
-            catalog.Tools.Take(4).Select(tool => tool.ToolName));
+            ["list_capabilities", "get_tool_contract", "inspect_trace", "list_processes", "load_trace"],
+            catalog.Tools.Take(5).Select(tool => tool.ToolName));
 
         var expected = catalog.Tools
             .OrderBy(tool => tool.DiscoveryPriority)
@@ -358,7 +358,7 @@ public sealed class ActiveToolCatalogTests
         Assert.Equal(
             catalog.Tools.Select(tool => tool.ToolName),
             protocolTools.Select(tool => tool.Name));
-        Assert.Equal(60, protocolTools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(61, protocolTools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]
@@ -415,6 +415,12 @@ public sealed class ActiveToolCatalogTests
         Assert.Equal(
             "invalid_argument",
             result.StructuredContent?.GetProperty("error").GetProperty("code").GetString());
+        var structured = JsonNode.Parse(result.StructuredContent!.Value.GetRawText());
+        var outputContract = Assert.Single(catalog.Tools, candidate =>
+            candidate.ToolName == "inspect_trace").OutputContract;
+        Assert.Empty(ToolWireSchemaValidator.Validate(
+            structured,
+            outputContract.ParseSchema()));
     }
 
     [Fact]

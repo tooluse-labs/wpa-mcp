@@ -2,8 +2,8 @@
   "formatVersion": "active-reachable-collection-closure.v1",
   "registrySemantics": "Reviewed, fail-closed dispositions for every collection reachable from an active output root. Property membership and the classified occurrence hash are explicit review state, not semantic inference from names. A collection or a new tool/path occurrence requires review before this baseline may change.",
   "expectedCounts": {
-    "activeToolCount": 60,
-    "reachableTypeCount": 150,
+    "activeToolCount": 61,
+    "reachableTypeCount": 151,
     "collectionPropertyCount": 233,
     "collectionOccurrenceCount": 452
   },

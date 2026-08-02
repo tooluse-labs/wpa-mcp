@@ -541,10 +541,11 @@
       "lifecycleStatus": "active",
       "domain": "catalog",
       "title": "List the declared server capability map",
-      "summary": "Projects stable goals, workflows, callable tools, evidence boundaries, and evaluators from one validated Active Catalog with principal-bound cursor pagination.",
+      "summary": "Projects stable goals, workflows, callable tools, evidence boundaries, evaluators, and content-addressed output-contract references from one validated Active Catalog.",
       "questionsAnswered": [
         "Which capabilities, workflows, and tools does this validated wpa-mcp build declare?",
-        "Which evidence and conclusion boundaries govern each declared capability?"
+        "Which evidence and conclusion boundaries govern each declared capability?",
+        "Where can a client retrieve and hash-verify an active tool's complete Contract 2.0 output schema?"
       ],
       "questionsNotAnswered": [
         "Is this the complete capability universe of WPA, ETW, or every external analyzer?",
@@ -558,6 +559,7 @@
       "requiredEventStacks": [],
       "optionalEvidence": [
         "Validated tool contracts",
+        "Content-addressed output contract resources",
         "Stable goal and workflow joins",
         "Benchmark evidence references"
       ],
@@ -571,6 +573,7 @@
       "sourcePaths": [
         "src/WpaMcp/Core/Catalog/ActiveToolCatalog.cs",
         "src/WpaMcp/Core/CapabilityDiscovery.cs",
+        "src/WpaMcp/Core/ToolOutputSchema.cs",
         "src/WpaMcp/Tools/CapabilityDiscoveryTools.cs"
       ],
       "replacedBy": null,

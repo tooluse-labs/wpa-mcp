@@ -1,7 +1,12 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+using Moq;
 using WpaMcp.Core;
 using WpaMcp.Core.Catalog;
 using WpaMcp.Output;
@@ -185,6 +190,123 @@ public sealed class PrivacyRedactorTests
         Assert.Equal("[redacted]", redacted["data"]!["rows"]![0]!["fields"]![0]!["value"]!.GetValue<string>());
     }
 
+    [Theory]
+    [InlineData("paths")]
+    [InlineData("strict")]
+    public async Task ContractToolWrapper_PrivacyModesPreserveExactPagedMachineContract(
+        string profile)
+    {
+        var mode = ToolPrivacyOptions.Parse(profile, nameof(profile)).Mode;
+        using var aliases = new TypedAliasRegistry(Enumerable.Repeat((byte)13, 32).ToArray());
+        var redactor = new ToolPrivacyRedactor(mode, ToolPrivacyTaxonomy.Default, aliases);
+        var services = new ServiceCollection();
+        services.AddSingleton(Catalog);
+        services.AddSingleton(new CapabilityDiscoveryRuntime(
+            Catalog,
+            new StdioSessionPrincipal()));
+        using var provider = services.BuildServiceProvider();
+        var wrapper = Catalog.CreateServerTools(provider, privacy: redactor).Single(candidate =>
+            candidate.ProtocolTool.Name == "get_tool_contract");
+        var server = new Mock<McpServer>();
+        server.SetupGet(candidate => candidate.Services).Returns(provider);
+        var contract = Catalog.OutputContracts.Values.MaxBy(candidate => candidate.Utf8Bytes)!;
+        var assembled = new StringBuilder(contract.CanonicalJson.Length);
+        var pageNumber = 1;
+        int? pageCount = null;
+        var nextStart = 0;
+
+        while (true)
+        {
+            var result = await InvokeContractPage(
+                wrapper,
+                server.Object,
+                contract.ToolName,
+                pageNumber,
+                mode);
+            Assert.False(result.IsError);
+            var structured = JsonNode.Parse(result.StructuredContent!.Value.GetRawText())!.AsObject();
+            var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
+            Assert.True(JsonNode.DeepEquals(structured, JsonNode.Parse(textBlock.Text)));
+            var data = Assert.IsType<JsonObject>(structured["data"]);
+
+            Assert.Equal(contract.ToolName, data["toolName"]?.GetValue<string>());
+            Assert.Equal(contract.ContractVersion, data["contractVersion"]?.GetValue<string>());
+            Assert.Equal(contract.SchemaUri, data["schemaUri"]?.GetValue<string>());
+            Assert.Equal(contract.Sha256, data["sha256"]?.GetValue<string>());
+            Assert.Equal(contract.MediaType, data["mediaType"]?.GetValue<string>());
+            Assert.Equal(contract.Utf8Bytes, data["utf8Bytes"]?.GetValue<int>());
+            Assert.Equal(pageNumber, data["page"]?.GetValue<int>());
+            var currentPageCount = data["pageCount"]?.GetValue<int>()
+                ?? throw new JsonException("get_tool_contract omitted data.pageCount.");
+            pageCount ??= currentPageCount;
+            Assert.Equal(pageCount.Value, currentPageCount);
+            Assert.Equal(nextStart, data["startUtf8Byte"]?.GetValue<int>());
+
+            var fragment = data["schemaFragment"]?.GetValue<string>()
+                ?? throw new JsonException("get_tool_contract omitted data.schemaFragment.");
+            var returnedBytes = data["returnedUtf8Bytes"]?.GetValue<int>()
+                ?? throw new JsonException("get_tool_contract omitted data.returnedUtf8Bytes.");
+            Assert.Equal(returnedBytes, Encoding.UTF8.GetByteCount(fragment));
+            assembled.Append(fragment);
+            nextStart = checked(nextStart + returnedBytes);
+
+            var nextPage = data["nextPage"]?.GetValue<int?>();
+            Assert.Equal(pageNumber < currentPageCount ? pageNumber + 1 : null, nextPage);
+            if (nextPage is null)
+                break;
+            pageNumber = nextPage.Value;
+        }
+
+        Assert.NotNull(pageCount);
+        Assert.InRange(pageCount.Value, 2, int.MaxValue);
+        Assert.Equal(pageCount.Value, pageNumber);
+        Assert.Equal(contract.Utf8Bytes, nextStart);
+        Assert.Equal(contract.CanonicalJson, assembled.ToString());
+        Assert.Equal(contract.Sha256, Sha256(assembled.ToString()));
+    }
+
+    [Theory]
+    [InlineData("paths")]
+    [InlineData("strict")]
+    public void ContractMachineStringBypass_RequiresExactToolAndJsonPointer(string profile)
+    {
+        var mode = ToolPrivacyOptions.Parse(profile, nameof(profile)).Mode;
+        using var aliases = new TypedAliasRegistry(Enumerable.Repeat((byte)14, 32).ToArray());
+        var redactor = new ToolPrivacyRedactor(mode, ToolPrivacyTaxonomy.Default, aliases);
+        const string schemaUri = "wpa://contracts/tools/private/0123456789abcdef";
+        const string schemaFragment =
+            "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"description\":\"C:\\\\private\\\\secret.txt\"}";
+        var exactPointers = new JsonObject
+        {
+            ["data"] = new JsonObject
+            {
+                ["schemaUri"] = schemaUri,
+                ["schemaFragment"] = schemaFragment,
+            },
+        };
+
+        var otherTool = redactor.Redact(exactPointers, Tool("inspect_trace"));
+        Assert.NotEqual(schemaUri, otherTool["data"]!["schemaUri"]!.GetValue<string>());
+        Assert.NotEqual(schemaFragment, otherTool["data"]!["schemaFragment"]!.GetValue<string>());
+
+        var nestedPointers = new JsonObject
+        {
+            ["data"] = new JsonObject
+            {
+                ["nested"] = new JsonObject
+                {
+                    ["schemaUri"] = schemaUri,
+                    ["schemaFragment"] = schemaFragment,
+                },
+            },
+        };
+        var wrongPath = redactor.Redact(nestedPointers, Tool("get_tool_contract"));
+        Assert.NotEqual(schemaUri, wrongPath["data"]!["nested"]!["schemaUri"]!.GetValue<string>());
+        Assert.NotEqual(
+            schemaFragment,
+            wrongPath["data"]!["nested"]!["schemaFragment"]!.GetValue<string>());
+    }
+
     [Fact]
     public void TypedAliases_AreStableBoundedKindCheckedAndOnlyResolvedForEnabledInputs()
     {
@@ -321,6 +443,37 @@ public sealed class PrivacyRedactorTests
 
     private static ActiveToolDefinition Tool(string name) =>
         Catalog.Tools.Single(tool => tool.ToolName == name);
+
+    private static async Task<CallToolResult> InvokeContractPage(
+        McpServerTool tool,
+        McpServer server,
+        string toolName,
+        int page,
+        ToolPrivacyMode mode)
+    {
+        var parameters = new CallToolRequestParams
+        {
+            Name = "get_tool_contract",
+            Arguments = new Dictionary<string, JsonElement>
+            {
+                ["toolName"] = JsonSerializer.SerializeToElement(toolName),
+                ["page"] = JsonSerializer.SerializeToElement(page),
+            },
+        };
+        var request = new JsonRpcRequest
+        {
+            Id = new RequestId($"privacy-contract-{mode}-{page}"),
+            Method = RequestMethods.ToolsCall,
+            Params = JsonSerializer.SerializeToNode(parameters, McpJsonUtilities.DefaultOptions),
+        };
+        return await tool.InvokeAsync(
+            new RequestContext<CallToolRequestParams>(server, request, parameters),
+            CancellationToken.None);
+    }
+
+    private static string Sha256(string value) => Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(value)))
+        .ToLowerInvariant();
 
     private static JsonObject MarkerEnvelope(string payload) => new()
     {

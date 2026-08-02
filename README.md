@@ -218,12 +218,13 @@ claude mcp add wpa-mcp --scope user -- C:/Users/me/.local/bin/wpa-mcp.exe --symb
 
 ## Tools
 
-The validated development surface contains **60 active tools**, **51 declared
+The validated development surface contains **61 active tools**, **51 declared
 capabilities**, **15 goals**, and **15 workflows**. The capability count includes
 explicit declared gaps; it is exhaustive for this server catalog, not for the
 complete WPA/ETW universe. Clients must follow every `tools/list` and
 `list_capabilities` cursor page rather than treating page one or these snapshot
-counts as the catalog.
+counts as the catalog. The active tool set is static for a server profile: loading
+a trace never activates, removes, or reorders tools.
 
 The server is built on the same `Microsoft.Diagnostics.Tracing.TraceEvent`
 library PerfView uses. A shared parser does not imply view-for-view parity. Every
@@ -237,6 +238,34 @@ can start from `wpa://capabilities/server`, `wpa://tools/server`, and
 per-section ordering, truncation-proof, evidence, measurement, relationship, and
 conclusion contract. Resources lower selection cost; they do not authorize a
 client to hide tools or skip `tools/list` pages.
+
+Default `tools/list` is a lean discovery projection with an aggregate
+**250,000-byte hard budget**. It keeps each tool name, description, complete
+`inputSchema`, annotations, and `_meta["wpa-mcp/outputContract"]`, but deliberately
+does not inline the deep `outputSchema`. That metadata carries the Contract 2.0
+version, JSON Schema dialect, content-addressed URI, SHA-256, media type, and
+canonical UTF-8 byte count.
+
+Fetch a selected tool's complete schema from
+`wpa://contracts/tools/{toolName}/{sha256}` and its listed pages. Tools-only
+clients call `get_tool_contract(toolName, page)`, starting at page 1 and following
+`nextPage`. Concatenate `schemaFragment` UTF-8 bytes in page order without a
+separator or normalization, then verify `utf8Bytes` and `sha256`. Both paths are
+projections of the same immutable schema that the server retains to validate
+every result. They share the same fixed 8,192-UTF-8-byte page boundaries, so a
+content-addressed index/page never changes with an instance's frame setting.
+Startup measures every Resource and mirrored Tool page with the largest legal
+request ID and fails before reading stdin when the configured response cap cannot
+deliver the complete lookup (35,858 bytes for the reviewed current catalog).
+The historical approximately 2.5 MB catalog measured all deep
+schemas inline; it is a before-measurement, not the default catalog or LLM
+context cost.
+
+The MCP host/client—not the LLM—must traverse protocol pages, cache descriptors
+and fetched contracts, and progressively inject task-relevant tool descriptors
+into the model. This host-side selection does not mutate the server catalog.
+wpa-mcp has no session-time tool activation and no universal dispatcher tool;
+native tool names and call arguments remain unchanged.
 
 ### What wpa-mcp adds vs PerfView
 
@@ -257,7 +286,7 @@ contract prevents LLM over-interpretation**.
 
 ### Contract 2.0 evidence envelope
 
-All 60 active tools return the same closed structured envelope. Interpret it
+All 61 active tools return the same closed structured envelope. Interpret it
 before interpreting domain rows:
 
 | Field | Contract |
@@ -283,7 +312,7 @@ Opaque IDs are JSON strings and must never pass through a JavaScript `number`.
 Always replay a process row with `pid + processStartUs`; for a thread preserve
 `pid + processStartUs + tid + threadStartUs + threadGeneration`.
 
-In the secure ID-only profile, 57 analysis/discovery tools are advertised
+In the secure ID-only profile, 58 analysis/discovery tools are advertised
 read-only, idempotent, closed-world, and non-destructive. `load_trace` writes the
 owned artifact store, `prepare_symbols` may populate the private verified-symbol
 store, and `unload_trace` retires a handle. The selected startup profile and its
@@ -378,6 +407,7 @@ Tools without `startUs` / `endUs` operate on intentionally different scopes; eac
 | Tool | What it does | PerfView equivalent |
 |---|---|---|
 | **`list_capabilities`** | Paged Server Capability Map: declared capabilities (including explicit gaps), goals, workflows, callable tools, cost/scope/symbol requirements, and evidence boundaries. It is exhaustive for this server catalog, not for WPA. | **[Programmatic]** — no direct GUI equivalent |
+| **`get_tool_contract`** | Deterministic 8,192-byte pages of one active tool's canonical Contract 2.0 output schema for Tools-only clients. Reassemble pages and verify the advertised size/SHA-256. | **[Programmatic]** — no direct GUI equivalent |
 | **`load_trace`** | The only raw trace-source entry point. Validates an allowed local `.etl`/`.etlx`, snapshots an opened handle into the owned immutable artifact store, and returns a canonical principal-scoped TraceId. Parsed event count is not the raw ETW record count. | Open a trace file (no TraceId equivalent) |
 | **`unload_trace`** | Retires a TraceId, rejects new acquisitions, and optionally waits for leases. It does not delete the immutable artifact and does not claim physical cleanup. | Close a trace handle |
 | **`inspect_trace`** | Paged Trace Evidence Map: parsed capability assessments, system metadata, provider counts, same-domain stack coverage, trace PDB identities, quality boundaries, self-attribution state, applicable tools, and workflows. It neither probes local PDB files nor measures frame resolution; use `prepare_symbols` only for verified local readiness. Context-bound frame lookup remains unavailable in this build. | **[Programmatic]** — replaces manual trace-quality inspection across Events, Modules, and capture metadata |
@@ -542,10 +572,14 @@ reference values are `compatibility` and `id_only`.
 
 The source tree is currently version `0.3.0`: it runs the implemented Contract
 2.0 + ID-only development profile, but ADR 0005 intentionally marks this
-pre-0.4 release line as `releaseStatus=blocked`. The `legacy` value is parsed so
-the release matrix is explicit, but startup fails closed because a reviewed
-legacy result adapter does not exist. Raw-path compatibility remains available
-only through an explicit startup switch and emits a removal warning for 1.0.0.
+pre-0.4 release line as `releaseStatus=blocked`. The 0.4.x profile defaults to
+Contract 2.0 + ID-only, and Contract 2.0 is its only result shape. No released
+wpa-mcp version established the Phase 0 snapshot as a supported legacy wire
+contract. The `legacy` value is recognized
+only to fail closed instead of mislabeling a Contract 2.0 envelope, and the lack
+of an unshipped legacy adapter does not block a Contract 2.0-native 0.4.x
+release. Raw-path compatibility remains available only through an explicit
+startup switch and emits a removal warning for 1.0.0.
 See [contract migration](docs/CONTRACT_MIGRATION.md) and
 [client compatibility](docs/CLIENT_COMPATIBILITY.md) before pinning a profile.
 

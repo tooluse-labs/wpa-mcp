@@ -21,15 +21,28 @@ public sealed class ToolsListProductionStdioTests
     public ToolsListProductionStdioTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
-    public async Task ProductionProgram_PagesCompleteCatalogWithinExactMeasuredMinimum()
+    public async Task ProductionProgram_PagesCompleteCatalogWithinUnifiedDiscoveryMinimum()
     {
         var repoRoot = LocateRepoRoot();
         var catalog = ActiveToolCatalog.LoadAndValidate();
-        var tools = catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
+        var serverTools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
+        var tools = serverTools.Select(tool => tool.ProtocolTool).ToArray();
         var preflight = ToolsListPageFitter.Preflight(
             tools,
             ToolsListPaginationOptions.HardMaxResponseFrameBytes);
-        var minimum = preflight.MinimumViableFrameBytes;
+        var contractPreflight = ToolContractDiscoveryPreflight.Measure(catalog, serverTools);
+        var minimum = Math.Max(
+            preflight.MinimumViableFrameBytes,
+            contractPreflight.MinimumViableFrameBytes);
+        Assert.Equal(61, tools.Length);
+        foreach (var tool in tools)
+        {
+            Assert.Null(tool.OutputSchema);
+            AssertExactContractMetadata(
+                catalog,
+                tool.Name,
+                tool.Meta?[ToolOutputContract.MetadataKey]);
+        }
 
         await using var firstServer = await StdioClient.StartAsync(repoRoot, minimum);
         await firstServer.InitializeAsync();
@@ -58,6 +71,17 @@ public sealed class ToolsListProductionStdioTests
             Assert.True(
                 frame.Utf8FrameBytes <= minimum,
                 $"Page {pageIndex} was {frame.Utf8FrameBytes} bytes with cap {minimum}.");
+            foreach (var pageTool in pageTools)
+            {
+                var toolObject = Assert.IsType<JsonObject>(pageTool);
+                var toolName = toolObject["name"]!.GetValue<string>();
+                Assert.IsType<JsonObject>(toolObject["inputSchema"]);
+                Assert.Null(toolObject["outputSchema"]);
+                AssertExactContractMetadata(
+                    catalog,
+                    toolName,
+                    toolObject["_meta"]?[ToolOutputContract.MetadataKey]);
+            }
             pageBytes.Add(frame.Utf8FrameBytes);
             pageToolNodes.Add((JsonArray)pageTools.DeepClone());
             observedNames.AddRange(pageTools.Select(tool => tool!["name"]!.GetValue<string>()));
@@ -69,13 +93,14 @@ public sealed class ToolsListProductionStdioTests
             }
 
             pageIndex++;
-            Assert.InRange(pageIndex, 1, tools.Count);
+            Assert.InRange(pageIndex, 1, tools.Length);
         }
         while (cursor is not null);
 
         Assert.True(pageIndex >= 3);
         Assert.Equal(tools.Select(tool => tool.Name), observedNames);
-        Assert.Equal(tools.Count, observedNames.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(61, observedNames.Count);
+        Assert.Equal(tools.Length, observedNames.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains("prepare_symbols", observedNames);
         Assert.DoesNotContain("set_symbol_path", observedNames);
         Assert.DoesNotContain("add_symbol_server", observedNames);
@@ -106,14 +131,19 @@ public sealed class ToolsListProductionStdioTests
             aggregateBytes.Length,
             Encoding.UTF8.GetByteCount(
                 aggregateResult.ToJsonString(McpJsonUtilities.DefaultOptions)));
+        Assert.InRange(
+            aggregateBytes.Length,
+            1,
+            ToolListPayload.DefaultMaxPayloadBytes);
         Assert.True(pageBytes.Sum(value => (long)value) > 0);
         _output.WriteLine(
-            "catalogVersion={0}; minimum={1}; minimumSuccess={2}; " +
-            "largestSingleTool={3}; largestSingleToolFrameBytes={4}; pageCount={5}; " +
-            "maxPageBytes={6}; pageBytes=[{7}]; aggregateResultBytes={8}; " +
-            "aggregateResultSha256={9}",
+            "catalogVersion={0}; unifiedMinimum={1}; toolsListMinimum={2}; minimumSuccess={3}; " +
+            "largestSingleTool={4}; largestSingleToolFrameBytes={5}; pageCount={6}; " +
+            "maxPageBytes={7}; pageBytes=[{8}]; aggregateResultBytes={9}; " +
+            "aggregateResultSha256={10}",
             catalog.CatalogVersion,
             minimum,
+            preflight.MinimumViableFrameBytes,
             preflight.MinimumSuccessFrameBytes,
             preflight.LargestSingleToolName,
             preflight.LargestSingleToolFrameBytes,
@@ -158,6 +188,94 @@ public sealed class ToolsListProductionStdioTests
 
         Assert.Equal(0, await secondServer.CompleteAsync());
         Assert.Equal(0, await firstServer.CompleteAsync());
+    }
+
+    [Fact]
+    public async Task ProductionProgram_RejectsCapBelowContractDiscoveryMinimumBeforeReadingStdin()
+    {
+        var repoRoot = LocateRepoRoot();
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var serverTools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
+        var minimum = ToolContractDiscoveryPreflight.Measure(catalog, serverTools)
+            .MinimumViableFrameBytes;
+
+        await using var server = await StdioClient.StartAsync(repoRoot, minimum - 1);
+        var exit = await server.WaitForStartupFailureAsync();
+
+        Assert.Equal(Program.StartupConfigurationErrorExitCode, exit.ExitCode);
+        Assert.Equal(string.Empty, exit.Stdout);
+        Assert.Contains("output-contract discovery preflight", exit.Stderr, StringComparison.Ordinal);
+        Assert.Contains(minimum.ToString(CultureInfo.InvariantCulture), exit.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProductionProgram_ExactContractDiscoveryMinimumReassemblesWorstContract()
+    {
+        var repoRoot = LocateRepoRoot();
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var serverTools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
+        var preflight = ToolContractDiscoveryPreflight.Measure(catalog, serverTools);
+        var contract = catalog.OutputContracts[preflight.MaximumToolFrameToolName];
+        await using var server = await StdioClient.StartAsync(
+            repoRoot,
+            preflight.MinimumViableFrameBytes);
+        await server.InitializeAsync();
+
+        var assembled = new StringBuilder(contract.CanonicalJson.Length);
+        var page = 1;
+        var nextStart = 0;
+        var observedFrames = new List<int>();
+        while (true)
+        {
+            var requestId = $"contract-page-{page}".PadRight(126, 'r');
+            Assert.Equal(
+                ToolRequestIdPolicy.MaxSerializedBytes,
+                Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(requestId)));
+            var response = await server.SendRequestAsync(
+                JsonValue.Create(requestId)!,
+                RequestMethods.ToolsCall,
+                new JsonObject
+                {
+                    ["name"] = "get_tool_contract",
+                    ["arguments"] = new JsonObject
+                    {
+                        ["toolName"] = contract.ToolName,
+                        ["page"] = page,
+                    },
+                });
+            observedFrames.Add(response.Utf8FrameBytes);
+            Assert.InRange(response.Utf8FrameBytes, 1, preflight.MinimumViableFrameBytes);
+            Assert.Null(response.Message["error"]);
+            var result = Assert.IsType<JsonObject>(response.Message["result"]);
+            Assert.NotEqual(true, result["isError"]?.GetValue<bool>());
+            var structured = Assert.IsType<JsonObject>(result["structuredContent"]);
+            var text = JsonNode.Parse(result["content"]![0]!["text"]!.GetValue<string>());
+            Assert.True(JsonNode.DeepEquals(structured, text));
+            var data = Assert.IsType<JsonObject>(structured["data"]);
+            Assert.Equal(contract.ToolName, data["toolName"]?.GetValue<string>());
+            Assert.Equal(page, data["page"]?.GetValue<int>());
+            Assert.Equal(nextStart, data["startUtf8Byte"]?.GetValue<int>());
+            var fragment = data["schemaFragment"]?.GetValue<string>()
+                ?? throw new JsonException("get_tool_contract omitted schemaFragment.");
+            var returned = data["returnedUtf8Bytes"]?.GetValue<int>()
+                ?? throw new JsonException("get_tool_contract omitted returnedUtf8Bytes.");
+            Assert.Equal(returned, Encoding.UTF8.GetByteCount(fragment));
+            assembled.Append(fragment);
+            nextStart = checked(nextStart + returned);
+
+            var nextPage = data["nextPage"]?.GetValue<int?>();
+            if (nextPage is null)
+                break;
+            Assert.Equal(page + 1, nextPage.Value);
+            page = nextPage.Value;
+        }
+
+        Assert.Equal(preflight.MaximumToolFrameBytes, observedFrames.Max());
+        Assert.Equal(contract.Utf8Bytes, nextStart);
+        Assert.Equal(contract.CanonicalJson, assembled.ToString());
+        Assert.Equal(contract.Sha256, Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(assembled.ToString()))).ToLowerInvariant());
+        Assert.Equal(0, await server.CompleteAsync());
     }
 
     [Fact]
@@ -271,8 +389,17 @@ public sealed class ToolsListProductionStdioTests
                     : new JsonObject { ["cursor"] = cursor });
             Assert.Null(response.Message["error"]);
             var result = response.Message["result"]!.AsObject();
-            names.AddRange(result["tools"]!.AsArray()
-                .Select(tool => tool!["name"]!.GetValue<string>()));
+            foreach (var toolNode in result["tools"]!.AsArray())
+            {
+                var toolObject = Assert.IsType<JsonObject>(toolNode);
+                var toolName = toolObject["name"]!.GetValue<string>();
+                Assert.Null(toolObject["outputSchema"]);
+                AssertExactContractMetadata(
+                    fullCatalog,
+                    toolName,
+                    toolObject["_meta"]?[ToolOutputContract.MetadataKey]);
+                names.Add(toolName);
+            }
             cursor = result["nextCursor"]?.GetValue<string>();
         }
         while (cursor is not null);
@@ -320,6 +447,19 @@ public sealed class ToolsListProductionStdioTests
         Assert.Null(response.Message["result"]);
         Assert.Equal((int)McpErrorCode.InvalidParams, response.Message["error"]!["code"]!.GetValue<int>());
         Assert.Equal("Invalid tools/list cursor.", response.Message["error"]!["message"]!.GetValue<string>());
+    }
+
+    private static void AssertExactContractMetadata(
+        ActiveToolCatalog catalog,
+        string toolName,
+        JsonNode? metadataNode)
+    {
+        var contract = catalog.OutputContracts[toolName];
+        var metadata = Assert.IsType<JsonObject>(metadataNode);
+        Assert.Equal(contract.SchemaUri, metadata["uri"]!.GetValue<string>());
+        Assert.Equal(contract.Sha256, metadata["sha256"]!.GetValue<string>());
+        Assert.Equal(contract.Utf8Bytes, metadata["utf8Bytes"]!.GetValue<int>());
+        Assert.True(JsonNode.DeepEquals(contract.ToDiscoveryMetadata(), metadata));
     }
 
     private static string LocateRepoRoot()

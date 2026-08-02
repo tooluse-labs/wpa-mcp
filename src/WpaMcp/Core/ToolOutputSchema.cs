@@ -4,23 +4,90 @@ using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ModelContextProtocol;
 using WpaMcp.Output;
 
 namespace WpaMcp.Core;
 
 internal sealed record ToolOutputSchemaViolation(string Code, string Path, string Message);
 
+internal sealed record ToolOutputContract(
+    string ToolName,
+    string ContractVersion,
+    string SchemaDialect,
+    string SchemaUri,
+    string Sha256,
+    string MediaType,
+    string CanonicalJson,
+    int Utf8Bytes)
+{
+    internal const string MetadataKey = "wpa-mcp/outputContract";
+    internal const string ContractMediaType = "application/schema+json";
+    internal const string Draft202012 = "https://json-schema.org/draft/2020-12/schema";
+
+    internal JsonObject ParseSchema() =>
+        JsonNode.Parse(CanonicalJson) as JsonObject
+        ?? throw new InvalidOperationException($"The output contract for '{ToolName}' is not a JSON object.");
+
+    internal JsonElement ToJsonElement() =>
+        JsonSerializer.Deserialize<JsonElement>(CanonicalJson, McpJsonUtilities.DefaultOptions);
+
+    internal JsonObject ToDiscoveryMetadata() => new()
+    {
+        ["contractVersion"] = ContractVersion,
+        ["schemaDialect"] = SchemaDialect,
+        ["uri"] = SchemaUri,
+        ["sha256"] = Sha256,
+        ["mediaType"] = MediaType,
+        ["utf8Bytes"] = Utf8Bytes,
+        ["representation"] = "utf8_json_pages",
+    };
+}
+
 /// <summary>
-/// Testable contract-2.0 schema scaffold. Production catalog wiring remains a separate phase;
-/// this factory does not claim to replace or wrap the MCP SDK schema generator yet.
+/// Authoritative Contract 2.0 schema source for server validation, discovery metadata,
+/// content-addressed resources, and reviewed contract snapshots.
 /// </summary>
 internal static class ToolOutputSchemaFactory
 {
+    private static readonly JsonSerializerOptions CanonicalJsonOptions =
+        new(McpJsonUtilities.DefaultOptions)
+        {
+            Encoder = JavaScriptEncoder.Default,
+            WriteIndented = false,
+        };
+
     internal static JsonObject CreateEnvelopeSchema<TData>() where TData : class =>
         CreateEnvelopeSchema(typeof(TData));
+
+    internal static ToolOutputContract CreateContract(string toolName, Type dataType)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+        ArgumentNullException.ThrowIfNull(dataType);
+        var schema = CreateEnvelopeSchema(dataType);
+        var canonicalJson = schema.ToJsonString(CanonicalJsonOptions);
+        if (canonicalJson.Any(character => character > 0x7f))
+        {
+            throw new InvalidOperationException(
+                $"The canonical output contract for '{toolName}' must be ASCII-safe UTF-8 JSON.");
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(canonicalJson);
+        var sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        return new ToolOutputContract(
+            toolName,
+            ToolContractVersions.V2,
+            ToolOutputContract.Draft202012,
+            $"wpa://contracts/tools/{toolName}/{sha256}",
+            sha256,
+            ToolOutputContract.ContractMediaType,
+            canonicalJson,
+            bytes.Length);
+    }
 
     internal static JsonObject CreateEnvelopeSchema(Type dataType)
     {

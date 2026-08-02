@@ -13,6 +13,13 @@ namespace WpaMcp.Tests;
 
 public sealed class CapabilityDiscoveryTests
 {
+    private static readonly Lazy<int> DiscoveryMinimumFrameBytes = new(() =>
+    {
+        var catalog = ActiveToolCatalog.LoadAndValidate();
+        var tools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
+        return ToolContractDiscoveryPreflight.Measure(catalog, tools).MinimumViableFrameBytes;
+    });
+
     [Fact]
     public void CapabilityPages_AtMinimumBudget_AreOrderedCompleteAndDuplicateFree()
     {
@@ -20,7 +27,7 @@ public sealed class CapabilityDiscoveryTests
         var runtime = new CapabilityDiscoveryRuntime(
             catalog,
             new StdioSessionPrincipal(),
-            maxResponseFrameBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseFrameBytes: DiscoveryMinimumFrameBytes.Value);
         var seen = new List<string>();
         string? cursor = null;
         do
@@ -50,7 +57,7 @@ public sealed class CapabilityDiscoveryTests
         var runtime = new CapabilityDiscoveryRuntime(
             catalog,
             new StdioSessionPrincipal(),
-            maxResponseFrameBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseFrameBytes: DiscoveryMinimumFrameBytes.Value);
         var first = runtime.List("  CLR  ", goal: null, cursor: null);
 
         Assert.Equal("clr", first.NormalizedFilter.Domain);
@@ -64,7 +71,7 @@ public sealed class CapabilityDiscoveryTests
             var otherPrincipal = new CapabilityDiscoveryRuntime(
                 catalog,
                 new StdioSessionPrincipal(),
-                maxResponseFrameBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+                maxResponseFrameBytes: DiscoveryMinimumFrameBytes.Value);
             var wrongPrincipal = Assert.Throws<CapabilityCursorException>(() =>
                 otherPrincipal.List("clr", goal: null, cursor));
             Assert.Equal(CapabilityCursorFailureKind.Invalid, wrongPrincipal.Kind);
@@ -75,16 +82,17 @@ public sealed class CapabilityDiscoveryTests
     [Fact]
     public void CursorRegistryCapacity_HasTypedBudgetFailure()
     {
-        var catalog = ActiveToolCatalog.LoadAndValidate();
-        var runtime = new CapabilityDiscoveryRuntime(
-            catalog,
-            new StdioSessionPrincipal(),
-            new CapabilityCursorRegistry(maxActive: 1),
-            ToolResponseBudgetOptions.MinimumResponseFrameBytes);
-
-        Assert.NotNull(runtime.List(null, null, null).NextCursor);
+        var registry = new CapabilityCursorRegistry(maxActive: 1);
+        var first = new CapabilityCursorBinding(
+            "principal",
+            "catalog",
+            null,
+            null,
+            "ordering");
+        var second = first with { Goal = "cpu_hotspots" };
+        Assert.NotNull(registry.GetOrIssueContinuation(first, parentToken: null, nextIndex: 1));
         var exception = Assert.Throws<CapabilityCursorException>(() =>
-            runtime.List(null, "cpu_hotspots", null));
+            registry.GetOrIssueContinuation(second, parentToken: null, nextIndex: 1));
         Assert.Equal(CapabilityCursorFailureKind.RegistryCapacity, exception.Kind);
     }
 
@@ -265,13 +273,13 @@ public sealed class CapabilityDiscoveryTests
     }
 
     [Fact]
-    public void EveryPublishedResourceShard_FitsConfiguredMinimumReadResourceFrameBudget()
+    public void EveryCatalogAndSectionResourceShard_FitsConfiguredMinimumReadResourceFrameBudget()
     {
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var runtime = new CapabilityDiscoveryRuntime(
             catalog,
             new StdioSessionPrincipal(),
-            maxResponseFrameBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseFrameBytes: DiscoveryMinimumFrameBytes.Value);
         var resources = new List<TextResourceContents>
         {
             runtime.RuntimeProfileResource(),
@@ -406,7 +414,7 @@ public sealed class CapabilityDiscoveryTests
         Assert.InRange(
             runtime.MaximumPreflightResourceFrameBytes,
             1,
-            ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            DiscoveryMinimumFrameBytes.Value);
 
         foreach (var resource in resources)
         {
@@ -421,7 +429,7 @@ public sealed class CapabilityDiscoveryTests
                     ToolRequestIdPolicy.SerializedBytes(requestId));
                 var frameBytes = MeasureResourceFrame(resource, requestId);
                 Assert.True(
-                    frameBytes <= ToolResponseBudgetOptions.MinimumResponseFrameBytes,
+                    frameBytes <= DiscoveryMinimumFrameBytes.Value,
                     $"{resource.Uri} serialized to {frameBytes} bytes.");
             }
         }
@@ -446,11 +454,11 @@ public sealed class CapabilityDiscoveryTests
         var runtime = new CapabilityDiscoveryRuntime(
             projected.Catalog,
             new StdioSessionPrincipal(),
-            maxResponseFrameBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseFrameBytes: DiscoveryMinimumFrameBytes.Value);
         Assert.InRange(
             runtime.MaximumPreflightResourceFrameBytes,
             1,
-            ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            DiscoveryMinimumFrameBytes.Value);
 
         var policyResource = runtime.CapabilityPolicyIndexResource();
         var policyIndex = JsonSerializer.Deserialize<CapabilityPolicyResourceIndex>(
@@ -490,7 +498,7 @@ public sealed class CapabilityDiscoveryTests
                 resource,
                 new RequestId(new string('r', 126)));
             Assert.True(
-                frameBytes <= ToolResponseBudgetOptions.MinimumResponseFrameBytes,
+                frameBytes <= DiscoveryMinimumFrameBytes.Value,
                 $"{resource.Uri} serialized to {frameBytes} bytes.");
         }
     }
@@ -544,7 +552,8 @@ public sealed class CapabilityDiscoveryTests
     {
         var fixture = CreateProductionFixture(
             maxActiveCursors: 1_024,
-            maxResponseBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes,
+            runtimeFrameBytes: DiscoveryMinimumFrameBytes.Value);
         using var services = fixture.Services;
         var requestId = new RequestId(new string('r', 126));
 
@@ -570,7 +579,8 @@ public sealed class CapabilityDiscoveryTests
     {
         var fixture = CreateProductionFixture(
             maxActiveCursors: 1,
-            maxResponseBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes);
+            maxResponseBytes: ToolResponseBudgetOptions.MinimumResponseFrameBytes,
+            runtimeFrameBytes: DiscoveryMinimumFrameBytes.Value);
         using var services = fixture.Services;
 
         var result = await InvokeList(
@@ -656,7 +666,10 @@ public sealed class CapabilityDiscoveryTests
             McpJsonUtilities.DefaultOptions).Length + 1;
 
     private static (ActiveToolCatalog Catalog, ServiceProvider Services, McpServerTool Tool)
-        CreateProductionFixture(int maxActiveCursors, int maxResponseBytes)
+        CreateProductionFixture(
+            int maxActiveCursors,
+            int maxResponseBytes,
+            int? runtimeFrameBytes = null)
     {
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var services = new ServiceCollection();
@@ -667,7 +680,7 @@ public sealed class CapabilityDiscoveryTests
             catalog,
             new StdioSessionPrincipal(),
             new CapabilityCursorRegistry(maxActive: maxActiveCursors),
-            maxResponseBytes));
+            runtimeFrameBytes ?? maxResponseBytes));
         var provider = services.BuildServiceProvider();
         var tool = catalog.CreateServerTools(
                 provider,

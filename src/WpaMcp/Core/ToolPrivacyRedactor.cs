@@ -518,6 +518,12 @@ internal sealed partial class ToolPrivacyRedactor : IToolPrivacyRedactor
         string field,
         string value)
     {
+        // These server-generated values are the integrity-bearing representation of
+        // one immutable output contract page. The exception is deliberately bound to
+        // one tool and exact pointers; it is not a field-name or general retain rule.
+        if (IsGetToolContractMachineString(toolName, path))
+            return value;
+
         var semantic = _taxonomy.MatchSemantic(toolName, path);
         if (semantic is not null)
         {
@@ -547,6 +553,25 @@ internal sealed partial class ToolPrivacyRedactor : IToolPrivacyRedactor
             return _aliases.Issue(kind, value);
 
         return ScrubFreeText(value);
+    }
+
+    private static bool IsGetToolContractMachineString(
+        string toolName,
+        IReadOnlyList<string> path)
+    {
+        if (!string.Equals(toolName, "get_tool_contract", StringComparison.Ordinal) ||
+            path.Count != 2 ||
+            !string.Equals(path[0], "data", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return path[1] is "toolName" or
+            "contractVersion" or
+            "schemaUri" or
+            "sha256" or
+            "mediaType" or
+            "schemaFragment";
     }
 
     private PrivacyFieldBehavior Behavior(

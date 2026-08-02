@@ -1,6 +1,6 @@
 {
   "formatVersion": "tool-list-payload-budget.v1",
-  "baselineKind": "reviewed_correctness_growth_transition",
+  "baselineKind": "reviewed_lean_discovery_and_full_contract_split",
   "measuredAt": "2026-08-02",
   "serializer": "ModelContextProtocol.McpJsonUtilities.DefaultOptions",
   "legacyActiveSnapshot": {
@@ -18,21 +18,27 @@
   },
   "activeContract2Observation": {
     "artifactTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
-    "toolCount": 60,
-    "structuredToolCount": 60,
-    "aggregateCatalogResultBytes": 2498170,
-    "aggregateCatalogSha256": "916a478f403a773e3535941195bcdb2aa241614872d6d1a67112e067e7dedd10",
-    "aggregatePromptCostState": "full_cost_not_reduced_by_paging",
+    "toolCount": 61,
+    "structuredToolCount": 61,
+    "aggregateCatalogResultBytes": 203626,
+    "aggregateCatalogSha256": "1fd5f2c39bbbba1171d74606b19889a0617adb82e8cb02162134720d38d81940",
+    "aggregatePromptCostState": "lean_discovery_with_on_demand_full_contracts",
     "pageFrameLimitBytes": 100000,
-    "singleToolSchemasRemainIndivisible": true
+    "embeddedOutputSchemaCount": 0,
+    "outputContractMetadataCount": 61,
+    "withinLeanDiscoveryBudget": true,
+    "fullContractRegistryArtifact": "eng/contract-baselines/tool-output-contract-registry.v1.json",
+    "fullContractRegistryCanonicalUtf8Bytes": 2342676
   },
   "legacyTransitionGuardBytes": 185000,
-  "aggregateWarningThresholdBytes": 200000,
+  "aggregateWarningThresholdBytes": 250000,
   "reviewDisposition": {
     "toolsHidden": false,
-    "schemasRemoved": false,
+    "fullSchemasRemovedFromContract": false,
+    "fullSchemasOmittedFromDefaultDiscovery": true,
     "typedFieldsReplacedWithOpenDictionary": false,
     "correctnessFieldsPreserved": true
   },
-  "successor": "eng/contract-baselines/tools-list-pagination.v1.json records exact per-frame fitting separately; neither paging nor a warning threshold is evidence of lower aggregate prompt cost."
+  "measurementBoundary": "Lean tools/list, full canonical contract storage, and host/LLM injection are separate costs. Pagination alone is not evidence of lower aggregate prompt cost.",
+  "successor": "eng/contract-baselines/tools-list-pagination.v1.json records exact lean per-frame fitting plus the unified fixed-page contract-discovery startup floor; eng/contract-baselines/tool-output-contract-registry.v1.json records full canonical schema storage separately."
 }

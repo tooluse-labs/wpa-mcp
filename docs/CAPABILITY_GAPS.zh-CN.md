@@ -1,7 +1,7 @@
 # wpa-mcp — 能力缺口对比（vs WPA / PerfView）
 
-> **当前状态（2026-08-01）：** 本文是人类可读的 delta ledger，不是 runtime
-> catalog。validated development model 当前包含 60 个 active tools、51 个 declared
+> **当前状态（2026-08-02）：** 本文是人类可读的 delta ledger，不是 runtime
+> catalog。validated development model 当前包含 61 个 active tools、51 个 declared
 > capabilities、15 个 goals、15 个 workflows；其中 10 个 capability 被明确映射到
 > `evaluator.declared_gap`。下表还包含尚未进入 catalog 的更广泛 WPA/PerfView 候选。
 > `eng/capabilities.v1.json`、`eng/tool-contracts.v2.json`、Active Catalog validator
@@ -23,6 +23,7 @@
 > 早期 brainstorm 文档已归档到 `docs/archive/` 以供溯源。
 >
 > **修订说明：**
+> - **v8 (2026-08-02)**：按 lean/full-contract 双投影对齐 discovery 与 release gap：静态完整的 61-tool catalog、250,000-byte lean `tools/list`、content-addressed contract lookup，以及仅 Contract 2.0 的结果兼容性；删除并不存在的 legacy-adapter 与具名客户端矩阵 release blocker，并通过已审查、自动校验的 artifact 关闭 corrected-active-baseline blocker。
 > - **v7 (2026-08-01)**：按 validated 60-tool/51-capability catalog 对齐历史 inventory；记录 10 个 manifest-declared gap；把 CPU Precise、memory resources、system metadata、provider counts、capture diagnostics 从错误的“完全缺失”改成“core 已覆盖、剩余边界明确”。
 > - **v6 (2026-08-01)**：加入 contract rollout 与客户端证据 release gap，并使用精确的机器可读 blocker code；历史 analyzer inventory 不变。
 > - **v5 (2026-05-15)**：删除 4 层 punchlist；优先级现在只在 `MCP_IMPLEMENTATION_TASKS.md` 里。本文档只保留稳定的能力清单（A/B/C/D + 不该补 + UI vs data 误判 + 反模式 callout）。文档集合清理同时归档了 `OPTIMIZATION.md`。
@@ -45,6 +46,15 @@
 - Tools-only client 调 `list_capabilities`；支持 Resource 的 client 跟完
   `wpa://capabilities/server`、`wpa://tools/server`、`wpa://workflows/server`
   链接的全部页。
+- server 暴露静态完整的 active tool set。`tools/list` 是 aggregate 不超过 250,000
+  bytes 的 lean projection：保留完整 input schema 和 content-addressed Contract 2.0
+  URI/hash metadata，但不内嵌深层 output schema。历史约 2.5 MB inline catalog 只是
+  before measurement，不是当前 discovery 成本。
+- 支持 Resource 的 client 从 `wpa://contracts/tools/{toolName}/{sha256}` 及其 page
+  重组所选 schema；Tools-only client 调 `get_tool_contract(toolName, page)`。两条路径
+  返回 server 用于结果验证的同一份 canonical bytes。
+- MCP host/client 负责跟完协议分页，并可向 LLM 渐进注入 task-relevant descriptors；
+  这不会在 server 上动态激活工具，也不存在万能 dispatcher tool。
 - 选定工具后，从 `wpa://tools/{toolName}/sections` 及其所有 page 读取完整 evidence
   和 result-section 语义。gap ledger 不能替代 runtime ordering、truncation、precision
   与 conclusion boundary。
@@ -164,11 +174,19 @@ principal-scoped immutable TraceId；`unload_trace` retire handle，但不宣称
 
 | 缺口 | 机器可读状态 | 后果 |
 |---|---|---|
-| 经审查的 legacy result 投影 | `release_blocked:not_implemented;phase0_legacy_floor_is_not_projected_by_the_active_runtime` | ADR 0005 要求 0.4.x 默认 legacy + raw path。当前选择 `legacy` 会在启动时被拒绝，因此不能仅靠显式开启 Contract 2.0 就发布 0.4.x。 |
-| 完整 0.5.x 弃用窗口与 usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 在仓库内审查这份证据之前，1.0 不得删除 legacy/raw compatibility；环境变量不能绕过发布历史门禁。 |
-| 支持客户端的分页/token/cache 矩阵 | `release_blocked:supported_client_matrix_incomplete` | package stdio harness 已遍历全部页，但 0.5 切 secure default 前，仍需记录具名第三方客户端的 page aggregation、prompt-schema token 与 cache 行为。只消费第一页的客户端不兼容。 |
-| corrected active contract baselines | `release_blocked:corrected_active_contract_baselines_not_release_approved` | `active-tools.v1.json`、`active-dto-inventory.v1.json`、`active-structured-stdio.v1.json` 必须与 package executable 来自同一 commit 和 runtime profile。 |
+| 完整 0.5.x 弃用窗口与 usage review | `release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence` | 在仓库内审查这份证据之前，1.0 不得删除 raw-path compatibility；环境变量不能绕过发布历史门禁。 |
 | artifact materialization 物理峰值 | `release_blocked:retained_quota_only;single_materialization_checkpoint_budget;opaque_converter_transient_peak_unproven` | retained-store quota 与 checkpoint 不能证明 opaque converter 的瞬态磁盘峰值。发布必须有通过的 `artifact-materialization-budget.v1.json`，不能把推测冒充 hard cap。 |
+
+这里没有“经审查的 legacy projection”缺口：此前没有 released version 把 Phase 0
+snapshot 建立为受支持的 result wire contract，因此 0.4.x 的结果契约只有 Contract 2.0。
+`legacy` fail closed 是为了防止错误标记；缺少未发布的 adapter 不是 release blocker。
+具名客户端的 paging/token/cache 测量仍是有价值的 compatibility observation，但不是
+全局发布门禁；只读第一页的 host 依然不兼容，因为 host pagination 是必需协议行为。
+
+corrected active-tool、DTO/stdio、lean-payload、pagination 与 full-contract registry
+baseline 已在本次变更中生成和审查，自动测试把它们绑定到 active manifest/profile。
+因此原 `corrected_active_contract_baselines_not_release_approved` blocker 已关闭；这不等于
+提前宣称所有无关的 full-suite/package gate 均已通过。
 
 本次启动选择的真实 profile 位于 `wpa://runtime/profile`；缺少 release gate
 绝不能伪装成 analyzer 已支持。详见 `CLIENT_COMPATIBILITY.zh-CN.md` 与
@@ -190,4 +208,4 @@ task/ADR 排期。
 
 ---
 
-最后修订：2026-08-01 (v7)。
+最后修订：2026-08-02 (v8)。

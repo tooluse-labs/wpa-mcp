@@ -16,14 +16,22 @@ public sealed class ToolsListPaginationBaselineTests
         using var artifact = JsonDocument.Parse(File.ReadAllBytes(ArtifactPath()));
         var root = artifact.RootElement;
         var catalog = ActiveToolCatalog.LoadAndValidate();
-        var tools = catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
+        var serverTools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
+        IReadOnlyList<Tool> tools = serverTools.Select(tool => tool.ProtocolTool).ToArray();
         var preflight = ToolsListPageFitter.Preflight(
             tools,
             ToolsListPaginationOptions.HardMaxResponseFrameBytes);
+        var contractPreflight = ToolContractDiscoveryPreflight.Measure(catalog, serverTools);
         var aggregate = JsonSerializer.SerializeToUtf8Bytes(
             new ListToolsResult { Tools = tools.ToArray() },
             McpJsonUtilities.DefaultOptions);
-        var candidate = BuildCandidate(root, catalog, tools, preflight, aggregate);
+        var candidate = BuildCandidate(
+            root,
+            catalog,
+            tools,
+            preflight,
+            contractPreflight,
+            aggregate);
         var reviewed = JsonNode.Parse(root.GetRawText());
         if (!JsonNode.DeepEquals(reviewed, candidate))
         {
@@ -52,6 +60,18 @@ public sealed class ToolsListPaginationBaselineTests
             reviewedPreflight.GetProperty("largestSingleTool").GetString());
         Assert.Equal(preflight.LargestSingleToolFrameBytes,
             reviewedPreflight.GetProperty("largestSingleToolFrameBytes").GetInt32());
+
+        var reviewedContractPreflight = root.GetProperty("contractDiscoveryPreflight");
+        Assert.Equal(contractPreflight.FixedPageUtf8Bytes,
+            reviewedContractPreflight.GetProperty("fixedPageUtf8Bytes").GetInt32());
+        Assert.Equal(contractPreflight.PageCount,
+            reviewedContractPreflight.GetProperty("pageCount").GetInt32());
+        Assert.Equal(contractPreflight.MaximumToolFrameBytes,
+            reviewedContractPreflight.GetProperty("maximumToolFrameBytes").GetInt32());
+        Assert.Equal(contractPreflight.MaximumResourceFrameBytes,
+            reviewedContractPreflight.GetProperty("maximumResourceFrameBytes").GetInt32());
+        Assert.Equal(contractPreflight.MinimumViableFrameBytes,
+            reviewedContractPreflight.GetProperty("minimumViableResponseBytes").GetInt32());
 
         var reviewedAggregate = root.GetProperty("aggregateCatalog");
         Assert.Equal(aggregate.Length, reviewedAggregate.GetProperty("bytes").GetInt32());
@@ -86,6 +106,11 @@ public sealed class ToolsListPaginationBaselineTests
             traversal.GetProperty("maximumObservedPageFrameBytes").GetInt32());
         Assert.False(root.GetProperty("reviewBoundary")
             .GetProperty("pagingReducesAggregatePromptCost").GetBoolean());
+        Assert.True(root.GetProperty("reviewBoundary")
+            .GetProperty("leanProjectionReducesAggregatePromptCost").GetBoolean());
+        Assert.False(root.GetProperty("exactMinimumProductionStdioTraversal")
+            .GetProperty("embeddedOutputSchemas").GetBoolean());
+        Assert.All(tools, tool => Assert.Null(tool.OutputSchema));
     }
 
     private static JsonObject BuildCandidate(
@@ -93,6 +118,7 @@ public sealed class ToolsListPaginationBaselineTests
         ActiveToolCatalog catalog,
         IReadOnlyList<Tool> tools,
         ToolsListPagingPreflight preflight,
+        ToolContractDiscoveryPreflightResult contractPreflight,
         byte[] aggregate)
     {
         var candidate = JsonNode.Parse(reviewed.GetRawText())!.AsObject();
@@ -109,8 +135,26 @@ public sealed class ToolsListPaginationBaselineTests
             preflight.LargestSingleToolName;
         candidate["startupPreflight"]!["largestSingleToolFrameBytes"] =
             preflight.LargestSingleToolFrameBytes;
+        candidate["startupPreflight"]!["scope"] = "tools_list_only";
+        candidate["contractDiscoveryPreflight"] = new JsonObject
+        {
+            ["serializedRequestIdBytes"] = ToolRequestIdPolicy.MaxSerializedBytes,
+            ["fixedPageUtf8Bytes"] = contractPreflight.FixedPageUtf8Bytes,
+            ["toolCount"] = contractPreflight.ToolCount,
+            ["pageCount"] = contractPreflight.PageCount,
+            ["maximumToolFrameBytes"] = contractPreflight.MaximumToolFrameBytes,
+            ["maximumToolFrameToolName"] = contractPreflight.MaximumToolFrameToolName,
+            ["maximumToolFramePage"] = contractPreflight.MaximumToolFramePage,
+            ["maximumResourceFrameBytes"] = contractPreflight.MaximumResourceFrameBytes,
+            ["maximumResourceFrameToolName"] = contractPreflight.MaximumResourceFrameToolName,
+            ["maximumResourceFramePage"] = contractPreflight.MaximumResourceFramePage,
+            ["minimumViableResponseBytes"] = contractPreflight.MinimumViableFrameBytes,
+            ["capMinusOneBehavior"] = "startup_exit_78_before_stdin",
+        };
 
-        var cap = preflight.MinimumViableFrameBytes;
+        var cap = Math.Max(
+            preflight.MinimumViableFrameBytes,
+            contractPreflight.MinimumViableFrameBytes);
         var frames = new List<int>();
         var index = 0;
         var pageIndex = 0;

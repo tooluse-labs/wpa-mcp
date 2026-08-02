@@ -90,11 +90,12 @@ public static class Program
                 serverOptions.CapabilityPolicy);
         }
         catch (Exception ex) when (
-            ex is CatalogValidationException or ToolsListStartupValidationException)
+            ex is CatalogValidationException or ToolsListStartupValidationException or
+                ToolContractDiscoveryStartupValidationException)
         {
-            var detail = ex is ToolsListStartupValidationException
-                ? ex.Message
-                : "active catalog validation failed";
+            var detail = ex is CatalogValidationException
+                ? "active catalog validation failed"
+                : ex.Message;
             WritePrePrivacyBoundaryError(
                 serverOptions.Privacy.Mode,
                 $"wpa-mcp: startup validation failed: {detail}");
@@ -361,17 +362,37 @@ public static class Program
             paginationOptions.MaxResponseFrameBytes);
         var aliases = new TypedAliasRegistry();
         PrivacyLogSink? privacyLogSink = null;
-        IReadOnlyList<McpServerTool> serverTools;
         try
         {
             var taxonomy = ToolPrivacyTaxonomy.Default;
             var redactor = new ToolPrivacyRedactor(privacyMode, taxonomy, aliases);
             privacyLogSink = new PrivacyLogSink(privacyMode, redactor);
-            serverTools = catalog.CreateServerTools(
+            IReadOnlyList<McpServerTool> serverTools = catalog.CreateServerTools(
                 services,
                 responseBudget: responseBudget,
                 privacy: redactor,
                 argumentRewriter: new ToolArgumentRewriter(taxonomy, aliases));
+            catalog = catalog.ProjectTraceReferenceProfile(traceAccessMode, serverTools);
+            var policyProjection = catalog.ProjectCapabilityPolicy(
+                capabilityPolicy,
+                serverTools);
+            catalog = policyProjection.Catalog;
+            serverTools = policyProjection.ServerTools;
+            var pagination = CreatePagination(
+                catalog,
+                serverTools,
+                executionBudgets,
+                contractMode,
+                telemetry);
+            ToolContractDiscoveryPreflight.Measure(catalog, serverTools)
+                .Validate(executionBudgets.MaxJsonRpcResponseBytes);
+            return new StartupState(
+                catalog,
+                services,
+                serverTools,
+                pagination,
+                aliases,
+                privacyLogSink);
         }
         catch
         {
@@ -379,25 +400,6 @@ public static class Program
             aliases.Dispose();
             throw;
         }
-        catalog = catalog.ProjectTraceReferenceProfile(traceAccessMode, serverTools);
-        var policyProjection = catalog.ProjectCapabilityPolicy(
-            capabilityPolicy,
-            serverTools);
-        catalog = policyProjection.Catalog;
-        serverTools = policyProjection.ServerTools;
-        var pagination = CreatePagination(
-            catalog,
-            serverTools,
-            executionBudgets,
-            contractMode,
-            telemetry);
-        return new StartupState(
-            catalog,
-            services,
-            serverTools,
-            pagination,
-            aliases,
-            privacyLogSink);
     }
 
     private static ToolsListPaginationFilters CreatePagination(

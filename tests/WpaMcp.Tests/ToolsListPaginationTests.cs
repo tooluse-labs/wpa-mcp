@@ -64,7 +64,7 @@ public sealed class ToolsListPaginationTests
 
         Assert.Equal(catalog.Tools.Count, tools.Count);
         Assert.Equal(
-            ["list_capabilities", "inspect_trace", "list_processes"],
+            ["list_capabilities", "get_tool_contract", "inspect_trace"],
             tools.Take(3).Select(tool => tool.Name));
         Assert.InRange(
             filters.Preflight.MinimumViableFrameBytes,
