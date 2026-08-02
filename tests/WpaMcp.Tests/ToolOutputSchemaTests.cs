@@ -157,7 +157,7 @@ public sealed class ToolOutputSchemaTests
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var outputContracts = catalog.OutputContracts;
 
-        Assert.Equal(61, outputContracts.Count);
+        Assert.Equal(62, outputContracts.Count);
         Assert.All(catalog.Tools, tool =>
         {
             var schema = outputContracts[tool.ToolName].ParseSchema();

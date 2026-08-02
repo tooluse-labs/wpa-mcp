@@ -643,6 +643,8 @@ public sealed class LegacyStructuredStdioGoldenTests
                 "nameSubstring" => "__wpa_mcp_missing_marker__",
                 "pids" => new JsonArray(pid ?? int.MaxValue),
                 "pid" or "parentPid" => pid ?? int.MaxValue,
+                "tid" => int.MaxValue,
+                "windows" => ComparisonWindows(durationUs),
                 "startUs" => 0L,
                 "endUs" => Math.Max(1L, durationUs),
                 _ => throw new InvalidOperationException(
@@ -665,6 +667,25 @@ public sealed class LegacyStructuredStdioGoldenTests
         }
 
         return arguments;
+    }
+
+    private static JsonArray ComparisonWindows(long durationUs)
+    {
+        var endUs = Math.Max(2L, durationUs);
+        var splitUs = Math.Clamp(endUs / 2, 1L, endUs - 1);
+        return new JsonArray(
+            new JsonObject
+            {
+                ["name"] = "first",
+                ["startUs"] = 0L,
+                ["endUs"] = splitUs,
+            },
+            new JsonObject
+            {
+                ["name"] = "second",
+                ["startUs"] = splitUs,
+                ["endUs"] = endUs,
+            });
     }
 
     private static JsonObject BuildFailureArguments(

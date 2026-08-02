@@ -87,34 +87,34 @@
       "jsonrpc": "2.0"
     },
     "toolsList": {
-      "toolCount": 61,
+      "toolCount": 62,
       "pageCount": 3,
       "configuredFrameCapBytes": 87542,
-      "maximumObservedPageFrameBytes": 85113,
+      "maximumObservedPageFrameBytes": 86014,
       "pages": [
         {
           "pageIndex": 0,
           "returnedTools": 26,
           "firstTool": "list_capabilities",
-          "lastTool": "image_load_caller_callee",
+          "lastTool": "heap_alloc_top_stacks",
           "hasMore": true,
-          "frameBytes": 84798
+          "frameBytes": 86014
         },
         {
           "pageIndex": 1,
           "returnedTools": 25,
-          "firstTool": "image_load_timing",
-          "lastTool": "registry_top_stacks",
+          "firstTool": "image_load_caller_callee",
+          "lastTool": "registry_caller_callee",
           "hasMore": true,
-          "frameBytes": 85113
+          "frameBytes": 84163
         },
         {
           "pageIndex": 2,
-          "returnedTools": 10,
-          "firstTool": "cpu_precise_analysis",
+          "returnedTools": 11,
+          "firstTool": "registry_top_stacks",
           "lastTool": "thread_lifetime",
           "hasMore": false,
-          "frameBytes": 34628
+          "frameBytes": 38883
         }
       ],
       "structuredToolNames": [
@@ -139,6 +139,7 @@
         "diagnose_high_wait",
         "diagnose_slow_startup",
         "diagnose_window",
+        "thread_compare_windows",
         "interrupt_caller_callee",
         "interrupt_top_stacks",
         "heap_alloc_caller_callee",
@@ -180,10 +181,10 @@
         "process_create_timing",
         "thread_lifetime"
       ],
-      "resultBytes": 204269,
-      "resultSha256": "be3f06d8635f41073a6fe680027c275950d762adf39e86da28d265a908566924"
+      "resultBytes": 208790,
+      "resultSha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa"
     },
-    "stdoutLineCount": 126,
+    "stdoutLineCount": 128,
     "allStdoutLinesWereJson": true,
     "exitCode": 0
   },
@@ -396,8 +397,8 @@
           "missingTopLevelRequiredProperties": [],
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
-          "normalizedCompactFrameBytes": 66516,
-          "normalizedCompactFrameSha256": "49c06ac4f10f929cc875b6ce215b536fe9155badabb1c6d242e44f4dffbde0fc",
+          "normalizedCompactFrameBytes": 66970,
+          "normalizedCompactFrameSha256": "0f3fff688a83488ef0d925c5633bdee10af078855ad4877f194f7c8f45ba6b59",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -421,8 +422,8 @@
                 "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
               }
             ],
-            "structuredContentBytes": 27587,
-            "structuredContentSha256": "74e6d2a81c264143afaac15421a3a7321b51e6e8a9d6715e1d3ceeed2864954b",
+            "structuredContentBytes": 27779,
+            "structuredContentSha256": "06631f98b8da7cad6ef6ef3de2401b5aa728690475dd5732efa3e55a872a82ff",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -445,8 +446,8 @@
                 "kind": "object",
                 "itemCount": null,
                 "propertyCount": 15,
-                "bytes": 24949,
-                "sha256": "ba2e8c39ad5f72d73758b1511d63fb0b553d797b6c3d5dc410de123c9d50f676"
+                "bytes": 25141,
+                "sha256": "3afaa7255fba4b472af68c602182712eb107773c6d5b343c5257f977eb05cc47"
               },
               {
                 "name": "error",
@@ -8634,6 +8635,431 @@
                 "propertyCount": 1,
                 "bytes": 408,
                 "sha256": "45f3d7abe7e83b29c6078a710fd76b84c77acc303b9415aa2482c5b0a4f20883"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 225,
+                "sha256": "00f166ffb9edc9e7f69a685eaf218e6d263fa680370fc129e833256a0f35e8a0"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "failed",
+              "error.code": "invalid_argument",
+              "error.retryable": false,
+              "hasMore": false,
+              "scope.status": "not_evaluated",
+              "scope.mode": "trace",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "failed",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 0,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "thread_compare_windows",
+      "outputSchemaBytes": 37503,
+      "outputSchemaSha256": "64ff2f6531be88e1cf5c98cba1d405f0defae01c98df0ff4e97d85f62749cd9b",
+      "cases": [
+        {
+          "case": "loaded_fixture_contract_case",
+          "arguments": {
+            "path": "\u003CTRACE_ID\u003E",
+            "pid": -1,
+            "tid": 2147483647,
+            "windows": [
+              {
+                "name": "first",
+                "startUs": 0,
+                "endUs": 249999
+              },
+              {
+                "name": "second",
+                "startUs": 249999,
+                "endUs": 499998
+              }
+            ],
+            "top": 1,
+            "processStartUs": 0
+          },
+          "terminal": "tool_error_result",
+          "contractStatus": "failed",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 6390,
+          "normalizedCompactFrameSha256": "20fb2e66a301eae17fe475c5ea2164ad281ec6d8972c56892b8d8579228fc1ae",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "thread_compare_windows-primary",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 2499,
+            "structuredContentSha256": "60f2121b72185430d8171e137fb271f5f166058c4c8924eb11310c71175c436f",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 8,
+                "sha256": "33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740"
+              },
+              {
+                "name": "data",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "error",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 3,
+                "bytes": 123,
+                "sha256": "c58616fcc3cd48734ee97d9230f68f4ad4b8e7190d4b5baea6a4d2f2562fa1e8"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 80,
+                "sha256": "01fed505f13733da52fc71350b81f3249e1f0b23d3823d5da967be67f15efbbb"
+              },
+              {
+                "name": "traceRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 4,
+                "bytes": 102,
+                "sha256": "433d24c1847198215ab4e1f0f41fc2b25b0ba147b6b323b6d5a785c5aa975476"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 354,
+                "sha256": "1f4751e3b3fea55d6cba569094ebf8e427af37a0502587cf957a8ac1248ab353"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 697,
+                "sha256": "825eaeaa53425774901f6e90b34c2de845b769c4d06909f7a4e6ccffdda98498"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 105,
+                "sha256": "33c328f78b6f923f2e751cf0f51aed678205c28893728e344eb7311857ae0e19"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 568,
+                "sha256": "b91673c2bf7b1d508bf80f35bfb13ba934e7ef341a2826c29bb2137e7cd914b7"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 225,
+                "sha256": "00f166ffb9edc9e7f69a685eaf218e6d263fa680370fc129e833256a0f35e8a0"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "failed",
+              "error.code": "invalid_argument",
+              "error.retryable": false,
+              "hasMore": false,
+              "scope.status": "not_evaluated",
+              "scope.mode": "trace",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "failed",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 0,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        },
+        {
+          "case": "stable_failed_boundary",
+          "arguments": {
+            "path": "\u003CTRACE_ID\u003E",
+            "pid": -1,
+            "tid": 2147483647,
+            "windows": [
+              {
+                "name": "first",
+                "startUs": 0,
+                "endUs": 249999
+              },
+              {
+                "name": "second",
+                "startUs": 249999,
+                "endUs": 499998
+              }
+            ],
+            "top": 1,
+            "processStartUs": 0
+          },
+          "terminal": "tool_error_result",
+          "contractStatus": "failed",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 6390,
+          "normalizedCompactFrameSha256": "7ba0327cf9d1055322f3cc513a55326ba054bbe9fab664edeab72cea91c878d4",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "thread_compare_windows-failure",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 2499,
+            "structuredContentSha256": "60f2121b72185430d8171e137fb271f5f166058c4c8924eb11310c71175c436f",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 8,
+                "sha256": "33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740"
+              },
+              {
+                "name": "data",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "error",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 3,
+                "bytes": 123,
+                "sha256": "c58616fcc3cd48734ee97d9230f68f4ad4b8e7190d4b5baea6a4d2f2562fa1e8"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 80,
+                "sha256": "01fed505f13733da52fc71350b81f3249e1f0b23d3823d5da967be67f15efbbb"
+              },
+              {
+                "name": "traceRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 4,
+                "bytes": 102,
+                "sha256": "433d24c1847198215ab4e1f0f41fc2b25b0ba147b6b323b6d5a785c5aa975476"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 354,
+                "sha256": "1f4751e3b3fea55d6cba569094ebf8e427af37a0502587cf957a8ac1248ab353"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 697,
+                "sha256": "825eaeaa53425774901f6e90b34c2de845b769c4d06909f7a4e6ccffdda98498"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 105,
+                "sha256": "33c328f78b6f923f2e751cf0f51aed678205c28893728e344eb7311857ae0e19"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 568,
+                "sha256": "b91673c2bf7b1d508bf80f35bfb13ba934e7ef341a2826c29bb2137e7cd914b7"
               },
               {
                 "name": "noData",

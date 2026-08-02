@@ -1195,8 +1195,9 @@ internal sealed class ActiveToolCatalog
             {
                 "thread" => HasParameter(parameters, ["tid"], IsInt32Selector),
                 "time_window" =>
-                    HasParameter(parameters, ["startUs"], IsInt64Selector) &&
-                    HasParameter(parameters, ["endUs"], IsInt64Selector),
+                    (HasParameter(parameters, ["startUs"], IsInt64Selector) &&
+                     HasParameter(parameters, ["endUs"], IsInt64Selector)) ||
+                    HasParameter(parameters, ["windows"], IsTimeWindowCollectionSelector),
                 "focus_frame" => HasParameter(parameters, ["focusFunction", "function"], IsStringSelector),
                 "provider" => HasParameter(parameters, ["providerName", "providerSubstring"], IsStringSelector),
                 "process" =>
@@ -1230,6 +1231,13 @@ internal sealed class ActiveToolCatalog
 
     private static bool IsInt32CollectionSelector(Type type) =>
         type == typeof(int[]) || typeof(IEnumerable<int>).IsAssignableFrom(type);
+
+    private static bool IsTimeWindowCollectionSelector(Type type)
+    {
+        var element = type.IsArray ? type.GetElementType() : null;
+        return element?.GetProperty("StartUs")?.PropertyType == typeof(long) &&
+               element.GetProperty("EndUs")?.PropertyType == typeof(long);
+    }
 
     private static bool IsStringSelector(Type type) => type == typeof(string);
 

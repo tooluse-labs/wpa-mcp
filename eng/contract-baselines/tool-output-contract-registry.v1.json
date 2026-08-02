@@ -18,9 +18,9 @@
       "utf8Bytes"
     ]
   },
-  "toolCount": 61,
-  "totalCanonicalUtf8Bytes": 2343192,
-  "registrySha256": "45840f546b62a4a179bce25bfdd88af9336d575d131555a672f4c933f1c27bdf",
+  "toolCount": 62,
+  "totalCanonicalUtf8Bytes": 2380695,
+  "registrySha256": "a4540b9e7d7fc0240053c21af8afb7b9fd94753467de12587a3c4d5194afd6e8",
   "tools": [
     {
       "toolName": "alpc_caller_callee",
@@ -507,6 +507,15 @@
       "sha256": "0c450d20f6a9c9f9efc4cd4858017cb7d283d7fb8331e24d4f4870f54aed92c4",
       "mediaType": "application/schema\u002Bjson",
       "utf8Bytes": 32037
+    },
+    {
+      "toolName": "thread_compare_windows",
+      "contractVersion": "2.0",
+      "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+      "schemaUri": "wpa://contracts/tools/thread_compare_windows/64ff2f6531be88e1cf5c98cba1d405f0defae01c98df0ff4e97d85f62749cd9b",
+      "sha256": "64ff2f6531be88e1cf5c98cba1d405f0defae01c98df0ff4e97d85f62749cd9b",
+      "mediaType": "application/schema\u002Bjson",
+      "utf8Bytes": 37503
     },
     {
       "toolName": "thread_lifetime",

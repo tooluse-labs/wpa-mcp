@@ -21,10 +21,10 @@ wpa-mcp lets an AI client investigate an ETL trace without loading the entire tr
 - Reuses an opened trace through a stable trace reference instead of reopening the ETL for every question.
 - Analyzes sampled CPU, precise CPU and scheduler activity when the trace contains the required events.
 - Narrows analysis by process, PID, thread, TID, module, stack, and time window.
-- Compares fast and slow intervals for one thread without mixing unrelated process activity.
+- Uses `thread_compare_windows` to compare named fast/slow intervals for one exact thread instance without mixing PID/TID reuse.
 - Resolves symbols on demand and reports when missing symbols limit attribution.
 - Returns capability evidence, warnings, partial failures, and pagination state instead of silently treating missing data as zero.
-- Keeps high-cardinality stack output compact and supports snapshot-backed pagination for batch CPU analysis.
+- Keeps high-cardinality stack output compact and supports snapshot-backed pagination for batch CPU and thread-window analysis.
 
 ## Quick start
 
@@ -95,6 +95,7 @@ Useful prompts:
 - `Analyze these PIDs in bounded pages. Continue from the returned snapshot instead of restarting the batch.`
 
 A wait duration does not by itself identify the blocking method. Reliable attribution depends on scheduler events, stack capture, symbols, and a sufficiently narrow time scope.
+`thread_compare_windows` therefore reports sampled counts, scheduler running time, ready latency, and blocked duration separately; ready latency and blocked duration are not additive.
 
 ## Capture a useful trace
 

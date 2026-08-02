@@ -7,9 +7,9 @@
     "structuredToolCount": 5,
     "catalogBytes": 178923
   },
-  "toolCount": 61,
-  "catalogBytes": 204269,
-  "catalogSha256": "be3f06d8635f41073a6fe680027c275950d762adf39e86da28d265a908566924",
+  "toolCount": 62,
+  "catalogBytes": 208790,
+  "catalogSha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa",
   "structuredToolNames": [
     "list_capabilities",
     "get_tool_contract",
@@ -32,6 +32,7 @@
     "diagnose_high_wait",
     "diagnose_slow_startup",
     "diagnose_window",
+    "thread_compare_windows",
     "interrupt_caller_callee",
     "interrupt_top_stacks",
     "heap_alloc_caller_callee",
@@ -1613,6 +1614,111 @@
       "outputSchemaBytes": 65864,
       "outputSchemaSha256": "158365f3198e5e1e5e6f10c040d5f9043b6ca03b168c012e9cc59a1a383ac4f8",
       "toolBytes": 2566
+    },
+    {
+      "name": "thread_compare_windows",
+      "declaringType": "WpaMcp.Tools.ThreadComparisonTools",
+      "method": "ThreadCompareWindows",
+      "returnType": "WpaMcp.Output.ThreadCompareWindowsResponse",
+      "description": "Compare one exact PID/TID instance across two or more named half-open time windows. The tool resolves the thread once across the union of all windows, then pins that process/thread generation for every sub-analysis so PID/TID reuse is never silently mixed. Each window reports sampled CPU counts separately from scheduler-derived running time, ready-to-run latency, and off-CPU blocked duration, plus bounded CPU and switch-out stack evidence. Ready latency can lie within an off-CPU interval and must not be added to blocked duration. Wait reasons and stacks are associations, not proof of a blocking method or root cause. Rows are cursor-paged from one immutable snapshot; missing stacks or symbols remain explicit coverage gaps rather than inferred method attribution.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "useStructuredContent": true,
+      "parameters": [
+        {
+          "name": "path",
+          "type": "System.String",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Canonical TraceId returned by load_trace"
+        },
+        {
+          "name": "pid",
+          "type": "System.Int32",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Process ID containing the thread"
+        },
+        {
+          "name": "tid",
+          "type": "System.Int32",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Thread ID to compare; resolved to one exact lifetime across the union of all windows"
+        },
+        {
+          "name": "windows",
+          "type": "WpaMcp.Output.ThreadComparisonWindowInput[]",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Two to 32 uniquely named half-open windows in request order"
+        },
+        {
+          "name": "top",
+          "type": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValueJson": "12",
+          "description": "Top CPU and wait stack rows retained inside each atomic window row (default 12, max 50)"
+        },
+        {
+          "name": "excludeEtwSelfOverhead",
+          "type": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValueJson": "false",
+          "description": "Fold known ETW stack-walk overhead into [ETW Overhead]"
+        },
+        {
+          "name": "resolveSymbols",
+          "type": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValueJson": "false",
+          "description": "Requires a valid same-generation symbolContextId prepared by prepare_symbols. Queries never fall back to _NT_SYMBOL_PATH, the trace directory, disk search, or network. This build exposes verified immutable readiness but does not yet provide context-bound TraceEvent frame lookup, so resolveSymbols=true fails explicitly instead of returning an unsymbolized result as if resolution succeeded."
+        },
+        {
+          "name": "processStartUs",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Optional exact process start in trace-relative microseconds"
+        },
+        {
+          "name": "threadStartUs",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Optional exact thread start in trace-relative microseconds"
+        },
+        {
+          "name": "threadGeneration",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Optional exact thread generation returned by CPU/Wait thread rows"
+        },
+        {
+          "name": "pageSize",
+          "type": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValueJson": "2",
+          "description": "Maximum complete window rows requested per page (default 2, max 32)"
+        },
+        {
+          "name": "cursor",
+          "type": "System.String",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Opaque qrc_ continuation bound to the trace generation, query, and immutable comparison snapshot"
+        }
+      ],
+      "inputSchemaBytes": 3166,
+      "inputSchemaSha256": "9937e57b6918ebdd61c0fc3f48398b89950264d8a367f16035918679cd302219",
+      "outputSchemaBytes": 37503,
+      "outputSchemaSha256": "64ff2f6531be88e1cf5c98cba1d405f0defae01c98df0ff4e97d85f62749cd9b",
+      "toolBytes": 4520
     },
     {
       "name": "interrupt_caller_callee",

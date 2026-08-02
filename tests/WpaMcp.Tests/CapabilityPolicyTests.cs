@@ -18,10 +18,10 @@ public sealed class CapabilityPolicyTests
         var projection = full.ProjectCapabilityPolicy(policy, sdkTools);
         var catalog = projection.Catalog;
 
-        Assert.Equal(61, full.Tools.Count);
-        Assert.Equal(61, catalog.AllTools.Count);
-        Assert.Equal(58, catalog.Tools.Count);
-        Assert.Equal(58, projection.ServerTools.Count);
+        Assert.Equal(62, full.Tools.Count);
+        Assert.Equal(62, catalog.AllTools.Count);
+        Assert.Equal(59, catalog.Tools.Count);
+        Assert.Equal(59, projection.ServerTools.Count);
         Assert.DoesNotContain(catalog.Tools, tool =>
             tool.Capabilities.Any(capability =>
                 capability.CapabilityId == "cpu.sampled.stacks"));
@@ -65,14 +65,14 @@ public sealed class CapabilityPolicyTests
         Assert.Equal(policy.ProfileHash, discovery.WorkflowCatalogSnapshot()
             .CapabilityPolicy.ProfileHash);
         var toolCatalog = discovery.ToolCatalogSnapshot();
-        Assert.Equal(61, toolCatalog.Tools.Count);
+        Assert.Equal(62, toolCatalog.Tools.Count);
         Assert.Equal(3, toolCatalog.Tools.Count(tool => !tool.Callable));
         Assert.All(
             toolCatalog.Tools.Where(tool => !tool.Callable),
             tool => Assert.Equal(
                 WpaMcp.Output.CapabilityAvailabilityStatus.DisabledByPolicy,
                 tool.AvailabilityState));
-        Assert.Equal(61, discovery.ToolResourceIndex().TotalItems);
+        Assert.Equal(62, discovery.ToolResourceIndex().TotalItems);
     }
 
     [Theory]

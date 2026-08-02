@@ -142,6 +142,7 @@ internal static class ToolNumericSemanticsReviewedManifest
             "WpaMcp.Output.StartupProcessExclusionRow|ProcessStartUs",
             "WpaMcp.Output.StartupWindowProvenance|EndUs,ProcessStartUs,RequestedEndUs,StartUs",
             "WpaMcp.Output.ThreadLifetimeRow|EndTimeUs,ProcessStartUs,StartTimeUs",
+            "WpaMcp.Output.ThreadComparisonWindowRow|EndUs,StartUs",
             "WpaMcp.Output.WaitAnalysisRow|ProcessStartUs,ThreadStartUs",
             "WpaMcp.Output.WindowEvidenceRow|ProcessStartUs,TimeUs");
     }
@@ -218,6 +219,7 @@ internal static class ToolNumericSemanticsReviewedManifest
             "WpaMcp.Output.StartupGapEvidenceRow|FirstImageLoadOffsetUs",
             "WpaMcp.Output.StartupWindowProvenance|TraceDurationUs",
             "WpaMcp.Output.ThreadLifetimeRow|LifetimeUs",
+            "WpaMcp.Output.ThreadComparisonWindowRow|BlockedUs,ReadyLatencyUs,RunningUs,WindowDurationUs",
             "WpaMcp.Output.TraceMeta|DurationUs",
             "WpaMcp.Output.WaitAnalysisRow|BlockedUs,CpuUs",
             "WpaMcp.Output.WaitReasonBucket|BlockedUs");
@@ -302,6 +304,8 @@ internal static class ToolNumericSemanticsReviewedManifest
             "WpaMcp.Output.StartupDiscoverySummary|ConsideredStartupInstanceCount,EligibleStartupInstanceCount,ExcludedStartupInstanceCount,ExcludedUnobservedStartCount,OtherExcludedStartupInstanceCount",
             "WpaMcp.Output.SymbolStats|Resolved,Unresolved,UnresolvedModuleCount",
             "WpaMcp.Output.ThreadLifetimeResponse|MatchedEventCount",
+            "WpaMcp.Output.ThreadCompareWindowsResponse|MatchedEventCount,ReturnedCount,TotalWindowCount",
+            "WpaMcp.Output.ThreadComparisonWindowRow|BlockedIntervalCount,BlockedSwitchOutCount,ContextSwitches,ReadyCount,SampledCpuSamples",
             "WpaMcp.Output.TraceCapabilities|ClrFinalizerBatchStartEndpointEventCount,ClrFinalizerBatchStopEndpointEventCount,ClrFinalizerCompletedBatchCount,ClrFinalizerObjectEventCount,ClrFinalizerSourceEventCount,ClrGcBoundaryEvidenceCount,ClrGcCompletedIntervalCount,ClrGcHeapStatsEventCount,ClrGcIntervalEndpointEventCount,ClrGcUnmatchedEndpointCount,ClrJitBoundaryEvidenceCount,ClrJitCompletedIntervalCount,ClrJitIntervalEndpointEventCount,ClrJitUnmatchedEndpointCount,ExplicitStackWalkEventCount,NetworkConnectionBoundaryEvidenceCount,NetworkConnectionCompletedLifecycleCount,NetworkConnectionLifecycleEndpointEventCount,NetworkConnectionUnmatchedEndpointCount,ObservedProcessStartEventCount,ObservedThreadLifecycleEndpointEventCount,ThreadCompletedObservedLifetimeCount,ThreadInferredBoundaryCount,ThreadLifecycleSourceEventCount,ThreadRundownEndpointEventCount,ThreadUnmatchedLifecycleEndpointCount",
             "WpaMcp.Output.TraceCapabilityEvidenceRecord|TraceBoundaryEvidenceCount,TraceCompletedEvidenceCount,TraceEligibleEventCount,TraceUnmatchedEvidenceCount",
             "WpaMcp.Output.TraceMeta|EventCount,ProcessCount,RawEtwRecordCount",

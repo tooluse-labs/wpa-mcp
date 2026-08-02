@@ -7,6 +7,8 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+- Added `thread_compare_windows` for exact-thread CPU/running/ready/blocked comparisons across named windows, with immutable snapshot pagination and explicit stack/symbol evidence boundaries.
+
 ## 0.4.3 - 2026-08-02
 
 ### Added

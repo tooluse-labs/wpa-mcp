@@ -2349,22 +2349,28 @@
     },
     {
       "capabilityId": "diagnosis.window.composite",
-      "definitionVersion": 1,
+      "definitionVersion": 2,
       "lifecycleStatus": "active",
       "domain": "diagnosis",
       "title": "Bounded window evidence composite",
-      "summary": "Combines scoped CPU, wait, and related observations for one bounded time window with per-section evidence.",
+      "summary": "Combines scoped CPU, scheduler, wait, and stack observations for one bounded window or compares one exact thread instance across named windows.",
       "questionsAnswered": [
-        "What selected CPU/wait evidence was observed in this bounded process/window scope?"
+        "What selected CPU/wait evidence was observed in this bounded process/window scope?",
+        "How do sampled CPU, running, ready latency, and blocked duration differ across named windows for one exact thread instance?"
       ],
       "questionsNotAnswered": [
         "Does the composite prove one causal root?",
-        "Are skipped, failed, or top-N sections complete?"
+        "Are skipped, failed, or top-N sections complete?",
+        "Do a wait reason or switch-out stack prove the responsible blocking method when stack coverage or symbols are missing?"
       ],
       "conclusionBoundaryCodes": [
         "COMPOSITE_PARTIAL_EVIDENCE",
         "ASSOCIATION_NOT_CAUSATION",
-        "TOP_N_NOT_COMPLETE"
+        "TOP_N_NOT_COMPLETE",
+        "SAMPLED_CPU_NOT_EXACT_TIME",
+        "READY_LATENCY_REQUIRES_READY_THREAD",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "THREAD_INSTANCE_SCOPE_REQUIRED"
       ],
       "requiredEvents": [
         "Sampled profile and scheduler events when available"
@@ -2378,13 +2384,15 @@
       "supportedScopes": [
         "trace",
         "process",
+        "thread",
         "time_window"
       ],
       "costClass": "composite",
       "sideEffectClass": "raw_trace_query",
       "contractVersion": "2.0",
       "sourcePaths": [
-        "src/WpaMcp/Tools/DiagnoseTools.cs"
+        "src/WpaMcp/Tools/DiagnoseTools.cs",
+        "src/WpaMcp/Tools/ThreadComparisonTools.cs"
       ],
       "replacedBy": null,
       "removalContractVersion": null,

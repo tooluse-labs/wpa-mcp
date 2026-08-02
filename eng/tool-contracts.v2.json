@@ -6,7 +6,7 @@
       "overlayId": "symbol_context_binding_v1",
       "selectorParameter": "resolveSymbols",
       "injectedInputProperty": "symbolContextId",
-      "expectedToolCount": 35
+      "expectedToolCount": 36
     }
   ],
   "tools": [
@@ -3563,6 +3563,75 @@
       ],
       "evidenceReferences": [
         "evidence.lifecycle.symbol.prepare"
+      ]
+    },
+    {
+      "toolName": "thread_compare_windows",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.ThreadComparisonTools",
+      "method": "ThreadCompareWindows",
+      "inputType": "parameters(path:System.String,pid:System.Int32,tid:System.Int32,windows:WpaMcp.Output.ThreadComparisonWindowInput[],top:System.Int32,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E,pageSize:System.Int32,cursor:System.String)",
+      "outputType": "WpaMcp.Output.ThreadCompareWindowsResponse",
+      "capabilityIds": [
+        "diagnosis.window.composite"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "thread",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_stack_query"
+      ],
+      "costClass": "composite",
+      "discoveryPriority": 100,
+      "domain": "diagnosis",
+      "ordinal": 30,
+      "defaultOrdering": "request_window_index_asc",
+      "tieBreakers": [],
+      "pageableSections": [
+        "/rows"
+      ],
+      "paginationMode": "cursor",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.threadcomparison.thread_compare_windows"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "association",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "SAMPLED_CPU_NOT_EXACT_TIME",
+        "READY_LATENCY_REQUIRES_READY_THREAD",
+        "SCOPED_STACK_COVERAGE_REQUIRED",
+        "THREAD_INSTANCE_SCOPE_REQUIRED",
+        "COMPOSITE_PARTIAL_EVIDENCE",
+        "ASSOCIATION_NOT_CAUSATION",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "evidenceReferences": [
+        "evidence.diagnosis.thread_compare_windows"
       ]
     },
     {

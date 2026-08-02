@@ -12,7 +12,7 @@ internal static class SymbolToolSchemaOverlay
     internal const string OverlayId = "symbol_context_binding_v1";
     internal const string SelectorParameter = "resolveSymbols";
     internal const string PropertyName = "symbolContextId";
-    internal const int ExpectedToolCount = 35;
+    internal const int ExpectedToolCount = 36;
     internal const string PropertyDescription =
         "Immutable SymbolContextId returned by prepare_symbols for the same loaded trace generation. " +
         "Required when resolveSymbols=true. Unknown, expired, retired, cross-principal, or generation-mismatched IDs fail closed; queries never fall back to _NT_SYMBOL_PATH, the trace directory, disk search, or network. " +

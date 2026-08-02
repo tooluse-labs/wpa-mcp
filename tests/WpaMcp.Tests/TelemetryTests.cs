@@ -139,7 +139,7 @@ public class TelemetryTests
             tools,
             ToolsListPaginationOptions.HardMaxResponseFrameBytes);
 
-        Assert.Equal(61, stats.ToolCount);
+        Assert.Equal(62, stats.ToolCount);
         Assert.Equal(stats.ToolCount, tools.Count);
         Assert.All(tools, tool => Assert.Null(tool.OutputSchema));
         Assert.All(perTool, tool =>

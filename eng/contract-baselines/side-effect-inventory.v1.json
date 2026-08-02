@@ -3,7 +3,7 @@
   "observation": {
     "catalogSource": "eng/tool-contracts.v2.json",
     "activeCatalogSnapshotTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
-    "toolCount": 61,
+    "toolCount": 62,
     "profiles": ["id_only", "compatibility"],
     "reviewScope": "Every current Active Catalog tool under both trace-reference profiles, plus separately disclosed host-wrapper effects.",
     "reviewedAt": "2026-08-02"
@@ -280,6 +280,7 @@
     {"name":"registry_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
     {"name":"registry_top_stacks","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
     {"name":"security_scan_analysis","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
+    {"name":"thread_compare_windows","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},
     {"name":"thread_lifetime","manifestSideEffectClass":"loaded_trace_query","idOnlyFamily":"loaded_trace_query","compatibilityFamily":"raw_trace_query"},
     {"name":"unload_trace","manifestSideEffectClass":"trace_handle_retirement","idOnlyFamily":"trace_handle_retirement","compatibilityFamily":"trace_handle_retirement"},
     {"name":"virtual_alloc_caller_callee","manifestSideEffectClass":"loaded_trace_stack_query","idOnlyFamily":"loaded_trace_stack_query","compatibilityFamily":"raw_trace_stack_query"},

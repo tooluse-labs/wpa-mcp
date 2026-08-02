@@ -490,6 +490,12 @@
           "kind": "automated_test",
           "path": "tests/WpaMcp.Tests/DiagnoseToolsTests.cs",
           "member": "DiagnoseToolsTests"
+        },
+        {
+          "evidenceId": "evidence.diagnosis.thread_compare_windows",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/ThreadCompareWindowsTests.cs",
+          "member": "ThreadCompareWindowsTests"
         }
       ]
     },
@@ -648,6 +654,17 @@
         }
       ],
       "missingEvidence": []
+    },
+    {
+      "toolName": "thread_compare_windows",
+      "capabilityId": "diagnosis.window.composite",
+      "operationVersion": "current.v1",
+      "admissionStatus": "not_admitted_evidence_missing",
+      "physicalPassLimit": null,
+      "evidenceReferences": [],
+      "missingEvidence": [
+        "large_trace_before_after_physical_pass_and_elapsed_measurement"
+      ]
     },
     {
       "toolName": "diagnose_window",

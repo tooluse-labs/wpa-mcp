@@ -712,6 +712,8 @@ internal sealed record ReviewedToolInvocationPlan(
                         TimelinePagination.ListProcessesTool => ReadLongValue(root, "totalCount"),
                         TimelinePagination.CpuTopFunctionsBatchTool =>
                             ReadLongValue(root, "requestedPidCount"),
+                        TimelinePagination.ThreadCompareWindowsTool =>
+                            ReadLongValue(root, "totalWindowCount"),
                         _ => null,
                     };
                     if (timelineTotal < 0 || startIndex < 0 || startIndex > timelineTotal ||
@@ -1238,7 +1240,7 @@ internal sealed class ReviewedToolOutcomeAdapterRegistry
         "memory_resource_analysis", "net_caller_callee", "net_connections", "net_top_stacks",
         "prepare_symbols", "process_create_timing", "ready_thread_caller_callee",
         "ready_thread_top_stacks", "registry_caller_callee", "registry_top_stacks",
-        "security_scan_analysis", "thread_lifetime", "unload_trace", "virtual_alloc_caller_callee",
+        "security_scan_analysis", "thread_compare_windows", "thread_lifetime", "unload_trace", "virtual_alloc_caller_callee",
         "virtual_alloc_top_stacks", "wait_analysis", "wait_caller_callee", "wait_top_stacks",
     };
 
@@ -2111,6 +2113,7 @@ internal sealed class ReviewedToolOutcomeAdapterRegistry
             ["registry_caller_callee"] = CallerCallee(),
             ["registry_top_stacks"] = Stacks(),
             ["security_scan_analysis"] = HeuristicSections("security_event_heuristic"),
+            ["thread_compare_windows"] = AssociationSections("thread_window_comparison"),
             ["thread_lifetime"] = TemporalSections("thread_lifetimes"),
             ["unload_trace"] = Lifecycle("trace_retirement_metadata", MeasurementBasis.Metadata),
             ["virtual_alloc_caller_callee"] = CallerCallee(),

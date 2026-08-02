@@ -36,9 +36,9 @@ public sealed class ActiveToolCatalogTests
                 method.GetCustomAttributes(typeof(McpServerToolAttribute), inherit: false).Length != 0))
             .ToHashSet();
 
-        Assert.Equal(61, catalog.Tools.Count);
-        Assert.Equal(61, catalogNames.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(61, attributedMethods.Count);
+        Assert.Equal(62, catalog.Tools.Count);
+        Assert.Equal(62, catalogNames.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(62, attributedMethods.Count);
         Assert.True(attributedMethods.SetEquals(catalog.Tools.Select(tool => tool.Method)));
         Assert.All(catalog.Tools, tool => Assert.Single(tool.Capabilities));
         Assert.Equal("wpa_mcp_declared_capabilities", catalog.CatalogScope);
@@ -65,7 +65,7 @@ public sealed class ActiveToolCatalogTests
     {
         var tools = ReadNode(ToolPath)["tools"]!.AsArray();
 
-        Assert.Equal(61, tools.Count);
+        Assert.Equal(62, tools.Count);
         Assert.All(tools, tool =>
         {
             Assert.NotNull(tool!["selectableScopes"]);
@@ -358,7 +358,7 @@ public sealed class ActiveToolCatalogTests
         Assert.Equal(
             catalog.Tools.Select(tool => tool.ToolName),
             protocolTools.Select(tool => tool.Name));
-        Assert.Equal(61, protocolTools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(62, protocolTools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]
@@ -851,7 +851,7 @@ public sealed class ActiveToolCatalogTests
         return scope switch
         {
             "thread" => Has("tid"),
-            "time_window" => Has("startUs") && Has("endUs"),
+            "time_window" => Has("startUs") && Has("endUs") || Has("windows"),
             "focus_frame" => Has("focusFunction") || Has("function"),
             "provider" => Has("providerName") || Has("providerSubstring"),
             "process" =>

@@ -21,10 +21,10 @@ wpa-mcp 让 AI 客户端分析 ETL trace，而不必把完整 trace 装入模型
 - 通过稳定的 trace reference 复用已打开的 ETL，避免每个问题都重新加载。
 - 在 trace 包含所需事件时分析 sampled CPU、precise CPU 和调度活动。
 - 按进程、PID、线程、TID、模块、堆栈和时间窗口缩小分析范围。
-- 比较同一线程的快速与缓慢区间，避免混入无关进程活动。
+- 使用 `thread_compare_windows` 比较同一精确线程实例的命名快/慢区间，避免混入 PID/TID 复用实例。
 - 按需解析符号，并明确报告缺失符号造成的归因限制。
 - 返回 capability evidence、warning、局部失败和分页状态，不把缺失数据静默解释成零。
-- 压缩高基数堆栈结果，并为批量 CPU 分析提供基于 snapshot 的分页。
+- 压缩高基数堆栈结果，并为批量 CPU 与线程窗口分析提供基于 snapshot 的分页。
 
 ## 快速开始
 
@@ -95,6 +95,7 @@ wpa-mcp.exe update
 - `按有界页面分析这些 PID，使用返回的 snapshot 继续，不要重新启动整个 batch。`
 
 只有 wait duration 不能确定具体阻塞方法。可靠归因还依赖调度事件、堆栈采集、符号和足够精确的时间范围。
+因此 `thread_compare_windows` 会分别报告 sampled count、scheduler running time、ready latency 和 blocked duration；ready latency 与 blocked duration 不可相加。
 
 ## 采集有效的 trace
 

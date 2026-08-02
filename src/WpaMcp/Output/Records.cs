@@ -1227,6 +1227,81 @@ public sealed record WaitTopStacksResponse(
     [property: Description("Identity-unresolved CSwitch event sides whose raw PID/TID/time could belong to the selected scope.")]
     long ScopedIdentityUnresolvedCSwitchSideCount = 0);
 
+public sealed record ThreadComparisonWindowInput(
+    string Name,
+    long StartUs,
+    long EndUs);
+
+public sealed record ThreadComparisonWindowRow(
+    string Name,
+    long StartUs,
+    long EndUs,
+    long WindowDurationUs,
+    [property: Description("Exact sampled-profile event count for this thread/window; this is not CPU time.")]
+    long SampledCpuSamples,
+    [property: Description("Scheduler-derived on-CPU duration from matched CSwitch intervals.")]
+    long RunningUs,
+    [property: Description("Scoped CSwitch events whose old or new thread is the selected exact instance.")]
+    long ContextSwitches,
+    long ReadyCount,
+    [property: Description("ReadyThread-to-switch-in latency. It can overlap an off-CPU interval and is not additive with BlockedUs.")]
+    long ReadyLatencyUs,
+    [property: Description("Off-CPU switch-out-to-next-switch-in duration intersected with this window.")]
+    long BlockedUs,
+    [property: Description("Scoped switch-out endpoint count used by blocked-time analysis.")]
+    long BlockedSwitchOutCount,
+    [property: Description("Completed blocked intervals projected into this exact thread/window.")]
+    long BlockedIntervalCount,
+    IReadOnlyList<CpuFunctionRow> TopCpuFunctions,
+    IReadOnlyList<WaitReasonBucket> TopWaitReasons,
+    [property: Description("Bounded frames from switch-out blocking stacks. These are associations, not proof of the responsible method or root cause.")]
+    IReadOnlyList<WaitStackRow> TopWaitFunctions,
+    DomainStackCoverage? CpuStackCoverage,
+    DomainStackCoverage? WaitStackCoverage,
+    string CpuCapabilityStatus,
+    string SchedulerCapabilityStatus,
+    string WaitCapabilityStatus,
+    string WaitStackCapabilityStatus,
+    string CpuSymbolResolutionState,
+    string WaitSymbolResolutionState,
+    string? CpuNoDataReason,
+    string? SchedulerNoDataReason,
+    string? WaitNoDataReason,
+    string? WaitStackNoDataReason,
+    IReadOnlyList<string> Warnings,
+    string SampledCpuAccounting = "exact_integer_sample_count_not_cpu_time",
+    string RunningAccounting = "scheduler_cswitch_interval_microseconds",
+    string ReadyAccounting = "readythread_to_switch_in_latency_not_additive_with_blocked",
+    string BlockedAccounting = "cswitch_out_to_next_switch_in_off_cpu_microseconds");
+
+public sealed record ThreadCompareWindowsResponse(
+    [property: Description("Request-ordered, indivisible per-window comparison rows.")]
+    IReadOnlyList<ThreadComparisonWindowRow> Rows,
+    IReadOnlyList<string> Warnings,
+    ProcessInstanceKey? SelectedProcess,
+    ThreadInstanceKey? SelectedThread,
+    string ScopeMode,
+    bool PidReuseObserved,
+    IReadOnlyList<ProcessInstanceKey> IncludedProcesses,
+    IReadOnlyList<ThreadScopeCandidate> IncludedThreads,
+    string ScopeStatus,
+    string CapabilityStatus,
+    [property: Description("Sum of scheduler-side matched CSwitch event counts across comparison windows; CPU samples and wait endpoints are not mixed into this count.")]
+    long MatchedEventCount,
+    string? NoDataReason,
+    [property: Description("Stable conclusion-boundary codes that apply to every comparison row.")]
+    IReadOnlyList<string> DoesNotProve,
+    string? BaselineWindowName,
+    TimelinePageContext? PageContext = null,
+    int TotalWindowCount = 0,
+    int ReturnedCount = 0,
+    bool HasMore = false,
+    [property: ToolOpaqueLocator("query_result_cursor", "^qrc_[0-9a-f]{32}$")]
+    string? NextCursor = null,
+    [property: Description("Opaque identity of the bounded immutable result snapshot reused by continuation pages.")]
+    [property: ToolOpaqueLocator("thread_comparison_result_set", "^twr_[0-9a-f]{32}$")]
+    string? ResultSetId = null);
+
 // Provenance for composite tools. Every evidence item should point at one of these calls
 // so callers can replay the public query shape, or see explicitly when the composite used
 // an internal-only aggregation that cannot be replayed through the public tool contract.
