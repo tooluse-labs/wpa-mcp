@@ -239,19 +239,41 @@ function Write-ClaudeDiagnostics {
 }
 
 function Test-UsableBinary {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$Attempts = 1,
+        [int]$RetryDelaySeconds = 2,
+        [switch]$ReportFailure
+    )
 
     if (-not (Test-Path $Path)) { return $false }
 
-    try {
-        $item = Get-Item -LiteralPath $Path
-        if ($item.Length -le 0) { return $false }
+    if ($Attempts -lt 1) { $Attempts = 1 }
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $failure = $null
+        try {
+            $item = Get-Item -LiteralPath $Path
+            if ($item.Length -le 0) {
+                $failure = 'file is empty'
+            } else {
+                $output = @(& $Path --version 2>&1)
+                $exitCode = $LASTEXITCODE
+                if ($exitCode -eq 0) { return $true }
+                $failure = "exit ${exitCode}: $(Join-DiagnosticLines $output)"
+            }
+        } catch {
+            $failure = "$_"
+        }
 
-        & $Path --version | Out-Null
-        return $LASTEXITCODE -eq 0
-    } catch {
-        return $false
+        if ($ReportFailure) {
+            Write-Warn "Executable probe attempt $attempt/$Attempts failed: $failure"
+        }
+        if ($attempt -lt $Attempts) {
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
     }
+
+    return $false
 }
 
 function Find-ReleaseAsset {
@@ -440,8 +462,8 @@ function Install-Binary {
         Expand-Archive -LiteralPath $tempPath -DestinationPath $stagePath -Force
 
         $stagedBinary = Join-Path $stagePath 'bin\wpa-mcp.exe'
-        if (-not (Test-UsableBinary -Path $stagedBinary)) {
-            throw "Downloaded release bundle does not contain a usable bin\wpa-mcp.exe."
+        if (-not (Test-UsableBinary -Path $stagedBinary -Attempts 6 -ReportFailure)) {
+            throw "Downloaded release bundle contains bin\wpa-mcp.exe, but it remained unusable after 6 attempts. See the executable probe failures above."
         }
 
         Copy-NativeDependencies -SourceRoot $stagePath -InstallRoot $installRoot

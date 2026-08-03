@@ -155,6 +155,21 @@ public class InstallerScriptTests
     }
 
     [Fact]
+    public void InstallScriptRetriesAndDiagnosesTransientStagedBinaryFailures()
+    {
+        var content = File.ReadAllText(LocateScript("install.ps1"));
+
+        Assert.Contains("[int]$Attempts = 1", content);
+        Assert.Contains("[int]$RetryDelaySeconds = 2", content);
+        Assert.Contains("exit ${exitCode}: $(Join-DiagnosticLines $output)", content);
+        Assert.DoesNotContain("exit $exitCode:", content);
+        Assert.Contains("Executable probe attempt $attempt/$Attempts failed: $failure", content);
+        Assert.Contains("Test-UsableBinary -Path $stagedBinary -Attempts 6 -ReportFailure", content);
+        Assert.Contains("it remained unusable after 6 attempts", content);
+        Assert.DoesNotContain("does not contain a usable bin\\wpa-mcp.exe", content);
+    }
+
+    [Fact]
     public void InstallScriptRenamesExistingExeBeforeMove()
     {
         var content = File.ReadAllText(LocateScript("install.ps1"));
