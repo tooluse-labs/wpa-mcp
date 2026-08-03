@@ -83,7 +83,7 @@ wpa-mcp.exe update
 wpa-mcp.exe update --stop-running
 ```
 
-该选项不会终止 MCP 客户端进程，也不会终止其他路径下的同名程序，并且绝不会绕过发布校验。被终止的服务会丢失内存中的 trace 和符号状态。异步替换结果会记录在安装根目录的 `.wpa-mcp-update.log`。早于内置更新功能的安装需要先手工安装一次最新 ZIP bundle。
+该选项不会终止 MCP 客户端进程，也不会终止其他路径下的同名程序，并且绝不会绕过发布校验。被终止的服务会丢失内存中的 trace 和符号状态。应用阶段由已验证的暂存版 `wpa-mcp.exe` 自身执行，不依赖 PowerShell、ExecutionPolicy 或 shell language mode。异步替换结果会记录在安装根目录的 `.wpa-mcp-update.log`。早于可执行 apply helper 的安装需要先手工安装一次最新 ZIP bundle。
 
 ## 分析流程
 

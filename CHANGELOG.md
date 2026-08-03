@@ -7,8 +7,11 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.5.3 - 2026-08-03
+
 - Added `thread_compare_windows` for exact-thread CPU/running/ready/blocked comparisons across named windows, with immutable snapshot pagination and explicit stack/symbol evidence boundaries.
 - Fixed self-update false-success reporting when another installed server instance keeps the executable locked. The updater now fails closed with exact-path blocker PIDs, supports explicit `--stop-running` termination after verification, retries client restart races, and records the asynchronous apply result in the installation root.
+- Replaced the PowerShell apply script with a verified, built-in executable helper so self-update is independent of PowerShell execution policy and Constrained Language Mode while retaining exact-path termination, rollback, and durable logging.
 
 ## 0.4.3 - 2026-08-02
 

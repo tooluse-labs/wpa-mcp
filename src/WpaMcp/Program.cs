@@ -21,6 +21,9 @@ public static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (SelfUpdateApplyCommand.IsInvocation(args))
+            return await SelfUpdateApplyCommand.RunAsync(args).ConfigureAwait(false);
+
         if (SelfUpdateCommand.IsInvocation(args))
             return await SelfUpdateCommand.RunAsync(args).ConfigureAwait(false);
 

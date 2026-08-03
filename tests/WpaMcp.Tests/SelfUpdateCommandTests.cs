@@ -63,14 +63,42 @@ public sealed class SelfUpdateCommandTests
     }
 
     [Fact]
-    public void ApplyHelper_UsesExactPathPolicyAndPersistentLog()
+    public void ApplyHelper_LaunchesVerifiedStagedExecutableWithoutPowerShell()
     {
-        var script = SelfUpdateCommand.ApplyUpdateScriptForTests;
+        var stagedExecutable = Path.Combine(
+            Path.GetTempPath(),
+            "wpa-mcp-update-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bundle",
+            "bin",
+            "wpa-mcp.exe");
+        var handoffPath = Path.Combine(
+            Path.GetTempPath(),
+            "wpa-mcp-update-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "apply-update.v1.json");
 
-        Assert.Contains("$process.MainModule.FileName", script, StringComparison.Ordinal);
-        Assert.Contains("Stop-Process -Id $process.Id -Force", script, StringComparison.Ordinal);
-        Assert.Contains("Move-ExecutableWithPolicy", script, StringComparison.Ordinal);
-        Assert.Contains(".wpa-mcp-update.log", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("taskkill", script, StringComparison.OrdinalIgnoreCase);
+        var startInfo = SelfUpdateApplyCommand.CreateApplyHelperStartInfo(
+            stagedExecutable,
+            handoffPath);
+
+        Assert.Equal(Path.GetFullPath(stagedExecutable), startInfo.FileName);
+        Assert.Equal(["--apply-update", Path.GetFullPath(handoffPath)], startInfo.ArgumentList);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.DoesNotContain("powershell", startInfo.FileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void InternalHelperInvocation_AndStageRoot_AreFailClosed()
+    {
+        var validRoot = Path.Combine(
+            Path.GetTempPath(),
+            "wpa-mcp-update-0123456789abcdef0123456789abcdef");
+
+        Assert.True(SelfUpdateApplyCommand.IsInvocation(
+            ["--apply-update", Path.Combine(validRoot, "apply-update.v1.json")]));
+        Assert.True(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(validRoot));
+        Assert.False(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(Path.GetTempPath()));
+        Assert.False(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(
+            Path.Combine(Path.GetTempPath(), "wpa-mcp-update-not-a-guid")));
     }
 }

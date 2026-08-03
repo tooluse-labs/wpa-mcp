@@ -83,7 +83,7 @@ Updating does not change MCP client registration. By default, the command exits 
 wpa-mcp.exe update --stop-running
 ```
 
-This option does not terminate MCP client processes or similarly named executables from other paths, and it never bypasses release verification. Terminated server sessions lose in-memory trace and symbol state. The asynchronous replacement result is recorded in `.wpa-mcp-update.log` under the installation root. Installations created before the built-in updater must install the latest ZIP bundle once.
+This option does not terminate MCP client processes or similarly named executables from other paths, and it never bypasses release verification. Terminated server sessions lose in-memory trace and symbol state. The apply phase runs inside the verified staged `wpa-mcp.exe` itself and does not depend on PowerShell, execution policy, or shell language mode. The asynchronous replacement result is recorded in `.wpa-mcp-update.log` under the installation root. Installations created before the executable apply helper must install the latest ZIP bundle once.
 
 ## Analysis workflow
 
