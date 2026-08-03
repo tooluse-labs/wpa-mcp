@@ -63,27 +63,34 @@ public sealed class SelfUpdateCommandTests
     }
 
     [Fact]
-    public void ApplyHelper_LaunchesVerifiedStagedExecutableWithoutPowerShell()
+    public void ApplyHelper_LaunchesTrustedInstallBinExecutableWithoutPowerShell()
     {
-        var stagedExecutable = Path.Combine(
-            Path.GetTempPath(),
-            "wpa-mcp-update-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "bundle",
+        var installRoot = Path.Combine(
+            Environment.CurrentDirectory,
+            "test-install");
+        var trustedHelperExecutable = Path.Combine(
+            installRoot,
             "bin",
-            "wpa-mcp.exe");
+            "wpa-mcp-update-helper-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe");
         var handoffPath = Path.Combine(
             Path.GetTempPath(),
             "wpa-mcp-update-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "apply-update.v1.json");
+            "apply-update.v2.json");
 
         var startInfo = SelfUpdateApplyCommand.CreateApplyHelperStartInfo(
-            stagedExecutable,
+            trustedHelperExecutable,
             handoffPath);
 
-        Assert.Equal(Path.GetFullPath(stagedExecutable), startInfo.FileName);
+        Assert.Equal(Path.GetFullPath(trustedHelperExecutable), startInfo.FileName);
         Assert.Equal(["--apply-update", Path.GetFullPath(handoffPath)], startInfo.ArgumentList);
         Assert.False(startInfo.UseShellExecute);
         Assert.True(startInfo.CreateNoWindow);
+        Assert.True(SelfUpdateApplyCommand.IsSafeApplyHelperPath(
+            trustedHelperExecutable,
+            installRoot));
+        Assert.False(SelfUpdateApplyCommand.IsSafeApplyHelperPath(
+            Path.Combine(Path.GetTempPath(), "wpa-mcp.exe"),
+            installRoot));
         Assert.DoesNotContain("powershell", startInfo.FileName, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -95,7 +102,7 @@ public sealed class SelfUpdateCommandTests
             "wpa-mcp-update-0123456789abcdef0123456789abcdef");
 
         Assert.True(SelfUpdateApplyCommand.IsInvocation(
-            ["--apply-update", Path.Combine(validRoot, "apply-update.v1.json")]));
+            ["--apply-update", Path.Combine(validRoot, "apply-update.v2.json")]));
         Assert.True(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(validRoot));
         Assert.False(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(Path.GetTempPath()));
         Assert.False(SelfUpdateApplyCommand.IsSafeUpdateStageRoot(

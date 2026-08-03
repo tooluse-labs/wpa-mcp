@@ -7,6 +7,13 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.5.6 - 2026-08-03
+
+### Fixed
+
+- Run the verified self-update apply helper from the trusted installed `bin` directory so WDAC/AppLocker policies that deny execution from `%TEMP%` do not block updates.
+- Bind the trusted helper path and SHA-256 in the v2 apply handoff, revalidate it against the staged executable, and clean both helper and staging files after replacement.
+
 ## 0.5.5 - 2026-08-03
 
 ### Fixed

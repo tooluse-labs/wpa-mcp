@@ -10,8 +10,10 @@ internal static class SelfUpdateApplyCommand
 {
     private const string ApplyArgument = "--apply-update";
     private const string CleanupArgument = "--cleanup-update";
-    private const string HandoffFileName = "apply-update.v1.json";
-    private const string HandoffSchemaVersion = "apply-update.v1";
+    private const string HandoffFileName = "apply-update.v2.json";
+    private const string HandoffSchemaVersion = "apply-update.v2";
+    private const string ApplyHelperFilePrefix = "wpa-mcp-update-helper-";
+    private const string ApplyHelperFileSuffix = ".exe";
     private const string EvidenceAssetName = "release-evidence.v1.json";
     private const string BundleAssetName = "wpa-mcp-win-x64.zip";
     private const string DenyPolicy = "deny";
@@ -39,13 +41,14 @@ internal static class SelfUpdateApplyCommand
 
         if (args.Length == 2 && args[0] == ApplyArgument)
             return await RunApplyAsync(args[1]).ConfigureAwait(false);
-        if (args.Length == 4 &&
+        if (args.Length == 5 &&
             args[0] == CleanupArgument &&
-            int.TryParse(args[2], out var parentPid) &&
-            long.TryParse(args[3], out var parentStartTimeUtcTicks))
+            int.TryParse(args[3], out var parentPid) &&
+            long.TryParse(args[4], out var parentStartTimeUtcTicks))
         {
             return await RunCleanupAsync(
                 args[1],
+                args[2],
                 parentPid,
                 parentStartTimeUtcTicks).ConfigureAwait(false);
         }
@@ -72,47 +75,88 @@ internal static class SelfUpdateApplyCommand
         if (!PathsEqual(stagedExecutable, expectedStagedExecutable))
             throw new InvalidOperationException("The staged update helper path is invalid.");
 
-        using var parent = Process.GetCurrentProcess();
-        var handoff = new ApplyUpdateHandoff(
-            SchemaVersion: HandoffSchemaVersion,
-            ParentPid: parent.Id,
-            ParentStartTimeUtcTicks: parent.StartTime.ToUniversalTime().Ticks,
-            TargetExecutable: Path.GetFullPath(targetExecutable),
-            InstallRoot: Path.GetFullPath(installRoot),
-            StageRoot: normalizedStageRoot,
-            ExpectedZipSha256: expectedHash,
-            ExpectedVersion: expectedVersion,
-            RunningProcessPolicy: stopRunning ? TerminatePolicy : DenyPolicy);
-        var handoffPath = Path.Combine(normalizedStageRoot, HandoffFileName);
-        await using (var stream = new FileStream(
-                         handoffPath,
-                         FileMode.CreateNew,
-                         FileAccess.Write,
-                         FileShare.None,
-                         bufferSize: 16 * 1024,
-                         FileOptions.Asynchronous | FileOptions.WriteThrough))
+        var normalizedInstallRoot = Path.GetFullPath(installRoot);
+        var normalizedTargetExecutable = Path.GetFullPath(targetExecutable);
+        var installBin = Path.Combine(normalizedInstallRoot, "bin");
+        if (!PathsEqual(
+                normalizedTargetExecutable,
+                Path.Combine(installBin, "wpa-mcp.exe")) ||
+            !File.Exists(normalizedTargetExecutable))
         {
-            await JsonSerializer.SerializeAsync(
-                    stream,
-                    handoff,
-                    HandoffJsonOptions)
-                .ConfigureAwait(false);
-            await stream.FlushAsync().ConfigureAwait(false);
+            throw new InvalidOperationException("The installed update target is invalid.");
         }
 
-        var startInfo = CreateApplyHelperStartInfo(stagedExecutable, handoffPath);
-        using var helper = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start the built-in update helper.");
+        TryDeleteStaleApplyHelpers(installBin, normalizedInstallRoot);
+        var trustedHelperExecutable = Path.Combine(
+            installBin,
+            ApplyHelperFilePrefix + Guid.NewGuid().ToString("N") + ApplyHelperFileSuffix);
+        var expectedHelperSha256 = ComputeSha256(expectedStagedExecutable);
+        File.Copy(expectedStagedExecutable, trustedHelperExecutable, overwrite: false);
+
+        try
+        {
+            var copiedHelperSha256 = ComputeSha256(trustedHelperExecutable);
+            if (!string.Equals(
+                    copiedHelperSha256,
+                    expectedHelperSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The trusted apply-helper copy does not match the verified executable.");
+            }
+
+            using var parent = Process.GetCurrentProcess();
+            var handoff = new ApplyUpdateHandoff(
+                SchemaVersion: HandoffSchemaVersion,
+                ParentPid: parent.Id,
+                ParentStartTimeUtcTicks: parent.StartTime.ToUniversalTime().Ticks,
+                TargetExecutable: normalizedTargetExecutable,
+                InstallRoot: normalizedInstallRoot,
+                StageRoot: normalizedStageRoot,
+                ApplyHelperExecutable: trustedHelperExecutable,
+                ExpectedHelperSha256: expectedHelperSha256,
+                ExpectedZipSha256: expectedHash,
+                ExpectedVersion: expectedVersion,
+                RunningProcessPolicy: stopRunning ? TerminatePolicy : DenyPolicy);
+            var handoffPath = Path.Combine(normalizedStageRoot, HandoffFileName);
+            await using (var stream = new FileStream(
+                             handoffPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 16 * 1024,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(
+                        stream,
+                        handoff,
+                        HandoffJsonOptions)
+                    .ConfigureAwait(false);
+                await stream.FlushAsync().ConfigureAwait(false);
+            }
+
+            var startInfo = CreateApplyHelperStartInfo(
+                trustedHelperExecutable,
+                handoffPath);
+            using var helper = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Could not start the built-in update helper from the installed bin directory.");
+        }
+        catch
+        {
+            TryDeleteFile(trustedHelperExecutable);
+            throw;
+        }
     }
 
     internal static ProcessStartInfo CreateApplyHelperStartInfo(
-        string stagedExecutable,
+        string trustedHelperExecutable,
         string handoffPath)
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = Path.GetFullPath(stagedExecutable),
-            WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(stagedExecutable))!,
+            FileName = Path.GetFullPath(trustedHelperExecutable),
+            WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(trustedHelperExecutable))!,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
@@ -146,6 +190,34 @@ internal static class SelfUpdateApplyCommand
         }
     }
 
+    internal static bool IsSafeApplyHelperPath(string path, string installRoot)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var expectedBin = Path.Combine(Path.GetFullPath(installRoot), "bin");
+            var parent = Path.GetDirectoryName(fullPath);
+            if (parent is null || !PathsEqual(parent, expectedBin))
+                return false;
+
+            var name = Path.GetFileName(fullPath);
+            if (!name.StartsWith(ApplyHelperFilePrefix, StringComparison.Ordinal) ||
+                !name.EndsWith(ApplyHelperFileSuffix, StringComparison.OrdinalIgnoreCase) ||
+                name.Length != ApplyHelperFilePrefix.Length + 32 + ApplyHelperFileSuffix.Length)
+            {
+                return false;
+            }
+
+            var token = name.Substring(ApplyHelperFilePrefix.Length, 32);
+            return token.All(Uri.IsHexDigit);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
     private static async Task<int> RunApplyAsync(string handoffPath)
     {
         UpdateLog? log = null;
@@ -169,14 +241,18 @@ internal static class SelfUpdateApplyCommand
             log.Info($"wpa-mcp was updated successfully to {plan.ExpectedVersion}.");
             try
             {
-                StartCleanupHelper(plan.TargetExecutable, plan.StageRoot);
+                StartCleanupHelper(
+                    plan.TargetExecutable,
+                    plan.StageRoot,
+                    plan.ApplyHelperExecutable);
             }
             catch (Exception cleanupException)
             {
                 log.Warning(
                     "The update succeeded, but staging cleanup could not be started: " +
                     cleanupException.Message +
-                    $". Staging remains at: {plan.StageRoot}");
+                    $". Staging remains at: {plan.StageRoot}; " +
+                    $"apply helper remains at: {plan.ApplyHelperExecutable}");
             }
             return 0;
         }
@@ -187,7 +263,10 @@ internal static class SelfUpdateApplyCommand
             {
                 log.Error(message);
                 if (plan is not null)
+                {
                     log.Error($"Verified staging files remain at: {plan.StageRoot}");
+                    log.Error($"Apply helper remains at: {plan.ApplyHelperExecutable}");
+                }
             }
             else
             {
@@ -199,17 +278,23 @@ internal static class SelfUpdateApplyCommand
 
     private static async Task<int> RunCleanupAsync(
         string stageRoot,
+        string applyHelperExecutable,
         int parentPid,
         long parentStartTimeUtcTicks)
     {
         try
         {
             var normalizedStageRoot = RequireSafeStageRoot(stageRoot);
+            var installRoot = RequireCurrentInstallRoot();
+            var normalizedApplyHelper = RequireSafeApplyHelperExecutable(
+                applyHelperExecutable,
+                installRoot);
             await WaitForProcessIdentityExitAsync(
                     parentPid,
                     parentStartTimeUtcTicks,
                     TimeSpan.FromSeconds(60))
                 .ConfigureAwait(false);
+            await DeleteFileWithRetryAsync(normalizedApplyHelper).ConfigureAwait(false);
             for (var attempt = 1; attempt <= OperationAttempts; attempt++)
             {
                 try
@@ -272,6 +357,7 @@ internal static class SelfUpdateApplyCommand
             handoff.ParentPid <= 0 ||
             handoff.ParentStartTimeUtcTicks <= 0 ||
             !IsSha256(handoff.ExpectedZipSha256) ||
+            !IsSha256(handoff.ExpectedHelperSha256) ||
             !TryParseVersion(handoff.ExpectedVersion) ||
             handoff.RunningProcessPolicy is not (DenyPolicy or TerminatePolicy))
         {
@@ -288,12 +374,15 @@ internal static class SelfUpdateApplyCommand
             throw new InvalidDataException("The update target is outside the bundle layout.");
 
         var stagedExecutable = Path.Combine(stageRoot, "bundle", "bin", "wpa-mcp.exe");
+        var applyHelperExecutable = RequireSafeApplyHelperExecutable(
+            handoff.ApplyHelperExecutable,
+            installRoot);
         var processPath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(processPath) ||
-            !PathsEqual(processPath, stagedExecutable))
+            !PathsEqual(processPath, applyHelperExecutable))
         {
             throw new InvalidDataException(
-                "The apply helper is not running from the verified staged executable.");
+                "The apply helper is not running from the trusted installed bin directory.");
         }
 
         return new ApplyPlan(
@@ -303,6 +392,8 @@ internal static class SelfUpdateApplyCommand
             installRoot,
             stageRoot,
             stagedExecutable,
+            applyHelperExecutable,
+            handoff.ExpectedHelperSha256.ToLowerInvariant(),
             handoff.ExpectedZipSha256.ToLowerInvariant(),
             handoff.ExpectedVersion,
             handoff.RunningProcessPolicy,
@@ -317,6 +408,21 @@ internal static class SelfUpdateApplyCommand
             throw new InvalidDataException(
                 $"Apply helper version '{currentVersion}' does not match " +
                 $"'{plan.ExpectedVersion}'.");
+        }
+
+        var helperHash = ComputeSha256(plan.ApplyHelperExecutable);
+        var stagedExecutableHash = ComputeSha256(plan.StagedExecutable);
+        if (!string.Equals(
+                helperHash,
+                plan.ExpectedHelperSha256,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                stagedExecutableHash,
+                plan.ExpectedHelperSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "The apply helper no longer matches the verified staged executable.");
         }
 
         var evidencePath = Path.Combine(plan.StageRoot, EvidenceAssetName);
@@ -794,7 +900,10 @@ internal static class SelfUpdateApplyCommand
         return output;
     }
 
-    private static void StartCleanupHelper(string installedExecutable, string stageRoot)
+    private static void StartCleanupHelper(
+        string installedExecutable,
+        string stageRoot,
+        string applyHelperExecutable)
     {
         using var parent = Process.GetCurrentProcess();
         var startInfo = new ProcessStartInfo
@@ -806,6 +915,7 @@ internal static class SelfUpdateApplyCommand
         };
         startInfo.ArgumentList.Add(CleanupArgument);
         startInfo.ArgumentList.Add(stageRoot);
+        startInfo.ArgumentList.Add(applyHelperExecutable);
         startInfo.ArgumentList.Add(parent.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
         startInfo.ArgumentList.Add(
             parent.StartTime.ToUniversalTime().Ticks.ToString(
@@ -822,6 +932,44 @@ internal static class SelfUpdateApplyCommand
         if (new DirectoryInfo(fullPath).Attributes.HasFlag(FileAttributes.ReparsePoint))
             throw new InvalidDataException("The update staging root cannot be a reparse point.");
         return fullPath;
+    }
+
+    private static string RequireSafeApplyHelperExecutable(
+        string path,
+        string installRoot)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!IsSafeApplyHelperPath(fullPath, installRoot))
+            throw new InvalidDataException("The apply-helper path is invalid.");
+        var info = new FileInfo(fullPath);
+        if (!info.Exists || info.Length <= 0 ||
+            info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidDataException("The apply-helper file is invalid.");
+        }
+        return fullPath;
+    }
+
+    private static string RequireCurrentInstallRoot()
+    {
+        var processPath = Environment.ProcessPath;
+        var bin = processPath is null ? null : Path.GetDirectoryName(processPath);
+        var installRoot = bin is null ? null : Directory.GetParent(bin)?.FullName;
+        return installRoot
+               ?? throw new InvalidDataException(
+                   "The installed cleanup-helper location is invalid.");
+    }
+
+    private static void TryDeleteStaleApplyHelpers(string installBin, string installRoot)
+    {
+        foreach (var candidate in Directory.EnumerateFiles(
+                     installBin,
+                     ApplyHelperFilePrefix + "*" + ApplyHelperFileSuffix,
+                     SearchOption.TopDirectoryOnly))
+        {
+            if (IsSafeApplyHelperPath(candidate, installRoot))
+                TryDeleteFile(candidate);
+        }
     }
 
     private static bool PathsEqual(string left, string right) =>
@@ -949,6 +1097,8 @@ internal static class SelfUpdateApplyCommand
         string TargetExecutable,
         string InstallRoot,
         string StageRoot,
+        string ApplyHelperExecutable,
+        string ExpectedHelperSha256,
         string ExpectedZipSha256,
         string ExpectedVersion,
         string RunningProcessPolicy);
@@ -960,6 +1110,8 @@ internal static class SelfUpdateApplyCommand
         string InstallRoot,
         string StageRoot,
         string StagedExecutable,
+        string ApplyHelperExecutable,
+        string ExpectedHelperSha256,
         string ExpectedZipSha256,
         string ExpectedVersion,
         string RunningProcessPolicy,
