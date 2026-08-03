@@ -7,6 +7,8 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.6.0 - 2026-08-03
+
 ### Breaking
 
 - Rename the only raw trace input to `load_trace.tracePath`; every loaded-trace query now accepts `traceId` instead of the ambiguous `path` parameter.
