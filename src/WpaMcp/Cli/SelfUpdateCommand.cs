@@ -14,15 +14,36 @@ internal static class SelfUpdateCommand
     private const string EvidenceAssetName = "release-evidence.v1.json";
     private const long MaxBundleBytes = 512L * 1024 * 1024;
     private const long MaxEvidenceBytes = 1024 * 1024;
+    private const int UpdateBlockedExitCode = 3;
+    private const string StopRunningArgument = "--stop-running";
 
     internal static bool IsInvocation(string[] args) =>
         args.Length > 0 && args[0] is "update" or "--update";
 
+    internal static bool TryParseArguments(
+        IReadOnlyList<string> args,
+        out bool stopRunning)
+    {
+        stopRunning = false;
+        if (args.Count == 1 && args[0] is "update" or "--update")
+            return true;
+        if (args.Count == 2 &&
+            args[0] is "update" or "--update" &&
+            string.Equals(args[1], StopRunningArgument, StringComparison.Ordinal))
+        {
+            stopRunning = true;
+            return true;
+        }
+
+        return false;
+    }
+
     internal static async Task<int> RunAsync(string[] args)
     {
-        if (args.Length != 1)
+        if (!TryParseArguments(args, out var stopRunning))
         {
-            Console.Error.WriteLine("usage: wpa-mcp.exe update");
+            Console.Error.WriteLine(
+                "usage: wpa-mcp.exe update [--stop-running]");
             return 2;
         }
 
@@ -41,6 +62,32 @@ internal static class SelfUpdateCommand
             var installRoot = Directory.GetParent(executableDirectory)?.FullName
                 ?? throw new InvalidOperationException(
                     "The installed executable directory must have a parent bundle directory.");
+            var running = InspectRunningInstances(executablePath);
+            if (running.UninspectablePids.Count > 0)
+            {
+                Console.Error.WriteLine(BuildUninspectableProcessMessage(
+                    executablePath,
+                    running.UninspectablePids));
+                return UpdateBlockedExitCode;
+            }
+            if (running.BlockingPids.Count > 0 && !stopRunning)
+            {
+                Console.Error.WriteLine(BuildBlockingProcessMessage(
+                    executablePath,
+                    running.BlockingPids));
+                return UpdateBlockedExitCode;
+            }
+            if (running.BlockingPids.Count > 0)
+            {
+                Console.Error.WriteLine(
+                    $"[update] {StopRunningArgument} authorized termination of " +
+                    $"{running.BlockingPids.Count} exact-path instance(s) after the " +
+                    "new release is verified.");
+                Console.Error.WriteLine(
+                    "[update] Their in-memory trace and symbol state will be lost; " +
+                    "MCP client processes will not be terminated.");
+            }
+
             var currentVersionText = CurrentVersion();
             var currentVersion = ParseVersion(currentVersionText, "installed version");
 
@@ -117,12 +164,15 @@ internal static class SelfUpdateCommand
                 installRoot,
                 workingRoot,
                 expectedHash,
-                release.Version);
+                release.Version,
+                stopRunning);
             handedOff = true;
 
             Console.WriteLine(
                 $"wpa-mcp {release.Version} is verified and staged. " +
                 "The updater will replace the installed bundle after this process exits.");
+            Console.WriteLine(
+                $"Update status log: {Path.Combine(installRoot, ".wpa-mcp-update.log")}");
             return 0;
         }
         catch (Exception exception)
@@ -154,6 +204,95 @@ internal static class SelfUpdateCommand
 
         return fullPath;
     }
+
+    private static RunningInstanceInspection InspectRunningInstances(
+        string executablePath)
+    {
+        var blockingPids = new List<int>();
+        var uninspectablePids = new List<int>();
+        var processName = Path.GetFileNameWithoutExtension(executablePath);
+        foreach (var process in Process.GetProcessesByName(processName))
+        {
+            using (process)
+            {
+                var processId = process.Id;
+                if (processId == Environment.ProcessId)
+                    continue;
+
+                try
+                {
+                    var candidatePath = process.MainModule?.FileName;
+                    if (string.IsNullOrWhiteSpace(candidatePath))
+                        throw new InvalidOperationException("The process path is unavailable.");
+                    if (PathsEqual(candidatePath, executablePath))
+                        blockingPids.Add(processId);
+                }
+                catch (Exception exception) when (
+                    exception is InvalidOperationException or
+                    System.ComponentModel.Win32Exception or
+                    NotSupportedException)
+                {
+                    if (IsProcessAlive(processId))
+                        uninspectablePids.Add(processId);
+                }
+            }
+        }
+
+        return new RunningInstanceInspection(
+            blockingPids.Distinct().Order().ToArray(),
+            uninspectablePids.Distinct().Order().ToArray());
+    }
+
+    internal static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsProcessAlive(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    internal static string BuildBlockingProcessMessage(
+        string executablePath,
+        IReadOnlyList<int> blockingPids) =>
+        string.Join(
+            Environment.NewLine,
+            "[update] Update blocked by running wpa-mcp instances.",
+            $"Executable: {executablePath}",
+            $"Blocking PIDs: {string.Join(", ", blockingPids)}",
+            "Updating requires these MCP server instances to exit. Their in-memory " +
+            "trace and symbol state will be lost.",
+            "Close the associated MCP clients and retry:",
+            "  wpa-mcp.exe update",
+            "Or explicitly terminate only instances running this exact executable:",
+            $"  wpa-mcp.exe update {StopRunningArgument}",
+            "No process was terminated and no installed files were changed.");
+
+    private static string BuildUninspectableProcessMessage(
+        string executablePath,
+        IReadOnlyList<int> processIds) =>
+        string.Join(
+            Environment.NewLine,
+            "[update] Update blocked because running wpa-mcp process paths could not " +
+            "be inspected safely.",
+            $"Executable: {executablePath}",
+            $"Uninspectable PIDs: {string.Join(", ", processIds)}",
+            "Close those processes or rerun from a context that can inspect them.",
+            "No process was terminated and no installed files were changed.");
 
     private static string CurrentVersion() =>
         typeof(SelfUpdateCommand).Assembly
@@ -400,7 +539,8 @@ internal static class SelfUpdateCommand
         string installRoot,
         string workingRoot,
         string expectedHash,
-        string expectedVersion)
+        string expectedVersion,
+        bool stopRunning)
     {
         var powershell = Path.Combine(
             Environment.SystemDirectory,
@@ -439,6 +579,8 @@ internal static class SelfUpdateCommand
                      expectedHash,
                      "-ExpectedVersion",
                      expectedVersion,
+                     "-RunningProcessPolicy",
+                     stopRunning ? "terminate" : "deny",
                  })
         {
             startInfo.ArgumentList.Add(argument);
@@ -469,6 +611,12 @@ internal static class SelfUpdateCommand
         ReleaseAsset Bundle,
         ReleaseAsset Evidence);
 
+    private sealed record RunningInstanceInspection(
+        IReadOnlyList<int> BlockingPids,
+        IReadOnlyList<int> UninspectablePids);
+
+    internal static string ApplyUpdateScriptForTests => ApplyUpdateScript;
+
     private const string ApplyUpdateScript = """
         [CmdletBinding()]
         param(
@@ -477,7 +625,9 @@ internal static class SelfUpdateCommand
             [Parameter(Mandatory = $true)][string]$InstallRoot,
             [Parameter(Mandatory = $true)][string]$StageRoot,
             [Parameter(Mandatory = $true)][string]$ExpectedHash,
-            [Parameter(Mandatory = $true)][string]$ExpectedVersion
+            [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+            [Parameter(Mandatory = $true)]
+            [ValidateSet('deny', 'terminate')][string]$RunningProcessPolicy
         )
 
         $ErrorActionPreference = 'Stop'
@@ -493,6 +643,7 @@ internal static class SelfUpdateCommand
         $newNative = $null
         $targetNative = $null
         $markerPath = $null
+        $logPath = $null
 
         function Move-PathWithRetry {
             param(
@@ -518,6 +669,128 @@ internal static class SelfUpdateCommand
             }
         }
 
+        function Write-UpdateLog {
+            param(
+                [Parameter(Mandatory = $true)][string]$Level,
+                [Parameter(Mandatory = $true)][string]$Message
+            )
+
+            $line = '{0:o} [{1}] {2}' -f [DateTime]::UtcNow, $Level, $Message
+            if ($logPath) {
+                try { Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8 } catch { }
+            }
+            if ($Level -ceq 'ERROR') {
+                [Console]::Error.WriteLine($Message)
+            } else {
+                [Console]::Out.WriteLine($Message)
+            }
+        }
+
+        function Get-TargetProcessState {
+            param(
+                [Parameter(Mandatory = $true)][string]$Executable,
+                [Parameter(Mandatory = $true)][int]$ExcludedPid
+            )
+
+            $matches = @()
+            $uninspectablePids = @()
+            $processName = [IO.Path]::GetFileNameWithoutExtension($Executable)
+            foreach ($process in @(Get-Process -Name $processName -ErrorAction SilentlyContinue)) {
+                if ($process.Id -eq $ExcludedPid) { continue }
+                try {
+                    $candidatePath = [IO.Path]::GetFullPath($process.MainModule.FileName)
+                } catch {
+                    if ($null -ne (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {
+                        $uninspectablePids += [int]$process.Id
+                    }
+                    continue
+                }
+                if ($candidatePath -ieq $Executable) {
+                    $matches += $process
+                }
+            }
+
+            [pscustomobject]@{
+                Matches = @($matches)
+                UninspectablePids = @($uninspectablePids | Sort-Object -Unique)
+            }
+        }
+
+        function Ensure-TargetAvailable {
+            param(
+                [Parameter(Mandatory = $true)][string]$Executable,
+                [Parameter(Mandatory = $true)][int]$ExcludedPid,
+                [Parameter(Mandatory = $true)][string]$Policy
+            )
+
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+                $state = Get-TargetProcessState -Executable $Executable -ExcludedPid $ExcludedPid
+                $uninspectable = @($state.UninspectablePids)
+                if ($uninspectable.Count -gt 0) {
+                    throw "Cannot safely inspect running wpa-mcp PIDs: $($uninspectable -join ', ')."
+                }
+
+                $blocking = @($state.Matches)
+                if ($blocking.Count -eq 0) { return }
+                $blockingPids = @($blocking | ForEach-Object { $_.Id })
+                if ($Policy -cne 'terminate') {
+                    throw "Update blocked by running exact-path PIDs: $($blockingPids -join ', '). Close their MCP clients or rerun 'wpa-mcp.exe update --stop-running'."
+                }
+
+                Write-UpdateLog -Level 'INFO' -Message (
+                    "[update] Terminating exact-path wpa-mcp PIDs: " +
+                    ($blockingPids -join ', '))
+                foreach ($process in $blocking) {
+                    try {
+                        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                    } catch {
+                        if ($null -ne (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {
+                            throw "Could not terminate exact-path PID $($process.Id): $($_.Exception.Message)"
+                        }
+                    }
+                }
+
+                $deadline = [DateTime]::UtcNow.AddSeconds(10)
+                do {
+                    $remaining = @($blockingPids | Where-Object {
+                        $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue)
+                    })
+                    if ($remaining.Count -eq 0) { break }
+                    Start-Sleep -Milliseconds 100
+                } while ([DateTime]::UtcNow -lt $deadline)
+                if ($remaining.Count -gt 0) {
+                    throw "Timed out waiting for terminated PIDs: $($remaining -join ', ')."
+                }
+                Start-Sleep -Milliseconds 200
+            }
+
+            $finalState = Get-TargetProcessState -Executable $Executable -ExcludedPid $ExcludedPid
+            $finalPids = @($finalState.Matches | ForEach-Object { $_.Id })
+            if ($finalPids.Count -gt 0) {
+                throw "MCP clients repeatedly restarted exact-path PIDs: $($finalPids -join ', ')."
+            }
+        }
+
+        function Move-ExecutableWithPolicy {
+            param(
+                [Parameter(Mandatory = $true)][string]$Source,
+                [Parameter(Mandatory = $true)][string]$Destination,
+                [Parameter(Mandatory = $true)][int]$ExcludedPid,
+                [Parameter(Mandatory = $true)][string]$Policy
+            )
+
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+                Ensure-TargetAvailable -Executable $Source -ExcludedPid $ExcludedPid -Policy $Policy
+                try {
+                    Move-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+                    return
+                } catch {
+                    if ($attempt -eq 5) { throw }
+                    Start-Sleep -Milliseconds 250
+                }
+            }
+        }
+
         try {
             try { $parent = Get-Process -Id $ParentPid -ErrorAction Stop } catch { $parent = $null }
             if ($parent -and -not $parent.WaitForExit(60000)) {
@@ -535,6 +808,10 @@ internal static class SelfUpdateCommand
             if ($expectedInstallRoot -ine $InstallRoot) {
                 throw 'The update target is outside the expected bundle layout.'
             }
+            $logPath = Join-Path $InstallRoot '.wpa-mcp-update.log'
+            Set-Content -LiteralPath $logPath -Value (
+                '{0:o} [INFO] Applying wpa-mcp {1} with running-process policy {2}.' -f
+                [DateTime]::UtcNow, $ExpectedVersion, $RunningProcessPolicy) -Encoding UTF8
 
             $bundleRoot = Join-Path $StageRoot 'bundle'
             $stagedExe = Join-Path $bundleRoot 'bin\wpa-mcp.exe'
@@ -548,6 +825,11 @@ internal static class SelfUpdateCommand
                     throw "The verified staging bundle is incomplete: $required"
                 }
             }
+
+            Ensure-TargetAvailable `
+                -Executable $TargetExe `
+                -ExcludedPid $ParentPid `
+                -Policy $RunningProcessPolicy
 
             $token = [Guid]::NewGuid().ToString('N')
             $targetNative = Join-Path $InstallRoot 'native\amd64'
@@ -571,7 +853,11 @@ internal static class SelfUpdateCommand
             Get-ChildItem -LiteralPath $stagedNative -File |
                 Copy-Item -Destination $newNative -Force
 
-            Move-PathWithRetry -Source $TargetExe -Destination $oldExe
+            Move-ExecutableWithPolicy `
+                -Source $TargetExe `
+                -Destination $oldExe `
+                -ExcludedPid $ParentPid `
+                -Policy $RunningProcessPolicy
             $oldExeMoved = $true
             if ($targetNativeExisted) {
                 Move-PathWithRetry -Source $targetNative -Destination $oldNative
@@ -590,7 +876,8 @@ internal static class SelfUpdateCommand
 
             Remove-PathIfPresent -Path $oldExe
             if ($oldNativeMoved) { Remove-PathIfPresent -Path $oldNative }
-            [Console]::Out.WriteLine("wpa-mcp was updated successfully to $ExpectedVersion.")
+            Write-UpdateLog -Level 'INFO' -Message (
+                "wpa-mcp was updated successfully to $ExpectedVersion.")
         } catch {
             $failure = $_.Exception.Message
             $rollbackFailure = $null
@@ -620,11 +907,13 @@ internal static class SelfUpdateCommand
                 $rollbackFailure = $_.Exception.Message
             }
 
-            [Console]::Error.WriteLine("wpa-mcp update failed: $failure")
+            Write-UpdateLog -Level 'ERROR' -Message "wpa-mcp update failed: $failure"
             if ($rollbackFailure) {
-                [Console]::Error.WriteLine("wpa-mcp rollback also failed: $rollbackFailure")
+                Write-UpdateLog -Level 'ERROR' -Message (
+                    "wpa-mcp rollback also failed: $rollbackFailure")
             }
-            [Console]::Error.WriteLine("Verified staging files remain at: $StageRoot")
+            Write-UpdateLog -Level 'ERROR' -Message (
+                "Verified staging files remain at: $StageRoot")
             exit 1
         }
 

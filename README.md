@@ -77,7 +77,13 @@ wpa-mcp.exe update
 
 If the executable is not on `PATH`, invoke it by absolute path. The updater accepts only a published, non-draft, non-prerelease release. It verifies GitHub's asset digest, immutable release evidence, the ZIP SHA-256, and the staged executable version before replacing the installed bundle.
 
-Updating does not change MCP client registration. If a client keeps the executable locked, close that client and run the command again. Installations created before the built-in updater must install the latest ZIP bundle once.
+Updating does not change MCP client registration. By default, the command exits without downloading or changing files when another process is running the exact installed executable; it reports the blocking PIDs so you can close the associated MCP clients and retry. To explicitly terminate only those exact-path server instances after the new bundle has been verified, use:
+
+```powershell
+wpa-mcp.exe update --stop-running
+```
+
+This option does not terminate MCP client processes or similarly named executables from other paths, and it never bypasses release verification. Terminated server sessions lose in-memory trace and symbol state. The asynchronous replacement result is recorded in `.wpa-mcp-update.log` under the installation root. Installations created before the built-in updater must install the latest ZIP bundle once.
 
 ## Analysis workflow
 

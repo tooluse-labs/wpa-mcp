@@ -8,6 +8,7 @@ GitHub Releases and the git tag history.
 ## Unreleased
 
 - Added `thread_compare_windows` for exact-thread CPU/running/ready/blocked comparisons across named windows, with immutable snapshot pagination and explicit stack/symbol evidence boundaries.
+- Fixed self-update false-success reporting when another installed server instance keeps the executable locked. The updater now fails closed with exact-path blocker PIDs, supports explicit `--stop-running` termination after verification, retries client restart races, and records the asynchronous apply result in the installation root.
 
 ## 0.4.3 - 2026-08-02
 

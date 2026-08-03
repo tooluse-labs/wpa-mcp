@@ -438,7 +438,8 @@ public static class CliRunner
         w.WriteLine("WpaMcp command line.");
         w.WriteLine();
         w.WriteLine("Maintenance:");
-        w.WriteLine("  wpa-mcp.exe update      Install the latest verified stable release");
+        w.WriteLine("  wpa-mcp.exe update                   Install the latest verified stable release");
+        w.WriteLine("    --stop-running                     Stop exact-path server instances after verification");
         w.WriteLine();
         w.WriteLine("Analyzer verbs (test/debug only; use MCP stdio in production):");
         w.WriteLine("Usage: WpaMcp.dll <verb> [args]");
