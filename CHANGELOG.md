@@ -7,6 +7,13 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.5.5 - 2026-08-03
+
+### Fixed
+
+- Retry transient staged-executable probe failures during one-command installation.
+- Report each probe exit code or exception instead of misdiagnosing a valid release bundle as missing its executable.
+
 ## 0.5.4 - 2026-08-03
 
 ### Documentation
