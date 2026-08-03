@@ -622,7 +622,7 @@ public sealed class ToolOutputSchemaTests
         var load = NonNull(loadSchema["properties"]!["data"]!);
         var loadProperties = Props(load);
         AssertLocator(
-            Props(NonNull(loadProperties["trace"]!))["path"]!,
+            Props(NonNull(loadProperties["trace"]!))["traceId"]!,
             ToolOpaqueLocatorInputOverlay.TraceIdPattern,
             "trace_id");
         AssertLocator(
@@ -663,7 +663,7 @@ public sealed class ToolOutputSchemaTests
             CollectOutputProperties(root, visited, properties);
         var locatorCandidates = properties.Where(property =>
             property.Name is "TraceId" or "SymbolContextId" or "TraceGenerationId" or "NextCursor" ||
-            (property.DeclaringType == typeof(TraceMeta) && property.Name == nameof(TraceMeta.Path)));
+            (property.DeclaringType == typeof(TraceMeta) && property.Name == nameof(TraceMeta.TraceId)));
         Assert.All(locatorCandidates, property =>
             Assert.NotNull(property.GetCustomAttribute<ToolOpaqueLocatorAttribute>()));
     }

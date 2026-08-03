@@ -6,9 +6,9 @@ using WpaMcp.Core;
 namespace WpaMcp.Output;
 
 public sealed record TraceMeta(
-    [property: Description("Canonical principal-scoped TraceId in active Contract 2.0 responses; direct legacy test construction with a file path is outside the active wire contract.")]
+    [property: Description("Canonical principal-scoped TraceId in active Contract 2.0 responses; direct test construction with a file path is outside the active wire contract.")]
     [property: ToolOpaqueLocator("trace_id", "^trc_[0-9a-f]{32}$")]
-    string Path,
+    string TraceId,
     long DurationUs,
     [property: Description("Count of TraceLog/ETLX-materialized logical events. This is not a raw ETW record count and must not be used as a parser-coverage denominator.")]
     long EventCount,

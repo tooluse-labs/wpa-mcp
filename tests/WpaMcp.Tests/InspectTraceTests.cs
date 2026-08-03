@@ -1008,7 +1008,7 @@ public sealed class InspectTraceTests
         {
             var arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+                ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
             };
             if (cursor is not null)
                 arguments["cursor"] = JsonSerializer.SerializeToElement(cursor);
@@ -1173,7 +1173,7 @@ public sealed class InspectTraceTests
         {
             var arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+                ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
                 ["cursor"] = JsonSerializer.SerializeToElement(invalid.Cursor),
             };
             if (invalid.Domain is not null)

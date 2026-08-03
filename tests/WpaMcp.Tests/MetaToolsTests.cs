@@ -22,7 +22,7 @@ public class MetaToolsTests
         var resp = tools.LoadTrace(FixturePath);
         Assert.True(resp.Trace.EventCount > 0);
         Assert.True(resp.Trace.ProcessCount > 0);
-        Assert.Equal(FixturePath, resp.Trace.Path);
+        Assert.Equal(FixturePath, resp.Trace.TraceId);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class MetaToolsTests
         var resp = tools.InspectTrace(FixturePath);
         var trace = cache.Get(FixturePath);
 
-        Assert.Equal(FixturePath, resp.Trace.Path);
+        Assert.Equal(FixturePath, resp.Trace.TraceId);
         Assert.True(resp.Trace.EventCount > 0);
         Assert.True(resp.Trace.ProcessCount > 0);
         Assert.NotNull(resp.Capabilities);

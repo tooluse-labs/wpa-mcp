@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": "privacy-taxonomy.v1",
   "fields": [
     { "property": "path", "kind": "file_path", "paths": "alias", "strict": "alias", "approvedBasename": false },
@@ -44,7 +44,7 @@
     { "toolName": "find_marker", "jsonPointerPattern": "/data/rows/*/fields/*/value", "kind": "marker_payload", "paths": "retain", "strict": "redact" }
   ],
   "aliasEnabledInputs": [
-    { "toolName": "load_trace", "parameterName": "path", "kind": "trace_path" },
+    { "toolName": "load_trace", "parameterName": "tracePath", "kind": "trace_path" },
     { "toolName": "set_symbol_path", "parameterName": "path", "kind": "symbol_path" },
     { "toolName": "add_symbol_server", "parameterName": "cacheDir", "kind": "symbol_path" }
   ]

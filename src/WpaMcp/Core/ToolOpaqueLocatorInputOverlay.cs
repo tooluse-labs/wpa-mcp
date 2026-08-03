@@ -13,8 +13,6 @@ internal static class ToolOpaqueLocatorInputOverlay
     internal const string TraceIdPattern = "^trc_[0-9a-f]{32}$";
     internal const string AbsoluteEtlPathPattern =
         "^(?:(?:[A-Za-z]:[\\\\/])|(?:\\\\\\\\[^\\\\/]+[\\\\/][^\\\\/]+[\\\\/])).+\\.[eE][tT][lL](?:[xX])?$";
-    internal const string TraceOrCompatibilityPathPattern =
-        "^(?:trc_[0-9a-f]{32}|(?:(?:[A-Za-z]:[\\\\/])|(?:\\\\\\\\[^\\\\/]+[\\\\/][^\\\\/]+[\\\\/])).+\\.[eE][tT][lL](?:[xX])?)$";
     internal const string QueryCursorPattern = "^qrc_[0-9a-f]{32}$";
     internal const string CapabilityCursorPattern = "^cpc_[0-9a-f]{32}$";
 
@@ -37,7 +35,7 @@ internal static class ToolOpaqueLocatorInputOverlay
             nonNull["pattern"] = Pattern(method, name);
             nonNull["x-opaqueLocator"] = name == "cursor"
                 ? "continuation_cursor"
-                : method.Name == "LoadTrace"
+                : name == "tracePath"
                     ? "approved_absolute_etl_path"
                     : "trace_id";
         }
@@ -69,12 +67,13 @@ internal static class ToolOpaqueLocatorInputOverlay
         method.GetParameters().Where(parameter =>
             parameter.ParameterType == typeof(string) &&
             (parameter.Name == "cursor" ||
-             parameter.Name == "path"));
+             parameter.Name == "traceId" ||
+             parameter.Name == "tracePath"));
 
     private static string Pattern(MethodInfo method, string name) => name switch
     {
-        "path" when method.Name == "LoadTrace" => AbsoluteEtlPathPattern,
-        "path" => TraceIdPattern,
+        "tracePath" when method.Name == "LoadTrace" => AbsoluteEtlPathPattern,
+        "traceId" => TraceIdPattern,
         "cursor" when method.Name == "ListCapabilities" => CapabilityCursorPattern,
         "cursor" => QueryCursorPattern,
         _ => throw new InvalidOperationException($"Unsupported locator input '{name}'."),

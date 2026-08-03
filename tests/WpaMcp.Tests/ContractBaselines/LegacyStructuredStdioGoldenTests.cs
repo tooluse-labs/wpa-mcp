@@ -164,7 +164,7 @@ public sealed class LegacyStructuredStdioGoldenTests
                 frameCap,
                 privacyProfile: "off");
             _ = await client.InitializeAsync(ProtocolVersion);
-            var arguments = new JsonObject { ["path"] = tracePath };
+            var arguments = new JsonObject { ["tracePath"] = tracePath };
             var response = await client.SendToolCallAsync(
                 requestId,
                 "load_trace",
@@ -404,7 +404,7 @@ public sealed class LegacyStructuredStdioGoldenTests
                 "load_trace",
                 "primary",
                 "load_fixture_into_owned_artifact_store",
-                new JsonObject { ["path"] = tracePath });
+                new JsonObject { ["tracePath"] = tracePath });
             var traceId = RequireStructuredContent(loadResponse)["data"]?["traceId"]?.GetValue<string>();
             if (traceId is null)
             {
@@ -637,7 +637,7 @@ public sealed class LegacyStructuredStdioGoldenTests
                 ?? throw new JsonException($"{tool} has a non-string required input property.");
             arguments[name] = name switch
             {
-                "path" or "traceId" => traceId,
+                "traceId" => traceId,
                 "focusFunction" or "function" => "__wpa_mcp_missing_focus__",
                 "providerName" => "__wpa_mcp_missing_provider__",
                 "nameSubstring" => "__wpa_mcp_missing_marker__",
@@ -708,7 +708,7 @@ public sealed class LegacyStructuredStdioGoldenTests
             };
         }
         if (tool == "load_trace")
-            return new JsonObject { ["path"] = Path.Combine(sourceRoot, "missing.etl") };
+            return new JsonObject { ["tracePath"] = Path.Combine(sourceRoot, "missing.etl") };
 
         return BuildPrimaryArguments(
             tool,
@@ -801,10 +801,10 @@ public sealed class LegacyStructuredStdioGoldenTests
         var load = await client.SendToolCallAsync(
             "privacy-load",
             "load_trace",
-            new JsonObject { ["path"] = tracePath });
+            new JsonObject { ["tracePath"] = tracePath });
         var traceId = RequireStructuredContent(load)["data"]?["traceId"]?.GetValue<string>()
             ?? throw new JsonException("Strict-profile load_trace omitted traceId.");
-        var inspectArguments = new JsonObject { ["path"] = traceId };
+        var inspectArguments = new JsonObject { ["traceId"] = traceId };
         var inspect = await client.SendToolCallAsync(
             "privacy-inspect",
             "inspect_trace",

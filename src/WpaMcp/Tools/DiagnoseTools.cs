@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -48,7 +48,7 @@ public sealed class DiagnoseTools
         "the facts and use NextTools for bounded hypothesis checks. PlannerExecution reports that " +
         "shared dispatch is not yet admitted; planner pass/scan/match counts remain unavailable rather than fabricated.")]
     public DiagnoseWindowResponse DiagnoseWindow(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Window start in microseconds since trace start. Required.")]
         long startUs,
         [Description("Window end in microseconds since trace start (exclusive). Required.")]
@@ -73,7 +73,7 @@ public sealed class DiagnoseTools
                 startUs, endUs, pid, maxWindowDurationUs, processStartUs) is { } guarded)
             return AttachPlannerBoundary(guarded);
 
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxWindowDurationUs);
@@ -574,7 +574,7 @@ public sealed class DiagnoseTools
         "No startUs/endUs: this composite derives each checked half-open window from ProcessStart and " +
         "startupWindowUs; lifetime metrics are auxiliary and never affect ranking.")]
     public DiagnoseSlowStartupResponse DiagnoseSlowStartup(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Match candidates whose process name contains this substring (case-insensitive). " +
                      "Empty/null = rank all observed-start candidates by startup-window wait ratio.")]
         string? nameSubstring = null,
@@ -608,7 +608,7 @@ public sealed class DiagnoseTools
         if (maxWindowDurationUs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxWindowDurationUs), "must be positive");
 
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var identities = TraceIdentityIndex.For(trace);
         var catalog = StartupProcessCatalog.FromTrace(
@@ -1145,7 +1145,7 @@ public sealed class DiagnoseTools
         "with ThresholdPct. TimeBudgetMs bounds post-wait stack fan-out. " +
         "NextTools are optional hypothesis checks, not an ordered checklist.")]
     public DiagnoseHighWaitResponse DiagnoseHighWait(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Optional process ID filter. Null means analyze all non-system processes.")]
         int? pid = null,
         [Description("Window start in microseconds since trace start. Null means full trace.")]
@@ -1173,7 +1173,7 @@ public sealed class DiagnoseTools
         Validation.RequireTop(topReadyStacks);
         Validation.RequireTimeBudgetMs(timeBudgetMs);
 
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -24,7 +24,7 @@ public sealed class ReadyThreadTools
         "specific wait interval or subsequent CSwitch and cannot alone establish root cause. " +
         "Use after `wait_analysis` as supporting evidence. Requires CSwitch / ReadyThread events.")]
     public ReadyThreadStacksResponse ReadyThreadTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Aggregate events for threads in this awakened PID, not the readier PID. " +
                      "This scope does not identify a specific wait interval.")]
@@ -48,7 +48,7 @@ public sealed class ReadyThreadTools
             awakenedPid, tid: null, awakenedProcessStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -66,7 +66,7 @@ public sealed class ReadyThreadTools
         "requested window. Results are not paired one-to-one with a specific wait interval or " +
         "subsequent CSwitch and cannot alone establish root cause.")]
     public CallerCalleeResponse ReadyThreadCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in ready_thread_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -84,7 +84,7 @@ public sealed class ReadyThreadTools
             awakenedPid, tid: null, awakenedProcessStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

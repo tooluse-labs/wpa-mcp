@@ -16,7 +16,7 @@ internal sealed record TraceRuntimeOptions(
     internal const string ArtifactRootEnvironmentVariable = "WPAMCP_TRACE_ARTIFACT_ROOT";
     internal const string ArtifactRetentionMinutesEnvironmentVariable =
         "WPAMCP_TRACE_ARTIFACT_RETENTION_MINUTES";
-    internal const string CompatibilityRemovalRelease = "1.0.0";
+    internal const string CompatibilityRemovalRelease = "0.6.0";
     internal const long DefaultMaxInputTraceBytes = 64L * 1024 * 1024 * 1024;
     internal const long DefaultMaxArtifactStoreBytes = 64L * 1024 * 1024 * 1024;
     internal const long HardMaxArtifactStoreBytes = 256L * 1024 * 1024 * 1024;
@@ -125,9 +125,8 @@ internal sealed record TraceRuntimeOptions(
         raw.ToLowerInvariant() switch
         {
             "id_only" or "id-only" => TraceAccessMode.IdOnly,
-            "compatibility" => TraceAccessMode.Compatibility,
             _ => throw new ArgumentException(
-                $"{source} must be 'id_only' or 'compatibility'."),
+                $"{source} must be 'id_only'; raw-path query compatibility was removed."),
         };
 
     private static List<string> ParseEnvironmentRoots(string? raw) =>

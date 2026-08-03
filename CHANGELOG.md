@@ -7,6 +7,11 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+### Breaking
+
+- Rename the only raw trace input to `load_trace.tracePath`; every loaded-trace query now accepts `traceId` instead of the ambiguous `path` parameter.
+- Rename `TraceMeta.path` to `TraceMeta.traceId` and remove query-side raw-path compatibility. Call `load_trace` once, retain its opaque `traceId`, and pass that identifier to subsequent tools.
+
 ## 0.5.6 - 2026-08-03
 
 ### Fixed

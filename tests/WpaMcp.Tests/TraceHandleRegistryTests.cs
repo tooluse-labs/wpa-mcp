@@ -333,7 +333,7 @@ public sealed class TraceHandleRegistryTests
     }
 
     [Fact]
-    public void Resolver_SeparatesReservedTokensFromPathsAndReturnsVisiblePersistentHandle()
+    public void Resolver_AcceptsOnlyCanonicalTraceIdsAndNeverOpensRawPaths()
     {
         var openCount = 0;
         using var cache = new TraceCache(
@@ -356,14 +356,14 @@ public sealed class TraceHandleRegistryTests
                  })
         {
             var invalid = Assert.Throws<TraceReferenceException>(() =>
-                resolver.ResolveQuery("principal", malformed, TraceAccessMode.Compatibility));
+                resolver.ResolveQuery("principal", malformed, TraceAccessMode.IdOnly));
             Assert.Equal("invalid_argument", invalid.Code);
             Assert.Equal("malformed_trace_id", invalid.DetailCode);
         }
         Assert.Equal(0, Volatile.Read(ref openCount));
 
         var unknown = Assert.Throws<TraceReferenceException>(() =>
-            resolver.ResolveQuery("principal", Id('d'), TraceAccessMode.Compatibility));
+            resolver.ResolveQuery("principal", Id('d'), TraceAccessMode.IdOnly));
         Assert.Equal("trace_not_loaded", unknown.Code);
         Assert.Equal(TraceHandleLookupStatus.Unknown, unknown.Status);
         Assert.Equal(0, Volatile.Read(ref openCount));
@@ -374,29 +374,7 @@ public sealed class TraceHandleRegistryTests
         Assert.Equal("raw_path_not_allowed", idOnly.DetailCode);
         Assert.Equal(0, Volatile.Read(ref openCount));
 
-        string traceId;
-        using (var resolved = resolver.ResolveQuery(
-                   "principal",
-                   CpuFixture,
-                   TraceAccessMode.Compatibility))
-        {
-            traceId = resolved.Descriptor.TraceId;
-            Assert.Equal(TraceHandlePersistence.Persistent, resolved.Descriptor.Persistence);
-            Assert.True(resolved.Descriptor.LoadedFromRawPath);
-            Assert.Equal("raw_trace_path_deprecated", Assert.Single(resolved.Warnings));
-            Assert.True(resolved.Lease.Trace.EventCount > 0);
-        }
-
-        // The compatibility-created handle is not hidden: it is returned explicitly
-        // and remains a canonical replay authority until unload/expiry.
-        Assert.Equal(TraceHandleLookupStatus.Ready,
-            registry.GetLookupStatus("principal", traceId));
-        using var replay = resolver.ResolveQuery(
-            "principal",
-            traceId,
-            TraceAccessMode.IdOnly);
-        Assert.False(replay.Descriptor.LoadedFromRawPath);
-        Assert.Equal(1, Volatile.Read(ref openCount));
+        Assert.Equal(0, Volatile.Read(ref openCount));
     }
 
     [Fact]

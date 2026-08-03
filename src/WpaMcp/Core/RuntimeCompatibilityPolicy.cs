@@ -14,6 +14,7 @@ internal enum RuntimeReleaseStage
     DevelopmentPre04,
     V04,
     V05,
+    V06,
     V1OrLater,
 }
 
@@ -40,6 +41,7 @@ internal sealed record RuntimeCompatibilityProfile(
         RuntimeReleaseStage.DevelopmentPre04 => "development_pre_0_4",
         RuntimeReleaseStage.V04 => "0.4.x",
         RuntimeReleaseStage.V05 => "0.5.x",
+        RuntimeReleaseStage.V06 => "0.6.x",
         RuntimeReleaseStage.V1OrLater => "1.0_or_later",
         _ => throw new ArgumentOutOfRangeException(nameof(ReleaseStage)),
     };
@@ -141,9 +143,11 @@ internal static class RuntimeCompatibilityPolicy
         {
             if (contract != ToolContractMode.V2)
                 runtimeBlockers.Add("contract_mode_removed:legacy_is_not_allowed_at_1.0_or_later");
-            if (traceReference != TraceAccessMode.IdOnly)
-                runtimeBlockers.Add("trace_reference_mode_removed:raw_path_compatibility_is_not_allowed_at_1.0_or_later");
         }
+
+        if (traceReference != TraceAccessMode.IdOnly &&
+            stage is RuntimeReleaseStage.V06 or RuntimeReleaseStage.V1OrLater)
+            runtimeBlockers.Add("trace_reference_mode_removed:raw_path_queries_are_not_supported");
 
         if (contract == ToolContractMode.Legacy && !LegacyContractImplemented)
         {
@@ -164,11 +168,13 @@ internal static class RuntimeCompatibilityPolicy
 
         warnings.Add(ArtifactTransientPeakRisk);
 
-        if (traceReference == TraceAccessMode.Compatibility)
+        if (traceReference == TraceAccessMode.Compatibility &&
+            stage is RuntimeReleaseStage.V04 or RuntimeReleaseStage.V05)
         {
             warnings.Add(
-                "raw_trace_path_deprecated:migrate_to_load_trace_and_trace_id;removed_in_1.0.0");
+                "raw_trace_path_deprecated:migrate_to_load_trace_and_trace_id;removed_in_0.6.0");
         }
+
         if (stage == RuntimeReleaseStage.DevelopmentPre04)
         {
             warnings.Add(
@@ -225,6 +231,7 @@ internal static class RuntimeCompatibilityPolicy
         RuntimeReleaseStage.DevelopmentPre04 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V04 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V05 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
+        RuntimeReleaseStage.V06 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V1OrLater => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         _ => throw new ArgumentOutOfRangeException(nameof(stage)),
     };
@@ -233,13 +240,15 @@ internal static class RuntimeCompatibilityPolicy
     {
         if (version.Major == 1)
             return RuntimeReleaseStage.V1OrLater;
-        if (version.Major > 1 || version.Minor > 5)
+        if (version.Major > 1 || version.Minor > 6)
         {
             throw new ArgumentException(
                 $"Runtime release line '{version.Major}.{version.Minor}.x' is not defined by ADR 0005.",
                 nameof(version));
         }
-        if (version.Minor >= 5)
+        if (version.Minor >= 6)
+            return RuntimeReleaseStage.V06;
+        if (version.Minor == 5)
             return RuntimeReleaseStage.V05;
         if (version.Minor == 4)
             return RuntimeReleaseStage.V04;

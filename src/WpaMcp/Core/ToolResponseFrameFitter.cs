@@ -585,8 +585,8 @@ internal sealed class ToolResponseFrameFitter(
             ? capabilities.LastOrDefault()?["capabilityId"]?.GetValue<string>()
             : workflows.LastOrDefault()?["workflowId"]?.GetValue<string>();
         var continuation = runtime.QueryResults.FinalizeInspectTrace(
-            data["trace"]?["path"]?.GetValue<string>()
-                ?? throw new InvalidOperationException("inspect_trace cursor response omitted Trace.Path."),
+            data["trace"]?["traceId"]?.GetValue<string>()
+                ?? throw new InvalidOperationException("inspect_trace cursor response omitted Trace.TraceId."),
             page["traceGenerationId"]?.GetValue<string>()
                 ?? throw new InvalidOperationException("inspect_trace cursor response omitted its trace generation binding."),
             map["catalogVersion"]?.GetValue<string>()

@@ -112,8 +112,8 @@ into a proven hard bound.
 
 | Runtime profile | Client expectation | Current implementation |
 |---|---|---|
-| Contract 2.0 + ID-only | Lean discovery plus on-demand closed envelope contracts; `load_trace`/TraceId lifecycle | 0.4.x release profile |
-| Contract 2.0 + raw compatibility | Same discovery/contract projections; raw paths deprecated and may create a canonical handle | Explicit startup compatibility only; removed in 1.0 |
-| Legacy + either trace mode | No released compatibility contract; Phase 0 goldens are regression evidence only | Unsupported; startup fails closed without blocking Contract 2.0 releases |
+| Contract 2.0 + canonical TraceId | Lean discovery plus on-demand closed envelope contracts; `load_trace(tracePath)` then `traceId` queries | Active `0.6.x` contract |
+| Raw-path query compatibility | No longer exposed; paths are valid only as `load_trace.tracePath` | Removed in `0.6.0` |
+| Legacy result contract | No released compatibility contract; Phase 0 goldens are regression evidence only | Unsupported; startup fails closed |
 
-See `CONTRACT_MIGRATION.md` and ADR 0005 for version defaults and removal dates.
+See `CONTRACT_MIGRATION.md` and ADR 0006 for the breaking input migration.

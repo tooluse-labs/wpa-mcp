@@ -131,8 +131,8 @@ internal sealed class TraceQueryExecutionFilters
         _principal = principal ?? throw new ArgumentNullException(nameof(principal));
         _mode = mode;
         _analysisTools = activeTools
-            .Where(tool => tool.Name is not ("load_trace" or "unload_trace") &&
-                HasInputProperty(tool, "path"))
+            .Where(tool => tool.Name is not ("load_trace" or "unload_trace" or "prepare_symbols") &&
+                HasInputProperty(tool, "traceId"))
             .Select(tool => tool.Name)
             .ToHashSet(StringComparer.Ordinal);
     }
@@ -157,8 +157,8 @@ internal sealed class TraceQueryExecutionFilters
                 return;
             }
 
-            if (arguments["path"] is not JsonValue pathValue ||
-                !pathValue.TryGetValue<string>(out var traceReference) ||
+            if (arguments["traceId"] is not JsonValue traceIdValue ||
+                !traceIdValue.TryGetValue<string>(out var traceReference) ||
                 string.IsNullOrEmpty(traceReference))
             {
                 // SDK argument validation owns missing/wrong-type values. The filter

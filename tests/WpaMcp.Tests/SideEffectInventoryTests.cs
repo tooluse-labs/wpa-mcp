@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using WpaMcp.Core;
 using WpaMcp.Core.Catalog;
 using WpaMcp.Tests.ContractBaselines;
@@ -61,7 +61,7 @@ public sealed class SideEffectInventoryTests
     ];
 
     [Fact]
-    public void Inventory_CoversEveryActiveToolAndBothTraceReferenceProfilesExactlyOnce()
+    public void Inventory_CoversEveryActiveToolUnderCanonicalTraceIdProfile()
     {
         var (inventory, repoRoot) = LoadInventory();
         var activeCatalog = ActiveToolCatalog.LoadAndValidate();
@@ -83,7 +83,7 @@ public sealed class SideEffectInventoryTests
             inventoryTools.Length,
             inventoryTools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(activeTools.Select(tool => tool.ToolName), inventoryTools.Select(tool => tool.Name));
-        Assert.Equal(new[] { "compatibility", "id_only" },
+        Assert.Equal(new[] { "id_only" },
             inventory.Observation.Profiles.OrderBy(profile => profile, StringComparer.Ordinal));
 
         var activeByName = activeTools.ToDictionary(tool => tool.ToolName, StringComparer.Ordinal);
@@ -93,7 +93,7 @@ public sealed class SideEffectInventoryTests
             var sideEffectClass = Assert.Single(active.SideEffects);
             Assert.Equal(sideEffectClass, entry.ManifestSideEffectClass);
             Assert.Equal(IdOnlyFamily(sideEffectClass), entry.IdOnlyFamily);
-            Assert.Equal(CompatibilityFamily(sideEffectClass), entry.CompatibilityFamily);
+            Assert.Equal(IdOnlyFamily(sideEffectClass), entry.CompatibilityFamily);
         }
     }
 
@@ -136,39 +136,10 @@ public sealed class SideEffectInventoryTests
         Assert.Contains("tool request domain", inventory.AnnotationBoundary.Included, StringComparison.Ordinal);
         Assert.Contains("host observability", inventory.AnnotationBoundary.Excluded, StringComparison.Ordinal);
         Assert.Contains("hostWrapperEffects", inventory.AnnotationBoundary.Reason, StringComparison.Ordinal);
-        Assert.Contains("ID-only", inventory.AnnotationBoundary.TraceReferenceRule, StringComparison.Ordinal);
-        Assert.Contains("compatibility", inventory.AnnotationBoundary.TraceReferenceRule, StringComparison.Ordinal);
+        Assert.Contains("load_trace(tracePath)", inventory.AnnotationBoundary.TraceReferenceRule, StringComparison.Ordinal);
+        Assert.Contains("traceId", inventory.AnnotationBoundary.TraceReferenceRule, StringComparison.Ordinal);
         Assert.Contains("SymbolContextId", inventory.AnnotationBoundary.SymbolRule, StringComparison.Ordinal);
         Assert.Contains("physical peak", inventory.AnnotationBoundary.ArtifactQuotaRule, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Inventory_ProfileAnnotationsExactlyMatchProductionCatalogProjection()
-    {
-        var (inventory, _) = LoadInventory();
-        var baseCatalog = ActiveToolCatalog.LoadAndValidate();
-        var services = new DeferredCatalogServiceProvider();
-        var serverTools = baseCatalog.CreateServerTools(services);
-        var compatibilityCatalog = baseCatalog.ProjectTraceReferenceProfile(
-            TraceAccessMode.Compatibility,
-            serverTools);
-        var idOnly = baseCatalog.Tools.ToDictionary(tool => tool.ToolName, StringComparer.Ordinal);
-        var compatibility = compatibilityCatalog.Tools.ToDictionary(
-            tool => tool.ToolName,
-            StringComparer.Ordinal);
-        var families = inventory.Families.ToDictionary(family => family.Id, StringComparer.Ordinal);
-
-        foreach (var entry in inventory.Tools)
-        {
-            AssertAnnotations(
-                idOnly[entry.Name].Annotations,
-                families[entry.IdOnlyFamily].ExpectedAnnotations,
-                $"{entry.Name}/id_only");
-            AssertAnnotations(
-                compatibility[entry.Name].Annotations,
-                families[entry.CompatibilityFamily].ExpectedAnnotations,
-                $"{entry.Name}/compatibility");
-        }
     }
 
     [Fact]
@@ -192,13 +163,6 @@ public sealed class SideEffectInventoryTests
     }
 
     private static string IdOnlyFamily(string sideEffectClass) => sideEffectClass;
-
-    private static string CompatibilityFamily(string sideEffectClass) => sideEffectClass switch
-    {
-        "loaded_trace_query" => "raw_trace_query",
-        "loaded_trace_stack_query" => "raw_trace_stack_query",
-        _ => sideEffectClass,
-    };
 
     private static void AssertAnnotations(
         ToolAnnotations actual,

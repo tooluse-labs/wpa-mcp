@@ -397,7 +397,7 @@ public sealed class ActiveToolCatalogTests
             Name = tool.ProtocolTool.Name,
             Arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(123),
+                ["traceId"] = JsonSerializer.SerializeToElement(123),
             },
         };
         var request = new JsonRpcRequest
@@ -424,7 +424,7 @@ public sealed class ActiveToolCatalogTests
     }
 
     [Fact]
-    public void CompatibilityProjection_PrecedesFramingAndBindsCatalogTruth()
+    public void CanonicalLocatorSchemas_DistinguishTracePathFromTraceId()
     {
         var secureCatalog = ActiveToolCatalog.LoadAndValidate();
         var services = new ServiceCollection();
@@ -437,7 +437,7 @@ public sealed class ActiveToolCatalogTests
             tool => tool.ProtocolTool.InputSchema.Clone(),
             StringComparer.Ordinal);
 
-        var loadPath = NonNullProperty(secureSchemas["load_trace"], "path");
+        var loadPath = NonNullProperty(secureSchemas["load_trace"], "tracePath");
         Assert.Equal(ToolOpaqueLocatorInputOverlay.AbsoluteEtlPathPattern,
             loadPath.GetProperty("pattern").GetString());
         Assert.Matches(loadPath.GetProperty("pattern").GetString()!, @"C:\traces\sample.etl");
@@ -446,7 +446,7 @@ public sealed class ActiveToolCatalogTests
             "trc_0123456789abcdef0123456789abcdef");
         Assert.DoesNotMatch(loadPath.GetProperty("pattern").GetString()!, @"C:\traces\sample.txt");
 
-        var secureQueryPath = NonNullProperty(secureSchemas["inspect_trace"], "path");
+        var secureQueryPath = NonNullProperty(secureSchemas["inspect_trace"], "traceId");
         Assert.Equal(ToolOpaqueLocatorInputOverlay.TraceIdPattern,
             secureQueryPath.GetProperty("pattern").GetString());
         Assert.DoesNotMatch(secureQueryPath.GetProperty("pattern").GetString()!, @"C:\traces\sample.etl");
@@ -459,47 +459,6 @@ public sealed class ActiveToolCatalogTests
             NonNullProperty(secureSchemas["inspect_trace"], "cursor")
                 .GetProperty("pattern").GetString());
 
-        var projected = secureCatalog.ProjectTraceReferenceProfile(
-            TraceAccessMode.Compatibility,
-            serverTools);
-        var protocolByName = serverTools.ToDictionary(
-            tool => tool.ProtocolTool.Name,
-            StringComparer.Ordinal);
-
-        Assert.NotEqual(secureCatalog.CatalogVersion, projected.CatalogVersion);
-        Assert.All(projected.Tools.Where(tool =>
-                tool.ToolName is not ("load_trace" or "unload_trace") &&
-                tool.Method.GetParameters().Any(parameter => parameter.Name == "path")),
-            tool =>
-            {
-                Assert.False(tool.Annotations.ReadOnlyHint);
-                Assert.True(tool.Annotations.IdempotentHint);
-                Assert.False(tool.Annotations.OpenWorldHint);
-                Assert.False(tool.Annotations.DestructiveHint);
-                Assert.Contains(tool.SideEffects, sideEffect =>
-                    sideEffect is "raw_trace_query" or "raw_trace_stack_query");
-                var protocol = protocolByName[tool.ToolName].ProtocolTool;
-                Assert.Equal(
-                    tool.Annotations.ReadOnlyHint,
-                    protocol.Annotations!.ReadOnlyHint);
-                Assert.Contains(
-                    "compatibility profile",
-                    protocol.InputSchema.GetRawText(),
-                    StringComparison.Ordinal);
-            });
-        Assert.All(secureCatalog.Tools.Where(tool =>
-                tool.ToolName is not ("load_trace" or "unload_trace") &&
-                tool.Method.GetParameters().Any(parameter => parameter.Name == "path")),
-            tool => Assert.True(tool.Annotations.ReadOnlyHint));
-
-        var compatibilityPath = NonNullProperty(
-            protocolByName["inspect_trace"].ProtocolTool.InputSchema,
-            "path");
-        Assert.Equal(ToolOpaqueLocatorInputOverlay.TraceOrCompatibilityPathPattern,
-            compatibilityPath.GetProperty("pattern").GetString());
-        Assert.Matches(compatibilityPath.GetProperty("pattern").GetString()!, @"C:\traces\sample.etl");
-        Assert.Matches(compatibilityPath.GetProperty("pattern").GetString()!,
-            "trc_0123456789abcdef0123456789abcdef");
     }
 
     [Fact]

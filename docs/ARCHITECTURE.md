@@ -124,10 +124,10 @@ transient physical disk peak is not hard-limited. Version 0.4.x explicitly
 accepts and discloses that residual risk; it is not described as an inferred
 whole-root hard cap.
 
-The optional `compatibility` trace-reference profile accepts approved raw paths
-through query adapters and therefore advertises the worst reachable path and
-conversion effects. It is deprecated and removed in 1.0. The default `id_only`
-profile never falls back from an unknown TraceId to a filesystem path.
+`load_trace(tracePath)` is the only raw trace-source boundary. Every query uses
+the canonical `traceId` returned by that call; unknown IDs and path-shaped query
+values fail before filesystem access. The former raw-path query compatibility
+profile and catalog projection are removed in the `0.6.x` line.
 
 ## Symbol lifecycle
 

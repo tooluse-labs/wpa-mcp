@@ -1,10 +1,9 @@
 # Contract and trace-reference migration
 
-This document implements the release window accepted in ADR 0005. It describes
-startup behavior, not a per-call option. `WPAMCP_CONTRACT_MODE`,
-`WPAMCP_TRACE_REFERENCE_MODE`, `--contract-mode`, and
-`--trace-reference-mode` are read before stdin; the selected pair is immutable
-for that server process.
+This document describes the Contract 2.0 surface after ADR 0006. Contract mode
+is selected before stdin and remains immutable for the server process. Trace
+queries no longer have a selectable reference mode: `load_trace.tracePath` is
+the only raw path input and every subsequent tool uses `traceId`.
 
 ## Current active surface
 
@@ -39,10 +38,9 @@ cost but do not replace the Tool-only path.
 
 | Release line | Required default | Allowed explicit compatibility | Removal/gate |
 |---|---|---|---|
-| 0.3.x development | Contract `2.0` + `id_only` in the current source tree | raw-path `compatibility`; `legacy` is rejected | Not a publishable ADR 0005 release line |
-| 0.4.x | Contract `2.0` + `id_only` | explicit raw-path `compatibility` | Requires Phase 0–4 correctness, lean-discovery/full-contract closure, stdio, and lifecycle security evidence |
-| 0.5.x | Contract `2.0` + `id_only` | explicit raw-path `compatibility` | Requires capability-map, migration, and raw-path deprecation telemetry evidence |
-| 1.0.0+ | Contract `2.0` + `id_only` only | none | Requires one full 0.5.x deprecation window and usage-telemetry review |
+| 0.4.x–0.5.x | Contract `2.0` + `id_only` | historical explicit raw-path mode | Closed compatibility window |
+| 0.6.x | Contract `2.0` + canonical `traceId` queries | none | Input schema, documentation, and reviewed baseline closure |
+| 1.0.0+ | Contract `2.0` + canonical `traceId` queries | none | Separate 1.0 release-governance gate |
 
 No released wpa-mcp version established the Phase 0 snapshot as a supported
 public result wire contract. The snapshot remains historical regression
@@ -59,8 +57,7 @@ Environment form:
 ```json
 {
   "env": {
-    "WPAMCP_CONTRACT_MODE": "2.0",
-    "WPAMCP_TRACE_REFERENCE_MODE": "id_only"
+    "WPAMCP_CONTRACT_MODE": "2.0"
   }
 }
 ```
@@ -68,13 +65,12 @@ Environment form:
 Command form:
 
 ```text
-wpa-mcp.exe --contract-mode 2.0 --trace-reference-mode id_only
+wpa-mcp.exe --contract-mode 2.0
 ```
 
-Command-line values override environment values. Values are closed and
-case-sensitive for the contract (`legacy`, `2.0`); trace-reference values are
-`compatibility`, `id_only` (or the equivalent `id-only`). Unknown, removed, or
-unimplemented combinations fail before the MCP transport begins serving.
+Command-line values override environment values. Contract values are closed
+and case-sensitive (`legacy`, `2.0`). The removed `compatibility` trace mode
+fails before the MCP transport begins serving.
 
 ## Client migration
 
@@ -88,8 +84,9 @@ unimplemented combinations fail before the MCP transport begins serving.
    verify the advertised UTF-8 size/hash. The two paths must expose the same
    fixed page boundaries. Treat text as a synchronized
    rendering, not a second source of facts.
-3. Replace raw paths with `load_trace` followed by the returned opaque TraceId.
-   Do not reconstruct or persist server-internal paths.
+3. Call `load_trace` with `tracePath`, then pass the returned opaque value as
+   `traceId` to every query. Do not send `path` to query tools and do not
+   reconstruct or persist server-internal paths.
 4. The MCP client or host, not the LLM, traverses every `tools/list` cursor page.
    A cursor is bound to the server instance, catalog, ordering, and contract
    mode; never replay it after a restart or profile change. The host may then
@@ -112,8 +109,8 @@ unimplemented combinations fail before the MCP transport begins serving.
    resolution unmeasured rather than falling back to legacy ambient lookup.
 
 There is no permanent `*_v2` tool family and no unshipped legacy result adapter.
-Contract 2.0 is the only result shape. The separate raw-path compatibility
-switch retains its 1.0 removal deadline.
+Contract 2.0 is the only result shape. Query-side raw-path compatibility was
+removed in `0.6.0`; there is no legacy input alias.
 
 ## Operator checks
 

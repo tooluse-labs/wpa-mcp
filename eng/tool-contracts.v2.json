@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": "tool-contracts.v2",
   "contractVersion": "2.0",
   "inputSchemaOverlays": [
@@ -130,7 +130,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.AlpcTools",
       "method": "AlpcCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "ipc.alpc.stacks"
@@ -197,7 +197,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.AlpcTools",
       "method": "AlpcTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.AlpcStacksResponse",
       "capabilityIds": [
         "ipc.alpc.stacks"
@@ -263,7 +263,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrAllocCallerCallee",
-      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "clr.alloc.stacks"
@@ -330,7 +330,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrAllocTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ClrAllocStacksResponse",
       "capabilityIds": [
         "clr.alloc.stacks"
@@ -395,7 +395,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrContentionCallerCallee",
-      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "clr.contention.stacks"
@@ -462,7 +462,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrContentionTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ClrContentionStacksResponse",
       "capabilityIds": [
         "clr.contention.stacks"
@@ -528,7 +528,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrExceptionCallerCallee",
-      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "clr.exception.stacks"
@@ -595,7 +595,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrExceptionTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ClrExceptionStacksResponse",
       "capabilityIds": [
         "clr.exception.stacks"
@@ -660,7 +660,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrFinalizerAnalysis",
-      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.FinalizerAnalysisResponse",
       "capabilityIds": [
         "clr.finalizer.activity"
@@ -723,7 +723,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrGcAnalysis",
-      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.GcAnalysisResponse",
       "capabilityIds": [
         "clr.gc.intervals"
@@ -797,7 +797,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrGcHeapStats",
-      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.GcHeapStatsResponse",
       "capabilityIds": [
         "clr.gc.heap_stats"
@@ -862,7 +862,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ClrTools",
       "method": "ClrJitAnalysis",
-      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.JitAnalysisResponse",
       "capabilityIds": [
         "clr.jit.intervals"
@@ -931,7 +931,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "cpu.sampled.stacks"
@@ -999,7 +999,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuPreciseAnalysis",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CpuPreciseResponse",
       "capabilityIds": [
         "scheduler.cpu_accounting"
@@ -1068,7 +1068,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuTopFunctions",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CpuTopFunctionsResponse",
       "capabilityIds": [
         "cpu.sampled.stacks"
@@ -1134,7 +1134,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.CpuTools",
       "method": "CpuTopFunctionsBatch",
-      "inputType": "parameters(path:System.String,pids:System.Int32[],top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E[],pageSize:System.Int32,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,pids:System.Int32[],top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,excludeEtwSelfOverhead:System.Boolean,includeTracePct:System.Boolean,resolveSymbols:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E[],pageSize:System.Int32,cursor:System.String)",
       "outputType": "WpaMcp.Output.CpuTopFunctionsBatchResponse",
       "capabilityIds": [
         "cpu.sampled.stacks"
@@ -1196,7 +1196,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.DiagnoseTools",
       "method": "DiagnoseHighWait",
-      "inputType": "parameters(path:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,maxCandidates:System.Int32,topStacks:System.Int32,topReadyStacks:System.Int32,includeReadyStacks:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,maxCandidates:System.Int32,topStacks:System.Int32,topReadyStacks:System.Int32,includeReadyStacks:System.Boolean,timeBudgetMs:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.DiagnoseHighWaitResponse",
       "capabilityIds": [
         "diagnosis.wait.composite"
@@ -1263,7 +1263,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.DiagnoseTools",
       "method": "DiagnoseSlowStartup",
-      "inputType": "parameters(path:System.String,nameSubstring:System.String,maxCandidates:System.Int32,minWaitRatio:System.Double,startupWindowUs:System.Int64,topImageLoads:System.Int32,topCpu:System.Int32,slowFirstImageLoadThresholdUs:System.Int64,topWindowEvidence:System.Int32,maxWindowDurationUs:System.Int64)",
+      "inputType": "parameters(traceId:System.String,nameSubstring:System.String,maxCandidates:System.Int32,minWaitRatio:System.Double,startupWindowUs:System.Int64,topImageLoads:System.Int32,topCpu:System.Int32,slowFirstImageLoadThresholdUs:System.Int64,topWindowEvidence:System.Int32,maxWindowDurationUs:System.Int64)",
       "outputType": "WpaMcp.Output.DiagnoseSlowStartupResponse",
       "capabilityIds": [
         "diagnosis.startup.composite"
@@ -1332,7 +1332,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.DiagnoseTools",
       "method": "DiagnoseWindow",
-      "inputType": "parameters(path:System.String,startUs:System.Int64,endUs:System.Int64,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,maxWindowDurationUs:System.Int64,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,startUs:System.Int64,endUs:System.Int64,pid:System.Nullable\u003CSystem.Int32\u003E,top:System.Int32,maxWindowDurationUs:System.Int64,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.DiagnoseWindowResponse",
       "capabilityIds": [
         "diagnosis.window.composite"
@@ -1407,7 +1407,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.IoTools",
       "method": "DiskIoCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "io.disk.stacks"
@@ -1474,7 +1474,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.IoTools",
       "method": "DiskIoTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.DiskIoStacksResponse",
       "capabilityIds": [
         "io.disk.stacks"
@@ -1540,7 +1540,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.IoTools",
       "method": "FileIoCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "io.file.stacks"
@@ -1607,7 +1607,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.IoTools",
       "method": "FileIoTopFiles",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.FileIoResponse",
       "capabilityIds": [
         "io.file.aggregate"
@@ -1671,7 +1671,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.IoTools",
       "method": "FileIoTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.FileIoStacksResponse",
       "capabilityIds": [
         "io.file.stacks"
@@ -1737,7 +1737,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MarkerTools",
       "method": "FindMarker",
-      "inputType": "parameters(path:System.String,nameSubstring:System.String,top:System.Int32,mode:System.String,fieldMaxChars:System.Int32)",
+      "inputType": "parameters(traceId:System.String,nameSubstring:System.String,top:System.Int32,mode:System.String,fieldMaxChars:System.Int32)",
       "outputType": "WpaMcp.Output.MarkerSearchResponse",
       "capabilityIds": [
         "trace.marker.search"
@@ -1798,7 +1798,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.GenericProviderTools",
       "method": "GenericEventCallerCallee",
-      "inputType": "parameters(path:System.String,providerName:System.String,focusFunction:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,providerName:System.String,focusFunction:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "provider.generic.stacks"
@@ -1865,7 +1865,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.GenericProviderTools",
       "method": "GenericEventTopStacks",
-      "inputType": "parameters(path:System.String,providerName:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,providerName:System.String,eventNameSubstring:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.GenericEventStacksResponse",
       "capabilityIds": [
         "provider.generic.stacks"
@@ -1930,7 +1930,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.HardFaultTools",
       "method": "HardFaultByFile",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,orderBy:System.String,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,orderBy:System.String,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.HardFaultByFileResponse",
       "capabilityIds": [
         "memory.hard_fault.files"
@@ -1996,7 +1996,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.HardFaultTools",
       "method": "HardFaultCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "memory.hard_fault.stacks"
@@ -2063,7 +2063,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.HardFaultTools",
       "method": "HardFaultTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.HardFaultStacksResponse",
       "capabilityIds": [
         "memory.hard_fault.stacks"
@@ -2129,7 +2129,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.HeapTools",
       "method": "HeapAllocCallerCallee",
-      "inputType": "parameters(path:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,focusFunction:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "heap.alloc.stacks"
@@ -2196,7 +2196,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.HeapTools",
       "method": "HeapAllocTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.HeapAllocStacksResponse",
       "capabilityIds": [
         "heap.alloc.stacks"
@@ -2262,7 +2262,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ImageLoadTools",
       "method": "ImageLoadCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "image.load.stacks"
@@ -2329,7 +2329,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ImageLoadTools",
       "method": "ImageLoadTiming",
-      "inputType": "parameters(path:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
       "outputType": "WpaMcp.Output.ImageLoadTimingResponse",
       "capabilityIds": [
         "image.load.timing"
@@ -2391,7 +2391,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ImageLoadTools",
       "method": "ImageLoadTopGaps",
-      "inputType": "parameters(path:System.String,pid:System.Int32,top:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,pid:System.Int32,top:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ImageLoadTopGapsResponse",
       "capabilityIds": [
         "image.load.timing"
@@ -2454,7 +2454,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ImageLoadTools",
       "method": "ImageLoadTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ImageLoadStacksResponse",
       "capabilityIds": [
         "image.load.stacks"
@@ -2520,7 +2520,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "InspectTrace",
-      "inputType": "parameters(path:System.String,domain:System.String,goal:System.String,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,domain:System.String,goal:System.String,cursor:System.String)",
       "outputType": "WpaMcp.Output.InspectTraceResponse",
       "capabilityIds": [
         "trace.capability.inspect"
@@ -2592,7 +2592,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.InterruptTools",
       "method": "InterruptCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "hardware.interrupt.stacks"
@@ -2658,7 +2658,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.InterruptTools",
       "method": "InterruptTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean)",
       "outputType": "WpaMcp.Output.InterruptStacksResponse",
       "capabilityIds": [
         "hardware.interrupt.stacks"
@@ -2723,7 +2723,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "ListProcesses",
-      "inputType": "parameters(path:System.String,orderBy:System.String,top:System.Int32,includeSystem:System.Boolean,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,orderBy:System.String,top:System.Int32,includeSystem:System.Boolean,cursor:System.String)",
       "outputType": "WpaMcp.Output.ProcessListResponse",
       "capabilityIds": [
         "trace.process.inventory"
@@ -2787,7 +2787,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "LoadTrace",
-      "inputType": "parameters(path:System.String,forceRefresh:System.Boolean)",
+      "inputType": "parameters(tracePath:System.String,forceRefresh:System.Boolean)",
       "outputType": "WpaMcp.Output.LoadTraceResponse",
       "capabilityIds": [
         "lifecycle.trace.load"
@@ -2844,7 +2844,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
       "method": "MemoryResourceAnalysis",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.MemoryResourceResponse",
       "capabilityIds": [
         "memory.resource.activity"
@@ -2912,7 +2912,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.NetIoTools",
       "method": "NetCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "network.io.stacks"
@@ -2979,7 +2979,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.NetIoTools",
       "method": "NetConnections",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.NetConnectionsResponse",
       "capabilityIds": [
         "network.connections"
@@ -3046,7 +3046,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.NetIoTools",
       "method": "NetTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.NetIoStacksResponse",
       "capabilityIds": [
         "network.io.stacks"
@@ -3112,7 +3112,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "ProcessCreateTiming",
-      "inputType": "parameters(path:System.String,parentPid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,parentPid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
       "outputType": "WpaMcp.Output.ProcessCreateTimingResponse",
       "capabilityIds": [
         "trace.process.creation"
@@ -3175,7 +3175,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ReadyThreadTools",
       "method": "ReadyThreadCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "scheduler.ready.association"
@@ -3243,7 +3243,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ReadyThreadTools",
       "method": "ReadyThreadTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,awakenedPid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,awakenedProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.ReadyThreadStacksResponse",
       "capabilityIds": [
         "scheduler.ready.association"
@@ -3310,7 +3310,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.RegistryTools",
       "method": "RegistryCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "registry.activity.stacks"
@@ -3377,7 +3377,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.RegistryTools",
       "method": "RegistryTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.RegistryStacksResponse",
       "capabilityIds": [
         "registry.activity.stacks"
@@ -3443,7 +3443,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.SecurityTools",
       "method": "SecurityScanAnalysis",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processSubstring:System.String,pathSubstring:System.String,providerSubstring:System.String,targetProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,processSubstring:System.String,pathSubstring:System.String,providerSubstring:System.String,targetProcessStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.SecurityScanAnalysisResponse",
       "capabilityIds": [
         "security.scan.heuristics"
@@ -3571,7 +3571,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.ThreadComparisonTools",
       "method": "ThreadCompareWindows",
-      "inputType": "parameters(path:System.String,pid:System.Int32,tid:System.Int32,windows:WpaMcp.Output.ThreadComparisonWindowInput[],top:System.Int32,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E,pageSize:System.Int32,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,pid:System.Int32,tid:System.Int32,windows:WpaMcp.Output.ThreadComparisonWindowInput[],top:System.Int32,excludeEtwSelfOverhead:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E,pageSize:System.Int32,cursor:System.String)",
       "outputType": "WpaMcp.Output.ThreadCompareWindowsResponse",
       "capabilityIds": [
         "diagnosis.window.composite"
@@ -3640,7 +3640,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "ThreadLifetime",
-      "inputType": "parameters(path:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
+      "inputType": "parameters(traceId:System.String,pid:System.Int32,pageSize:System.Int32,processStartUs:System.Nullable\u003CSystem.Int64\u003E,cursor:System.String)",
       "outputType": "WpaMcp.Output.ThreadLifetimeResponse",
       "capabilityIds": [
         "trace.thread.lifetime"
@@ -3759,7 +3759,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
       "method": "VirtualAllocCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "memory.virtual_alloc.stacks"
@@ -3826,7 +3826,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.VirtualMemoryTools",
       "method": "VirtualAllocTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.VirtualAllocStacksResponse",
       "capabilityIds": [
         "memory.virtual_alloc.stacks"
@@ -3892,7 +3892,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.WaitTools",
       "method": "WaitAnalysis",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.WaitAnalysisResponse",
       "capabilityIds": [
         "scheduler.blocked_time"
@@ -3962,7 +3962,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.WaitTools",
       "method": "WaitCallerCallee",
-      "inputType": "parameters(path:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,function:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.CallerCalleeResponse",
       "capabilityIds": [
         "scheduler.blocked_stacks"
@@ -4031,7 +4031,7 @@
       "contractVersion": "2.0",
       "declaringType": "WpaMcp.Tools.WaitTools",
       "method": "WaitTopStacks",
-      "inputType": "parameters(path:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,whenBuckets:System.Int32,compactStacks:System.Boolean,summaryOnly:System.Boolean,resolveSymbols:System.Boolean,tid:System.Nullable\u003CSystem.Int32\u003E,processStartUs:System.Nullable\u003CSystem.Int64\u003E,threadStartUs:System.Nullable\u003CSystem.Int64\u003E,threadGeneration:System.Nullable\u003CSystem.Int64\u003E)",
       "outputType": "WpaMcp.Output.WaitTopStacksResponse",
       "capabilityIds": [
         "scheduler.blocked_stacks"

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
@@ -55,7 +55,7 @@ public sealed class ThreadComparisonTools
         "cause. Rows are cursor-paged from one immutable snapshot; missing stacks or symbols remain " +
         "explicit coverage gaps rather than inferred method attribution.")]
     public ThreadCompareWindowsResponse ThreadCompareWindows(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Process ID containing the thread")] int pid,
         [Description("Thread ID to compare; resolved to one exact lifetime across the union of all windows")] int tid,
         [Description("Two to 32 uniquely named half-open windows in request order")]
@@ -85,7 +85,7 @@ public sealed class ThreadComparisonTools
         if (pageSize is < 1 or > MaxWindows)
             throw new ArgumentOutOfRangeException(nameof(pageSize), $"pageSize must be between 1 and {MaxWindows}.");
 
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var query = TimelinePagination.CanonicalQuery(
             TimelinePagination.ThreadCompareWindowsTool,
             ("pid", TimelinePagination.Number(pid)),
@@ -100,7 +100,7 @@ public sealed class ThreadComparisonTools
             ("pageSize", TimelinePagination.Number(pageSize)));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.ThreadCompareWindowsTool,
             query,
             TimelinePagination.ThreadCompareWindowsOrdering);
@@ -141,7 +141,7 @@ public sealed class ThreadComparisonTools
 
         var complete = scope.IsResolved && scope.Thread is not null
             ? AnalyzeWindows(
-                path,
+                traceId,
                 resolvedWindows,
                 scope,
                 top,

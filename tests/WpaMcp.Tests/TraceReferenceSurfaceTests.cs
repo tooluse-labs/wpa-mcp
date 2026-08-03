@@ -9,39 +9,36 @@ namespace WpaMcp.Tests;
 public sealed class TraceReferenceSurfaceTests
 {
     [Fact]
-    public void AnalysisPathParameters_DescribeCanonicalTraceId_NotRawPath()
+    public void TraceInputs_UseUnambiguousPublicNames()
     {
-        var violations = typeof(MetaTools).Assembly.GetTypes()
+        var methods = typeof(MetaTools).Assembly.GetTypes()
             .Where(type => type.GetCustomAttribute<McpServerToolTypeAttribute>() is not null)
             .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public))
             .Where(method => method.GetCustomAttribute<McpServerToolAttribute>() is not null)
-            .Where(method => method.Name is not nameof(MetaTools.LoadTrace))
-            .Select(method => new
-            {
-                Method = method,
-                Parameter = method.GetParameters().SingleOrDefault(parameter =>
-                    string.Equals(parameter.Name, "path", StringComparison.Ordinal)),
-            })
-            .Where(item => item.Parameter is not null)
-            .Where(item => !string.Equals(
-                item.Parameter!.GetCustomAttribute<DescriptionAttribute>()?.Description,
-                "Canonical TraceId returned by load_trace",
-                StringComparison.Ordinal))
-            .Select(item => $"{item.Method.DeclaringType!.Name}.{item.Method.Name}")
-            .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Empty(violations);
+        Assert.DoesNotContain(methods.SelectMany(method => method.GetParameters()),
+            parameter => string.Equals(parameter.Name, "path", StringComparison.Ordinal));
+        var loadTrace = Assert.Single(methods, method => method.Name == nameof(MetaTools.LoadTrace));
+        Assert.Contains(loadTrace.GetParameters(), parameter => parameter.Name == "tracePath");
+        var traceInputs = methods.SelectMany(method => method.GetParameters())
+            .Where(parameter => string.Equals(
+                parameter.GetCustomAttribute<DescriptionAttribute>()?.Description,
+                "Canonical TraceId returned by load_trace",
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.NotEmpty(traceInputs);
+        Assert.All(traceInputs, parameter => Assert.Equal("traceId", parameter.Name));
     }
 
     [Fact]
-    public void InspectTrace_DescribesIdOnlyBehavior_WithoutClaimingImplicitSidecar()
+    public void InspectTrace_DescribesCanonicalTraceIdBehavior_WithoutClaimingImplicitSidecar()
     {
         var method = typeof(MetaTools).GetMethod(nameof(MetaTools.InspectTrace))!;
         var description = method.GetCustomAttribute<DescriptionAttribute>()!.Description;
         var annotation = method.GetCustomAttribute<McpServerToolAttribute>()!;
 
-        Assert.Contains("ID-only", description, StringComparison.Ordinal);
+        Assert.Contains("canonical traceId", description, StringComparison.Ordinal);
         Assert.DoesNotContain("materialize or refresh an ETLX sidecar", description, StringComparison.Ordinal);
         Assert.False(annotation.OpenWorld);
         Assert.False(annotation.Destructive);

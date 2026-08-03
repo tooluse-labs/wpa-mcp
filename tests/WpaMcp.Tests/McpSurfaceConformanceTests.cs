@@ -248,9 +248,9 @@ public sealed class McpSurfaceConformanceTests
 
     private static object? ArgumentFor(ParameterInfo parameter, long startUs, long endUs)
     {
-        if (parameter.Name == "path")
+        if (parameter.Name == "traceId")
         {
-            return "missing-before-validation.etl";
+            return "trc_00000000000000000000000000000000";
         }
 
         if (parameter.Name == "startUs")

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -28,7 +28,7 @@ public sealed class HardFaultTools
         "analysis can zoom into the exact stall window. Supports startUs/endUs filters to " +
         "isolate a startup or interaction window before ranking files.")]
     public HardFaultByFileResponse HardFaultByFile(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -43,7 +43,7 @@ public sealed class HardFaultTools
         Validation.RequireTop(top);
         Validation.RequireText(orderBy);
         orderBy = HardFaultByFileAnalysis.NormalizeOrderBy(orderBy);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -61,7 +61,7 @@ public sealed class HardFaultTools
         "Requires the HardFaults kernel keyword in the capture profile. StackCoverage is " +
         "HardFault-only and identifies any bytes represented by the synthetic ?!? frame.")]
     public HardFaultStacksResponse HardFaultTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -82,7 +82,7 @@ public sealed class HardFaultTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -99,7 +99,7 @@ public sealed class HardFaultTools
         "is page-in bytes; top-N callers ranked by inclusive bytes paged in for focus, callees " +
         "by bytes flowing through.  Requires HardFaults keyword in the capture profile.")]
     public CallerCalleeResponse HardFaultCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in hard_fault_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -115,7 +115,7 @@ public sealed class HardFaultTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

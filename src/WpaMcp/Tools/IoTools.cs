@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -22,7 +22,7 @@ public sealed class IoTools
         "so a noisy trace can be narrowed to an exact process lifetime or startup window. A PID-only " +
         "query may explicitly aggregate reused-PID lifetimes; inspect ScopeMode and IncludedProcesses.")]
     public FileIoResponse FileIoTopFiles(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -33,7 +33,7 @@ public sealed class IoTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -54,7 +54,7 @@ public sealed class IoTools
         "and OpCount. Requires the FileIO keyword in the capture profile. StackCoverage is FileIO-only " +
         "and identifies any bytes represented by the synthetic ?!? frame.")]
     public FileIoStacksResponse FileIoTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -75,7 +75,7 @@ public sealed class IoTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -92,7 +92,7 @@ public sealed class IoTools
         "IO bytes (read+write); top-N callers ranked by inclusive bytes flowing INTO focus, " +
         "callees by bytes OUT. PerfView equivalent: 'Callers' / 'Callees' tabs of File I/O Stacks.")]
     public CallerCalleeResponse FileIoCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in file_io_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -108,7 +108,7 @@ public sealed class IoTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -127,7 +127,7 @@ public sealed class IoTools
         "view. Requires the DiskIO keyword in the capture profile. StackCoverage is DiskIO-only " +
         "and identifies any bytes represented by the synthetic ?!? frame.")]
     public DiskIoStacksResponse DiskIoTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -148,7 +148,7 @@ public sealed class IoTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -165,7 +165,7 @@ public sealed class IoTools
         "physical disk bytes (TransferSize); top-N callers ranked by inclusive disk bytes " +
         "flowing INTO focus, callees by bytes OUT.")]
     public CallerCalleeResponse DiskIoCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in disk_io_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -181,7 +181,7 @@ public sealed class IoTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

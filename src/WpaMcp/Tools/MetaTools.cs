@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -70,13 +70,13 @@ public sealed class MetaTools
         "Response includes symbol-server recommendations based on the modules referenced by the trace. " +
         "No startUs/endUs: this is whole-trace cache/orientation, not event-window analysis.")]
     public LoadTraceResponse LoadTrace(
-        [Description("Absolute local .etl/.etlx path under a configured trace root. Raw paths are accepted only by load_trace.")] string path,
+        [Description("Absolute local .etl/.etlx path under a configured trace root. Raw paths are accepted only by load_trace.")] string tracePath,
         [Description("Force a new secure source snapshot instead of trusting the cached file-identity/length/timestamp observation. Default false.")] bool forceRefresh = false,
         CancellationToken cancellationToken = default)
     {
         if (_traceRuntime is not null)
         {
-            var loaded = _traceRuntime.Load(path, forceRefresh, cancellationToken);
+            var loaded = _traceRuntime.Load(tracePath, forceRefresh, cancellationToken);
             try
             {
                 using var registryLease = _traceRuntime.Acquire(
@@ -115,10 +115,10 @@ public sealed class MetaTools
         }
 
         // Direct analyzer tests retain the old constructor as a non-production seam.
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(tracePath);
         var directFacts = traceLease.GetFacts(cancellationToken);
         return new LoadTraceResponse(
-            BuildTraceMeta(path, directFacts),
+            BuildTraceMeta(tracePath, directFacts),
             BuildSymbolStatus(directFacts.PdbIdentities),
             directFacts.Capabilities);
     }
@@ -201,24 +201,23 @@ public sealed class MetaTools
         "inspect_trace does not read _NT_SYMBOL_PATH, probe local PDB candidates, or run frame lookup; use prepare_symbols " +
         "for startup-policy-approved immutable local readiness. " +
         "Recommendations are capability-driven hints, not goal-specific rankings. " +
-        "The default ID-only profile reads an already loaded immutable generation and never converts a caller path. " +
-        "When raw-path compatibility is explicitly enabled, the server advertises conservative profile-specific annotations instead. " +
+        "Analysis reads an already loaded immutable generation by canonical traceId and never converts a caller path. " +
         "domain/goal filters and qrc_ cursor pages are bound to the principal, immutable trace generation, catalog, privacy profile, normalized query, and stable capability-then-workflow ordering. " +
         "Only the first page carries the large orientation blocks; every continuation retains the trace evidence boundaries and declares evidence_continuation explicitly. " +
         "No startUs/endUs: capabilities, metadata, provider counts, and PDB identity/configuration describe the whole trace.")]
     public InspectTraceResponse InspectTrace(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Optional lowercase capability domain filter. Cursor continuations must repeat the same normalized filter.")] string? domain = null,
         [Description("Optional lowercase catalog goal filter. Cursor continuations must repeat the same normalized filter.")] string? goal = null,
         [Description("Opaque qrc_ continuation returned by a prior inspect_trace page. It is bound to the principal and immutable trace generation.")] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var catalog = _catalog ?? DirectCatalog.Value;
         var normalizedDomain = QueryResultCursorCoordinator.NormalizeFilter(domain, nameof(domain));
         var normalizedGoal = QueryResultCursorCoordinator.NormalizeFilter(goal, nameof(goal));
         var traceGenerationId = BuildTraceGenerationId(traceLease.GenerationIdentity);
-        var publicTraceId = TraceQueryExecutionContext.CurrentReference?.TraceId ?? path;
+        var publicTraceId = TraceQueryExecutionContext.CurrentReference?.TraceId ?? traceId;
         var pagePosition = _queryResults.ResolveInspectTrace(
             publicTraceId,
             traceGenerationId,
@@ -296,7 +295,7 @@ public sealed class MetaTools
                     .ToArray();
 
                 return new InspectTraceResponse(
-                    BuildTraceMeta(path, facts),
+                    BuildTraceMeta(traceId, facts),
                     capabilities,
                     orientationIncluded ? metadata : null,
                     orientationIncluded ? symbolQuality : null,
@@ -449,12 +448,12 @@ public sealed class MetaTools
             NoDataReasons: new NoDataReasonGuidance());
 
     private static TraceMeta BuildTraceMeta(
-        string path,
+        string traceId,
         TraceFactsSnapshot facts)
     {
-        var publicReference = TraceQueryExecutionContext.CurrentReference?.TraceId ?? path;
+        var publicReference = TraceQueryExecutionContext.CurrentReference?.TraceId ?? traceId;
         return new TraceMeta(
-            Path: publicReference,
+            TraceId: publicReference,
             DurationUs: facts.DurationUs,
             EventCount: facts.LogicalEventCount,
             EventsLost: facts.CaptureIntegrity.ReportedEventsLost,
@@ -1460,10 +1459,10 @@ public sealed class MetaTools
         "When orderBy='wait_ratio', trace-resident processes (alive before trace start AND survived past " +
         "trace end) and processes with near-zero sampled CPU are pushed to the bottom because " +
         "their ratio is denominator-sensitive noise. Rows use a stable total order and top is the page-size limit; " +
-        "follow nextCursor with path/orderBy/top/includeSystem unchanged until hasMore=false to enumerate every lifetime. " +
+        "follow nextCursor with traceId/orderBy/top/includeSystem unchanged until hasMore=false to enumerate every lifetime. " +
         "No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.")]
     public ProcessListResponse ListProcesses(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Sort order: 'cpu' (default), 'wall', or 'wait_ratio'")] string orderBy = "cpu",
         [Description("Maximum rows in this page (default 50, max 1000). Repeat unchanged with cursor.")] int top = 50,
         [Description("Include PID 0 (Idle) and PID 4 (System); default false")] bool includeSystem = false,
@@ -1474,7 +1473,7 @@ public sealed class MetaTools
         Validation.RequireTop(top);
         Validation.RequireText(orderBy);
         orderBy = orderBy.ToLowerInvariant();
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var facts = traceLease.GetFacts(cancellationToken);
         var rows = facts.Processes
             .Where(row => includeSystem || (row.Pid != 0 && row.Pid != 4))
@@ -1513,7 +1512,7 @@ public sealed class MetaTools
             ("includeSystem", includeSystem ? "true" : "false"));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.ListProcessesTool,
             query,
             TimelinePagination.ListProcessesOrdering(orderBy));
@@ -1553,7 +1552,7 @@ public sealed class MetaTools
         "ScopeStatus/NoDataReason=process_start_required with replayable candidates; conflicting lifetime " +
         "evidence returns ambiguous_process_instance. A missing exact parent lifetime returns scope_not_found.")]
     public ProcessCreateTimingResponse ProcessCreateTiming(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Parent process ID — the process whose CreateProcess calls you want timed.")]
         int parentPid,
         [Description("Maximum children to return in this page (default 50, max 1000). This does not change SpawnCount.")]
@@ -1567,7 +1566,7 @@ public sealed class MetaTools
         Validation.RequirePositivePid(parentPid);
         Validation.RequireThreadSelector(
             parentPid, tid: null, processStartUs, threadStartUs: null);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var query = TimelinePagination.CanonicalQuery(
             TimelinePagination.ProcessCreateTimingTool,
@@ -1576,7 +1575,7 @@ public sealed class MetaTools
             ("pageSize", TimelinePagination.Number(pageSize)));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.ProcessCreateTimingTool,
             query,
             TimelinePagination.ProcessCreateTimingOrdering);
@@ -1602,7 +1601,7 @@ public sealed class MetaTools
         "per-PID thread lifecycle timeline; timestamps identify the interval boundaries. A missing exact " +
         "lifetime returns ScopeStatus=scope_not_found rather than falling back to another instance.")]
     public ThreadLifetimeResponse ThreadLifetime(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Process ID")] int pid,
         [Description("Maximum threads to return in this page (default 200, max 1000). This does not change TotalThreads.")] int pageSize = 200,
         [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple clean lifetimes; otherwise process_start_required returns candidate keys.")]
@@ -1614,7 +1613,7 @@ public sealed class MetaTools
         Validation.RequirePositivePid(pid);
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var query = TimelinePagination.CanonicalQuery(
             TimelinePagination.ThreadLifetimeTool,
@@ -1623,7 +1622,7 @@ public sealed class MetaTools
             ("pageSize", TimelinePagination.Number(pageSize)));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.ThreadLifetimeTool,
             query,
             TimelinePagination.ThreadLifetimeOrdering);

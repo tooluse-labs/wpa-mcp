@@ -90,7 +90,7 @@
       "toolCount": 62,
       "pageCount": 3,
       "configuredFrameCapBytes": 87542,
-      "maximumObservedPageFrameBytes": 86014,
+      "maximumObservedPageFrameBytes": 86043,
       "pages": [
         {
           "pageIndex": 0,
@@ -98,7 +98,7 @@
           "firstTool": "list_capabilities",
           "lastTool": "heap_alloc_top_stacks",
           "hasMore": true,
-          "frameBytes": 86014
+          "frameBytes": 86043
         },
         {
           "pageIndex": 1,
@@ -106,7 +106,7 @@
           "firstTool": "image_load_caller_callee",
           "lastTool": "registry_caller_callee",
           "hasMore": true,
-          "frameBytes": 84163
+          "frameBytes": 84533
         },
         {
           "pageIndex": 2,
@@ -114,7 +114,7 @@
           "firstTool": "registry_top_stacks",
           "lastTool": "thread_lifetime",
           "hasMore": false,
-          "frameBytes": 38883
+          "frameBytes": 38949
         }
       ],
       "structuredToolNames": [
@@ -181,8 +181,8 @@
         "process_create_timing",
         "thread_lifetime"
       ],
-      "resultBytes": 208790,
-      "resultSha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa"
+      "resultBytes": 209255,
+      "resultSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4"
     },
     "stdoutLineCount": 128,
     "allStdoutLinesWereJson": true,
@@ -191,7 +191,7 @@
   "privacyScenario": {
     "case": "strict_privacy_profile",
     "arguments": {
-      "path": "\u003CTRACE_ID\u003E"
+      "traceId": "\u003CTRACE_ID\u003E"
     },
     "terminal": "tool_error_result",
     "contractStatus": "failed",
@@ -398,7 +398,7 @@
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
           "normalizedCompactFrameBytes": 66970,
-          "normalizedCompactFrameSha256": "0f3fff688a83488ef0d925c5633bdee10af078855ad4877f194f7c8f45ba6b59",
+          "normalizedCompactFrameSha256": "1f50c672a63bd272df2c3a98a2869ec29fa241c99301b0d15e9154330483297a",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -423,7 +423,7 @@
               }
             ],
             "structuredContentBytes": 27779,
-            "structuredContentSha256": "06631f98b8da7cad6ef6ef3de2401b5aa728690475dd5732efa3e55a872a82ff",
+            "structuredContentSha256": "68acae1d81bc30926c7d8058ed805b13f6b198446e6be8e52c2864ff3eebc6db",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -447,7 +447,7 @@
                 "itemCount": null,
                 "propertyCount": 15,
                 "bytes": 25141,
-                "sha256": "3afaa7255fba4b472af68c602182712eb107773c6d5b343c5257f977eb05cc47"
+                "sha256": "2d511e0574e035e2399d7e247fecd61b7f30cb010f1cc754de17431b3e361c82"
               },
               {
                 "name": "error",
@@ -790,7 +790,7 @@
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
           "normalizedCompactFrameBytes": 33964,
-          "normalizedCompactFrameSha256": "3accc0091b22f23bbdda8a75c8b45e7515bdc711dfe7ae4897c6da6d22fbf32b",
+          "normalizedCompactFrameSha256": "a67db3b9f96501bea386289f3701190b178091bcf52ccbb9a615c14fd38236a6",
           "response": {
             "jsonrpc": "2.0",
             "id": "get_tool_contract-primary",
@@ -815,7 +815,7 @@
               }
             ],
             "structuredContentBytes": 15778,
-            "structuredContentSha256": "556572095d71bb9fdf66569060e579a254a1077c120a9fbc727251ff4c7a17ad",
+            "structuredContentSha256": "3124011f80378c36a313455cf58ed484ab8882fe2ddd36e718e58ddb1d7f9ee5",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -839,7 +839,7 @@
                 "itemCount": null,
                 "propertyCount": 12,
                 "bytes": 13691,
-                "sha256": "214e07a39ea791cfffb313a3bc8551ad8601926f14ef62704b92bd5c7e3b98fa"
+                "sha256": "f98c68aadbde47f77c02f594a5d321731bfe8c62b7340d2eb107767956801ffd"
               },
               {
                 "name": "error",
@@ -1164,13 +1164,13 @@
     },
     {
       "name": "inspect_trace",
-      "outputSchemaBytes": 71797,
-      "outputSchemaSha256": "910aca43c36dec20b6d0d44ca9b33ad9b0c6fe86ed8bd7f198bf2e2079ee9588",
+      "outputSchemaBytes": 71796,
+      "outputSchemaSha256": "5321d837d8581663c6b507886440dcfbd924ede88297ebe3304db83050742739",
       "cases": [
         {
           "case": "inspect_loaded_fixture_by_trace_id",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -1359,7 +1359,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -1559,7 +1559,7 @@
         {
           "case": "list_loaded_fixture_process_instances",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -1751,7 +1751,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -1946,13 +1946,13 @@
     },
     {
       "name": "load_trace",
-      "outputSchemaBytes": 42384,
-      "outputSchemaSha256": "0d3700b0e06a130ea2f2e1930a38c3f4a83cbb5776fc827d867ffc76262ed4c6",
+      "outputSchemaBytes": 42383,
+      "outputSchemaSha256": "04daec5fafe6e513d67de0ecfcace301b69d5a0b86a8f93dcda8bf1bf20e8a8d",
       "cases": [
         {
           "case": "load_fixture_into_owned_artifact_store",
           "arguments": {
-            "path": "\u003CTRACE_PATH\u003E"
+            "tracePath": "\u003CTRACE_PATH\u003E"
           },
           "terminal": "success_result",
           "contractStatus": "succeeded",
@@ -1963,8 +1963,8 @@
           "missingTopLevelRequiredProperties": [],
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
-          "normalizedCompactFrameBytes": 31303,
-          "normalizedCompactFrameSha256": "694355236f894978d64e0ee6db1f3671b895a04bd2ab565275f66434999f2027",
+          "normalizedCompactFrameBytes": 31309,
+          "normalizedCompactFrameSha256": "02c89920403bc117484ce92649d7135ff56ed0af306887265f8ef8a086eb5c8b",
           "response": {
             "jsonrpc": "2.0",
             "id": "load_trace-primary",
@@ -1988,8 +1988,8 @@
                 "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
               }
             ],
-            "structuredContentBytes": 12129,
-            "structuredContentSha256": "6dc6d283c335cf3cd16014c6b0df65fd934dff9b616d1589f454e5e90b928c83",
+            "structuredContentBytes": 12132,
+            "structuredContentSha256": "29aa1145c2a30a8156be737d83ec6582c00cfdf63fba34be843d3705c7b1d96f",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -2012,8 +2012,8 @@
                 "kind": "object",
                 "itemCount": null,
                 "propertyCount": 11,
-                "bytes": 9893,
-                "sha256": "170a25225e2352c7452b1b8e569c664642b92990152ac0c192fdfd85ffee3195"
+                "bytes": 9896,
+                "sha256": "a5d6f6d8520454a70671bc0690d610661c1b5faee5ee381b04df50bd80129ae7"
               },
               {
                 "name": "error",
@@ -2143,7 +2143,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_DIR\u003E\\source\\missing.etl"
+            "tracePath": "\u003CTRACE_DIR\u003E\\source\\missing.etl"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -2343,7 +2343,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -2538,7 +2538,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -2740,7 +2740,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -2934,7 +2934,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -3135,7 +3135,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -3330,7 +3330,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -3532,7 +3532,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -3726,7 +3726,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -3927,7 +3927,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -4122,7 +4122,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -4324,7 +4324,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -4518,7 +4518,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -4719,7 +4719,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "success_result",
           "contractStatus": "succeeded",
@@ -4912,7 +4912,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -5112,7 +5112,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "success_result",
           "contractStatus": "succeeded",
@@ -5305,7 +5305,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -5505,7 +5505,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "success_result",
           "contractStatus": "succeeded",
@@ -5698,7 +5698,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E"
+            "traceId": "\u003CTRACE_ID\u003E"
           },
           "terminal": "tool_error_result",
           "contractStatus": "failed",
@@ -5898,7 +5898,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -6092,7 +6092,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -6293,7 +6293,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -6488,7 +6488,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -6690,7 +6690,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -6884,7 +6884,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -7085,7 +7085,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pids": [
               -1
             ],
@@ -7286,7 +7286,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pids": [
               -1
             ],
@@ -7494,7 +7494,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "maxCandidates": 1,
             "topStacks": 1,
             "topReadyStacks": 1,
@@ -7688,7 +7688,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "maxCandidates": 1,
             "topStacks": 1,
             "topReadyStacks": 1,
@@ -7893,7 +7893,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "maxCandidates": 1
           },
           "terminal": "success_result",
@@ -8085,7 +8085,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "maxCandidates": 1
           },
           "terminal": "tool_error_result",
@@ -8286,7 +8286,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "startUs": 0,
             "endUs": 499998,
             "top": 1
@@ -8482,7 +8482,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "startUs": 0,
             "endUs": 499998,
             "top": 1
@@ -8685,7 +8685,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "tid": 2147483647,
             "windows": [
@@ -8894,7 +8894,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "tid": 2147483647,
             "windows": [
@@ -9110,7 +9110,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -9305,7 +9305,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -9507,7 +9507,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -9701,7 +9701,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -9902,7 +9902,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -10097,7 +10097,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -10299,7 +10299,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -10493,7 +10493,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -10694,7 +10694,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -10889,7 +10889,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -11091,7 +11091,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "processStartUs": 0
           },
@@ -11286,7 +11286,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "processStartUs": 0
           },
@@ -11488,7 +11488,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "top": 1,
             "processStartUs": 0
@@ -11684,7 +11684,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "top": 1,
             "processStartUs": 0
@@ -11887,7 +11887,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -12081,7 +12081,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -12282,7 +12282,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -12477,7 +12477,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -12679,7 +12679,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -12873,7 +12873,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -13074,7 +13074,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -13269,7 +13269,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -13471,7 +13471,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -13665,7 +13665,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -13866,7 +13866,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -14060,7 +14060,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -14261,7 +14261,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -14456,7 +14456,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -14658,7 +14658,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -14852,7 +14852,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -15835,7 +15835,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -16029,7 +16029,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -16230,7 +16230,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -16425,7 +16425,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -16627,7 +16627,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -16821,7 +16821,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -17022,7 +17022,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -17216,7 +17216,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -17417,7 +17417,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -17612,7 +17612,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -17814,7 +17814,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -18008,7 +18008,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -18209,7 +18209,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -18404,7 +18404,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -18606,7 +18606,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -18800,7 +18800,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -19001,7 +19001,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -19195,7 +19195,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -19396,7 +19396,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "providerName": "__wpa_mcp_missing_provider__",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
@@ -19592,7 +19592,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "providerName": "__wpa_mcp_missing_provider__",
             "focusFunction": "__wpa_mcp_missing_focus__",
             "top": 1
@@ -19795,7 +19795,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "providerName": "__wpa_mcp_missing_provider__",
             "top": 1
           },
@@ -19990,7 +19990,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "providerName": "__wpa_mcp_missing_provider__",
             "top": 1
           },
@@ -20192,7 +20192,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -20387,7 +20387,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -20589,7 +20589,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -20783,7 +20783,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -20984,7 +20984,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -21176,7 +21176,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -21377,7 +21377,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -21572,7 +21572,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -21774,7 +21774,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -21966,7 +21966,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -22167,7 +22167,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -22359,7 +22359,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -22560,7 +22560,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -22755,7 +22755,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "function": "__wpa_mcp_missing_focus__",
             "top": 1
           },
@@ -22957,7 +22957,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -23149,7 +23149,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -23350,7 +23350,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "success_result",
@@ -23544,7 +23544,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "top": 1
           },
           "terminal": "tool_error_result",
@@ -23745,7 +23745,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "nameSubstring": "__wpa_mcp_missing_marker__",
             "top": 1
           },
@@ -23940,7 +23940,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "nameSubstring": "__wpa_mcp_missing_marker__",
             "top": 1
           },
@@ -24142,7 +24142,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "parentPid": -1
           },
           "terminal": "tool_error_result",
@@ -24336,7 +24336,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "parentPid": -1
           },
           "terminal": "tool_error_result",
@@ -24537,7 +24537,7 @@
         {
           "case": "loaded_fixture_contract_case",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "processStartUs": 0
           },
@@ -24732,7 +24732,7 @@
         {
           "case": "stable_failed_boundary",
           "arguments": {
-            "path": "\u003CTRACE_ID\u003E",
+            "traceId": "\u003CTRACE_ID\u003E",
             "pid": -1,
             "processStartUs": 0
           },

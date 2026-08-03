@@ -378,7 +378,6 @@ public static class Program
                 responseBudget: responseBudget,
                 privacy: redactor,
                 argumentRewriter: new ToolArgumentRewriter(taxonomy, aliases));
-            catalog = catalog.ProjectTraceReferenceProfile(traceAccessMode, serverTools);
             var policyProjection = catalog.ProjectCapabilityPolicy(
                 capabilityPolicy,
                 serverTools);

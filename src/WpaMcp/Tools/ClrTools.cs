@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -34,7 +34,7 @@ public sealed class ClrTools
         "unmatched and identity-unresolved fields must not be interchanged. Each row also carries Generation and Reason. Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the GC keyword in the capture profile.")]
     public GcAnalysisResponse ClrGcAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Filter to a single process ID (recommended — without it, all PIDs share rows)")]
         int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -45,7 +45,7 @@ public sealed class ClrTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -71,7 +71,7 @@ public sealed class ClrTools
         "here — which is correct for 'what's the JIT cost in this trace'.  Requires " +
         "Microsoft-Windows-DotNETRuntime ETW provider with the JIT keyword.")]
     public JitAnalysisResponse ClrJitAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Top N methods by JIT duration (default 50, max 1000)")] int top = 50,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -83,7 +83,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -100,7 +100,7 @@ public sealed class ClrTools
         "allocated type names by total bytes).  Requires Microsoft-Windows-DotNETRuntime " +
         "with the GC keyword.")]
     public ClrAllocStacksResponse ClrAllocTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N stacks by exclusive allocation bytes (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -119,7 +119,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -136,7 +136,7 @@ public sealed class ClrTools
         "Metric is allocation bytes; top-N callers ranked by inclusive bytes flowing INTO " +
         "focus, callees by bytes OUT.")]
     public CallerCalleeResponse ClrAllocCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -151,7 +151,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -170,7 +170,7 @@ public sealed class ClrTools
         "includes TopTypes (top exception type names by count).  Requires " +
         "Microsoft-Windows-DotNETRuntime with the Exception keyword.")]
     public ClrExceptionStacksResponse ClrExceptionTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N stacks by exclusive exception count (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -189,7 +189,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -206,7 +206,7 @@ public sealed class ClrTools
         "Metric is exception count; top-N callers ranked by inclusive count flowing INTO " +
         "focus, callees by count OUT.")]
     public CallerCalleeResponse ClrExceptionCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -221,7 +221,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -243,7 +243,7 @@ public sealed class ClrTools
         "from the same provider is excluded.  Requires Microsoft-Windows-DotNETRuntime with " +
         "the Contention keyword.")]
     public ClrContentionStacksResponse ClrContentionTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N stacks by exclusive blocked μs (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -262,7 +262,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -279,7 +279,7 @@ public sealed class ClrTools
         "source.  Metric is blocked μs; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
     public CallerCalleeResponse ClrContentionCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Exact case-sensitive function name; copy it verbatim from the corresponding top-stacks result.")] string focusFunction,
         [Description("Top N callers / callees (default 20, max 1000)")] int top = 20,
         [Description("Filter to a single process ID")] int? pid = null,
@@ -294,7 +294,7 @@ public sealed class ClrTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(focusFunction);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -319,7 +319,7 @@ public sealed class ClrTools
         "Microsoft-Windows-DotNETRuntime with the GC keyword. A missing exact instance returns " +
         "scope_not_found rather than falling back.")]
     public GcHeapStatsResponse ClrGcHeapStats(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -329,7 +329,7 @@ public sealed class ClrTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -348,7 +348,7 @@ public sealed class ClrTools
         "site; clr_alloc_top_stacks can supply separate allocator evidence. Requires " +
         "Microsoft-Windows-DotNETRuntime with the GC keyword.")]
     public FinalizerAnalysisResponse ClrFinalizerAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Filter to a single process ID (recommended)")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -358,7 +358,7 @@ public sealed class ClrTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireThreadSelector(
             pid, tid: null, processStartUs, threadStartUs: null);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

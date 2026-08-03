@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -203,137 +203,6 @@ internal sealed class ActiveToolCatalog
         CreateServerTools(services, optionsFactory).Select(tool => tool.ProtocolTool).ToArray();
 
     /// <summary>
-    /// Projects the explicitly enabled raw-path migration profile before any
-    /// tools/list preflight, cursor binding, or structured-output snapshot is
-    /// created. The reviewed secure-default catalog remains immutable.
-    /// </summary>
-    internal ActiveToolCatalog ProjectTraceReferenceProfile(
-        TraceAccessMode mode,
-        IReadOnlyList<McpServerTool> serverTools)
-    {
-        ArgumentNullException.ThrowIfNull(serverTools);
-        if (mode == TraceAccessMode.IdOnly)
-            return this;
-
-        var analysisNames = _tools
-            .Where(tool => tool.ToolName is not ("load_trace" or "unload_trace") &&
-                tool.Method.GetParameters().Any(parameter =>
-                    string.Equals(parameter.Name, "path", StringComparison.Ordinal)))
-            .Select(tool => tool.ToolName)
-            .ToHashSet(StringComparer.Ordinal);
-        var protocolByName = serverTools.ToDictionary(
-            tool => tool.ProtocolTool.Name,
-            StringComparer.Ordinal);
-        foreach (var name in analysisNames)
-        {
-            if (!protocolByName.TryGetValue(name, out var serverTool))
-            {
-                throw new CatalogValidationException(
-                    $"TRACE-PROFILE: projected tool {name} has no protocol binding");
-            }
-
-            var protocolTool = serverTool.ProtocolTool;
-            protocolTool.Annotations = new ModelContextProtocol.Protocol.ToolAnnotations
-            {
-                ReadOnlyHint = false,
-                IdempotentHint = true,
-                OpenWorldHint = false,
-                DestructiveHint = false,
-            };
-            var schema = JsonNode.Parse(protocolTool.InputSchema.GetRawText()) as JsonObject;
-            if (schema?["properties"]?["path"] is not JsonObject pathProperty)
-            {
-                throw new CatalogValidationException(
-                    $"TRACE-PROFILE: projected tool {name} has no path schema");
-            }
-            pathProperty["description"] =
-                "Canonical TraceId returned by load_trace (preferred), or an allowed absolute local .etl/.etlx source path only while the explicitly enabled compatibility profile remains available.";
-            pathProperty["pattern"] = ToolOpaqueLocatorInputOverlay.TraceOrCompatibilityPathPattern;
-            pathProperty["x-opaqueLocator"] = "trace_id_or_approved_absolute_etl_path";
-            protocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(
-                schema.ToJsonString(),
-                McpJsonUtilities.DefaultOptions);
-        }
-
-        var projectedCapabilityIds = _tools
-            .Where(tool => analysisNames.Contains(tool.ToolName))
-            .SelectMany(tool => tool.Capabilities)
-            .Select(capability => capability.CapabilityId)
-            .ToHashSet(StringComparer.Ordinal);
-        var capabilities = _capabilities.Select(capability =>
-                projectedCapabilityIds.Contains(capability.CapabilityId)
-                    ? capability with
-                    {
-                        SideEffectClass = ProjectTraceSideEffect(capability.SideEffectClass),
-                    }
-                    : capability)
-            .ToImmutableArray();
-        var capabilityById = capabilities.ToDictionary(
-            capability => capability.CapabilityId,
-            StringComparer.Ordinal);
-        var tools = _tools.Select(tool =>
-        {
-            var projectedCapabilities = tool.Capabilities
-                .Select(capability => capabilityById[capability.CapabilityId])
-                .ToImmutableArray();
-            if (!analysisNames.Contains(tool.ToolName))
-                return tool with { Capabilities = projectedCapabilities };
-            return tool with
-            {
-                Capabilities = projectedCapabilities,
-                Annotations = new ToolAnnotations(
-                    ReadOnlyHint: false,
-                    IdempotentHint: true,
-                    OpenWorldHint: false,
-                    DestructiveHint: false),
-                SideEffects = tool.SideEffects
-                    .Select(ProjectTraceSideEffect)
-                    .ToImmutableArray(),
-            };
-        }).ToImmutableArray();
-
-        var profilePayload = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            BaseCatalogVersion = CatalogVersion,
-            Profile = "raw_path_compatibility_until_1.0.0",
-            Capabilities = capabilities
-                .Select(capability => new
-                {
-                    capability.CapabilityId,
-                    capability.SideEffectClass,
-                })
-                .OrderBy(item => item.CapabilityId, StringComparer.Ordinal),
-            Tools = tools
-                .Select(tool => new
-                {
-                    tool.ToolName,
-                    tool.Annotations,
-                    tool.SideEffects,
-                })
-                .OrderBy(item => item.ToolName, StringComparer.Ordinal),
-            SdkTools = serverTools
-                .Select(tool => tool.ProtocolTool)
-                .Select(tool => JsonSerializer.SerializeToElement(
-                    tool,
-                    McpJsonUtilities.DefaultOptions)),
-        }, ManifestJsonOptions);
-        var profileVersion = Convert.ToHexString(SHA256.HashData(profilePayload))
-            .ToLowerInvariant();
-        return new ActiveToolCatalog(
-            tools,
-            tools,
-            capabilities,
-            _goals,
-            _workflows,
-            _evaluators,
-            profileVersion,
-            CatalogScope,
-            ExhaustiveForWpa,
-            UnlistedCapabilityMeaning,
-            CapabilityPolicyProfile.Full);
-    }
-
-    /// <summary>
     /// Applies the startup administrative capability policy after all reviewed
     /// contract projections have completed. Disabled mappings remain in
     /// <see cref="AllTools"/>, while <see cref="Tools"/> and the SDK surface
@@ -384,9 +253,9 @@ internal sealed class ActiveToolCatalog
 
         var inspectRetained = activeNames.Contains("inspect_trace");
         var traceAnalysisRetained = activeTools.Any(tool =>
-            tool.ToolName is not ("load_trace" or "unload_trace" or "inspect_trace") &&
+            tool.ToolName is not ("load_trace" or "unload_trace" or "inspect_trace" or "prepare_symbols") &&
             tool.Method.GetParameters().Any(parameter =>
-                string.Equals(parameter.Name, "path", StringComparison.Ordinal)));
+                string.Equals(parameter.Name, "traceId", StringComparison.Ordinal)));
         if (traceAnalysisRetained && !inspectRetained)
         {
             throw new CatalogValidationException(
@@ -464,14 +333,6 @@ internal sealed class ActiveToolCatalog
             }
         }
     }
-
-    private static string ProjectTraceSideEffect(string sideEffect) =>
-        sideEffect switch
-        {
-            "loaded_trace_query" => "raw_trace_query",
-            "loaded_trace_stack_query" => "raw_trace_stack_query",
-            _ => sideEffect,
-        };
 
     internal static string TypeIdentity(Type type)
     {

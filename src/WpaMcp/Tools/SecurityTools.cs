@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -26,7 +26,7 @@ public sealed class SecurityTools
         "Use this after find_marker shows scan/security events, or when file/CPU/wait analysis " +
         "suggests AV/EDR interference.")]
     public SecurityScanAnalysisResponse SecurityScanAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N target/provider rows and slow scan rows (default 50, max 1000)")] int top = 50,
         [Description("Filter by payload target PID (not provider/emitter PID); events without a payload target PID use only the explicitly reported emitter fallback")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -49,7 +49,7 @@ public sealed class SecurityTools
             Validation.RequireText(pathSubstring, allowEmpty: true);
         if (providerSubstring is not null)
             Validation.RequireText(providerSubstring, allowEmpty: true);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

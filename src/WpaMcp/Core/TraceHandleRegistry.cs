@@ -1179,43 +1179,10 @@ internal sealed class TraceReferenceResolver(
                 []);
         }
 
-        if (mode == TraceAccessMode.IdOnly)
-        {
-            throw new TraceReferenceException(
-                "invalid_argument",
-                "Secure trace access requires a canonical trace ID.",
-                detailCode: "raw_path_not_allowed");
-        }
-
-        var loaded = _lifecycle is null
-            ? _registry.Load(
-                principal,
-                traceReference,
-                cancellationToken: cancellationToken)
-            : _lifecycle.Load(
-                principal,
-                traceReference,
-                cancellationToken: cancellationToken).Handle;
-        try
-        {
-            return new ResolvedTraceReference(
-                new TraceReferenceDescriptor(
-                    loaded.TraceId,
-                    TraceHandlePersistence.Persistent,
-                    LoadedFromRawPath: true,
-                    loaded.SourceGenerationAssurance,
-                    CanonicalHandleCreated: !loaded.ReusedExisting),
-                _registry.Acquire(principal, loaded.TraceId, cancellationToken),
-                ["raw_trace_path_deprecated"]);
-        }
-        catch
-        {
-            // A failed compatibility resolution must not leave a newly created,
-            // undisclosed persistent handle behind.
-            if (!loaded.ReusedExisting)
-                _registry.Unload(principal, loaded.TraceId);
-            throw;
-        }
+        throw new TraceReferenceException(
+            "invalid_argument",
+            "Trace queries require the canonical traceId returned by load_trace.",
+            detailCode: "raw_path_not_allowed");
     }
 
     internal void RollbackUndeliveredCompatibilityHandle(

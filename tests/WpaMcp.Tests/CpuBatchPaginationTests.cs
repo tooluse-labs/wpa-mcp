@@ -68,7 +68,7 @@ public sealed class CpuBatchPaginationTests
         {
             var arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+                ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
                 ["pids"] = JsonSerializer.SerializeToElement(pids),
                 ["top"] = JsonSerializer.SerializeToElement(12),
                 ["excludeEtwSelfOverhead"] = JsonSerializer.SerializeToElement(true),

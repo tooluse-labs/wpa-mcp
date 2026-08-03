@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Diagnostics.Symbols;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -87,13 +87,13 @@ public sealed class SymbolTools
         "the response recommends running the target stack tool after fixing the path to measure actual frame-name resolution. No startUs/endUs: module symbol status " +
         "is a whole-trace image/module property.")]
     public DiagnoseSymbolsResponse DiagnoseSymbols(
-        [Description("Canonical TraceId returned by load_trace")] string path)
+        [Description("Canonical TraceId returned by load_trace")] string traceId)
     {
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var rows = new List<ModuleSymbolStatus>();
         var suggestions = new List<string>();
-        var canonicalTracePath = Path.GetFullPath(path);
+        var canonicalTracePath = Path.GetFullPath(traceId);
         var symbolPathSnapshot = SymbolPathState.GetSnapshot(canonicalTracePath);
         var configuredPath = symbolPathSnapshot.ConfiguredPath;
         var traceDirectory = Path.GetDirectoryName(canonicalTracePath) ?? "";

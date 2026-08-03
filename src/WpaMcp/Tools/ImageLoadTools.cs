@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -49,7 +49,7 @@ public sealed class ImageLoadTools
         "ProcessStartEvidenceState reports that boundary explicitly. " +
         "Use image_load_top_stacks for windowed stacks.")]
     public ImageLoadTimingResponse ImageLoadTiming(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Process ID")] int pid,
         [Description("Maximum image loads to return in this page (default 100, max 1000). This does not change TotalImageLoads.")] int pageSize = 100,
         [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes.")]
@@ -59,7 +59,7 @@ public sealed class ImageLoadTools
     {
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(pageSize);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var query = TimelinePagination.CanonicalQuery(
             TimelinePagination.ImageLoadTimingTool,
@@ -68,7 +68,7 @@ public sealed class ImageLoadTools
             ("pageSize", TimelinePagination.Number(pageSize)));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.ImageLoadTimingTool,
             query,
             TimelinePagination.ImageLoadTimingOrdering);
@@ -87,7 +87,7 @@ public sealed class ImageLoadTools
         "structured process_start_required with candidate keys; conflicting lifetime evidence returns " +
         "ambiguous_process_instance, and a missing exact instance returns scope_not_found.")]
     public ImageLoadTopGapsResponse ImageLoadTopGaps(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Process ID")] int pid,
         [Description("Top N gap rows (default 20, max 1000)")] int top = 20,
         [Description("Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes.")]
@@ -95,7 +95,7 @@ public sealed class ImageLoadTools
     {
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         return ImageLoadAnalysis.TopGaps(trace, pid, top, processStartUs);
     }
@@ -108,7 +108,7 @@ public sealed class ImageLoadTools
         "profile; default WPR profiles include it. StackCoverage is ImageLoad-only; ?!? is " +
         "synthetic unknown evidence, not a captured loader call chain.")]
     public ImageLoadStacksResponse ImageLoadTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -129,7 +129,7 @@ public sealed class ImageLoadTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -147,7 +147,7 @@ public sealed class ImageLoadTools
         "by loads flowing OUT to them. This is associated stack evidence for calls into loader " +
         "frames; it does not prove the higher-level cause of each load.")]
     public CallerCalleeResponse ImageLoadCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in image_load_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -163,7 +163,7 @@ public sealed class ImageLoadTools
         Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

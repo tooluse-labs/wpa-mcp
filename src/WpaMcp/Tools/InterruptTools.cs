@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -28,7 +28,7 @@ public sealed class InterruptTools
         "baseline; this tool does not impose a universal healthy threshold or infer driver fault. Requires Interrupt + " +
         "DPC keywords (default WPR 'CPU' profiles enable both).")]
     public InterruptStacksResponse InterruptTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
         [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
@@ -45,7 +45,7 @@ public sealed class InterruptTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -61,7 +61,7 @@ public sealed class InterruptTools
         "interrupt time in microseconds; top-N callers ranked by inclusive μs flowing INTO " +
         "focus, callees by μs OUT.")]
     public CallerCalleeResponse InterruptCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in interrupt_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -73,7 +73,7 @@ public sealed class InterruptTools
         var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

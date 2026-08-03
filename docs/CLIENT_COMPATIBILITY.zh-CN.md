@@ -91,8 +91,8 @@ physical peak 现作为 0.4.x 显式接受的残余风险；runtime warning 和�
 
 | Runtime profile | 客户端预期 | 当前实现 |
 |---|---|---|
-| Contract 2.0 + ID-only | lean discovery + 按需 closed envelope contract；`load_trace`/TraceId lifecycle | 0.4.x 发布 profile |
-| Contract 2.0 + raw compatibility | 同一 discovery/contract 投影；raw path 已弃用并可能创建 canonical handle | 仅显式启动兼容；1.0 删除 |
-| Legacy + 任一 trace mode | 没有已发布 compatibility contract；Phase 0 golden 只作 regression evidence | 不支持；启动 fail closed，但不阻断 Contract 2.0 发布 |
+| Contract 2.0 + canonical TraceId | lean discovery + 按需 closed envelope contract；`load_trace(tracePath)` 后使用 `traceId` 查询 | 当前 `0.6.x` contract |
+| Raw-path 查询兼容 | 不再暴露；path 只能作为 `load_trace.tracePath` | `0.6.0` 删除 |
+| Legacy result contract | 没有已发布 compatibility contract；Phase 0 golden 只作 regression evidence | 不支持；启动 fail closed |
 
-版本默认值和删除日期见 `CONTRACT_MIGRATION.zh-CN.md` 与 ADR 0005。
+破坏性输入迁移见 `CONTRACT_MIGRATION.zh-CN.md` 与 ADR 0006。

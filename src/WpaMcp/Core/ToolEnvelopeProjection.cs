@@ -413,11 +413,8 @@ internal static class ToolEnvelopeProjection
         IReadOnlyDictionary<string, JsonElement>? arguments)
     {
         var current = TraceQueryExecutionContext.CurrentReference;
-        var lifecycleTraceId = tool.ToolName is "prepare_symbols" or "unload_trace"
-            ? ReadArgumentString(arguments, "traceId")
-            : null;
-        var traceId = current?.TraceId ?? ReadString(root, "traceId") ?? lifecycleTraceId ??
-            ReadArgumentString(arguments, "path");
+        var traceId = current?.TraceId ?? ReadString(root, "traceId") ??
+            ReadArgumentString(arguments, "traceId");
         if (traceId is null || !traceId.StartsWith("trc_", StringComparison.Ordinal))
             return null;
         var symbolContextId = SymbolQueryExecutionContext.CurrentSymbolContextId ??

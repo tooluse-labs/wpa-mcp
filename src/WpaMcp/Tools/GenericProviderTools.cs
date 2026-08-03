@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -29,7 +29,7 @@ public sealed class GenericProviderTools
         "them, every sample lands on the leaf frame and the view confirms the provider fired " +
         "but doesn't trace the call chain.")]
     public GenericEventStacksResponse GenericEventTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Exact provider name (e.g., 'Microsoft-AspNetCore-Hosting')")] string providerName,
         [Description("Optional event-name substring (case-insensitive). Empty / null = all events from the provider.")] string? eventNameSubstring = null,
         [Description("Top N stacks by exclusive event count (default 50, max 1000)")] int top = 50,
@@ -53,7 +53,7 @@ public sealed class GenericProviderTools
         Validation.RequireProviderName(providerName);
         if (eventNameSubstring is not null)
             Validation.RequireText(eventNameSubstring, allowEmpty: true);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -70,7 +70,7 @@ public sealed class GenericProviderTools
         "Same provider + event-name filtering as generic_event_top_stacks.  Metric is event " +
         "count; top-N callers ranked by inclusive count flowing INTO focus, callees by count OUT.")]
     public CallerCalleeResponse GenericEventCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Exact provider name")] string providerName,
         [Description("Exact case-sensitive function name; copy it verbatim from generic_event_top_stacks.")] string focusFunction,
         [Description("Optional event-name substring. Empty / null = all events from the provider.")] string? eventNameSubstring = null,
@@ -90,7 +90,7 @@ public sealed class GenericProviderTools
         Validation.RequireProviderName(providerName);
         if (eventNameSubstring is not null)
             Validation.RequireText(eventNameSubstring, allowEmpty: true);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

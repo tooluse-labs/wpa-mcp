@@ -4,6 +4,8 @@
 - Decision date: 2026-08-01
 - Amended: 2026-08-02 — explicit 0.4.x acceptance of the opaque converter
   transient physical-peak residual risk
+- Amended: 2026-08-03 — ADR 0006 replaces staged query references with
+  canonical `traceId` inputs; raw paths now enter only through `load_trace`
 - Decision source: implementation authorization through `/goal`
 - Amends: ADR 0002 and the approved trace access/lifecycle plans
 - Implementation status: not complete
@@ -44,9 +46,7 @@ policy validation -> safe source handle -> same-object/source snapshot identity
 -> TraceGenerationKey single-flight -> immutable artifact/backend publication
 ```
 
-All concurrent loads, compatibility path queries, and composite subcalls for one generation share exactly one conversion and backend construction. Each caller holds a lease. Failure or cancellation publishes neither a half-initialized registry entry nor an incomplete artifact and releases every reservation.
-
-Compatibility raw-path queries route through the same loader and return the canonical trace reference in their result. They do not create hidden permanent handles. A composite resolves its trace once and shares one generation lease and facts snapshot across its logical analyzers.
+All concurrent loads and composite subcalls for one generation share exactly one conversion and backend construction. Each caller holds a lease. Failure or cancellation publishes neither a half-initialized registry entry nor an incomplete artifact and releases every reservation. A composite resolves its `traceId` once and shares one generation lease and facts snapshot across its logical analyzers.
 
 The production registry and the `load_trace`/`unload_trace` handle operations are implemented. The declared `lifecycle.trace.handle` capability nevertheless remains a product gap because there is no independent callable handle-status/inspection surface with a capability-keyed runtime outcome. A load or unload result proves only that operation's scoped outcome; it does not expose a principal's active-handle inventory, lease state, expiry state, or generation-status view.
 
@@ -84,7 +84,7 @@ Trace facts exclude local symbol readiness and frame resolution. Those measureme
 
 ### 7. Secure-default surface and annotations
 
-The staged input modes are `compatibility` and `id_only`. In compatibility, query parameter name `path` temporarily accepts an allowed raw path or TraceId and all query annotations describe the worst reachable path behavior. In secure-default `id_only`, analysis queries accept only loaded TraceIds; the next breaking surface may rename the parameter to `traceId`.
+`load_trace(tracePath)` is the only raw trace-source entry. Every analysis query accepts a canonical `traceId`; a path-shaped query value fails before filesystem access. ADR 0006 removes the former compatibility profile and makes the public method signature, generated MCP schema, runtime resolver, and output metadata use the same identifier name.
 
 Final annotation invariants are:
 

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -42,7 +42,7 @@ public sealed class CpuTools
         "keyword (default WPR 'CPU' / 'CPU.light' profiles include it). StackCoverage reports " +
         "the selected CPU domain only; ?!? is synthetic unknown evidence, not a captured call chain.")]
     public CpuTopFunctionsResponse CpuTopFunctions(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -66,7 +66,7 @@ public sealed class CpuTools
         Validation.RequireThreadSelector(
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -94,7 +94,7 @@ public sealed class CpuTools
         "for ready latency. Exact process/thread selectors that do not exist return a structured " +
         "scope_not_found response; PID-only scopes explicitly report reused-lifetime aggregation.")]
     public CpuPreciseResponse CpuPreciseAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N thread rows by on-CPU microseconds (default 50, max 1000)")] int top = 50,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -112,7 +112,7 @@ public sealed class CpuTools
         Validation.RequireThreadSelector(
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -138,7 +138,7 @@ public sealed class CpuTools
         "an empty CPU sample set does not prove that CPU sampling was disabled. ScopeResults is cursor-paged " +
         "as complete per-selector semantic rows; continuation reuses the first call's immutable snapshot.")]
     public CpuTopFunctionsBatchResponse CpuTopFunctionsBatch(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Process IDs to analyze (must be non-empty)")] int[] pids,
         [Description("Top N rows per PID (default 30, max 1000)")] int top = 30,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -164,7 +164,7 @@ public sealed class CpuTools
         Validation.RequireTop(pageSize);
         Validation.RequireTimeBudgetMs(timeBudgetMs);
 
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var query = TimelinePagination.CanonicalQuery(
             TimelinePagination.CpuTopFunctionsBatchTool,
             ("pids", string.Join(",", selectors.Select(selector =>
@@ -181,7 +181,7 @@ public sealed class CpuTools
             ("pageSize", TimelinePagination.Number(pageSize)));
         var context = TimelinePagination.CreateContext(
             traceLease,
-            path,
+            traceId,
             TimelinePagination.CpuTopFunctionsBatchTool,
             query,
             TimelinePagination.CpuTopFunctionsBatchOrdering);
@@ -251,7 +251,7 @@ public sealed class CpuTools
         "the 'Callers' / 'Callees' tabs of CPU Stacks. Recursion-safe: counts the leaf-most match " +
         "of focus per stack only.")]
     public CallerCalleeResponse CpuCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in cpu_top_functions output " +
                      "(case-sensitive; unresolved frames look like 'module!?').")]
         string function,
@@ -277,7 +277,7 @@ public sealed class CpuTools
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

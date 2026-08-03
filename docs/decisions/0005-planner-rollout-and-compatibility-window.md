@@ -5,6 +5,8 @@
 - Amended: 2026-08-02 — Contract 2.0-only rollout, lean discovery,
   non-blocking client observations, and explicit acceptance of the opaque
   converter transient-peak residual risk for 0.4.x
+- Superseded in part: ADR 0006 closes the raw-path query window in `0.6.0`
+  and replaces ambiguous query `path` inputs with canonical `traceId`
 - Decision source: implementation authorization through `/goal`
 - Depends on: ADR 0001, ADR 0003, ADR 0004
 - Implementation status: partially implemented; Contract 2.0 is the only result
@@ -28,6 +30,7 @@ The implementation and compatibility window are:
 | --- | --- | --- | --- |
 | `0.4.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | Phase 0–4 schemas, lean catalog, full-contract lookup, stdio and lifecycle security pass |
 | `0.5.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | capability map, migration docs, and deprecation telemetry pass |
+| `0.6.x` | contract `2.0` + canonical `traceId` queries | none | breaking input-schema, documentation, and reviewed-baseline closure |
 | `1.0.0` | contract `2.0` + ID-only only | none | one full `0.5.x` deprecation window, usage telemetry review, release gate |
 | contract `3.0` | exact string identifiers only | none | deprecated numeric projections removed with a separate breaking-contract changelog |
 
@@ -45,10 +48,10 @@ The runtime does **not** claim a legacy adapter exists. No released wpa-mcp
 version established the Phase 0 snapshot as a supported public result wire
 contract, so that snapshot is regression evidence, not a compatibility floor.
 `legacy` selection fails closed with an explicit unsupported status; missing
-legacy projection does not block a Contract 2.0-native `0.4.x` release. The 1.0
-gate for removing raw-path compatibility remains
-`release_blocked:no_reviewed_full_0.5.x_window_or_usage_telemetry_evidence`;
-it cannot be waived by environment configuration.
+legacy projection does not block a Contract 2.0-native `0.4.x` release. ADR
+0006 removes raw-path query compatibility in `0.6.0`. The separate 1.0
+historical gate remains relevant to the 1.0 release decision, but no longer
+keeps the unsafe query syntax callable in the `0.6.x` runtime.
 
 `releaseStatus` is not a vague "eligible subject to external gates" value.
 Known repository-wide blockers are listed separately as

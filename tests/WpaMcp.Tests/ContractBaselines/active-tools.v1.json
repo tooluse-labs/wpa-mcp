@@ -8,8 +8,8 @@
     "catalogBytes": 178923
   },
   "toolCount": 62,
-  "catalogBytes": 208790,
-  "catalogSha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa",
+  "catalogBytes": 209255,
+  "catalogSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
   "structuredToolNames": [
     "list_capabilities",
     "get_tool_contract",
@@ -157,7 +157,7 @@
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "InspectTrace",
       "returnType": "WpaMcp.Output.InspectTraceResponse",
-      "description": "Inspects a trace once and returns machine-readable orientation: capture capabilities, system metadata, provider counts, stackwalk completeness, trace-native PDB identity quality, quality warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. PlannerExecution reports this call\u0027s approved trace-facts operation, snapshot reuse mode, physical-pass participation, scan-count basis, phase durations, and budget termination; it never presents generation-history timing as current-call work. Stack recommendations require attached stacks in that exact event domain; unrelated global stacks never enable them. The AnalysisContract object supplies machine-readable rules for scope, counts, empty results, symbols, thread replay, and causal restraint. inspect_trace does not read _NT_SYMBOL_PATH, probe local PDB candidates, or run frame lookup; use prepare_symbols for startup-policy-approved immutable local readiness. Recommendations are capability-driven hints, not goal-specific rankings. The default ID-only profile reads an already loaded immutable generation and never converts a caller path. When raw-path compatibility is explicitly enabled, the server advertises conservative profile-specific annotations instead. domain/goal filters and qrc_ cursor pages are bound to the principal, immutable trace generation, catalog, privacy profile, normalized query, and stable capability-then-workflow ordering. Only the first page carries the large orientation blocks; every continuation retains the trace evidence boundaries and declares evidence_continuation explicitly. No startUs/endUs: capabilities, metadata, provider counts, and PDB identity/configuration describe the whole trace.",
+      "description": "Inspects a trace once and returns machine-readable orientation: capture capabilities, system metadata, provider counts, stackwalk completeness, trace-native PDB identity quality, quality warnings, and capability-driven next-tool hints. Use when the capture profile is unknown, the analysis goal is unclear, or prior domain tools returned empty/low-confidence results. PlannerExecution reports this call\u0027s approved trace-facts operation, snapshot reuse mode, physical-pass participation, scan-count basis, phase durations, and budget termination; it never presents generation-history timing as current-call work. Stack recommendations require attached stacks in that exact event domain; unrelated global stacks never enable them. The AnalysisContract object supplies machine-readable rules for scope, counts, empty results, symbols, thread replay, and causal restraint. inspect_trace does not read _NT_SYMBOL_PATH, probe local PDB candidates, or run frame lookup; use prepare_symbols for startup-policy-approved immutable local readiness. Recommendations are capability-driven hints, not goal-specific rankings. Analysis reads an already loaded immutable generation by canonical traceId and never converts a caller path. domain/goal filters and qrc_ cursor pages are bound to the principal, immutable trace generation, catalog, privacy profile, normalized query, and stable capability-then-workflow ordering. Only the first page carries the large orientation blocks; every continuation retains the trace evidence boundaries and declares evidence_continuation explicitly. No startUs/endUs: capabilities, metadata, provider counts, and PDB identity/configuration describe the whole trace.",
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
@@ -167,7 +167,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -202,18 +202,18 @@
           "description": null
         }
       ],
-      "inputSchemaBytes": 853,
-      "inputSchemaSha256": "7c25393a172ec6e759813302f6b1b547743972657ba56ceb42942b4a14b10bac",
-      "outputSchemaBytes": 71797,
-      "outputSchemaSha256": "910aca43c36dec20b6d0d44ca9b33ad9b0c6fe86ed8bd7f198bf2e2079ee9588",
-      "toolBytes": 3230
+      "inputSchemaBytes": 859,
+      "inputSchemaSha256": "2c37f9c984d623171ffd537848ccd5a96265fe34786f1c3d235111bbc0714007",
+      "outputSchemaBytes": 71796,
+      "outputSchemaSha256": "5321d837d8581663c6b507886440dcfbd924ede88297ebe3304db83050742739",
+      "toolBytes": 3114
     },
     {
       "name": "list_processes",
       "declaringType": "WpaMcp.Tools.MetaTools",
       "method": "ListProcesses",
       "returnType": "WpaMcp.Output.ProcessListResponse",
-      "description": "Lists process lifetimes in the loaded trace using exact cursor pagination. Default order is CPU time descending. WaitRatio = WallUs/CpuUs ranks \u0027high wall, low CPU\u0027 process-lifetime candidates; the ratio alone does not identify what they waited on. PID 0 (Idle) and PID 4 (System) hidden by default \u2014 pass includeSystem=true to surface them. When orderBy=\u0027wait_ratio\u0027, trace-resident processes (alive before trace start AND survived past trace end) and processes with near-zero sampled CPU are pushed to the bottom because their ratio is denominator-sensitive noise. Rows use a stable total order and top is the page-size limit; follow nextCursor with path/orderBy/top/includeSystem unchanged until hasMore=false to enumerate every lifetime. No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.",
+      "description": "Lists process lifetimes in the loaded trace using exact cursor pagination. Default order is CPU time descending. WaitRatio = WallUs/CpuUs ranks \u0027high wall, low CPU\u0027 process-lifetime candidates; the ratio alone does not identify what they waited on. PID 0 (Idle) and PID 4 (System) hidden by default \u2014 pass includeSystem=true to surface them. When orderBy=\u0027wait_ratio\u0027, trace-resident processes (alive before trace start AND survived past trace end) and processes with near-zero sampled CPU are pushed to the bottom because their ratio is denominator-sensitive noise. Rows use a stable total order and top is the page-size limit; follow nextCursor with traceId/orderBy/top/includeSystem unchanged until hasMore=false to enumerate every lifetime. No startUs/endUs: this is a whole-trace process overview; use windowed analyzers for scoped metrics.",
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
@@ -223,7 +223,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -265,11 +265,11 @@
           "description": null
         }
       ],
-      "inputSchemaBytes": 949,
-      "inputSchemaSha256": "5516fe890a95c85027171138db3ceaaf1f527bc4f66e612e2ec6be6856f5c17b",
+      "inputSchemaBytes": 955,
+      "inputSchemaSha256": "6eeea92358cfaa58f719898a65873d7dbc2888bc7ca3d16dff102afab21b7a90",
       "outputSchemaBytes": 26248,
       "outputSchemaSha256": "3307f712e1540bfebf52e97c6c476acfe91eea5adac86f2d68256cf47a3f28fa",
-      "toolBytes": 2383
+      "toolBytes": 2392
     },
     {
       "name": "load_trace",
@@ -286,7 +286,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "tracePath",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -307,11 +307,11 @@
           "description": null
         }
       ],
-      "inputSchemaBytes": 617,
-      "inputSchemaSha256": "c067f5cf0663b1cf924e9a1878f9232d8a19295887629087c0d25b89f695d4bb",
-      "outputSchemaBytes": 42384,
-      "outputSchemaSha256": "0d3700b0e06a130ea2f2e1930a38c3f4a83cbb5776fc827d867ffc76262ed4c6",
-      "toolBytes": 1870
+      "inputSchemaBytes": 627,
+      "inputSchemaSha256": "b19921a8f6745f4ef894be75f49058554049113409bfc392bac3eefcdaa383eb",
+      "outputSchemaBytes": 42383,
+      "outputSchemaSha256": "04daec5fafe6e513d67de0ecfcace301b69d5a0b86a8f93dcda8bf1bf20e8a8d",
+      "toolBytes": 1880
     },
     {
       "name": "clr_alloc_caller_callee",
@@ -328,7 +328,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -384,11 +384,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2425,
-      "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
+      "inputSchemaBytes": 2431,
+      "inputSchemaSha256": "3403ac38124cf24ddd663bad2dc6247fb958a648ac7d41bb9783e346756fa860",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3202
+      "toolBytes": 3208
     },
     {
       "name": "clr_alloc_top_stacks",
@@ -405,7 +405,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -475,11 +475,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3063,
-      "inputSchemaSha256": "5958ec2c8eaac4765a649f0b277827c527f0524183a2bdadd32eba42ed9f6dad",
+      "inputSchemaBytes": 3069,
+      "inputSchemaSha256": "af6db7ce7b7df3b52c1e0f7410bf1714fad065508afc1d8bf85250e73fa87046",
       "outputSchemaBytes": 40359,
       "outputSchemaSha256": "98572256bc2dd9fdfa20688fafdd088f8632d32a7aee9ca6bd028ae8d046f4bb",
-      "toolBytes": 4143
+      "toolBytes": 4149
     },
     {
       "name": "clr_contention_caller_callee",
@@ -496,7 +496,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -552,11 +552,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2425,
-      "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
+      "inputSchemaBytes": 2431,
+      "inputSchemaSha256": "3403ac38124cf24ddd663bad2dc6247fb958a648ac7d41bb9783e346756fa860",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3220
+      "toolBytes": 3226
     },
     {
       "name": "clr_contention_top_stacks",
@@ -573,7 +573,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -643,11 +643,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3062,
-      "inputSchemaSha256": "2e59b8c82b322c99b75f6250571ec45de99e60ea5572c3b09e131eb2d73e44ac",
+      "inputSchemaBytes": 3068,
+      "inputSchemaSha256": "944e57a0e4198b7a0a8a300431b4c5f204b5da4d0e2d3aeec54af4a22b85decc",
       "outputSchemaBytes": 44041,
       "outputSchemaSha256": "2848c01ee736d4aaa48e80064e1c0f03d0955dea3ea2f6e79e672a9926608849",
-      "toolBytes": 4329
+      "toolBytes": 4335
     },
     {
       "name": "clr_exception_caller_callee",
@@ -664,7 +664,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -720,11 +720,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2425,
-      "inputSchemaSha256": "461108c2121a5437a4fc3ca558eef6fd0d5620572902bc02e09134e379122b6c",
+      "inputSchemaBytes": 2431,
+      "inputSchemaSha256": "3403ac38124cf24ddd663bad2dc6247fb958a648ac7d41bb9783e346756fa860",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3205
+      "toolBytes": 3211
     },
     {
       "name": "clr_exception_top_stacks",
@@ -741,7 +741,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -811,11 +811,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3062,
-      "inputSchemaSha256": "e09fbe5cb72fe387bb8ce9c703a2b36d0c904dc8735b73dcb71952143083ce8e",
+      "inputSchemaBytes": 3068,
+      "inputSchemaSha256": "fdfa3f502e29b343288fcd7beecf58bdf03df9b3c0c670526ca4ce21cbd26394",
       "outputSchemaBytes": 39108,
       "outputSchemaSha256": "4e33c01e588116bcd56a37dd7f3cea61ae97617f9dad84e3ba4e7538e202213b",
-      "toolBytes": 4114
+      "toolBytes": 4120
     },
     {
       "name": "clr_finalizer_analysis",
@@ -832,7 +832,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -867,11 +867,11 @@
           "description": "Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while batches remain separated by ProcessStartUs and TopTypes covers the aggregate scope."
         }
       ],
-      "inputSchemaBytes": 1183,
-      "inputSchemaSha256": "39c1f36d01e9913938da3ced7592f345864e7235e4658ec4bdd77f6520fd971c",
+      "inputSchemaBytes": 1189,
+      "inputSchemaSha256": "8abc248009901276ff7d6740cf40afec91a3cecec30a6a20c30c1ecdba69719e",
       "outputSchemaBytes": 27365,
       "outputSchemaSha256": "9115ad4d99071ef362c0aa4a8bc7018b7aed12858444dc30155ed31b0a299618",
-      "toolBytes": 2502
+      "toolBytes": 2508
     },
     {
       "name": "clr_gc_analysis",
@@ -888,7 +888,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -923,11 +923,11 @@
           "description": "Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs."
         }
       ],
-      "inputSchemaBytes": 1179,
-      "inputSchemaSha256": "d039590bf9cc1b50437ab9f54fe7c7b0f522b0a17122cdcd283b840c38c108a0",
+      "inputSchemaBytes": 1185,
+      "inputSchemaSha256": "a65460b4b81d2a5fb7b957cc4ca90e5b08e908ca68503fe0491c99c55f5dd2ca",
       "outputSchemaBytes": 32199,
       "outputSchemaSha256": "7d9f5495edeb8a063383b872702389836e9c331581b83084e61e284d196fee38",
-      "toolBytes": 2694
+      "toolBytes": 2700
     },
     {
       "name": "clr_gc_heap_stats",
@@ -944,7 +944,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -979,11 +979,11 @@
           "description": "Exact process start in trace-relative microseconds. Required when pid has multiple lifetimes."
         }
       ],
-      "inputSchemaBytes": 1039,
-      "inputSchemaSha256": "913b257be0acf8dd97ca60006fcbac8870f341633a058175a16ecb413f0202f5",
+      "inputSchemaBytes": 1045,
+      "inputSchemaSha256": "82363580e123c20ff37a97f2f812595073e336aebbfe1e9e500b8686190b0c28",
       "outputSchemaBytes": 25672,
       "outputSchemaSha256": "c0b24af25c92fe8e5e9a41f5257adb0b1eb95f6298042abecb233d0d3e5163ed",
-      "toolBytes": 2591
+      "toolBytes": 2597
     },
     {
       "name": "clr_jit_analysis",
@@ -1000,7 +1000,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1042,11 +1042,11 @@
           "description": "Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs."
         }
       ],
-      "inputSchemaBytes": 1233,
-      "inputSchemaSha256": "981eb7ac2e98685ca33a52ecfa3bc9752aa9c493043f68397eb13961809859e4",
+      "inputSchemaBytes": 1239,
+      "inputSchemaSha256": "72e7e178fbe7f469d1aa39a3f768f85959cea49b6edc11ad92e9da8e79f5829d",
       "outputSchemaBytes": 29118,
       "outputSchemaSha256": "305642aa30003c43c0a5a6a82910299bb8cbdf075a62f1ae46dfeeabacfb6eff",
-      "toolBytes": 2795
+      "toolBytes": 2801
     },
     {
       "name": "cpu_caller_callee",
@@ -1063,7 +1063,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1147,11 +1147,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 3335,
-      "inputSchemaSha256": "4fec08b6fcaf1e11ab92bea9f86b0a8d53daba254bb5443a17edcb39a94a5af0",
+      "inputSchemaBytes": 3341,
+      "inputSchemaSha256": "e07723305aa96d99f6093493dbe01208f2ed1cb1535964ee9554e14bd749cfa6",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 4314
+      "toolBytes": 4320
     },
     {
       "name": "cpu_top_functions",
@@ -1168,7 +1168,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1252,11 +1252,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 3453,
-      "inputSchemaSha256": "4db362121ae2a492616bfb167cda6d80d9aaede707f5b8aab3882d535c3c9ede",
+      "inputSchemaBytes": 3459,
+      "inputSchemaSha256": "9a033c929c468fd3b4ed6ca282baa6ff269937fc01b6089683b75696d3c1beb5",
       "outputSchemaBytes": 37077,
       "outputSchemaSha256": "683c0758ac55943680b6de36e7f988c295c606629602af9498651bdf9b2af061",
-      "toolBytes": 5420
+      "toolBytes": 5426
     },
     {
       "name": "cpu_top_functions_batch",
@@ -1273,7 +1273,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1357,11 +1357,11 @@
           "description": "Opaque qrc_ continuation returned by the previous page. It is bound to the session, trace generation, query, symbol/privacy context, and immutable batch snapshot."
         }
       ],
-      "inputSchemaBytes": 3533,
-      "inputSchemaSha256": "c39e7cf2939c68ec5b0bd9d56a19ef005464a887f883838b3c286ea2cdab396c",
+      "inputSchemaBytes": 3539,
+      "inputSchemaSha256": "c4833d5b377809ecbea79a234735a2ad47758ccf60052f2fe12726422fe9d986",
       "outputSchemaBytes": 43418,
       "outputSchemaSha256": "c9372f1f5283534fbf0e183ef300462ab752de735ac851e1dd6aebfad3ea5e42",
-      "toolBytes": 4783
+      "toolBytes": 4789
     },
     {
       "name": "diagnose_high_wait",
@@ -1378,7 +1378,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1448,11 +1448,11 @@
           "description": "Optional exact trace-relative process start; requires pid. Candidates and every PID-targeted subcall preserve this instance scope."
         }
       ],
-      "inputSchemaBytes": 1947,
-      "inputSchemaSha256": "7a69454a4082c31849cdcbf24cd943d236263c07f706f9f4016b12ad233e6f69",
+      "inputSchemaBytes": 1953,
+      "inputSchemaSha256": "e4b5dc7c4315111e310b8b72fe5247f0cedf6b1e927968043f865db8269366fd",
       "outputSchemaBytes": 44936,
       "outputSchemaSha256": "ef4bb01db3a5803c5b34120e812696ae40e33ca2282ada7e4e88bac3e3e78134",
-      "toolBytes": 2906
+      "toolBytes": 2912
     },
     {
       "name": "diagnose_slow_startup",
@@ -1469,7 +1469,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1539,11 +1539,11 @@
           "description": "Maximum diagnose_window width for first-image-load gap evidence, in microseconds (default 60s)."
         }
       ],
-      "inputSchemaBytes": 1921,
-      "inputSchemaSha256": "0702638c3e59f0d65d2a2c0f30695bdf0fdc1dbf5c2734b7310c3aff0350c354",
+      "inputSchemaBytes": 1927,
+      "inputSchemaSha256": "d3038f6bb6477c9d757e5c06d9416d97cf29a1afe4086746d2b22c4fe39a2cf7",
       "outputSchemaBytes": 84635,
       "outputSchemaSha256": "581a72f0b60eed59cf886a59ff6c5b0501d84ab2552cee6735dd9706fbddaf0c",
-      "toolBytes": 3078
+      "toolBytes": 3084
     },
     {
       "name": "diagnose_window",
@@ -1560,7 +1560,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1609,11 +1609,11 @@
           "description": "Optional exact process start in trace-relative microseconds; requires pid. PID-only calls explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 1441,
-      "inputSchemaSha256": "20e3c40a54475f53b7efeeab28e2727689a89059c039ea74a286330d3490a0ab",
+      "inputSchemaBytes": 1447,
+      "inputSchemaSha256": "cc50d9fed35b643cda2eaec9d07a1d9ad102bf486eb6903871fb32fcdef6a03d",
       "outputSchemaBytes": 65864,
       "outputSchemaSha256": "158365f3198e5e1e5e6f10c040d5f9043b6ca03b168c012e9cc59a1a383ac4f8",
-      "toolBytes": 2566
+      "toolBytes": 2572
     },
     {
       "name": "thread_compare_windows",
@@ -1630,7 +1630,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1714,11 +1714,11 @@
           "description": "Opaque qrc_ continuation bound to the trace generation, query, and immutable comparison snapshot"
         }
       ],
-      "inputSchemaBytes": 3166,
-      "inputSchemaSha256": "9937e57b6918ebdd61c0fc3f48398b89950264d8a367f16035918679cd302219",
+      "inputSchemaBytes": 3172,
+      "inputSchemaSha256": "afe78db97ad4f9d22a97f585b20fca6f953b3628cf2382a3727b4a972d1b4338",
       "outputSchemaBytes": 37503,
       "outputSchemaSha256": "64ff2f6531be88e1cf5c98cba1d405f0defae01c98df0ff4e97d85f62749cd9b",
-      "toolBytes": 4520
+      "toolBytes": 4526
     },
     {
       "name": "interrupt_caller_callee",
@@ -1735,7 +1735,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1777,11 +1777,11 @@
           "description": "Requires a valid same-generation symbolContextId prepared by prepare_symbols. Queries never fall back to _NT_SYMBOL_PATH, the trace directory, disk search, or network. This build exposes verified immutable readiness but does not yet provide context-bound TraceEvent frame lookup, so resolveSymbols=true fails explicitly instead of returning an unsymbolized result as if resolution succeeded."
         }
       ],
-      "inputSchemaBytes": 2040,
-      "inputSchemaSha256": "1ab64fe8895cfd4b0f97da89f6b7e42d71c58e5c27be2acc735f29013b654fd0",
+      "inputSchemaBytes": 2046,
+      "inputSchemaSha256": "d8e7dc40de5df9c55f292669689851f534e86dacc7465bd9595aa5c81e76c109",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 2828
+      "toolBytes": 2834
     },
     {
       "name": "interrupt_top_stacks",
@@ -1798,7 +1798,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1854,11 +1854,11 @@
           "description": "Requires a valid same-generation symbolContextId prepared by prepare_symbols. Queries never fall back to _NT_SYMBOL_PATH, the trace directory, disk search, or network. This build exposes verified immutable readiness but does not yet provide context-bound TraceEvent frame lookup, so resolveSymbols=true fails explicitly instead of returning an unsymbolized result as if resolution succeeded."
         }
       ],
-      "inputSchemaBytes": 2740,
-      "inputSchemaSha256": "f5830d53238218206f1d593759eeedc4c6db52748832ae2cb2ad5aaf62a9b3f4",
+      "inputSchemaBytes": 2746,
+      "inputSchemaSha256": "a7e42fbaeb2eae26a3ebd2a5b7dd06e61d760cc47a2003991ca5153c864d5f25",
       "outputSchemaBytes": 40253,
       "outputSchemaSha256": "24454ad320006229c4653cd24574d7aab23fe1e4fbe0de9ab98ed38fb698bbff",
-      "toolBytes": 4115
+      "toolBytes": 4121
     },
     {
       "name": "heap_alloc_caller_callee",
@@ -1875,7 +1875,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -1931,11 +1931,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2411,
-      "inputSchemaSha256": "9a29fbc63dc68ed7b79f3fc4687d2d4e5b59c1b8e9a25263cedc84bafbb48173",
+      "inputSchemaBytes": 2417,
+      "inputSchemaSha256": "b92502da82e4cd505e9f564be4df5dd26d4f183e220db885c6c2bc038d17cf22",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3195
+      "toolBytes": 3201
     },
     {
       "name": "heap_alloc_top_stacks",
@@ -1952,7 +1952,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2022,11 +2022,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3057,
-      "inputSchemaSha256": "5c305252d8049dba07884ffbe8b1f32323fd45f6b85e049dcd1f7006939d9afe",
+      "inputSchemaBytes": 3063,
+      "inputSchemaSha256": "806a236dc127ee82341758fcb2b27e2ad7d6b8d7d07760970babcc0a63c25f63",
       "outputSchemaBytes": 40304,
       "outputSchemaSha256": "9b7b540578db929975c103b4332a1566fac141ba2497c2b7f1598c29ec7a80cd",
-      "toolBytes": 4447
+      "toolBytes": 4453
     },
     {
       "name": "image_load_caller_callee",
@@ -2043,7 +2043,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2099,11 +2099,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2403,
-      "inputSchemaSha256": "bf5329546f79694ff74a656268a0eb182ca719edb618d4e75f6cb3ccc3a997f7",
+      "inputSchemaBytes": 2409,
+      "inputSchemaSha256": "7ddb48ea4600eacf380df7a373122acf01cbbb768b63d824eeb9c0ce0654d10d",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3304
+      "toolBytes": 3310
     },
     {
       "name": "image_load_timing",
@@ -2120,7 +2120,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2155,11 +2155,11 @@
           "description": "Opaque qrc_ continuation returned by the previous page. It is bound to the principal/session, trace generation, tool contract, symbol/privacy context, normalized query, scope, and ordering."
         }
       ],
-      "inputSchemaBytes": 1102,
-      "inputSchemaSha256": "e60d861458566b59b7a514243ffc4c574bf2656bd0242026489c34441d22fb05",
+      "inputSchemaBytes": 1108,
+      "inputSchemaSha256": "6e9d721d18453920265a0ec6ef10424c67b5ff6ba9567b36f7c3c96d45bd1342",
       "outputSchemaBytes": 27705,
       "outputSchemaSha256": "384273a1bced04691a9c39ad37ff8e7ff7c139abfc1c8085805c00d437695bb2",
-      "toolBytes": 3173
+      "toolBytes": 3179
     },
     {
       "name": "image_load_top_gaps",
@@ -2176,7 +2176,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2204,11 +2204,11 @@
           "description": "Exact process start in trace-relative microseconds. Required when the PID has multiple lifetimes."
         }
       ],
-      "inputSchemaBytes": 700,
-      "inputSchemaSha256": "7aa445cbbebfbef03b0c79be07620c333dfda379df27d8ec12864f68afa77f67",
+      "inputSchemaBytes": 706,
+      "inputSchemaSha256": "7b94acd8497aa35e679287c50823bb2b8f0870013f45dcbfdf3adc82ba8472ee",
       "outputSchemaBytes": 25740,
       "outputSchemaSha256": "ec1f0820e00b18cc00d313fdc0303e7f85dd7ea468ea41be15b551d89fa68e67",
-      "toolBytes": 1991
+      "toolBytes": 1997
     },
     {
       "name": "image_load_top_stacks",
@@ -2225,7 +2225,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2295,11 +2295,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3096,
-      "inputSchemaSha256": "7382747ace746cb144631cb69dbb3db3e2c3868ec85afd7390901082bd2b1bde",
+      "inputSchemaBytes": 3102,
+      "inputSchemaSha256": "2cc7e0c8fdb46cc5de27863124636f039a647db98ea528912f093b1d10ad5c85",
       "outputSchemaBytes": 38183,
       "outputSchemaSha256": "06791db04bc53f9bbff0448667ea1cba013be239102a7f2099efa47e7ca5e673",
-      "toolBytes": 4200
+      "toolBytes": 4206
     },
     {
       "name": "disk_io_caller_callee",
@@ -2316,7 +2316,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2372,11 +2372,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2400,
-      "inputSchemaSha256": "b4079e116ea9dd2c907b3d459b9ac90abefd2c6d2c3489f2b0d2f9a1bcfb5ca3",
+      "inputSchemaBytes": 2406,
+      "inputSchemaSha256": "4083fe1a43122c35e196abd59a888e9011b229c4b4359aa6a34aefc750dcf468",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3186
+      "toolBytes": 3192
     },
     {
       "name": "disk_io_top_stacks",
@@ -2393,7 +2393,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2463,11 +2463,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3095,
-      "inputSchemaSha256": "ccbd8e4765aa6e2bd72de271e9c3a2eb2fa4b3ce4e7fbd3e46128ae543fa92e0",
+      "inputSchemaBytes": 3101,
+      "inputSchemaSha256": "031926b8fd8f22ca616e2c720f845e6f0f081ada2ad9a7768832b9be5d981c31",
       "outputSchemaBytes": 40110,
       "outputSchemaSha256": "c4e6455acce9acfa561979b595f66d2e31b8fe1f87fa06468b5207bc918c865a",
-      "toolBytes": 4174
+      "toolBytes": 4180
     },
     {
       "name": "file_io_caller_callee",
@@ -2484,7 +2484,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2540,11 +2540,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2400,
-      "inputSchemaSha256": "343f57c615b497573eb20e05b5f300246b45e5f55e7c145608c6e9367e574aca",
+      "inputSchemaBytes": 2406,
+      "inputSchemaSha256": "38a826d90a8807050c206d9ecac29fe353ae4d25b657525a121d5db7eea70d8f",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3261
+      "toolBytes": 3267
     },
     {
       "name": "file_io_top_files",
@@ -2561,7 +2561,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2603,11 +2603,11 @@
           "description": "Exact process lifetime start in microseconds since trace start; requires pid"
         }
       ],
-      "inputSchemaBytes": 1096,
-      "inputSchemaSha256": "a85873c511be5936ca532956b3dec141bc22d0653288543ed6b4d2bf1b1860f9",
+      "inputSchemaBytes": 1102,
+      "inputSchemaSha256": "7e397972e2c3619034fafcbf6589a250f7b864597e9f2ece7eda882136f98658",
       "outputSchemaBytes": 25922,
       "outputSchemaSha256": "92ec1a04e20e2df7ccd0db313de1164dbea355d0e196dcbf2cedef0a8a2e5c85",
-      "toolBytes": 1955
+      "toolBytes": 1961
     },
     {
       "name": "file_io_top_stacks",
@@ -2624,7 +2624,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2694,11 +2694,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3093,
-      "inputSchemaSha256": "c786b6ee4f086d9a6ff6e2be36d2ce19fa0273e333da86e9b8a8fbaa03067ca1",
+      "inputSchemaBytes": 3099,
+      "inputSchemaSha256": "e51a6b53bcf55400ea42733fa6a101f2791b4e6bb83e59092a23605fc7426d91",
       "outputSchemaBytes": 40110,
       "outputSchemaSha256": "d039abc5c42ccd4643f4d445e10ca6f8e98912482ef93c405ea70377461a3a9b",
-      "toolBytes": 4205
+      "toolBytes": 4211
     },
     {
       "name": "alpc_caller_callee",
@@ -2715,7 +2715,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2771,11 +2771,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2397,
-      "inputSchemaSha256": "9ae19782b4118a3f0fb559a337869e35871455bb4eb56083cf31a42e075e22bb",
+      "inputSchemaBytes": 2403,
+      "inputSchemaSha256": "c93fbb120bd6bc0a81c2f5e50ee8efbdd13a25529376ab5929c27dbe8d1543fc",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3155
+      "toolBytes": 3161
     },
     {
       "name": "alpc_top_stacks",
@@ -2792,7 +2792,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -2862,11 +2862,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3098,
-      "inputSchemaSha256": "2f74a620352543344abcb40ef19a762077c614b09abc9f28f2d307ff52755255",
+      "inputSchemaBytes": 3104,
+      "inputSchemaSha256": "6af43303492ef30fbc1a47598a0e65ed4c7a4fcbe42caca6340752091432dc16",
       "outputSchemaBytes": 39028,
       "outputSchemaSha256": "ceab26b830a04388df601486ec0d2fc433ec229d9155e455c837929ac4d0dd0c",
-      "toolBytes": 4258
+      "toolBytes": 4264
     },
     {
       "name": "prepare_symbols",
@@ -2911,11 +2911,11 @@
           "description": null
         }
       ],
-      "inputSchemaBytes": 613,
-      "inputSchemaSha256": "2f9a071a92619bea9627922a2091c80a2268f0f6fc53ba8e0dc57bdf478a4fd0",
+      "inputSchemaBytes": 729,
+      "inputSchemaSha256": "1d8ba0a371d6a625b39dc5a0a2fe8569c8b633b380f6c009381ba30d91236b53",
       "outputSchemaBytes": 23958,
       "outputSchemaSha256": "d42e1dc71305ca2a47b2db3eb0c1c006ed1f70305a405e14130807277fc46107",
-      "toolBytes": 2125
+      "toolBytes": 2241
     },
     {
       "name": "unload_trace",
@@ -2953,11 +2953,11 @@
           "description": null
         }
       ],
-      "inputSchemaBytes": 343,
-      "inputSchemaSha256": "64898e31cbf8efc2c9e76f829ab40f87bd8e7be316889363dc20d58ca32c08a5",
+      "inputSchemaBytes": 459,
+      "inputSchemaSha256": "8994227802537187cde0cdea635335822f82e6841f798fb7862b95a842222b98",
       "outputSchemaBytes": 21903,
       "outputSchemaSha256": "369ed313755914d32fd826543606c59514af6fcea7b8861988bec8e0a8fc70e0",
-      "toolBytes": 1316
+      "toolBytes": 1432
     },
     {
       "name": "hard_fault_by_file",
@@ -2974,7 +2974,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3023,11 +3023,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 1249,
-      "inputSchemaSha256": "2cc8aa2b9bd1d36f4631306ee59a03bef4e4fa0879f3836dcc9e6c0ff4938cfd",
+      "inputSchemaBytes": 1255,
+      "inputSchemaSha256": "f8f8bf623b56da6a86f010bc7f4ec31e95b7338c4f1867ffaca889759df774a1",
       "outputSchemaBytes": 25081,
       "outputSchemaSha256": "8d11e3249da60ec09ae7ad769193dcf545a872571e45138d4d7d5fa865023e95",
-      "toolBytes": 2565
+      "toolBytes": 2571
     },
     {
       "name": "hard_fault_caller_callee",
@@ -3044,7 +3044,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3100,11 +3100,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2403,
-      "inputSchemaSha256": "29bf895fad021acf36a555b9f0fae312f58e09bba0e4a62967c5505708b6fc94",
+      "inputSchemaBytes": 2409,
+      "inputSchemaSha256": "b7dbeec374fd771cf493cda31772d8b06abb881ece2182659575d2aa0123da62",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3238
+      "toolBytes": 3244
     },
     {
       "name": "hard_fault_top_stacks",
@@ -3121,7 +3121,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3191,11 +3191,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3100,
-      "inputSchemaSha256": "7a4cfd11fa79401553bfaa7fdb3a366c4dae0959ef98f40a52e5909174529cde",
+      "inputSchemaBytes": 3106,
+      "inputSchemaSha256": "6c6df7e98561e698cc2dec705f4fbfc704b5cd7b91cb6897df34990192108369",
       "outputSchemaBytes": 40050,
       "outputSchemaSha256": "bbfc5f316b8981b39957f67a32f43140a8ddc076c84f57b5a2c5fd1dc7c9dbcb",
-      "toolBytes": 4264
+      "toolBytes": 4270
     },
     {
       "name": "memory_resource_analysis",
@@ -3212,7 +3212,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3254,11 +3254,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. Without it, a reused PID is explicitly returned as pid_aggregate with per-instance rows."
         }
       ],
-      "inputSchemaBytes": 1190,
-      "inputSchemaSha256": "24587b68d1f2bb41e0a8785239121ca2ca8e3fa7c6e5d8e218baf2566f7ec253",
+      "inputSchemaBytes": 1196,
+      "inputSchemaSha256": "dcbc0855ffb7bc6a9dfe8237db7e5a67dce7d55d6cb33f4a4fcb0f40eac186c8",
       "outputSchemaBytes": 37595,
       "outputSchemaSha256": "1f44d36d57549c6832ea934cb4839d8c6a2e7c0c0ecb099dacb7113db5c2b4ea",
-      "toolBytes": 3381
+      "toolBytes": 3387
     },
     {
       "name": "virtual_alloc_caller_callee",
@@ -3275,7 +3275,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3331,11 +3331,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2406,
-      "inputSchemaSha256": "ba475f31df6e8d9b397bb6933d417e83025b02c6f6122870cb0632ebf750dd39",
+      "inputSchemaBytes": 2412,
+      "inputSchemaSha256": "963afa736b0282efa5eebc0df25b3abb254f618f8d2a4be96b25f62c6f4bd4c6",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3319
+      "toolBytes": 3325
     },
     {
       "name": "virtual_alloc_top_stacks",
@@ -3352,7 +3352,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3422,11 +3422,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3116,
-      "inputSchemaSha256": "5e1ba529ae0b0fd65e22ed4f5e149de3135f7fe0f9645cc0c9ceffc5127df23d",
+      "inputSchemaBytes": 3122,
+      "inputSchemaSha256": "0d3e335821d0594caf2a20ffe9fc756b04b5492a586db48b0acdaee9aa3d1bba",
       "outputSchemaBytes": 42042,
       "outputSchemaSha256": "b3f5d76c4fcb33e2332c954b04e216be016f7bfcca669a297e7e965def9b1171",
-      "toolBytes": 4346
+      "toolBytes": 4352
     },
     {
       "name": "net_caller_callee",
@@ -3443,7 +3443,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3499,11 +3499,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2396,
-      "inputSchemaSha256": "711a9dbced447d5734201c452e61b298dd6a312826b8382bebd2c642e348fe9b",
+      "inputSchemaBytes": 2402,
+      "inputSchemaSha256": "c5d995f319e63c0d7d7171d34fb9f61cc885a744c10c1837d41a76f51d4819f0",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3205
+      "toolBytes": 3211
     },
     {
       "name": "net_connections",
@@ -3520,7 +3520,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3562,11 +3562,11 @@
           "description": "Optional exact process start in trace-relative microseconds; requires pid. Without it, pid-only queries explicitly aggregate intersecting lifetimes while rows remain separated by ProcessStartUs."
         }
       ],
-      "inputSchemaBytes": 1491,
-      "inputSchemaSha256": "78c4f55bc4a8619dab1d444a95067cf76555bd005f6111a8bc882caa011e750b",
+      "inputSchemaBytes": 1497,
+      "inputSchemaSha256": "72144c07b38c7cc68b489fec5aae6f7e86fea71d11a7045e05988672c79f5627",
       "outputSchemaBytes": 27866,
       "outputSchemaSha256": "502c68af420a72006fff71f62133da5d36814a780a3276b0981ff8949a837244",
-      "toolBytes": 3539
+      "toolBytes": 3545
     },
     {
       "name": "net_top_stacks",
@@ -3583,7 +3583,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3653,11 +3653,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3098,
-      "inputSchemaSha256": "968c5459e946d9c3c8ae46287b842cd5dabaec97acde9ec50cc5a051536bb20f",
+      "inputSchemaBytes": 3104,
+      "inputSchemaSha256": "7c4bcf989e530e05e9b719720518eed961b05862eb58692714bcdff47d7da134",
       "outputSchemaBytes": 40278,
       "outputSchemaSha256": "33b7ecbe01e6b5a2426c37c661b3c2688192dcf0d92271a87f9360dfe43972e7",
-      "toolBytes": 4407
+      "toolBytes": 4413
     },
     {
       "name": "generic_event_caller_callee",
@@ -3674,7 +3674,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3744,11 +3744,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2653,
-      "inputSchemaSha256": "22f9538fdd58e98ddede8c1d656e0105caecf05c8b6c8505e95e520e63542303",
+      "inputSchemaBytes": 2659,
+      "inputSchemaSha256": "4b842360434d68ae276f3f2e5abe06405ab8788c4b9077f2a00635bf66f354f3",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3508
+      "toolBytes": 3514
     },
     {
       "name": "generic_event_top_stacks",
@@ -3765,7 +3765,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3849,11 +3849,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3365,
-      "inputSchemaSha256": "3a90377832ea037f0739f092269ff21972ded884af185128a3a8b18da232b54a",
+      "inputSchemaBytes": 3371,
+      "inputSchemaSha256": "cd80b8b35af6a8e077ee847a29aba906eb9538cf037e9d7a70bce1496e284fc9",
       "outputSchemaBytes": 39246,
       "outputSchemaSha256": "06ab5bc1deaf9ea0aee0eeb24a56c8542db83eec0200943e28933d657f403a5c",
-      "toolBytes": 4789
+      "toolBytes": 4795
     },
     {
       "name": "registry_caller_callee",
@@ -3870,7 +3870,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -3926,11 +3926,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2401,
-      "inputSchemaSha256": "87635faa0a903b9d76d1db24a1a8c0db5b97ad558a6f0b586a93248a2042f196",
+      "inputSchemaBytes": 2407,
+      "inputSchemaSha256": "7392b15857d13b46435c00586111cb7f0a01fa9d9f68e6fdefdc66245f714b3e",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3163
+      "toolBytes": 3169
     },
     {
       "name": "registry_top_stacks",
@@ -3947,7 +3947,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4017,11 +4017,11 @@
           "description": "Optional process lifetime start in microseconds; requires pid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3100,
-      "inputSchemaSha256": "adaff45a69092ede9a6cc542eb54592320caac7f4d6c553c8e39dfdf59d76ef6",
+      "inputSchemaBytes": 3106,
+      "inputSchemaSha256": "de566b2194879f6667658ccb22d75360532745f270a9d2dc41411b77a04d5280",
       "outputSchemaBytes": 38734,
       "outputSchemaSha256": "c3f34fbaa8125782286fb277f48a2f3c753e33d29c6abe6402c754b8f63ba010",
-      "toolBytes": 4254
+      "toolBytes": 4260
     },
     {
       "name": "cpu_precise_analysis",
@@ -4038,7 +4038,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4101,11 +4101,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 1887,
-      "inputSchemaSha256": "52c077897802f67d3ae45fc35a438a12d391b8df50faf269f01bb2cc6b33f6a1",
+      "inputSchemaBytes": 1893,
+      "inputSchemaSha256": "99582d18e367c45e6e0472978be0413c3df234579c61b2ade4ab3d9266722877",
       "outputSchemaBytes": 31247,
       "outputSchemaSha256": "a335b892f70d5b176966672c4f405a4b153ac1614fda58cdb997d9adc1bcb269",
-      "toolBytes": 2976
+      "toolBytes": 2982
     },
     {
       "name": "ready_thread_caller_callee",
@@ -4122,7 +4122,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4178,11 +4178,11 @@
           "description": "Optional awakened-process lifetime start in microseconds; requires awakenedPid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 2480,
-      "inputSchemaSha256": "a71b6de901fda8951445e2345d0fdd854f38a422aa29eaadc19427399d4231f6",
+      "inputSchemaBytes": 2486,
+      "inputSchemaSha256": "792e40c4b82593d4b8cd5b2608e1818c41c7050cdb119f9e76ee054bec3d58aa",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 3394
+      "toolBytes": 3400
     },
     {
       "name": "ready_thread_top_stacks",
@@ -4199,7 +4199,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4269,11 +4269,11 @@
           "description": "Optional awakened-process lifetime start in microseconds; requires awakenedPid. PID-only queries explicitly aggregate reused lifetimes."
         }
       ],
-      "inputSchemaBytes": 3232,
-      "inputSchemaSha256": "425a4eed524d2ae7c111c8cd6382ced6eaa6267ce84889edd621e5eedf342601",
+      "inputSchemaBytes": 3238,
+      "inputSchemaSha256": "92c8af0badbb513edefc7459ca528a1812ce642310d04e0bcb8d5926e6025fb3",
       "outputSchemaBytes": 38771,
       "outputSchemaSha256": "064bf740530cd9e230f50f023eaca72204f88d937726b72857dbed4aab278723",
-      "toolBytes": 4261
+      "toolBytes": 4267
     },
     {
       "name": "wait_analysis",
@@ -4290,7 +4290,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4353,11 +4353,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 1885,
-      "inputSchemaSha256": "6a9e8019fd09323ad246e1b7542206b8991d0a22c7c38a5b7e98007981e5a9c4",
+      "inputSchemaBytes": 1891,
+      "inputSchemaSha256": "414eea87caf0577a5411bbb0306d8015e6f592db9d42ca5e31cc7cb722fdc8e4",
       "outputSchemaBytes": 32690,
       "outputSchemaSha256": "6533bf2e6807e313cfca3b932a2f607c1fe58af70dd2a227884becf97fba09d9",
-      "toolBytes": 3732
+      "toolBytes": 3738
     },
     {
       "name": "wait_caller_callee",
@@ -4374,7 +4374,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4451,11 +4451,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 3116,
-      "inputSchemaSha256": "c72e6c17af3bc3f5dd3b9b297999ca8bdc6ada9db6e2dc5619217f4f762b9d39",
+      "inputSchemaBytes": 3122,
+      "inputSchemaSha256": "52aa2f9c5c98fc0264afb72448ddeb62b87abc294e70df1fb69c7f52b6765d2a",
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
-      "toolBytes": 4010
+      "toolBytes": 4016
     },
     {
       "name": "wait_top_stacks",
@@ -4472,7 +4472,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4563,11 +4563,11 @@
           "description": "Optional exact thread generation returned by CPU/Wait thread rows; requires pid and tid. Use it when ThreadStartUs is shared by multiple generations."
         }
       ],
-      "inputSchemaBytes": 3897,
-      "inputSchemaSha256": "eb70adfe583d68af5c1ddb57642cd18b4ee63f5635cb93bdc0c5186c566c0c48",
+      "inputSchemaBytes": 3903,
+      "inputSchemaSha256": "979d2cbbf49480a03884abc2a2c683ae38f7701e52937db0521101a1265449c6",
       "outputSchemaBytes": 44848,
       "outputSchemaSha256": "9b00327cc132f77d1f2dc99a6c2e8dc7d9e98c355ac6081a10c2403ef0064d94",
-      "toolBytes": 5106
+      "toolBytes": 5112
     },
     {
       "name": "security_scan_analysis",
@@ -4584,7 +4584,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4647,11 +4647,11 @@
           "description": "Optional trace-relative start time selecting one lifetime of the target PID; requires pid. PID-only queries aggregate matching lifetimes explicitly."
         }
       ],
-      "inputSchemaBytes": 1755,
-      "inputSchemaSha256": "2d6ad9d139213616efe39fee15ba7d195b7027dd37c04b7d72c7f5eab4bd2e96",
+      "inputSchemaBytes": 1761,
+      "inputSchemaSha256": "615a8903f25a8fb321fb2faf1ec58b1677bd68afae6c5b9147fdb246d9ecc43d",
       "outputSchemaBytes": 32037,
       "outputSchemaSha256": "0c450d20f6a9c9f9efc4cd4858017cb7d283d7fb8331e24d4f4870f54aed92c4",
-      "toolBytes": 3421
+      "toolBytes": 3427
     },
     {
       "name": "find_marker",
@@ -4668,7 +4668,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4703,11 +4703,11 @@
           "description": "In rows mode, max chars per Fields value (default 256)"
         }
       ],
-      "inputSchemaBytes": 764,
-      "inputSchemaSha256": "ca9e2d7e11453f1e035eeb08764ca26132af9b4a1c7802dd80600d9f1c59d9a8",
+      "inputSchemaBytes": 770,
+      "inputSchemaSha256": "3eb3e8e3646d67668711ccf3feb4ae1764f31d2500ea377735c4c293f57ddefe",
       "outputSchemaBytes": 23166,
       "outputSchemaSha256": "83dcaec0a0a94284f5e4ef325b22d351627853eb7e7f4ed41d528930f4d16f67",
-      "toolBytes": 1847
+      "toolBytes": 1853
     },
     {
       "name": "process_create_timing",
@@ -4724,7 +4724,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4759,11 +4759,11 @@
           "description": "Opaque qrc_ continuation returned by the previous page. It is bound to the principal/session, trace generation, tool contract, symbol/privacy context, normalized query, scope, and ordering."
         }
       ],
-      "inputSchemaBytes": 1186,
-      "inputSchemaSha256": "b790f22d4decc75dcb92f15ff946f0b7e42a9d23203aeba6b968c4cf5cf3e978",
+      "inputSchemaBytes": 1192,
+      "inputSchemaSha256": "7e5467fe31539014d56c0821115b40d6fe546195629bbcf444bd6314221563f8",
       "outputSchemaBytes": 29861,
       "outputSchemaSha256": "cceb11b7de3b01db25683885d0f3238c60873e4c4cfb7572ca16397979d6a78f",
-      "toolBytes": 2784
+      "toolBytes": 2790
     },
     {
       "name": "thread_lifetime",
@@ -4780,7 +4780,7 @@
       "useStructuredContent": true,
       "parameters": [
         {
-          "name": "path",
+          "name": "traceId",
           "type": "System.String",
           "hasDefaultValue": false,
           "defaultValueJson": null,
@@ -4815,11 +4815,11 @@
           "description": "Opaque qrc_ continuation returned by the previous page. It is bound to the principal/session, trace generation, tool contract, symbol/privacy context, normalized query, scope, and ordering."
         }
       ],
-      "inputSchemaBytes": 1158,
-      "inputSchemaSha256": "75a737c2a42144e6448d5236b048ae1fbff8a56bc339af1116cfbae985000c6c",
+      "inputSchemaBytes": 1164,
+      "inputSchemaSha256": "a70a3e98cba8e5d45c7c4f5b20eb59025bce9a66225120c144b4ce53c63709b7",
       "outputSchemaBytes": 28856,
       "outputSchemaSha256": "7afef6a45cb5ffd3d71646942b72074d20378a06be306a3ddcae69dad882eb21",
-      "toolBytes": 3028
+      "toolBytes": 3034
     }
   ]
 }

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -39,7 +39,7 @@ public sealed class WaitTools
         "TotalCSwitches is a deprecated compatibility alias for WindowCSwitchesAllThreads. " +
         "The analysis needs materialized CSwitch events; an unobserved event class does not by itself prove a capture keyword was disabled.")]
     public WaitAnalysisResponse WaitAnalysis(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -57,7 +57,7 @@ public sealed class WaitTools
         Validation.RequireThreadSelector(
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -86,7 +86,7 @@ public sealed class WaitTools
         "stack-walk-on-CSwitch in the capture profile. StackCoverage counts selected closed blocked " +
         "interval samples and covered microseconds; ?!? is synthetic unknown evidence.")]
     public WaitTopStacksResponse WaitTopStacks(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Top N rows (default 30, max 1000)")] int top = 30,
         [Description("Filter to a single process ID")] int? pid = null,
         [Description("Window start in microseconds since trace start")] long? startUs = null,
@@ -115,7 +115,7 @@ public sealed class WaitTools
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         Validation.RequireWhenBuckets(whenBuckets);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
@@ -141,7 +141,7 @@ public sealed class WaitTools
         "blocked microseconds; top-N callers ranked by inclusive blocked μs flowing INTO focus, " +
         "callees ranked by μs flowing OUT to them.")]
     public CallerCalleeResponse WaitCallerCallee(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Focus frame name, exactly as it appears in wait_top_stacks output.")]
         string function,
         [Description("Top N callers / callees to return (default 20, max 1000)")] int top = 20,
@@ -164,7 +164,7 @@ public sealed class WaitTools
             pid, tid, processStartUs, threadStartUs, threadGeneration);
         Validation.RequireTop(top);
         Validation.RequireFunctionName(function);
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         var window = requestedWindow.Resolve(
             TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);

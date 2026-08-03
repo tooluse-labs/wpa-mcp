@@ -1,9 +1,8 @@
 # Contract 与 trace-reference 迁移
 
-本文落实 ADR 0005 已接受的 release window。这里的模式是启动配置，不是
-per-call 参数。`WPAMCP_CONTRACT_MODE`、`WPAMCP_TRACE_REFERENCE_MODE`、
-`--contract-mode`、`--trace-reference-mode` 都在读取 stdin 前解析；选中的
-组合在该 server 进程内不可改变。
+本文描述 ADR 0006 之后的 Contract 2.0 surface。contract mode 在读取 stdin 前
+确定，并在 server 进程内不可改变。trace query 不再提供可选 reference mode：
+`load_trace.tracePath` 是唯一 raw path 输入，后续工具全部使用 `traceId`。
 
 ## 当前 active surface
 
@@ -32,10 +31,9 @@ conclusion contract。Resources 用来降低重复 discovery 成本，不替代 
 
 | Release line | 必须的默认值 | 允许的显式兼容项 | 删除/门禁 |
 |---|---|---|---|
-| 0.3.x 开发态 | 当前源码为 Contract `2.0` + `id_only` | raw-path `compatibility`；拒绝 `legacy` | 不属于 ADR 0005 可发布 release line |
-| 0.4.x | Contract `2.0` + `id_only` | 显式 raw-path `compatibility` | 需要 Phase 0–4 correctness、lean-discovery/full-contract closure、stdio 与 lifecycle security 证据 |
-| 0.5.x | Contract `2.0` + `id_only` | 显式 raw-path `compatibility` | 需要 capability-map、migration 与 raw-path deprecation telemetry 证据 |
-| 1.0.0+ | 只允许 Contract `2.0` + `id_only` | 无 | 需要完整一个 0.5.x 弃用窗口和 usage telemetry 审查 |
+| 0.4.x–0.5.x | Contract `2.0` + `id_only` | 历史显式 raw-path mode | compatibility window 已关闭 |
+| 0.6.x | Contract `2.0` + canonical `traceId` query | 无 | input schema、文档和 reviewed baseline 闭环 |
+| 1.0.0+ | Contract `2.0` + canonical `traceId` query | 无 | 独立的 1.0 release governance gate |
 
 没有任何已发布 wpa-mcp 版本把 Phase 0 snapshot 建立为受支持的 public result wire
 contract。该 snapshot 只是历史 regression evidence，不是可执行 compatibility floor。
@@ -51,8 +49,7 @@ Contract 2.0-native 的 0.4.x 发布。
 ```json
 {
   "env": {
-    "WPAMCP_CONTRACT_MODE": "2.0",
-    "WPAMCP_TRACE_REFERENCE_MODE": "id_only"
+    "WPAMCP_CONTRACT_MODE": "2.0"
   }
 }
 ```
@@ -60,12 +57,11 @@ Contract 2.0-native 的 0.4.x 发布。
 命令行写法：
 
 ```text
-wpa-mcp.exe --contract-mode 2.0 --trace-reference-mode id_only
+wpa-mcp.exe --contract-mode 2.0
 ```
 
-CLI 覆盖环境变量。contract 值是封闭且区分大小写的 `legacy` / `2.0`；trace
-reference 接受 `compatibility`、`id_only`（以及等价的 `id-only`）。未知、已删除
-或尚未实现的组合会在 MCP transport 开始服务前失败。
+CLI 覆盖环境变量。contract 值是封闭且区分大小写的 `legacy` / `2.0`；已删除的
+`compatibility` trace mode 会在 MCP transport 开始服务前失败。
 
 ## 客户端迁移
 
@@ -75,8 +71,8 @@ reference 接受 `compatibility`、`id_only`（以及等价的 `id-only`）。�
    descriptor 中的 contract URI/hash 获取完整 schema。Tools-only 客户端调用
    `get_tool_contract(toolName, page)`；两条路径必须具有相同固定页边界，按 byte order
    拼接 fragment，并校验声明的 UTF-8 size/hash。text 是同步渲染，不是第二份事实来源。
-3. 用 `load_trace` + 返回的 opaque TraceId 替代 raw path；不要重建或持久化
-   server 内部路径。
+3. 用 `tracePath` 调用 `load_trace`，后续 query 一律把返回的 opaque 值作为
+   `traceId`；不要向 query 发送 `path`，也不要重建或持久化 server 内部路径。
 4. 由 MCP client/host 而不是 LLM 遍历全部 `tools/list` cursor page。cursor 绑定
    server instance、catalog、ordering 和 contract mode；重启或 profile 改变后不得
    重放。host 随后可以用 capability map 只向 LLM 注入当前任务相关的 lean
@@ -96,7 +92,8 @@ reference 接受 `compatibility`、`id_only`（以及等价的 `id-only`）。�
    不能回退到 legacy ambient lookup。
 
 仓库不会永久复制一套 `*_v2` 工具，也不会实现未发布的 legacy result adapter。
-Contract 2.0 是唯一结果形状；独立的 raw-path compatibility switch 仍在 1.0 删除。
+Contract 2.0 是唯一结果形状；query-side raw-path compatibility 已在 `0.6.0`
+删除，不提供旧输入别名。
 
 ## 运维检查
 

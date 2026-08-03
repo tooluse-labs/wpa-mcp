@@ -333,7 +333,7 @@ public sealed class TraceLifecycleProductionTests
             resolver.ResolveQuery(runtime.Principal, raw, TraceAccessMode.IdOnly));
         Assert.Equal("raw_path_not_allowed", rawError.DetailCode);
         var malformed = Assert.Throws<TraceReferenceException>(() =>
-            resolver.ResolveQuery(runtime.Principal, "TRC_bad", TraceAccessMode.Compatibility));
+            resolver.ResolveQuery(runtime.Principal, "TRC_bad", TraceAccessMode.IdOnly));
         Assert.Equal("malformed_trace_id", malformed.DetailCode);
 
         Assert.False(runtime.Store.ArtifactRootCreated);
@@ -421,9 +421,9 @@ public sealed class TraceLifecycleProductionTests
         var tools = new MetaTools(runtime.Cache, toolRuntime);
 
         var response = tools.LoadTrace(source);
-        Assert.Equal(response.TraceId, response.Trace.Path);
-        Assert.DoesNotContain(runtime.SourceRoot, response.Trace.Path, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(runtime.ArtifactRoot, response.Trace.Path, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(response.TraceId, response.Trace.TraceId);
+        Assert.DoesNotContain(runtime.SourceRoot, response.Trace.TraceId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(runtime.ArtifactRoot, response.Trace.TraceId, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
             "opened_handle_snapshot_content_hash_verified",
             response.SourceGenerationAssurance);

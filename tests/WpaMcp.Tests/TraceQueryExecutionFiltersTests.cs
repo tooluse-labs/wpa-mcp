@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,112 +13,6 @@ namespace WpaMcp.Tests;
 
 public sealed class TraceQueryExecutionFiltersTests
 {
-    [Fact]
-    public async Task CompatibilityHandle_CommitsOnlyAfterFinalSuccessfulTransport()
-    {
-        using var runtime = TraceLifecycleProductionTests.TestRuntime.Create();
-        var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
-        var filters = CreateFilters(runtime);
-        string? traceId = null;
-        var incoming = filters.CreateIncomingFilter()((_, _) =>
-        {
-            traceId = TraceQueryExecutionContext.CurrentReference?.TraceId;
-            using var lease = runtime.Cache.Acquire(source);
-            Assert.True(lease.Trace.EventCount > 0);
-            return Task.CompletedTask;
-        });
-        var request = ToolRequest(101, source);
-
-        await incoming(Context(request), CancellationToken.None);
-
-        Assert.NotNull(traceId);
-        Assert.Equal(1, filters.PendingCompatibilityHandleCount);
-        using (var lease = runtime.Registry.Acquire(runtime.Principal, traceId!))
-            Assert.True(lease.Trace.EventCount > 0);
-
-        var response = SuccessfulResponse(101);
-        var outgoing = filters.CreateOutgoingFilter()(static (_, _) => Task.CompletedTask);
-        await outgoing(Context(response), CancellationToken.None);
-
-        Assert.Equal(0, filters.PendingCompatibilityHandleCount);
-        using var committed = runtime.Registry.Acquire(runtime.Principal, traceId!);
-        Assert.True(committed.Trace.EventCount > 0);
-        runtime.Registry.Unload(runtime.Principal, traceId!);
-    }
-
-    [Fact]
-    public async Task CompatibilityHandle_RollsBackWhenLaterFilterChangesResultToError()
-    {
-        using var runtime = TraceLifecycleProductionTests.TestRuntime.Create();
-        var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
-        var filters = CreateFilters(runtime);
-        string? traceId = null;
-        var incoming = filters.CreateIncomingFilter()((_, _) =>
-        {
-            traceId = TraceQueryExecutionContext.CurrentReference?.TraceId;
-            return Task.CompletedTask;
-        });
-        await incoming(Context(ToolRequest(102, source)), CancellationToken.None);
-
-        var response = SuccessfulResponse(102);
-        var outgoing = filters.CreateOutgoingFilter()((context, _) =>
-        {
-            var result = Assert.IsType<JsonObject>(
-                Assert.IsType<JsonRpcResponse>(context.JsonRpcMessage).Result);
-            result["isError"] = true;
-            return Task.CompletedTask;
-        });
-        await outgoing(Context(response), CancellationToken.None);
-
-        Assert.Equal(0, filters.PendingCompatibilityHandleCount);
-        AssertRetired(runtime, traceId!);
-    }
-
-    [Fact]
-    public async Task CompatibilityHandle_RollsBackWhenTransportThrows()
-    {
-        using var runtime = TraceLifecycleProductionTests.TestRuntime.Create();
-        var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
-        var filters = CreateFilters(runtime);
-        string? traceId = null;
-        var incoming = filters.CreateIncomingFilter()((_, _) =>
-        {
-            traceId = TraceQueryExecutionContext.CurrentReference?.TraceId;
-            return Task.CompletedTask;
-        });
-        await incoming(Context(ToolRequest(103, source)), CancellationToken.None);
-        var outgoing = filters.CreateOutgoingFilter()(
-            static (_, _) => throw new IOException("synthetic transport failure"));
-
-        await Assert.ThrowsAsync<IOException>(() => outgoing(
-            Context(SuccessfulResponse(103)),
-            CancellationToken.None));
-
-        Assert.Equal(0, filters.PendingCompatibilityHandleCount);
-        AssertRetired(runtime, traceId!);
-    }
-
-    [Fact]
-    public async Task CompatibilityHandle_RollsBackWhenHandlerThrows()
-    {
-        using var runtime = TraceLifecycleProductionTests.TestRuntime.Create();
-        var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
-        var filters = CreateFilters(runtime);
-        string? traceId = null;
-        var incoming = filters.CreateIncomingFilter()((_, _) =>
-        {
-            traceId = TraceQueryExecutionContext.CurrentReference?.TraceId;
-            throw new InvalidOperationException("synthetic handler failure");
-        });
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => incoming(
-            Context(ToolRequest(104, source)),
-            CancellationToken.None));
-
-        Assert.Equal(0, filters.PendingCompatibilityHandleCount);
-        AssertRetired(runtime, traceId!);
-    }
-
     [Fact]
     public async Task BoundTraceArguments_AreExactAndConcurrentContextsDoNotCrossTalk()
     {
@@ -162,7 +56,7 @@ public sealed class TraceQueryExecutionFiltersTests
     }
 
     [Fact]
-    public async Task NonStringPath_BypassesResolutionWithoutPathIo()
+    public async Task NonStringTraceId_BypassesResolutionWithoutPathIo()
     {
         using var runtime = TraceLifecycleProductionTests.TestRuntime.Create();
         var filters = CreateFilters(runtime);
@@ -195,7 +89,7 @@ public sealed class TraceQueryExecutionFiltersTests
     }
 
     [Fact]
-    public async Task ContractFilter_ClassifiesNonStringPathBeforeSdkBinding()
+    public async Task ContractFilter_ClassifiesNonStringTraceIdBeforeSdkBinding()
     {
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var serverTools = catalog.CreateServerTools(new DeferredCatalogServiceProvider());
@@ -234,10 +128,10 @@ public sealed class TraceQueryExecutionFiltersTests
             new TraceReferenceResolver(runtime.Registry, runtime.Lifecycle),
             runtime.Cache,
             runtime.SessionPrincipal,
-            TraceAccessMode.Compatibility);
+            TraceAccessMode.IdOnly);
     }
 
-    private static JsonRpcRequest ToolRequest(long id, string path) => new()
+    private static JsonRpcRequest ToolRequest(long id, string traceId) => new()
     {
         Id = new RequestId(id),
         Method = RequestMethods.ToolsCall,
@@ -247,7 +141,7 @@ public sealed class TraceQueryExecutionFiltersTests
                 Name = "path_probe",
                 Arguments = new Dictionary<string, JsonElement>
                 {
-                    ["path"] = JsonSerializer.SerializeToElement(path),
+                    ["traceId"] = JsonSerializer.SerializeToElement(traceId),
                 },
             },
             McpJsonUtilities.DefaultOptions),
@@ -255,7 +149,7 @@ public sealed class TraceQueryExecutionFiltersTests
 
     private static JsonRpcRequest ToolRequest(
         long id,
-        JsonNode? path,
+        JsonNode? traceId,
         string toolName = "path_probe") => new()
     {
         Id = new RequestId(id),
@@ -263,7 +157,7 @@ public sealed class TraceQueryExecutionFiltersTests
         Params = new JsonObject
         {
             ["name"] = toolName,
-            ["arguments"] = new JsonObject { ["path"] = path?.DeepClone() },
+            ["arguments"] = new JsonObject { ["traceId"] = traceId?.DeepClone() },
         },
     };
 
@@ -297,6 +191,6 @@ public sealed class TraceQueryExecutionFiltersTests
         [Description("Test-only trace query.")]
         public string Query(
             [Description("Canonical TraceId returned by load_trace")]
-            string path) => path;
+            string traceId) => traceId;
     }
 }

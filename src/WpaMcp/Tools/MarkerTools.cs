@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 using WpaMcp.Analyzers;
 using WpaMcp.Core;
@@ -21,7 +21,7 @@ public sealed class MarkerTools
         "to choose windows for downstream analyzers. An empty result returns no_name_match; it " +
         "does not establish that a provider or capture keyword was disabled.")]
     public MarkerSearchResponse FindMarker(
-        [Description("Canonical TraceId returned by load_trace")] string path,
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
         [Description("Substring to match against event/task names")] string nameSubstring,
         [Description("Top N rows (counts: top buckets; rows: max events) (default 50, max 1000)")] int top = 50,
         [Description("'count_by_event' (default), 'count_by_process', or 'rows'")] string mode = ModeCountByEvent,
@@ -32,7 +32,7 @@ public sealed class MarkerTools
         Validation.RequireText(mode);
         if (fieldMaxChars < 0 || fieldMaxChars > Validation.MaxStringChars)
             throw new ArgumentOutOfRangeException(nameof(fieldMaxChars));
-        using var traceLease = _cache.Acquire(path);
+        using var traceLease = _cache.Acquire(traceId);
         var trace = traceLease.Trace;
         return MarkerSearch.Find(trace, nameSubstring, top, mode, fieldMaxChars);
     }
