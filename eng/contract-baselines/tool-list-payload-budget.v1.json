@@ -20,15 +20,15 @@
     "artifactTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
     "toolCount": 62,
     "structuredToolCount": 62,
-    "aggregateCatalogResultBytes": 208790,
-    "aggregateCatalogSha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa",
+    "aggregateCatalogResultBytes": 209255,
+    "aggregateCatalogSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
     "aggregatePromptCostState": "lean_discovery_with_on_demand_full_contracts",
     "pageFrameLimitBytes": 100000,
     "embeddedOutputSchemaCount": 0,
     "outputContractMetadataCount": 62,
     "withinLeanDiscoveryBudget": true,
     "fullContractRegistryArtifact": "eng/contract-baselines/tool-output-contract-registry.v1.json",
-    "fullContractRegistryCanonicalUtf8Bytes": 2380695
+    "fullContractRegistryCanonicalUtf8Bytes": 2380693
   },
   "legacyTransitionGuardBytes": 185000,
   "aggregateWarningThresholdBytes": 250000,

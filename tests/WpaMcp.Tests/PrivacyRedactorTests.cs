@@ -323,8 +323,8 @@ public sealed class PrivacyRedactorTests
         Assert.False(aliases.TryResolve(SensitiveFieldKind.TracePath, new string('a', 129), out _));
 
         var rewriter = new ToolArgumentRewriter(ToolPrivacyTaxonomy.Default, aliases);
-        var rewritten = rewriter.Rewrite("load_trace", new JsonObject { ["path"] = alias });
-        Assert.Equal(tracePath, rewritten.Arguments["path"]!.GetValue<string>());
+        var rewritten = rewriter.Rewrite("load_trace", new JsonObject { ["tracePath"] = alias });
+        Assert.Equal(tracePath, rewritten.Arguments["tracePath"]!.GetValue<string>());
         Assert.Single(rewritten.ResolvedAliases);
 
         var ordinaryAliasPrefix = rewriter.Rewrite(
@@ -337,7 +337,7 @@ public sealed class PrivacyRedactorTests
         var wrongKind = aliases.Issue(SensitiveFieldKind.SymbolPath, @"C:\symbols");
         Assert.Throws<ArgumentException>(() => rewriter.Rewrite(
             "load_trace",
-            new JsonObject { ["path"] = wrongKind }));
+            new JsonObject { ["tracePath"] = wrongKind }));
 
         using var restarted = new TypedAliasRegistry(Enumerable.Repeat((byte)7, 32).ToArray());
         Assert.False(restarted.TryResolve(SensitiveFieldKind.TracePath, alias, out _));

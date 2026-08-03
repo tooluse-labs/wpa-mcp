@@ -153,7 +153,7 @@ public sealed class TimelinePaginationTests
             candidate.ToolName == TimelinePagination.ThreadLifetimeTool);
         var reviewArguments = new Dictionary<string, JsonElement>
         {
-            ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+            ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
             ["pid"] = JsonSerializer.SerializeToElement(selected.Row.Pid),
             ["processStartUs"] = JsonSerializer.SerializeToElement(
                 selected.Row.StartUs.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -206,7 +206,7 @@ public sealed class TimelinePaginationTests
         {
             var arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+                ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
                 ["pid"] = JsonSerializer.SerializeToElement(selected.Row.Pid),
                 ["processStartUs"] = JsonSerializer.SerializeToElement(
                     selected.Row.StartUs.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -321,7 +321,7 @@ public sealed class TimelinePaginationTests
         {
             var arguments = new Dictionary<string, JsonElement>
             {
-                ["path"] = JsonSerializer.SerializeToElement(loaded.TraceId),
+                ["traceId"] = JsonSerializer.SerializeToElement(loaded.TraceId),
                 ["orderBy"] = JsonSerializer.SerializeToElement("cpu"),
                 ["top"] = JsonSerializer.SerializeToElement(1000),
                 ["includeSystem"] = JsonSerializer.SerializeToElement(true),

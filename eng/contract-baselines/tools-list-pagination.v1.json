@@ -2,7 +2,7 @@
   "formatVersion": "tools-list-pagination.v1",
   "measuredAt": "2026-08-02",
   "server": {
-    "catalogVersion": "d01ec40d54f5c0286ebb3c75d9c904e5c083a5c0688e1098999928e7b409535c",
+    "catalogVersion": "04254e9835c27d66e65d8dc83ab6e5762587711656f2a4b9f03346a88fd7e95e",
     "contractMode": "2.0",
     "toolCount": 62,
     "catalogScope": "wpa_mcp_declared_capabilities",
@@ -10,8 +10,8 @@
   },
   "aggregateCatalog": {
     "serialization": "ModelContextProtocol ListToolsResult with McpJsonUtilities.DefaultOptions",
-    "bytes": 208790,
-    "sha256": "dd71642745a16dfbc4ff98bc2f13e59f03afe8303a2ee5ceba2bdb3e973167aa",
+    "bytes": 209255,
+    "sha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
     "promptSchemaTokens": null,
     "promptSchemaTokenState": "unmeasured_client_specific",
     "cacheHitState": "unmeasured_client_specific"
@@ -19,9 +19,9 @@
   "startupPreflight": {
     "serializedRequestIdBytes": 128,
     "minimumSuccessFrameBytes": 174,
-    "minimumViableResponseBytes": 5646,
+    "minimumViableResponseBytes": 5652,
     "largestSingleTool": "cpu_top_functions",
-    "largestSingleToolFrameBytes": 5646,
+    "largestSingleToolFrameBytes": 5652,
     "stdioFramingBytes": 1,
     "scope": "tools_list_only"
   },
@@ -29,14 +29,14 @@
     "maxJsonRpcResponseBytes": 36127,
     "pageCount": 6,
     "pageFrameBytes": [
-      35737,
-      35796,
-      34723,
-      33853,
-      34639,
-      34636
+      35682,
+      35856,
+      34783,
+      34139,
+      34693,
+      34696
     ],
-    "maximumObservedPageFrameBytes": 35796,
+    "maximumObservedPageFrameBytes": 35856,
     "clientBehavior": "real newline-delimited stdio client traversed nextCursor until null",
     "closure": "all_62_tools_exactly_once_in_validated_order",
     "cursorBehavior": "opaque_retry_safe_tamper_rejected_cross_instance_rejected",

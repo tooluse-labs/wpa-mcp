@@ -19,8 +19,8 @@
     ]
   },
   "toolCount": 62,
-  "totalCanonicalUtf8Bytes": 2380695,
-  "registrySha256": "a4540b9e7d7fc0240053c21af8afb7b9fd94753467de12587a3c4d5194afd6e8",
+  "totalCanonicalUtf8Bytes": 2380693,
+  "registrySha256": "1eaff76ace4c7ad92740018621b492d257621866396ba89f802900fbb84671db",
   "tools": [
     {
       "toolName": "alpc_caller_callee",
@@ -359,10 +359,10 @@
       "toolName": "inspect_trace",
       "contractVersion": "2.0",
       "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
-      "schemaUri": "wpa://contracts/tools/inspect_trace/910aca43c36dec20b6d0d44ca9b33ad9b0c6fe86ed8bd7f198bf2e2079ee9588",
-      "sha256": "910aca43c36dec20b6d0d44ca9b33ad9b0c6fe86ed8bd7f198bf2e2079ee9588",
+      "schemaUri": "wpa://contracts/tools/inspect_trace/5321d837d8581663c6b507886440dcfbd924ede88297ebe3304db83050742739",
+      "sha256": "5321d837d8581663c6b507886440dcfbd924ede88297ebe3304db83050742739",
       "mediaType": "application/schema\u002Bjson",
-      "utf8Bytes": 71797
+      "utf8Bytes": 71796
     },
     {
       "toolName": "interrupt_caller_callee",
@@ -404,10 +404,10 @@
       "toolName": "load_trace",
       "contractVersion": "2.0",
       "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
-      "schemaUri": "wpa://contracts/tools/load_trace/0d3700b0e06a130ea2f2e1930a38c3f4a83cbb5776fc827d867ffc76262ed4c6",
-      "sha256": "0d3700b0e06a130ea2f2e1930a38c3f4a83cbb5776fc827d867ffc76262ed4c6",
+      "schemaUri": "wpa://contracts/tools/load_trace/04daec5fafe6e513d67de0ecfcace301b69d5a0b86a8f93dcda8bf1bf20e8a8d",
+      "sha256": "04daec5fafe6e513d67de0ecfcace301b69d5a0b86a8f93dcda8bf1bf20e8a8d",
       "mediaType": "application/schema\u002Bjson",
-      "utf8Bytes": 42384
+      "utf8Bytes": 42383
     },
     {
       "toolName": "memory_resource_analysis",
