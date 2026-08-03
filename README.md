@@ -28,21 +28,65 @@ wpa-mcp lets an AI client investigate an ETL trace without loading the entire tr
 
 ## Quick start
 
-### 1. Install the complete bundle
+### 1. Install and register in one command (recommended)
 
-Windows x64 users should install the ZIP bundle from the latest stable release. Keep the `bin` and `native` directories together.
+PowerShell:
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) }"
+```
+
+Git Bash on Windows:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
+```
+
+The installer downloads the latest complete `wpa-mcp-win-x64.zip` bundle to `%USERPROFILE%\.local`, verifies that the executable is usable, and registers its absolute path with every detected Codex, Claude Code, and Claude Desktop installation. The bundle is self-contained; no .NET runtime or SDK is required.
+
+Verify the installed executable directly:
+
+```powershell
+& "$HOME\.local\bin\wpa-mcp.exe" --version
+```
+
+Remote scripts should be reviewed before execution. To pin a release or select one client explicitly:
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag '<release-tag>' -Client codex"
+```
+
+### 2. Install manually
+
+Windows x64 users can install the complete ZIP bundle without running a remote script. Keep the `bin` and `native` directories together:
 
 ```powershell
 $archive = Join-Path $env:TEMP 'wpa-mcp-win-x64.zip'
 $install = Join-Path $HOME '.local\share\wpa-mcp'
+$bin = Join-Path $install 'bin'
+
 Invoke-WebRequest 'https://github.com/tooluse-labs/wpa-mcp/releases/latest/download/wpa-mcp-win-x64.zip' -OutFile $archive
 Expand-Archive -LiteralPath $archive -DestinationPath $install -Force
-& "$install\bin\wpa-mcp.exe" --version
+
+# Make wpa-mcp available in this PowerShell session.
+$env:Path = "$bin;$env:Path"
+
+# Persist the bin directory for new processes and terminals.
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$userEntries = @($userPath -split ';' | Where-Object { $_ })
+if ($userEntries -notcontains $bin) {
+    [Environment]::SetEnvironmentVariable(
+        'Path', (($userEntries + $bin) -join ';'), 'User')
+}
+
+wpa-mcp.exe --version
 ```
 
-The release bundle is self-contained and does not require a separately installed .NET runtime or SDK. A standalone `wpa-mcp-win-x64.exe` asset is also published for portable use, but the complete ZIP bundle is the recommended installation for in-place updates.
+If user-level environment changes are restricted by policy, omit the persistent PATH block and use the absolute command `& "$install\bin\wpa-mcp.exe"`. Restart existing terminals and MCP clients after changing the persistent PATH.
 
-### 2. Connect an MCP client
+The standalone `wpa-mcp-win-x64.exe` asset is intended for portable smoke checks. Use the ZIP bundle for normal installations because native dependencies and in-place updates require the complete `bin` plus `native` layout.
+
+### 3. Connect an MCP client
 
 Configure the client to launch `bin\wpa-mcp.exe` over stdio. Use an absolute path. JSON-based clients commonly use this shape:
 

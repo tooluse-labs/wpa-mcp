@@ -28,21 +28,65 @@ wpa-mcp 让 AI 客户端分析 ETL trace，而不必把完整 trace 装入模型
 
 ## 快速开始
 
-### 1. 安装完整分发包
+### 1. 一条命令安装并注册（推荐）
 
-Windows x64 用户应安装最新稳定版本的 ZIP bundle，并始终保持 `bin` 与 `native` 目录在一起。
+PowerShell：
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) }"
+```
+
+Windows Git Bash：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.sh | bash
+```
+
+安装器会把最新的完整 `wpa-mcp-win-x64.zip` 下载到 `%USERPROFILE%\.local`，验证可执行文件可用，并使用绝对路径自动注册所有检测到的 Codex、Claude Code 和 Claude Desktop。发布包是 self-contained，不需要另外安装 .NET runtime 或 SDK。
+
+直接验证已安装的程序：
+
+```powershell
+& "$HOME\.local\bin\wpa-mcp.exe" --version
+```
+
+执行远程脚本前应先审阅其内容。需要固定版本或明确选择客户端时：
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/tooluse-labs/wpa-mcp/main/scripts/install.ps1) } -Tag '<release-tag>' -Client codex"
+```
+
+### 2. 手工安装
+
+Windows x64 用户也可以不执行远程脚本，直接安装完整 ZIP bundle，并始终保持 `bin` 与 `native` 目录在一起：
 
 ```powershell
 $archive = Join-Path $env:TEMP 'wpa-mcp-win-x64.zip'
 $install = Join-Path $HOME '.local\share\wpa-mcp'
+$bin = Join-Path $install 'bin'
+
 Invoke-WebRequest 'https://github.com/tooluse-labs/wpa-mcp/releases/latest/download/wpa-mcp-win-x64.zip' -OutFile $archive
 Expand-Archive -LiteralPath $archive -DestinationPath $install -Force
-& "$install\bin\wpa-mcp.exe" --version
+
+# 让当前 PowerShell 会话可以直接运行 wpa-mcp。
+$env:Path = "$bin;$env:Path"
+
+# 为新进程和新终端持久保存 bin 目录。
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$userEntries = @($userPath -split ';' | Where-Object { $_ })
+if ($userEntries -notcontains $bin) {
+    [Environment]::SetEnvironmentVariable(
+        'Path', (($userEntries + $bin) -join ';'), 'User')
+}
+
+wpa-mcp.exe --version
 ```
 
-发布包是 self-contained，不需要另外安装 .NET runtime 或 SDK。Release 也提供独立的 `wpa-mcp-win-x64.exe` 便携资产，但需要原地升级时，推荐使用完整 ZIP bundle。
+如果系统策略禁止修改用户级环境变量，可省略持久化 PATH 的代码，并使用绝对命令 `& "$install\bin\wpa-mcp.exe"`。修改持久 PATH 后，需要重启已有终端和 MCP 客户端。
 
-### 2. 连接 MCP 客户端
+独立的 `wpa-mcp-win-x64.exe` 资产适合便携式冒烟检查。常规安装应使用 ZIP 完整包，因为原生依赖和原地升级都要求完整的 `bin` 加 `native` 目录结构。
+
+### 3. 连接 MCP 客户端
 
 把客户端配置为通过 stdio 启动 `bin\wpa-mcp.exe`，并使用绝对路径。采用 JSON 配置的客户端通常使用以下结构：
 
