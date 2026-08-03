@@ -7,6 +7,13 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.5.4 - 2026-08-03
+
+### Documentation
+
+- Restored the recommended PowerShell and Git Bash one-command installers.
+- Completed the manual ZIP installation flow with PATH setup, absolute-path fallback, client registration guidance, and version verification.
+
 ## 0.5.3 - 2026-08-03
 
 - Added `thread_compare_windows` for exact-thread CPU/running/ready/blocked comparisons across named windows, with immutable snapshot pagination and explicit stack/symbol evidence boundaries.
