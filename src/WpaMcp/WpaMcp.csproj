@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <!-- Constructed CLR type names appear in reviewed schema titles. Keep the
          0.x assembly binding identity stable so a package-only version bump
          does not churn canonical Contract 2.0 bytes and content addresses. -->
