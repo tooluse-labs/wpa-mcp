@@ -110,7 +110,7 @@ public sealed class ReleasePackageStdioTests
         while (toolsCursor is not null);
 
         Assert.Equal(expected.Tools.Select(tool => tool.ToolName), toolNames);
-        Assert.Equal(62, toolNames.Count);
+        Assert.Equal(63, toolNames.Count);
         Assert.Equal(toolNames.Count, toolNames.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(toolNames, advertisedContracts.Select(contract => contract.ToolName));
         var aggregateToolsList = new JsonObject
@@ -147,7 +147,7 @@ public sealed class ReleasePackageStdioTests
             outputContractToolPageCount += toolProjection.PageCount;
             outputContractCanonicalBytes += resourceProjection.CanonicalUtf8.Length;
         }
-        Assert.Equal(62, advertisedContracts.Count);
+        Assert.Equal(63, advertisedContracts.Count);
         Assert.InRange(outputContractResourcePageCount, advertisedContracts.Count, int.MaxValue);
         Assert.Equal(outputContractResourcePageCount, outputContractToolPageCount);
         Assert.Equal(
