@@ -5,6 +5,9 @@
 - Amended: 2026-08-02 — Contract 2.0-only rollout, lean discovery,
   non-blocking client observations, and explicit acceptance of the opaque
   converter transient-peak residual risk for 0.4.x
+- Amended: 2026-08-07 — define the additive `0.7.x` release line (disk IO
+  analysis tool, trace-access escape hatch, and denial diagnostics) with
+  unchanged contract 2.0 + canonical `traceId` defaults
 - Superseded in part: ADR 0006 closes the raw-path query window in `0.6.0`
   and replaces ambiguous query `path` inputs with canonical `traceId`
 - Decision source: implementation authorization through `/goal`
@@ -31,6 +34,7 @@ The implementation and compatibility window are:
 | `0.4.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | Phase 0–4 schemas, lean catalog, full-contract lookup, stdio and lifecycle security pass |
 | `0.5.x` | contract `2.0` + ID-only secure default | explicit raw-path switch | capability map, migration docs, and deprecation telemetry pass |
 | `0.6.x` | contract `2.0` + canonical `traceId` queries | none | breaking input-schema, documentation, and reviewed-baseline closure |
+| `0.7.x` | contract `2.0` + canonical `traceId` queries (unchanged) | none | additive tool/startup-option evidence, README and changelog closure |
 | `1.0.0` | contract `2.0` + ID-only only | none | one full `0.5.x` deprecation window, usage telemetry review, release gate |
 | contract `3.0` | exact string identifiers only | none | deprecated numeric projections removed with a separate breaking-contract changelog |
 

@@ -120,6 +120,25 @@ public sealed class RuntimeCompatibilityPolicyTests
     }
 
     [Fact]
+    public void Version07_ContinuesCanonicalTraceIdOnlyReleaseLine()
+    {
+        var defaults = RuntimeCompatibilityPolicy.Evaluate("0.7.0");
+        Assert.Equal(RuntimeReleaseStage.V07, defaults.ReleaseStage);
+        Assert.Equal("0.7.x", defaults.ReleaseLine);
+        Assert.Equal(TraceAccessMode.IdOnly, defaults.TraceReferenceMode);
+        Assert.True(defaults.Runnable);
+        Assert.True(defaults.ReleaseEligible);
+
+        var removed = RuntimeCompatibilityPolicy.Evaluate(
+            "0.7.0",
+            traceReferenceOverride: TraceAccessMode.Compatibility,
+            traceReferenceModeExplicit: true);
+        Assert.False(removed.Runnable);
+        Assert.Contains(removed.RuntimeBlockers, blocker =>
+            blocker.StartsWith("trace_reference_mode_removed", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Version1_RemovesBothCompatibilityModesAndRequiresHistoricalGate()
     {
         var defaults = RuntimeCompatibilityPolicy.Evaluate("1.0.0");
@@ -159,7 +178,7 @@ public sealed class RuntimeCompatibilityPolicyTests
     }
 
     [Theory]
-    [InlineData("0.7.0")]
+    [InlineData("0.8.0")]
     [InlineData("2.0.0")]
     public void UndefinedReleaseLinesFailClosed(string version)
     {

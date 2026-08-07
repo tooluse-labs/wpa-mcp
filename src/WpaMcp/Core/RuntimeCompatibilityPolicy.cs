@@ -15,6 +15,7 @@ internal enum RuntimeReleaseStage
     V04,
     V05,
     V06,
+    V07,
     V1OrLater,
 }
 
@@ -42,6 +43,7 @@ internal sealed record RuntimeCompatibilityProfile(
         RuntimeReleaseStage.V04 => "0.4.x",
         RuntimeReleaseStage.V05 => "0.5.x",
         RuntimeReleaseStage.V06 => "0.6.x",
+        RuntimeReleaseStage.V07 => "0.7.x",
         RuntimeReleaseStage.V1OrLater => "1.0_or_later",
         _ => throw new ArgumentOutOfRangeException(nameof(ReleaseStage)),
     };
@@ -146,7 +148,8 @@ internal static class RuntimeCompatibilityPolicy
         }
 
         if (traceReference != TraceAccessMode.IdOnly &&
-            stage is RuntimeReleaseStage.V06 or RuntimeReleaseStage.V1OrLater)
+            stage is RuntimeReleaseStage.V06 or RuntimeReleaseStage.V07 or
+                RuntimeReleaseStage.V1OrLater)
             runtimeBlockers.Add("trace_reference_mode_removed:raw_path_queries_are_not_supported");
 
         if (contract == ToolContractMode.Legacy && !LegacyContractImplemented)
@@ -232,6 +235,7 @@ internal static class RuntimeCompatibilityPolicy
         RuntimeReleaseStage.V04 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V05 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V06 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
+        RuntimeReleaseStage.V07 => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         RuntimeReleaseStage.V1OrLater => (ToolContractMode.V2, TraceAccessMode.IdOnly),
         _ => throw new ArgumentOutOfRangeException(nameof(stage)),
     };
@@ -240,12 +244,14 @@ internal static class RuntimeCompatibilityPolicy
     {
         if (version.Major == 1)
             return RuntimeReleaseStage.V1OrLater;
-        if (version.Major > 1 || version.Minor > 6)
+        if (version.Major > 1 || version.Minor > 7)
         {
             throw new ArgumentException(
                 $"Runtime release line '{version.Major}.{version.Minor}.x' is not defined by ADR 0005.",
                 nameof(version));
         }
+        if (version.Minor >= 7)
+            return RuntimeReleaseStage.V07;
         if (version.Minor >= 6)
             return RuntimeReleaseStage.V06;
         if (version.Minor == 5)
