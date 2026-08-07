@@ -7,8 +7,11 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.7.0 - 2026-08-07
+
 ### Added
 
+- Add `disk_io_analysis`, a stack-independent physical Disk I/O tool: exact read/write counts and bytes, service-time statistics, per-disk busy time from merged service intervals, top process/file rows, and a bounded timeline that needs neither stacks nor symbols.
 - Add `--allow-any-trace-path` / `WPAMCP_ALLOW_ANY_TRACE_PATH` to disable trace-root confinement on trusted local machines, and document repeat-per-root `--trace-root` usage in the README.
 - Surface the specific denial rule, the rejected path, and the configured roots in `trace_access_denied` errors instead of a generic policy message.
 
