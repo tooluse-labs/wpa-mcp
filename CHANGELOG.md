@@ -7,6 +7,8 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+## 0.7.1 - 2026-08-07
+
 ### Changed
 
 - Trace root confinement is now opt-in: with no `--trace-root`/`WPAMCP_TRACE_ROOTS` configured, `load_trace` accepts any readable local `.etl`/`.etlx` path, and configuring roots is what enables restriction. `--allow-any-trace-path` remains as an explicit override, and the server prints a startup notice whenever confinement is off and stderr is a terminal.
