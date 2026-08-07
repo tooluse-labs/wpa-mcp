@@ -87,10 +87,10 @@
       "jsonrpc": "2.0"
     },
     "toolsList": {
-      "toolCount": 62,
+      "toolCount": 63,
       "pageCount": 3,
       "configuredFrameCapBytes": 87542,
-      "maximumObservedPageFrameBytes": 86043,
+      "maximumObservedPageFrameBytes": 87240,
       "pages": [
         {
           "pageIndex": 0,
@@ -102,11 +102,11 @@
         },
         {
           "pageIndex": 1,
-          "returnedTools": 25,
+          "returnedTools": 26,
           "firstTool": "image_load_caller_callee",
           "lastTool": "registry_caller_callee",
           "hasMore": true,
-          "frameBytes": 84533
+          "frameBytes": 87240
         },
         {
           "pageIndex": 2,
@@ -149,6 +149,7 @@
         "image_load_top_gaps",
         "image_load_top_stacks",
         "disk_io_caller_callee",
+        "disk_io_analysis",
         "disk_io_top_stacks",
         "file_io_caller_callee",
         "file_io_top_files",
@@ -181,10 +182,10 @@
         "process_create_timing",
         "thread_lifetime"
       ],
-      "resultBytes": 209255,
-      "resultSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4"
+      "resultBytes": 211962,
+      "resultSha256": "ee6611c2c03f4467aafd76d0c8f06a7cb78e887b615593d8342fb7958240548b"
     },
-    "stdoutLineCount": 128,
+    "stdoutLineCount": 130,
     "allStdoutLinesWereJson": true,
     "exitCode": 0
   },
@@ -397,8 +398,8 @@
           "missingTopLevelRequiredProperties": [],
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
-          "normalizedCompactFrameBytes": 66970,
-          "normalizedCompactFrameSha256": "1f50c672a63bd272df2c3a98a2869ec29fa241c99301b0d15e9154330483297a",
+          "normalizedCompactFrameBytes": 66762,
+          "normalizedCompactFrameSha256": "357c93bd64fd409d810466abe2b48904468ab8185b443f3e94baba715bd2c242",
           "response": {
             "jsonrpc": "2.0",
             "id": "list_capabilities-primary",
@@ -422,8 +423,8 @@
                 "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
               }
             ],
-            "structuredContentBytes": 27779,
-            "structuredContentSha256": "68acae1d81bc30926c7d8058ed805b13f6b198446e6be8e52c2864ff3eebc6db",
+            "structuredContentBytes": 27705,
+            "structuredContentSha256": "99ff2153f08048956ed1e99b57ab20d631128dcea56f40a61db4e1ef1a2b8d06",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -446,8 +447,8 @@
                 "kind": "object",
                 "itemCount": null,
                 "propertyCount": 15,
-                "bytes": 25141,
-                "sha256": "2d511e0574e035e2399d7e247fecd61b7f30cb010f1cc754de17431b3e361c82"
+                "bytes": 25067,
+                "sha256": "a56b1f7d9077eebec280c53ccbd36d5f54dd40b25d81407989c7a0efbdf751c0"
               },
               {
                 "name": "error",
@@ -471,7 +472,7 @@
                 "itemCount": 1,
                 "propertyCount": null,
                 "bytes": 544,
-                "sha256": "eca73ed6a4f0b9d1127650f6fb27437f851662561e2dac2c7b8173236e3c1d92"
+                "sha256": "1b50ad010e838609185c611b20f8baa5dad4402c4b471d49ef17593baa430f52"
               },
               {
                 "name": "warnings",
@@ -12629,6 +12630,401 @@
                 "propertyCount": 1,
                 "bytes": 363,
                 "sha256": "ff94c6fabc61e5222106a55e02753f0fa39f27c354893c52b8202bfd3d7a9a6b"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 225,
+                "sha256": "00f166ffb9edc9e7f69a685eaf218e6d263fa680370fc129e833256a0f35e8a0"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "failed",
+              "error.code": "trace_not_loaded",
+              "error.retryable": true,
+              "hasMore": false,
+              "scope.status": "not_evaluated",
+              "scope.mode": "trace",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "failed",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 0,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disk_io_analysis",
+      "outputSchemaBytes": 34640,
+      "outputSchemaSha256": "d4e4ee49744796bbcac18ae121a4d5f1ae0599c7d703df2637af789956e5eaf7",
+      "cases": [
+        {
+          "case": "loaded_fixture_contract_case",
+          "arguments": {
+            "traceId": "\u003CTRACE_ID\u003E",
+            "top": 1
+          },
+          "terminal": "tool_error_result",
+          "contractStatus": "failed",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 6042,
+          "normalizedCompactFrameSha256": "31cb12718ef303fb0f10c81468bcb1eff073cf2ea0e6965d1af2986c3cb1fb83",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "disk_io_analysis-primary",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 2338,
+            "structuredContentSha256": "d79338e4fa739e5a8ce3150a79a059c891f699cb6f652524b0901b3f1d395ee2",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 8,
+                "sha256": "33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740"
+              },
+              {
+                "name": "data",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "error",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 3,
+                "bytes": 118,
+                "sha256": "7637cd5c3e602d678da8343a63f6ad501a14d337e050c18782bf0e130502527e"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 65,
+                "sha256": "9105c046f7f6cfd3426de561e55cf87f8de75eb1a382aeb67709579a2f0635fb"
+              },
+              {
+                "name": "traceRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 4,
+                "bytes": 102,
+                "sha256": "433d24c1847198215ab4e1f0f41fc2b25b0ba147b6b323b6d5a785c5aa975476"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 351,
+                "sha256": "61832c7e58c363745712ebb58a5664af821ef4f1d0f6ef2f8a7b7fe6f453272c"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 675,
+                "sha256": "eb4fe1d5ee24c976035cdb5e5785891f6811b21b68ac4b7acab78cc9f39efbe5"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 105,
+                "sha256": "33c328f78b6f923f2e751cf0f51aed678205c28893728e344eb7311857ae0e19"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 452,
+                "sha256": "00e74aa90df387038b1abc3f663bdcb062142b93bb4d152f458247a8863a030a"
+              },
+              {
+                "name": "noData",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "precision",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 225,
+                "sha256": "00f166ffb9edc9e7f69a685eaf218e6d263fa680370fc129e833256a0f35e8a0"
+              }
+            ],
+            "selectedFacts": {
+              "contractVersion": "2.0",
+              "status": "failed",
+              "error.code": "analysis_failed",
+              "error.retryable": false,
+              "hasMore": false,
+              "scope.status": "not_evaluated",
+              "scope.mode": "trace",
+              "scope.pidReuseObserved": false,
+              "scope.identityUnresolved": false,
+              "completeness.status": "failed",
+              "completeness.requestedSectionCount": 1,
+              "completeness.sectionsWithData": 0,
+              "completeness.failedSectionCount": 0,
+              "completeness.hasMore": false,
+              "failedSections.$count": 0,
+              "sections.$count": 0,
+              "warnings.$count": 0,
+              "capabilityEvidence.$count": 1
+            }
+          }
+        },
+        {
+          "case": "stable_failed_boundary",
+          "arguments": {
+            "traceId": "\u003CTRACE_ID\u003E",
+            "top": 1
+          },
+          "terminal": "tool_error_result",
+          "contractStatus": "failed",
+          "noDataReason": null,
+          "hasMore": false,
+          "textJsonEqualsStructuredContent": true,
+          "topLevelRequiredPropertiesPresent": true,
+          "missingTopLevelRequiredProperties": [],
+          "recursiveSchemaValid": true,
+          "recursiveSchemaViolations": [],
+          "normalizedCompactFrameBytes": 6060,
+          "normalizedCompactFrameSha256": "15215cedc8f728dc39f727949cfbd9f39b85ee783d8fec86a61fe006011ba6e7",
+          "response": {
+            "jsonrpc": "2.0",
+            "id": "disk_io_analysis-failure",
+            "responseProperties": [
+              "result",
+              "id",
+              "jsonrpc"
+            ],
+            "resultProperties": [
+              "content",
+              "structuredContent",
+              "isError"
+            ],
+            "contentShape": [
+              {
+                "properties": [
+                  "type",
+                  "text"
+                ],
+                "type": "text",
+                "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
+              }
+            ],
+            "structuredContentBytes": 2357,
+            "structuredContentSha256": "fd648287499f436d3500cd2834d45281cd9ea035fe56a871773ebb83a86f0c28",
+            "structuredTopLevelSections": [
+              {
+                "name": "contractVersion",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "86169bcf42397928e1828b0a8e09ab69037ac05474b33486513c2fea65908565"
+              },
+              {
+                "name": "status",
+                "kind": "string",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 8,
+                "sha256": "33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740"
+              },
+              {
+                "name": "data",
+                "kind": "null",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 4,
+                "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              {
+                "name": "error",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 3,
+                "bytes": 135,
+                "sha256": "99e47e04391124915c8659da067c12d4f9ed13b6415fd7cb39e9c0afe80b61f9"
+              },
+              {
+                "name": "failedSections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "sections",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "warnings",
+                "kind": "array",
+                "itemCount": 0,
+                "propertyCount": null,
+                "bytes": 2,
+                "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              },
+              {
+                "name": "hasMore",
+                "kind": "false",
+                "itemCount": null,
+                "propertyCount": null,
+                "bytes": 5,
+                "sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+              },
+              {
+                "name": "toolRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 2,
+                "bytes": 65,
+                "sha256": "9105c046f7f6cfd3426de561e55cf87f8de75eb1a382aeb67709579a2f0635fb"
+              },
+              {
+                "name": "traceRef",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 4,
+                "bytes": 102,
+                "sha256": "433d24c1847198215ab4e1f0f41fc2b25b0ba147b6b323b6d5a785c5aa975476"
+              },
+              {
+                "name": "scope",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 11,
+                "bytes": 351,
+                "sha256": "61832c7e58c363745712ebb58a5664af821ef4f1d0f6ef2f8a7b7fe6f453272c"
+              },
+              {
+                "name": "capabilityEvidence",
+                "kind": "array",
+                "itemCount": 1,
+                "propertyCount": null,
+                "bytes": 677,
+                "sha256": "3192b2bb27056a655fb7fb138a3632a334b02b340a746d855470724b8090d6d2"
+              },
+              {
+                "name": "completeness",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 5,
+                "bytes": 105,
+                "sha256": "33c328f78b6f923f2e751cf0f51aed678205c28893728e344eb7311857ae0e19"
+              },
+              {
+                "name": "evidenceBoundary",
+                "kind": "object",
+                "itemCount": null,
+                "propertyCount": 1,
+                "bytes": 452,
+                "sha256": "00e74aa90df387038b1abc3f663bdcb062142b93bb4d152f458247a8863a030a"
               },
               {
                 "name": "noData",

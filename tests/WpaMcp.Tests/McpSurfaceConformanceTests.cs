@@ -41,6 +41,7 @@ public sealed class McpSurfaceConformanceTests
         "ImageLoadTools.ImageLoadTopStacks",
         "InterruptTools.InterruptCallerCallee",
         "InterruptTools.InterruptTopStacks",
+        "IoTools.DiskIoAnalysis",
         "IoTools.DiskIoCallerCallee",
         "IoTools.DiskIoTopStacks",
         "IoTools.FileIoCallerCallee",

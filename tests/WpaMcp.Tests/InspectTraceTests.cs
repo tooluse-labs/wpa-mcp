@@ -1153,7 +1153,7 @@ public sealed class InspectTraceTests
             .OrderBy(workflow => workflow.WorkflowId, StringComparer.Ordinal)
             .Select(workflow => workflow.WorkflowId)
             .ToArray();
-        Assert.Equal(51, expectedCapabilities.Length);
+        Assert.Equal(52, expectedCapabilities.Length);
         Assert.Equal(expectedCapabilities, capabilityIds);
         Assert.Equal(expectedWorkflows, workflowIds);
         Assert.Equal(capabilityIds.Count, capabilityIds.Distinct(StringComparer.Ordinal).Count());

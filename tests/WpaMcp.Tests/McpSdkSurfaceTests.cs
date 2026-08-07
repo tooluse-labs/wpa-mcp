@@ -115,7 +115,7 @@ public sealed class McpSdkSurfaceTests
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var protocolTools = catalog.CreateProtocolTools(new DeferredCatalogServiceProvider());
 
-        Assert.Equal(62, protocolTools.Count);
+        Assert.Equal(63, protocolTools.Count);
         foreach (var protocolTool in protocolTools)
         {
             var contract = catalog.OutputContracts[protocolTool.Name];

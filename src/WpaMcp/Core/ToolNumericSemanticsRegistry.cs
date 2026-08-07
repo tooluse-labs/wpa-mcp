@@ -140,11 +140,80 @@ internal static class ToolNumericSemanticsRegistry
 
         AddEnvelopeSemantics(entries);
         AddTimelineSemantics(entries);
+        AddDiskIoAnalysisSemantics(entries);
         AddStackMetricSemantics(entries);
         AddSymbolMetricSemantics(entries);
         ToolNumericSemanticsReviewedManifest.Populate(entries);
 
         return entries;
+    }
+
+    private static void AddDiskIoAnalysisSemantics(
+        IDictionary<(Type Type, string Property), ReviewedNumericSemantics> entries)
+    {
+        AddMany(entries, typeof(DiskIoMetrics), ExactMetric("disk_io_event_count", "sum"),
+            nameof(DiskIoMetrics.ReadCount),
+            nameof(DiskIoMetrics.WriteCount),
+            nameof(DiskIoMetrics.TotalCount),
+            nameof(DiskIoMetrics.ServiceTimeSampleCount));
+        AddMany(entries, typeof(DiskIoMetrics), ExactMetric("bytes", "sum"),
+            nameof(DiskIoMetrics.ReadBytes),
+            nameof(DiskIoMetrics.WriteBytes),
+            nameof(DiskIoMetrics.TotalBytes));
+        Add(entries, typeof(DiskIoMetrics), nameof(DiskIoMetrics.AverageServiceTimeUs),
+            new ReviewedNumericSemantics(
+                "metric", "microseconds", "rounded_integer", "mean",
+                "serviceTimeSampleCount", Minimum: 0));
+        Add(entries, typeof(DiskIoMetrics), nameof(DiskIoMetrics.P95ServiceTimeUs),
+            new ReviewedNumericSemantics(
+                "metric", "microseconds", "exact", "percentile_95_nearest_rank",
+                "serviceTimeSampleCount", Minimum: 0));
+        Add(entries, typeof(DiskIoMetrics), nameof(DiskIoMetrics.MaxServiceTimeUs),
+            new ReviewedNumericSemantics(
+                "metric", "microseconds", "exact", "maximum",
+                "serviceTimeSampleCount", Minimum: 0));
+
+        AddMany(entries, typeof(DiskIoSummary), TimePoint(),
+            nameof(DiskIoSummary.StartUs), nameof(DiskIoSummary.EndUs));
+        AddMany(entries, typeof(DiskIoTimelineBucket), TimePoint(),
+            nameof(DiskIoTimelineBucket.StartUs), nameof(DiskIoTimelineBucket.EndUs));
+        Add(entries, typeof(DiskIoSummary), nameof(DiskIoSummary.WindowDurationUs),
+            ExactMetric("microseconds", "window_duration"));
+        Add(entries, typeof(DiskIoTimelineBucket), nameof(DiskIoTimelineBucket.DurationUs),
+            ExactMetric("microseconds", "bucket_duration"));
+        Add(entries, typeof(DiskIoSummary), nameof(DiskIoSummary.BusyUsAcrossDisks),
+            ExactMetric("microseconds", "sum_of_per_disk_interval_unions"));
+        Add(entries, typeof(DiskIoDiskRow), nameof(DiskIoDiskRow.BusyUs),
+            ExactMetric("microseconds", "per_disk_interval_union"));
+        Add(entries, typeof(DiskIoTimelineBucket), nameof(DiskIoTimelineBucket.BusyUsAcrossDisks),
+            ExactMetric("microseconds", "bucket_sum_of_per_disk_interval_unions"));
+
+        AddMany(entries, typeof(DiskIoSummary), ExactMetric("count", "count"),
+            nameof(DiskIoSummary.ObservedDiskCount),
+            nameof(DiskIoSummary.BusyTimeMeasuredDiskCount),
+            nameof(DiskIoSummary.ProcessIdentityUnresolvedEventCount));
+        Add(entries, typeof(DiskIoAnalysisResponse), nameof(DiskIoAnalysisResponse.MatchedEventCount),
+            ExactMetric("disk_io_event_count", "matched_count"));
+        Add(entries, typeof(DiskIoDiskRow), nameof(DiskIoDiskRow.DiskNumber),
+            new ReviewedNumericSemantics(
+                "category", "disk_number", "exact", "not_applicable", Minimum: 0));
+        AddMany(entries, typeof(DiskIoAnalysisResponse),
+            new ReviewedNumericSemantics(
+                "configuration", "microseconds", "exact", "bucket_width", Minimum: 0),
+            nameof(DiskIoAnalysisResponse.RequestedBucketUs),
+            nameof(DiskIoAnalysisResponse.EffectiveBucketUs));
+
+        var averageBusy = new ReviewedNumericSemantics(
+            "metric", "percent", "rounded_binary64", "average_disk_busy_ratio",
+            "window_or_bucket_duration_times_measured_disk_count", Minimum: 0, Maximum: 100);
+        var maxBusy = new ReviewedNumericSemantics(
+            "metric", "percent", "rounded_binary64", "maximum_disk_busy_ratio",
+            "window_or_bucket_duration", Minimum: 0, Maximum: 100);
+        Add(entries, typeof(DiskIoSummary), nameof(DiskIoSummary.AverageDiskBusyPct), averageBusy);
+        Add(entries, typeof(DiskIoSummary), nameof(DiskIoSummary.MaxDiskBusyPct), maxBusy);
+        Add(entries, typeof(DiskIoDiskRow), nameof(DiskIoDiskRow.BusyPct), maxBusy);
+        Add(entries, typeof(DiskIoTimelineBucket), nameof(DiskIoTimelineBucket.AverageDiskBusyPct), averageBusy);
+        Add(entries, typeof(DiskIoTimelineBucket), nameof(DiskIoTimelineBucket.MaxDiskBusyPct), maxBusy);
     }
 
     private static void AddEnvelopeSemantics(

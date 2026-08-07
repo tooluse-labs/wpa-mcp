@@ -120,6 +120,47 @@ public sealed class IoTools
     }
 
     [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
+        "Stack-independent PHYSICAL Disk I/O aggregation from DiskIO Read/Write events. Returns " +
+        "exact read/write counts and bytes, disk service-time statistics, per-disk busy time, " +
+        "and bounded top process/file/disk rows. Set bucketUs > 0 for a complete timeline; the " +
+        "bucket width is widened automatically when needed to stay within 512 buckets. This is " +
+        "a different layer from File I/O and does not require event stacks or symbols. Counts and " +
+        "bytes use completion timestamps; busy percentages use the union of matched service intervals.")]
+    public DiskIoAnalysisResponse DiskIoAnalysis(
+        [Description("Canonical TraceId returned by load_trace")] string traceId,
+        [Description("Top N process and file rows per section (default 20, max 1000)")] int top = 20,
+        [Description("Filter to a single process ID")] int? pid = null,
+        [Description("Window start in microseconds since trace start")] long? startUs = null,
+        [Description("Window end in microseconds since trace start (exclusive)")] long? endUs = null,
+        [Description("Requested timeline bucket width in microseconds; 0 disables the timeline. The effective width may be increased to cap output at 512 buckets.")]
+        long bucketUs = 0,
+        [Description("Return only summary and scope evidence, omitting process/file/disk/timeline rows.")]
+        bool summaryOnly = false,
+        [Description("Exact process lifetime start in microseconds since trace start; requires pid. PID-only queries explicitly aggregate reused lifetimes.")]
+        long? processStartUs = null)
+    {
+        var requestedWindow = Validation.RequireWindowInput(startUs, endUs);
+        Validation.RequireThreadSelector(pid, tid: null, processStartUs, threadStartUs: null);
+        Validation.RequireTop(top);
+        if (bucketUs < 0)
+            throw ToolFailureCaptureContext.Capture(
+                new ArgumentOutOfRangeException(nameof(bucketUs), "must be non-negative"));
+        using var traceLease = _cache.Acquire(traceId);
+        var trace = traceLease.Trace;
+        var window = requestedWindow.Resolve(
+            TraceTime.FromMilliseconds(trace.SessionDuration.TotalMilliseconds), maxDurationUs: null);
+        return Analyzers.DiskIoAnalysis.Analyze(
+            trace,
+            top,
+            pid,
+            window.StartUs,
+            window.EndUs,
+            bucketUs,
+            summaryOnly,
+            processStartUs);
+    }
+
+    [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = false, Destructive = false), Description(
         "Top-N call stacks ranked by PHYSICAL disk-IO bytes — answers 'which call chain " +
         "actually hit the disk'. Different layer from file_io_top_stacks: file IO captures " +
         "all syscalls (cache-served included), disk IO only events that hit physical media. " +

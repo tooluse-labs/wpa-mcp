@@ -3,7 +3,7 @@
     "observation":  {
                         "catalogSource":  "eng/tool-contracts.v2.json",
                         "activeCatalogSnapshotTarget":  "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
-                        "toolCount":  62,
+                        "toolCount":  63,
                         "profiles":  [
                                          "id_only"
                                      ],
@@ -503,6 +503,12 @@
                   },
                   {
                       "name":  "diagnose_window",
+                      "manifestSideEffectClass":  "loaded_trace_query",
+                      "idOnlyFamily":  "loaded_trace_query",
+                      "compatibilityFamily":  "loaded_trace_query"
+                  },
+                  {
+                      "name":  "disk_io_analysis",
                       "manifestSideEffectClass":  "loaded_trace_query",
                       "idOnlyFamily":  "loaded_trace_query",
                       "compatibilityFamily":  "loaded_trace_query"

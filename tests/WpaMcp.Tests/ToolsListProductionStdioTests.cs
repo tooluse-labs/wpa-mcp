@@ -34,7 +34,7 @@ public sealed class ToolsListProductionStdioTests
         var minimum = Math.Max(
             preflight.MinimumViableFrameBytes,
             contractPreflight.MinimumViableFrameBytes);
-        Assert.Equal(62, tools.Length);
+        Assert.Equal(63, tools.Length);
         foreach (var tool in tools)
         {
             Assert.Null(tool.OutputSchema);
@@ -99,7 +99,7 @@ public sealed class ToolsListProductionStdioTests
 
         Assert.True(pageIndex >= 3);
         Assert.Equal(tools.Select(tool => tool.Name), observedNames);
-        Assert.Equal(62, observedNames.Count);
+        Assert.Equal(63, observedNames.Count);
         Assert.Equal(tools.Length, observedNames.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains("prepare_symbols", observedNames);
         Assert.DoesNotContain("set_symbol_path", observedNames);

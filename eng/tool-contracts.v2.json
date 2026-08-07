@@ -1402,6 +1402,76 @@
       ]
     },
     {
+      "toolName": "disk_io_analysis",
+      "enabled": true,
+      "contractVersion": "2.0",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "DiskIoAnalysis",
+      "inputType": "parameters(traceId:System.String,top:System.Int32,pid:System.Nullable\u003CSystem.Int32\u003E,startUs:System.Nullable\u003CSystem.Int64\u003E,endUs:System.Nullable\u003CSystem.Int64\u003E,bucketUs:System.Int64,summaryOnly:System.Boolean,processStartUs:System.Nullable\u003CSystem.Int64\u003E)",
+      "outputType": "WpaMcp.Output.DiskIoAnalysisResponse",
+      "capabilityIds": [
+        "io.disk.aggregate"
+      ],
+      "requiredCapabilities": [
+        "runtime.loaded_trace_id",
+        "trace.materialized"
+      ],
+      "selectableScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "sideEffects": [
+        "loaded_trace_query"
+      ],
+      "costClass": "single_scan",
+      "discoveryPriority": 100,
+      "domain": "io",
+      "ordinal": 5,
+      "defaultOrdering": "total_bytes_desc",
+      "tieBreakers": [
+        "process_or_file_identity_asc"
+      ],
+      "pageableSections": [
+        "/topProcesses",
+        "/topFiles",
+        "/disks",
+        "/timeline"
+      ],
+      "paginationMode": "top_n",
+      "deprecation": {
+        "state": "none",
+        "replacedBy": null,
+        "removalContractVersion": null
+      },
+      "internalAnalyzerOperations": [
+        "tool.io.disk_io_analysis"
+      ],
+      "allowedMeasurementBases": [
+        "direct",
+        "derived",
+        "metadata",
+        "unmeasured"
+      ],
+      "maximumRelationship": "descriptive",
+      "conclusionRules": [],
+      "doesNotProve": [
+        "DISK_BUSY_NOT_STORAGE_SATURATION",
+        "COMPLETION_WINDOW_BOUNDARY",
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "evidenceReferences": [
+        "evidence.io.disk.aggregate"
+      ]
+    },
+    {
       "toolName": "disk_io_caller_callee",
       "enabled": true,
       "contractVersion": "2.0",

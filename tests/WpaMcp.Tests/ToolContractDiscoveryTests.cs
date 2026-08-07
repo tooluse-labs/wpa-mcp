@@ -99,8 +99,8 @@ public sealed class ToolContractDiscoveryTests
         var preflight = MeasurePreflight(catalog);
 
         Assert.Equal(8_192, preflight.FixedPageUtf8Bytes);
-        Assert.Equal(62, preflight.ToolCount);
-        Assert.Equal(323, preflight.PageCount);
+        Assert.Equal(63, preflight.ToolCount);
+        Assert.Equal(328, preflight.PageCount);
         Assert.Equal(36_127, preflight.MaximumToolFrameBytes);
         Assert.Equal("cpu_top_functions_batch", preflight.MaximumToolFrameToolName);
         Assert.Equal(4, preflight.MaximumToolFramePage);

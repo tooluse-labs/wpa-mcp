@@ -804,6 +804,9 @@ public sealed class MetaTools
         if (capabilities.HasFileIo)
             recommendations.Add(("file_io_top_files", "File IO events are present; identify files with the most read/write bytes, optionally narrowed by pid/startUs/endUs.", ["io"]));
 
+        if (capabilities.HasDiskIo)
+            recommendations.Add(("disk_io_analysis", "Physical Disk IO events are present; aggregate read/write requests, service time, disk busy time, processes, files, and an optional bounded timeline without requiring stacks.", ["io", "disk"]));
+
         AddStackRecommendation(
             capabilities.HasFileIo,
             "file_io",
@@ -1076,13 +1079,15 @@ public sealed class MetaTools
             var ioTools = new List<string>();
             if (capabilities.HasFileIo)
                 ioTools.Add("file_io_top_files");
+            if (capabilities.HasDiskIo)
+                ioTools.Add("disk_io_analysis");
             if (hasFileIoStacks)
                 ioTools.Add("file_io_top_stacks");
             if (hasDiskIoStacks)
                 ioTools.Add("disk_io_top_stacks");
             flows.Add(Flow(
                 "io_contention",
-                "Use file IO by-file rows for path attribution, then only use stack views whose own event domain has attached stacks; compare file IO with disk IO to separate cache-served activity from physical media.",
+                "Use file IO rows for logical path activity and stack-independent disk_io_analysis for physical requests, service time, and busy time; only use stack views whose own event domain has attached stacks.",
                 ioTools,
                 ["io", "disk"],
                 [
@@ -1378,6 +1383,7 @@ public sealed class MetaTools
 
     private static readonly string[] DiskIoToolNames =
     [
+        "disk_io_analysis",
         "disk_io_top_stacks",
         "disk_io_caller_callee",
     ];

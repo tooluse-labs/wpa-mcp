@@ -1231,7 +1231,7 @@ internal sealed class ReviewedToolOutcomeAdapterRegistry
         "clr_exception_top_stacks", "clr_finalizer_analysis", "clr_gc_analysis", "clr_gc_heap_stats",
         "clr_jit_analysis", "cpu_caller_callee", "cpu_precise_analysis", "cpu_top_functions",
         "cpu_top_functions_batch", "diagnose_high_wait", "diagnose_slow_startup", "diagnose_window",
-        "disk_io_caller_callee", "disk_io_top_stacks", "file_io_caller_callee", "file_io_top_files",
+        "disk_io_analysis", "disk_io_caller_callee", "disk_io_top_stacks", "file_io_caller_callee", "file_io_top_files",
         "file_io_top_stacks", "find_marker", "generic_event_caller_callee", "generic_event_top_stacks",
         "hard_fault_by_file", "hard_fault_caller_callee", "hard_fault_top_stacks",
         "heap_alloc_caller_callee", "heap_alloc_top_stacks", "image_load_caller_callee",
@@ -1572,6 +1572,42 @@ internal sealed class ReviewedToolOutcomeAdapterRegistry
                         "tid_asc",
                         "thread_generation_asc",
                     ]),
+            ];
+        }
+        if (tool.ToolName == "disk_io_analysis")
+        {
+            return
+            [
+                Section(
+                    tool,
+                    "/topProcesses",
+                    ReviewedSectionProofMode.TopPlusOne,
+                    "top",
+                    sortKey: "total_bytes_desc",
+                    direction: ToolSortDirection.Descending,
+                    tieBreakers: ["pid_asc", "process_start_us_asc"]),
+                Section(
+                    tool,
+                    "/topFiles",
+                    ReviewedSectionProofMode.TopPlusOne,
+                    "top",
+                    sortKey: "total_bytes_desc",
+                    direction: ToolSortDirection.Descending,
+                    tieBreakers: ["file_path_ordinal_asc"]),
+                Section(
+                    tool,
+                    "/disks",
+                    ReviewedSectionProofMode.Exhaustive,
+                    sortKey: "disk_number_asc",
+                    direction: ToolSortDirection.Ascending,
+                    tieBreakers: []),
+                Section(
+                    tool,
+                    "/timeline",
+                    ReviewedSectionProofMode.Exhaustive,
+                    sortKey: "start_us_asc",
+                    direction: ToolSortDirection.Ascending,
+                    tieBreakers: []),
             ];
         }
         if (tool.ToolName == "file_io_top_files")
@@ -2051,6 +2087,7 @@ internal sealed class ReviewedToolOutcomeAdapterRegistry
                 ReviewedScopeSource.Trace,
                 ReviewedCapabilityEvaluator.ObservedData),
             ["diagnose_window"] = HeuristicSections("window_composite"),
+            ["disk_io_analysis"] = DescriptiveSections("physical_disk_io_events"),
             ["disk_io_caller_callee"] = CallerCallee(),
             ["disk_io_top_stacks"] = Stacks(),
             ["file_io_caller_callee"] = CallerCallee(),

@@ -70,7 +70,7 @@
       "title": "Storage I/O investigation",
       "summary": "Measure file and disk activity and distinguish hard-fault file attribution from stack evidence.",
       "goalIds": ["storage_io"],
-      "capabilityIds": ["io.file.aggregate", "io.file.stacks", "io.disk.stacks", "memory.hard_fault.files", "memory.hard_fault.stacks"]
+      "capabilityIds": ["io.file.aggregate", "io.file.stacks", "io.disk.aggregate", "io.disk.stacks", "memory.hard_fault.files", "memory.hard_fault.stacks"]
     },
     {
       "workflowId": "workflow.memory",
@@ -258,7 +258,7 @@
     {
       "evaluatorId": "evaluator.disk_io",
       "kind": "event",
-      "capabilityIds": ["io.disk.stacks"],
+      "capabilityIds": ["io.disk.aggregate", "io.disk.stacks"],
       "eventFlags": ["HasDiskIo"],
       "stackDomain": "disk_io",
       "measurementBasis": "direct",
@@ -1208,6 +1208,56 @@
       "replacedBy": null,
       "removalContractVersion": null,
       "maximumRelationship": "association"
+    },
+    {
+      "capabilityId": "io.disk.aggregate",
+      "definitionVersion": 1,
+      "lifecycleStatus": "active",
+      "domain": "io",
+      "title": "Physical disk I/O aggregation",
+      "summary": "Aggregates physical DiskIO requests, service-time intervals, process lifetimes, disks, and temporally resolved file identities without requiring event stacks.",
+      "questionsAnswered": [
+        "Which processes, files, and physical disks account for observed scoped DiskIO requests and bytes?",
+        "What read/write, service-time, and bounded busy-time trends were observed in the selected window?"
+      ],
+      "questionsNotAnswered": [
+        "Does disk busy percentage alone prove storage saturation or root cause?",
+        "Did an I/O whose completion event falls outside the selected window contribute busy time inside it?",
+        "Is every DiskIO FileKey mapping unambiguous?"
+      ],
+      "conclusionBoundaryCodes": [
+        "DISK_BUSY_NOT_STORAGE_SATURATION",
+        "COMPLETION_WINDOW_BOUNDARY",
+        "FILE_IDENTITY_MAY_BE_UNRESOLVED",
+        "TOP_N_NOT_COMPLETE"
+      ],
+      "requiredEvents": [
+        "DiskIO/Read",
+        "DiskIO/Write"
+      ],
+      "requiredEventStacks": [],
+      "optionalEvidence": [
+        "Disk service time",
+        "Temporal FileKey mappings",
+        "Process lifetime identity"
+      ],
+      "symbolRequirement": "none",
+      "supportedScopes": [
+        "trace",
+        "process",
+        "time_window"
+      ],
+      "costClass": "single_scan",
+      "sideEffectClass": "raw_trace_query",
+      "contractVersion": "2.0",
+      "sourcePaths": [
+        "src/WpaMcp/Tools/IoTools.cs",
+        "src/WpaMcp/Analyzers/DiskIoAnalysis.cs",
+        "src/WpaMcp/Analyzers/FileObjectResolver.cs"
+      ],
+      "replacedBy": null,
+      "removalContractVersion": null,
+      "maximumRelationship": "descriptive"
     },
     {
       "capabilityId": "io.disk.stacks",

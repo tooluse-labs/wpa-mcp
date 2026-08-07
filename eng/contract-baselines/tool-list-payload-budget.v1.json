@@ -18,17 +18,17 @@
   },
   "activeContract2Observation": {
     "artifactTarget": "tests/WpaMcp.Tests/ContractBaselines/active-tools.v1.json",
-    "toolCount": 62,
-    "structuredToolCount": 62,
-    "aggregateCatalogResultBytes": 209255,
-    "aggregateCatalogSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
+    "toolCount": 63,
+    "structuredToolCount": 63,
+    "aggregateCatalogResultBytes": 211962,
+    "aggregateCatalogSha256": "ee6611c2c03f4467aafd76d0c8f06a7cb78e887b615593d8342fb7958240548b",
     "aggregatePromptCostState": "lean_discovery_with_on_demand_full_contracts",
     "pageFrameLimitBytes": 100000,
     "embeddedOutputSchemaCount": 0,
-    "outputContractMetadataCount": 62,
+    "outputContractMetadataCount": 63,
     "withinLeanDiscoveryBudget": true,
     "fullContractRegistryArtifact": "eng/contract-baselines/tool-output-contract-registry.v1.json",
-    "fullContractRegistryCanonicalUtf8Bytes": 2380693
+    "fullContractRegistryCanonicalUtf8Bytes": 2415333
   },
   "legacyTransitionGuardBytes": 185000,
   "aggregateWarningThresholdBytes": 250000,

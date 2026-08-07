@@ -2,16 +2,16 @@
   "formatVersion": "tools-list-pagination.v1",
   "measuredAt": "2026-08-02",
   "server": {
-    "catalogVersion": "04254e9835c27d66e65d8dc83ab6e5762587711656f2a4b9f03346a88fd7e95e",
+    "catalogVersion": "d8cb4cc3c17f9f4bf3abd7f416664e598b50ba0dd1793d5f1efd20d1bcc0d0b5",
     "contractMode": "2.0",
-    "toolCount": 62,
+    "toolCount": 63,
     "catalogScope": "wpa_mcp_declared_capabilities",
     "exhaustiveForWpa": false
   },
   "aggregateCatalog": {
     "serialization": "ModelContextProtocol ListToolsResult with McpJsonUtilities.DefaultOptions",
-    "bytes": 209255,
-    "sha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
+    "bytes": 211962,
+    "sha256": "ee6611c2c03f4467aafd76d0c8f06a7cb78e887b615593d8342fb7958240548b",
     "promptSchemaTokens": null,
     "promptSchemaTokenState": "unmeasured_client_specific",
     "cacheHitState": "unmeasured_client_specific"
@@ -27,18 +27,19 @@
   },
   "exactMinimumProductionStdioTraversal": {
     "maxJsonRpcResponseBytes": 36127,
-    "pageCount": 6,
+    "pageCount": 7,
     "pageFrameBytes": [
       35682,
       35856,
-      34783,
-      34139,
-      34693,
-      34696
+      33309,
+      34932,
+      33820,
+      35974,
+      3083
     ],
-    "maximumObservedPageFrameBytes": 35856,
+    "maximumObservedPageFrameBytes": 35974,
     "clientBehavior": "real newline-delimited stdio client traversed nextCursor until null",
-    "closure": "all_62_tools_exactly_once_in_validated_order",
+    "closure": "all_63_tools_exactly_once_in_validated_order",
     "cursorBehavior": "opaque_retry_safe_tamper_rejected_cross_instance_rejected",
     "capMinusOneBehavior": "startup_exit_78_before_stdin",
     "toolDescriptorsPreservedWhole": true,
@@ -56,8 +57,8 @@
   "contractDiscoveryPreflight": {
     "serializedRequestIdBytes": 128,
     "fixedPageUtf8Bytes": 8192,
-    "toolCount": 62,
-    "pageCount": 323,
+    "toolCount": 63,
+    "pageCount": 328,
     "maximumToolFrameBytes": 36127,
     "maximumToolFrameToolName": "cpu_top_functions_batch",
     "maximumToolFramePage": 4,

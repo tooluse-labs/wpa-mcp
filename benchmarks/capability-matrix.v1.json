@@ -182,6 +182,18 @@
       ]
     },
     {
+      "capabilityId": "io.disk.aggregate",
+      "productMaturity": "supported",
+      "evidenceReferences": [
+        {
+          "evidenceId": "evidence.io.disk.aggregate",
+          "kind": "automated_test",
+          "path": "tests/WpaMcp.Tests/DiskIoAnalysisTests.cs",
+          "member": "DiskIoAnalysisTests"
+        }
+      ]
+    },
+    {
       "capabilityId": "io.disk.stacks",
       "productMaturity": "supported",
       "evidenceReferences": [

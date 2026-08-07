@@ -17,8 +17,8 @@ public sealed class ToolOutputContractTests
         var catalog = ActiveToolCatalog.LoadAndValidate();
         var contracts = catalog.OutputContracts;
 
-        Assert.Equal(62, catalog.Tools.Count);
-        Assert.Equal(62, contracts.Count);
+        Assert.Equal(63, catalog.Tools.Count);
+        Assert.Equal(63, contracts.Count);
         Assert.True(contracts.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(
             catalog.Tools.Select(tool => tool.ToolName)));
 
@@ -50,7 +50,7 @@ public sealed class ToolOutputContractTests
                 ToolOutputSchemaFactory.CreateContract(tool.ToolName, tool.OutputDataType));
         }
 
-        Assert.Equal(62, contracts.Values.Select(contract => contract.SchemaUri)
+        Assert.Equal(63, contracts.Values.Select(contract => contract.SchemaUri)
             .Distinct(StringComparer.Ordinal).Count());
     }
 
@@ -66,7 +66,7 @@ public sealed class ToolOutputContractTests
         var wrappers = catalog.CreateServerTools(provider);
         var contracts = catalog.OutputContracts;
 
-        Assert.Equal(62, wrappers.Count);
+        Assert.Equal(63, wrappers.Count);
         Assert.All(wrappers, wrapper => Assert.IsType<ContractMcpServerTool>(wrapper));
         foreach (var wrapper in wrappers)
         {
@@ -111,7 +111,7 @@ public sealed class ToolOutputContractTests
 
         Assert.Equal(60, reviewedHashes.Count);
         Assert.Equal(
-            ["get_tool_contract", "thread_compare_windows"],
+            ["get_tool_contract", "thread_compare_windows", "disk_io_analysis"],
             catalog.OutputContracts.Keys.Except(reviewedHashes.Keys, StringComparer.Ordinal));
         Assert.All(reviewedHashes, reviewed => Assert.Equal(
             reviewed.Value,

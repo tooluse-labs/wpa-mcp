@@ -2,10 +2,10 @@
   "formatVersion": "active-reachable-collection-closure.v1",
   "registrySemantics": "Reviewed, fail-closed dispositions for every collection reachable from an active output root. Property membership and the classified occurrence hash are explicit review state, not semantic inference from names. A collection or a new tool/path occurrence requires review before this baseline may change.",
   "expectedCounts": {
-    "activeToolCount": 62,
-    "reachableTypeCount": 153,
-    "collectionPropertyCount": 237,
-    "collectionOccurrenceCount": 456
+    "activeToolCount": 63,
+    "reachableTypeCount": 160,
+    "collectionPropertyCount": 243,
+    "collectionOccurrenceCount": 462
   },
   "proofDefinitions": [
     {
@@ -74,6 +74,10 @@
         "WpaMcp.Output.DiagnoseSlowStartupResponse.FirstImageLoadGapEvidence",
         "WpaMcp.Output.DiagnoseSlowStartupResponse.NextTools",
         "WpaMcp.Output.DiagnoseSlowStartupResponse.NotConcluded",
+        "WpaMcp.Output.DiskIoAnalysisResponse.Disks",
+        "WpaMcp.Output.DiskIoAnalysisResponse.Timeline",
+        "WpaMcp.Output.DiskIoAnalysisResponse.TopFiles",
+        "WpaMcp.Output.DiskIoAnalysisResponse.TopProcesses",
         "WpaMcp.Output.DiskIoStacksResponse.Rows",
         "WpaMcp.Output.DriverModuleSummary.TopDrivers",
         "WpaMcp.Output.FileIoResponse.Rows",
@@ -174,6 +178,7 @@
         "WpaMcp.Output.CpuTopFunctionsResponse.IncludedThreads",
         "WpaMcp.Output.DiagnoseHighWaitResponse.IncludedProcesses",
         "WpaMcp.Output.DiagnoseWindowResponse.IncludedProcesses",
+        "WpaMcp.Output.DiskIoAnalysisResponse.IncludedProcesses",
         "WpaMcp.Output.DiskIoStacksResponse.IncludedProcesses",
         "WpaMcp.Output.FileIoResponse.IncludedProcesses",
         "WpaMcp.Output.FileIoStacksResponse.IncludedProcesses",
@@ -221,6 +226,7 @@
         "WpaMcp.Output.DiagnoseHighWaitResponse.Warnings",
         "WpaMcp.Output.DiagnoseSlowStartupResponse.Warnings",
         "WpaMcp.Output.DiagnoseWindowResponse.Warnings",
+        "WpaMcp.Output.DiskIoAnalysisResponse.Warnings",
         "WpaMcp.Output.DiskIoStacksResponse.Warnings",
         "WpaMcp.Output.FileIoResponse.Warnings",
         "WpaMcp.Output.FileIoStacksResponse.Warnings",
@@ -325,18 +331,18 @@
   ],
   "proofModeCounts": {
     "fixed_catalog_exhaustive": 98,
-    "manifest_pageable": 170,
+    "manifest_pageable": 174,
     "producer_exhaustive": 20,
     "request_bounded_top_n": 3,
-    "scope_identity_exact": 78,
+    "scope_identity_exact": 79,
     "typed_nested_boundary": 21,
-    "warnings_exhaustive": 66
+    "warnings_exhaustive": 67
   },
-  "reviewedOccurrenceSetSha256": "888311632f7e507162e8a9831a2af85cc46ad663a847b279124190eafcbb8761",
+  "reviewedOccurrenceSetSha256": "a077326fce05d570e7c6a4bde563eea79c447be2891d86daf25fea5c0c8c3bff",
   "sourceCapReview": {
     "owner": "correctness-contracts",
     "sourceNote": "Deterministic syntax inventory over src/WpaMcp for LINQ Take/TakeLast, parameterless FirstOrDefault sample selection, ExcludedSampleLimit, and Max* row/sample/item/entry/candidate limits. It is a change detector, not proof of runtime semantics; each affected collection still requires the reviewed property disposition above.",
-    "siteCount": 100,
-    "siteSetSha256": "0a2d8b1b520f0243285eb307bdfbbf40dafe4a291c60208eae593107cb4fc1f2"
+    "siteCount": 102,
+    "siteSetSha256": "4043a1ba288d88be2fc5b184db802ca362f9321474b2e4d99f309f95371275ee"
   }
 }

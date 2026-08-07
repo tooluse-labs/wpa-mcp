@@ -3,6 +3,7 @@ src/WpaMcp/Analyzers/AlpcStackAnalysis.cs|C8|route raw TraceEvent timestamps thr
 src/WpaMcp/Analyzers/ClrAllocStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
 src/WpaMcp/Analyzers/ClrContentionStackAnalysis.cs|C3|migrate paired contention durations to shared accounting
 src/WpaMcp/Analyzers/ClrExceptionStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
+src/WpaMcp/Analyzers/DiskIoAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
 src/WpaMcp/Analyzers/DiskIoStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
 src/WpaMcp/Analyzers/FileIoAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters
 src/WpaMcp/Analyzers/FileIoStackAnalysis.cs|C8|route raw TraceEvent timestamps through operation-context adapters

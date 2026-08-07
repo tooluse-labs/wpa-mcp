@@ -926,6 +926,88 @@ public sealed record DiskIoStacksResponse(
     long MatchedEventCount = 0,
     string? NoDataReason = null);
 
+// Exact stack-independent request metrics shared by the whole window and each aggregate row.
+// Service-time statistics use DiskIOTraceData.DiskServiceTimeMSec, not wall-clock file latency.
+public sealed record DiskIoMetrics(
+    long ReadCount,
+    long ReadBytes,
+    long WriteCount,
+    long WriteBytes,
+    long TotalCount,
+    long TotalBytes,
+    [property: Description("Number of matched DiskIO events with a finite non-negative DiskServiceTime value.")]
+    long ServiceTimeSampleCount,
+    long? AverageServiceTimeUs,
+    long? P95ServiceTimeUs,
+    long? MaxServiceTimeUs);
+
+public sealed record DiskIoSummary(
+    long StartUs,
+    long EndUs,
+    long WindowDurationUs,
+    DiskIoMetrics Metrics,
+    int ObservedDiskCount,
+    [property: Description("Observed disks with at least one valid DiskServiceTime sample; only these disks participate in busy percentages.")]
+    int BusyTimeMeasuredDiskCount,
+    [property: Description("Sum of per-disk service-interval unions. It can exceed WindowDurationUs when multiple disks are busy concurrently.")]
+    long BusyUsAcrossDisks,
+    [property: Description("BusyUsAcrossDisks divided by WindowDurationUs times BusyTimeMeasuredDiskCount.")]
+    double? AverageDiskBusyPct,
+    [property: Description("Maximum per-disk service-interval union divided by WindowDurationUs.")]
+    double? MaxDiskBusyPct,
+    [property: Description("Matched events included in total/file/disk metrics but excluded from process rows because no unique process lifetime was resolved.")]
+    long ProcessIdentityUnresolvedEventCount,
+    string FileMappingState,
+    FileMappingStateCounts FileMappingStateCounts);
+
+public sealed record DiskIoProcessRow(
+    ProcessInstanceKey Process,
+    string ProcessName,
+    DiskIoMetrics Metrics);
+
+public sealed record DiskIoFileRow(
+    string File,
+    DiskIoMetrics Metrics,
+    string MappingState,
+    FileMappingStateCounts MappingStateEventCounts);
+
+public sealed record DiskIoDiskRow(
+    int DiskNumber,
+    DiskIoMetrics Metrics,
+    long BusyUs,
+    double? BusyPct);
+
+public sealed record DiskIoTimelineBucket(
+    long StartUs,
+    long EndUs,
+    long DurationUs,
+    DiskIoMetrics Metrics,
+    long BusyUsAcrossDisks,
+    double? AverageDiskBusyPct,
+    double? MaxDiskBusyPct);
+
+public sealed record DiskIoAnalysisResponse(
+    DiskIoSummary Summary,
+    IReadOnlyList<DiskIoProcessRow> TopProcesses,
+    IReadOnlyList<DiskIoFileRow> TopFiles,
+    IReadOnlyList<DiskIoDiskRow> Disks,
+    IReadOnlyList<DiskIoTimelineBucket> Timeline,
+    long RequestedBucketUs,
+    long EffectiveBucketUs,
+    bool BucketWidthAdjusted,
+    bool SummaryOnly,
+    [property: Description("Disk request counts/bytes are completion events in [startUs,endUs). Busy time is the per-disk union of those matched events' service intervals, clipped to the same window; an I/O completing outside the window does not contribute.")]
+    string RequestAccounting = "completion_events_and_matched_service_interval_union",
+    ProcessInstanceKey? SelectedProcess = null,
+    string ScopeMode = "all_processes",
+    bool PidReuseObserved = false,
+    IReadOnlyList<ProcessInstanceKey>? IncludedProcesses = null,
+    string ScopeStatus = "ok",
+    string CapabilityStatus = "unknown",
+    long MatchedEventCount = 0,
+    string? NoDataReason = null,
+    IReadOnlyList<string>? Warnings = null);
+
 // Per-file aggregate of MemoryHardFault events: bytes paged in from disk for one file.  Most
 // hard faults come from memory-mapped files (DLLs, data files, network-share content) being
 // touched for the first time; some also come from paged-out heap/stack pages and the page file.

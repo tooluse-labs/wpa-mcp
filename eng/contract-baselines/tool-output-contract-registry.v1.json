@@ -18,9 +18,9 @@
       "utf8Bytes"
     ]
   },
-  "toolCount": 62,
-  "totalCanonicalUtf8Bytes": 2380693,
-  "registrySha256": "1eaff76ace4c7ad92740018621b492d257621866396ba89f802900fbb84671db",
+  "toolCount": 63,
+  "totalCanonicalUtf8Bytes": 2415333,
+  "registrySha256": "cc60099f5c14477f98e0617162bc2c5bac44efa407797ca8c9abe79d7d80792b",
   "tools": [
     {
       "toolName": "alpc_caller_callee",
@@ -192,6 +192,15 @@
       "sha256": "158365f3198e5e1e5e6f10c040d5f9043b6ca03b168c012e9cc59a1a383ac4f8",
       "mediaType": "application/schema\u002Bjson",
       "utf8Bytes": 65864
+    },
+    {
+      "toolName": "disk_io_analysis",
+      "contractVersion": "2.0",
+      "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+      "schemaUri": "wpa://contracts/tools/disk_io_analysis/d4e4ee49744796bbcac18ae121a4d5f1ae0599c7d703df2637af789956e5eaf7",
+      "sha256": "d4e4ee49744796bbcac18ae121a4d5f1ae0599c7d703df2637af789956e5eaf7",
+      "mediaType": "application/schema\u002Bjson",
+      "utf8Bytes": 34640
     },
     {
       "toolName": "disk_io_caller_callee",

@@ -7,9 +7,9 @@
     "structuredToolCount": 5,
     "catalogBytes": 178923
   },
-  "toolCount": 62,
-  "catalogBytes": 209255,
-  "catalogSha256": "33f9245840f1381661f92e3445252f5cfe7c6d3f16b18f3cfbccd5b92c010ee4",
+  "toolCount": 63,
+  "catalogBytes": 211962,
+  "catalogSha256": "ee6611c2c03f4467aafd76d0c8f06a7cb78e887b615593d8342fb7958240548b",
   "structuredToolNames": [
     "list_capabilities",
     "get_tool_contract",
@@ -42,6 +42,7 @@
     "image_load_top_gaps",
     "image_load_top_stacks",
     "disk_io_caller_callee",
+    "disk_io_analysis",
     "disk_io_top_stacks",
     "file_io_caller_callee",
     "file_io_top_files",
@@ -2377,6 +2378,83 @@
       "outputSchemaBytes": 42594,
       "outputSchemaSha256": "7f0754d6dfda8f9a150bb2a6721807b0915fc01469fab1e25c2fe505bfdb1565",
       "toolBytes": 3192
+    },
+    {
+      "name": "disk_io_analysis",
+      "declaringType": "WpaMcp.Tools.IoTools",
+      "method": "DiskIoAnalysis",
+      "returnType": "WpaMcp.Output.DiskIoAnalysisResponse",
+      "description": "Stack-independent PHYSICAL Disk I/O aggregation from DiskIO Read/Write events. Returns exact read/write counts and bytes, disk service-time statistics, per-disk busy time, and bounded top process/file/disk rows. Set bucketUs \u003E 0 for a complete timeline; the bucket width is widened automatically when needed to stay within 512 buckets. This is a different layer from File I/O and does not require event stacks or symbols. Counts and bytes use completion timestamps; busy percentages use the union of matched service intervals.",
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "useStructuredContent": true,
+      "parameters": [
+        {
+          "name": "traceId",
+          "type": "System.String",
+          "hasDefaultValue": false,
+          "defaultValueJson": null,
+          "description": "Canonical TraceId returned by load_trace"
+        },
+        {
+          "name": "top",
+          "type": "System.Int32",
+          "hasDefaultValue": true,
+          "defaultValueJson": "20",
+          "description": "Top N process and file rows per section (default 20, max 1000)"
+        },
+        {
+          "name": "pid",
+          "type": "System.Nullable\u003CSystem.Int32\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Filter to a single process ID"
+        },
+        {
+          "name": "startUs",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Window start in microseconds since trace start"
+        },
+        {
+          "name": "endUs",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Window end in microseconds since trace start (exclusive)"
+        },
+        {
+          "name": "bucketUs",
+          "type": "System.Int64",
+          "hasDefaultValue": true,
+          "defaultValueJson": "0",
+          "description": "Requested timeline bucket width in microseconds; 0 disables the timeline. The effective width may be increased to cap output at 512 buckets."
+        },
+        {
+          "name": "summaryOnly",
+          "type": "System.Boolean",
+          "hasDefaultValue": true,
+          "defaultValueJson": "false",
+          "description": "Return only summary and scope evidence, omitting process/file/disk/timeline rows."
+        },
+        {
+          "name": "processStartUs",
+          "type": "System.Nullable\u003CSystem.Int64\u003E",
+          "hasDefaultValue": true,
+          "defaultValueJson": "null",
+          "description": "Exact process lifetime start in microseconds since trace start; requires pid. PID-only queries explicitly aggregate reused lifetimes."
+        }
+      ],
+      "inputSchemaBytes": 1604,
+      "inputSchemaSha256": "24bbcafade7c777eab96e516a15a273219e0bba19fa0ca20a6c97212e9dbfb6b",
+      "outputSchemaBytes": 34640,
+      "outputSchemaSha256": "d4e4ee49744796bbcac18ae121a4d5f1ae0599c7d703df2637af789956e5eaf7",
+      "toolBytes": 2706
     },
     {
       "name": "disk_io_top_stacks",
