@@ -257,7 +257,7 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
     internal static ToolError MapException(Exception exception) => exception switch
     {
         TraceReferenceException trace => StableError(trace.Code),
-        TraceAccessException trace => StableError(TraceAccessErrorProjection.PublicCode(trace.Code)),
+        TraceAccessException trace => ProjectTraceAccess(trace),
         TraceFactsSnapshotException => StableError("budget_exceeded"),
         ReviewedToolTerminalException terminal => StableError(terminal.Code),
         SymbolToolContractException symbol => StableError(SymbolToolErrorProjection.PublicCode(symbol.Code)),
@@ -280,6 +280,16 @@ internal sealed class ContractMcpServerTool : DelegatingMcpServerTool
         OperationCanceledException => StableError("cancelled"),
         _ => StableError("analysis_failed"),
     };
+
+    private static ToolError ProjectTraceAccess(TraceAccessException exception)
+    {
+        var code = TraceAccessErrorProjection.PublicCode(exception.Code);
+        // Policy denials carry an actionable, reviewed detail in the exception
+        // message; surface it so users can see which rule rejected the path.
+        return code == "trace_access_denied"
+            ? new ToolError(code, exception.Message, retryable: false)
+            : StableError(code);
+    }
 
     internal static ToolError StableError(string code) => code switch
     {

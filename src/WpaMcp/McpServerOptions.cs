@@ -9,13 +9,16 @@ internal sealed record TraceRuntimeOptions(
     long MaxInputTraceBytes,
     long MaxArtifactStoreBytes,
     int MaxArtifactObjects,
-    TimeSpan ArtifactRetentionTtl)
+    TimeSpan ArtifactRetentionTtl,
+    bool AllowAnyTracePath = false)
 {
     internal const string AccessModeEnvironmentVariable = "WPAMCP_TRACE_REFERENCE_MODE";
     internal const string AllowedRootsEnvironmentVariable = "WPAMCP_TRACE_ROOTS";
     internal const string ArtifactRootEnvironmentVariable = "WPAMCP_TRACE_ARTIFACT_ROOT";
     internal const string ArtifactRetentionMinutesEnvironmentVariable =
         "WPAMCP_TRACE_ARTIFACT_RETENTION_MINUTES";
+    internal const string AllowAnyTracePathEnvironmentVariable =
+        "WPAMCP_ALLOW_ANY_TRACE_PATH";
     internal const string CompatibilityRemovalRelease = "0.6.0";
     internal const long DefaultMaxInputTraceBytes = 64L * 1024 * 1024 * 1024;
     internal const long DefaultMaxArtifactStoreBytes = 64L * 1024 * 1024 * 1024;
@@ -61,6 +64,9 @@ internal sealed record TraceRuntimeOptions(
             getEnvironmentVariable(ArtifactRetentionMinutesEnvironmentVariable),
             ArtifactRetentionMinutesEnvironmentVariable,
             DefaultArtifactRetentionTtl);
+        var allowAnyTracePath = ParseBooleanOption(
+            getEnvironmentVariable(AllowAnyTracePathEnvironmentVariable),
+            AllowAnyTracePathEnvironmentVariable);
 
         return new TraceRuntimeOptions(
             accessMode,
@@ -69,15 +75,19 @@ internal sealed record TraceRuntimeOptions(
             DefaultMaxInputTraceBytes,
             DefaultMaxArtifactStoreBytes,
             DefaultMaxArtifactObjects,
-            artifactRetentionTtl);
+            artifactRetentionTtl,
+            allowAnyTracePath);
     }
 
     internal TraceRuntimeOptions ValidatePure()
     {
-        if (AllowedRoots.Count == 0)
-            throw new ArgumentException("At least one local trace root is required.");
-        foreach (var root in AllowedRoots)
-            ValidateLocalAbsolutePath(root, "trace root");
+        if (!AllowAnyTracePath)
+        {
+            if (AllowedRoots.Count == 0)
+                throw new ArgumentException("At least one local trace root is required.");
+            foreach (var root in AllowedRoots)
+                ValidateLocalAbsolutePath(root, "trace root");
+        }
         ValidateLocalAbsolutePath(ArtifactRoot, "trace artifact root");
         if (MaxInputTraceBytes <= 0 || MaxInputTraceBytes > DefaultMaxInputTraceBytes)
         {
@@ -128,6 +138,18 @@ internal sealed record TraceRuntimeOptions(
             _ => throw new ArgumentException(
                 $"{source} must be 'id_only'; raw-path query compatibility was removed."),
         };
+
+    private static bool ParseBooleanOption(string? raw, string source)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "1" or "true" or "yes" or "on" => true,
+            "0" or "false" or "no" or "off" => false,
+            _ => throw new ArgumentException($"{source} must be a boolean value (true/false)."),
+        };
+    }
 
     private static List<string> ParseEnvironmentRoots(string? raw) =>
         string.IsNullOrWhiteSpace(raw)
@@ -223,8 +245,23 @@ internal sealed record McpServerOptions(
         var configuredRoots = new List<string>();
         var configuredSymbolRoots = new List<string>();
 
+        var forwardHostOptionValue = false;
         for (var i = 0; i < args.Length; i++)
         {
+            if (!args[i].StartsWith('-'))
+            {
+                if (forwardHostOptionValue)
+                {
+                    hostArgs.Add(args[i]);
+                    forwardHostOptionValue = false;
+                    continue;
+                }
+                throw new ArgumentException(
+                    $"Unrecognized argument '{args[i]}'. Each option accepts exactly one value; " +
+                    "repeat an option to pass multiple values (for example, " +
+                    "--trace-root C:\\Traces --trace-root D:\\Captures).");
+            }
+            forwardHostOptionValue = false;
             switch (args[i])
             {
                 case "--symbol-path":
@@ -317,6 +354,10 @@ internal sealed record McpServerOptions(
                     configuredRoots.Add(RequireValue(args, ref i, "--trace-root"));
                     break;
 
+                case "--allow-any-trace-path":
+                    runtime = runtime with { AllowAnyTracePath = true };
+                    break;
+
                 case "--trace-artifact-root":
                     runtime = runtime with
                     {
@@ -393,6 +434,7 @@ internal sealed record McpServerOptions(
 
                 default:
                     hostArgs.Add(args[i]);
+                    forwardHostOptionValue = true;
                     break;
             }
         }

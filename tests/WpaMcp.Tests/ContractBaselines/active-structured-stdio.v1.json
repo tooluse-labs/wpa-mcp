@@ -2155,8 +2155,8 @@
           "missingTopLevelRequiredProperties": [],
           "recursiveSchemaValid": true,
           "recursiveSchemaViolations": [],
-          "normalizedCompactFrameBytes": 5738,
-          "normalizedCompactFrameSha256": "785a342b43a39c58bb8577e3e7da60b58b41cc2dcf51c6effd00a062da4e9c9e",
+          "normalizedCompactFrameBytes": 5778,
+          "normalizedCompactFrameSha256": "aa4e4c817cec924fb27ee75c1630fd79365618873596588cb0b9fdbb50e165d0",
           "response": {
             "jsonrpc": "2.0",
             "id": "load_trace-failure",
@@ -2180,8 +2180,8 @@
                 "text": "\u003CJSON_TEXT_EQUALS_STRUCTURED_CONTENT\u003E"
               }
             ],
-            "structuredContentBytes": 2235,
-            "structuredContentSha256": "2b8a8e7075971c2e4b4df94207fdf546c6437e7960c04c929c7ca3d124286755",
+            "structuredContentBytes": 2255,
+            "structuredContentSha256": "588089ab05759fead37c283e5d42cce2e3231cab4d18eb3f15adfe34baafef6c",
             "structuredTopLevelSections": [
               {
                 "name": "contractVersion",
@@ -2212,8 +2212,8 @@
                 "kind": "object",
                 "itemCount": null,
                 "propertyCount": 3,
-                "bytes": 110,
-                "sha256": "538e1b60a15004a72eb6d0211d849d85582fccb62b54746c18df29aea776e114"
+                "bytes": 130,
+                "sha256": "ed9a5eeffbb64b232b3b3f7a081e4d1fb1bfb83114b0a430c749f1523ce54a50"
               },
               {
                 "name": "failedSections",

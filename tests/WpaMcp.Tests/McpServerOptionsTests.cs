@@ -140,4 +140,63 @@ public class McpServerOptionsTests
             _ => null,
             runtimeVersion: "0.3.0"));
     }
+
+    [Fact]
+    public void ParseRejectsUnconsumedPositionalArguments()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => McpServerOptions.Parse(
+            ["--trace-root", "C:\\Temp", "C:\\tmp", "c:\\unsynced"]));
+        Assert.Contains("Unrecognized argument", ex.Message);
+        Assert.Contains("--trace-root", ex.Message);
+    }
+
+    [Fact]
+    public void ParseAccumulatesRepeatedTraceRoots()
+    {
+        var options = McpServerOptions.Parse(
+            ["--trace-root", "C:\\TracesA", "--trace-root", "D:\\CapturesB"]);
+        Assert.Equal(2, options.TraceRuntime.AllowedRoots.Count);
+        Assert.Contains(options.TraceRuntime.AllowedRoots,
+            root => root.Contains("TracesA", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(options.TraceRuntime.AllowedRoots,
+            root => root.Contains("CapturesB", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ParseStillForwardsHostOptionValuePairs()
+    {
+        var options = McpServerOptions.Parse(
+            ["--allow-any-trace-path", "--urls", "http://localhost"]);
+        Assert.True(options.TraceRuntime.AllowAnyTracePath);
+        Assert.Equal(["--urls", "http://localhost"], options.HostArgs);
+    }
+
+    [Fact]
+    public void AllowAnyTracePathCanComeFromEnvironment()
+    {
+        var options = McpServerOptions.Parse(
+            Array.Empty<string>(),
+            name => name == TraceRuntimeOptions.AllowAnyTracePathEnvironmentVariable
+                ? "true"
+                : null);
+        Assert.True(options.TraceRuntime.AllowAnyTracePath);
+    }
+
+    [Fact]
+    public void AllowAnyTracePathPermitsEmptyRootList()
+    {
+        var runtime = new TraceRuntimeOptions(
+            TraceAccessMode.IdOnly,
+            [],
+            Path.Combine(Path.GetTempPath(), "wpa-mcp-test-artifacts"),
+            1024,
+            1024,
+            8,
+            TimeSpan.FromDays(1),
+            AllowAnyTracePath: true);
+        runtime.ValidatePure();
+
+        Assert.Throws<ArgumentException>(() =>
+            (runtime with { AllowAnyTracePath = false }).ValidatePure());
+    }
 }

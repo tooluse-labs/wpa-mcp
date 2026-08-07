@@ -7,6 +7,15 @@ GitHub Releases and the git tag history.
 
 ## Unreleased
 
+### Added
+
+- Add `--allow-any-trace-path` / `WPAMCP_ALLOW_ANY_TRACE_PATH` to disable trace-root confinement on trusted local machines, and document repeat-per-root `--trace-root` usage in the README.
+- Surface the specific denial rule, the rejected path, and the configured roots in `trace_access_denied` errors instead of a generic policy message.
+
+### Fixed
+
+- Reject unrecognized positional arguments at startup with an actionable message instead of silently forwarding them, so a misplaced extra `--trace-root` value fails loudly.
+
 ## 0.6.0 - 2026-08-03
 
 ### Breaking

@@ -126,6 +126,7 @@ internal sealed class TraceAccessPolicy : IDisposable
 
         _options = options.ValidatePure();
         var roots = new List<RootHandle>(_options.AllowedRoots.Count);
+        if (!_options.AllowAnyTracePath)
         try
         {
             foreach (var configuredRoot in _options.AllowedRoots)
@@ -162,7 +163,10 @@ internal sealed class TraceAccessPolicy : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(rawPath);
 
-        RejectRawNamespace(rawPath);
+        if (_options.AllowAnyTracePath)
+            RejectDeviceNamespace(rawPath);
+        else
+            RejectRawNamespace(rawPath);
         if (!Path.IsPathFullyQualified(rawPath))
             throw Denied("trace_path_not_absolute");
         RejectTraversalSegments(rawPath);
@@ -175,7 +179,8 @@ internal sealed class TraceAccessPolicy : IDisposable
         }
 
         // This bounded metadata walk is deliberately before any artifact-root write.
-        RejectReparseAncestry(rawPath, includeLeaf: true);
+        if (!_options.AllowAnyTracePath)
+            RejectReparseAncestry(rawPath, includeLeaf: true);
 
         SafeFileHandle? handle = null;
         try
@@ -190,8 +195,15 @@ internal sealed class TraceAccessPolicy : IDisposable
                 throw Denied("trace_source_not_disk_file");
 
             var finalPath = NormalizeFinalPath(WindowsTraceFile.GetFinalPath(handle));
-            if (IsUncOrDevicePath(finalPath) || !IsWithinCurrentRoot(finalPath))
-                throw Denied("trace_path_outside_allowed_roots");
+            if (_options.AllowAnyTracePath)
+            {
+                if (IsDeviceNamespace(finalPath))
+                    throw Denied("trace_path_namespace_denied");
+            }
+            else if (IsUncOrDevicePath(finalPath) || !IsWithinCurrentRoot(finalPath))
+            {
+                throw OutsideAllowedRoots(finalPath);
+            }
 
             var info = WindowsTraceFile.GetIdentity(handle);
             if ((info.FileAttributes & FileAttributes.Directory) != 0 ||
@@ -271,9 +283,27 @@ internal sealed class TraceAccessPolicy : IDisposable
 
     private static bool IsUncOrDevicePath(string path) =>
         path.StartsWith("\\\\", StringComparison.Ordinal) ||
+        IsDeviceNamespace(path);
+
+    private static bool IsDeviceNamespace(string path) =>
         path.StartsWith("\\??\\", StringComparison.Ordinal) ||
         path.StartsWith("\\?\\", StringComparison.Ordinal) ||
         path.StartsWith("\\.\\", StringComparison.Ordinal);
+
+    private static void RejectDeviceNamespace(string path)
+    {
+        if (IsDeviceNamespace(path))
+            throw Denied("trace_path_namespace_denied");
+    }
+
+    private TraceAccessException OutsideAllowedRoots(string finalPath)
+    {
+        var roots = string.Join(", ", _roots.Select(root => root.InitialFinalPath));
+        return Denied(
+            $"trace_path_outside_allowed_roots: '{finalPath}' is outside the configured trace " +
+            $"roots ({roots}). Add a root by repeating --trace-root, or set WPAMCP_TRACE_ROOTS. " +
+            "On a trusted local machine, --allow-any-trace-path disables root confinement.");
+    }
 
     private static void RejectTraversalSegments(string path)
     {

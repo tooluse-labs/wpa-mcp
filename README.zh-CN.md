@@ -111,6 +111,18 @@ Codex、Claude Code 和 Claude Desktop 的配置位置不同，请使用[客户�
 
 先从全局概览开始，选定相关 PID 或 TID 后再请求堆栈和符号。相比一次请求所有堆栈，这种方式证据更清晰、响应也更小。
 
+## Trace 访问
+
+`load_trace` 只能打开位于已配置 trace 根目录内的文件（默认为"文档"文件夹）。需要更多目录时请重复使用 `--trace-root`——每个该选项只接受一个值：
+
+```json
+"args": ["--trace-root", "C:\\Traces", "--trace-root", "D:\\Captures"]
+```
+
+也可以设置 `WPAMCP_TRACE_ROOTS`（Windows 下用 `;` 分隔）。只要在命令行提供了 `--trace-root`，就会整体替换默认根目录。服务器无法识别的参数会在启动时直接报错，而不再被静默忽略。
+
+`trace_access_denied` 错误会指明拒绝该路径的具体规则并列出已配置的根目录。在完全可信的单人本机环境中，可以用 `--allow-any-trace-path`（或 `WPAMCP_ALLOW_ANY_TRACE_PATH=true`）关闭根目录限制。**仅限本机可信环境使用**：开启后任何工具调用都能读取该账户可访问的所有 `.etl`/`.etlx` 文件。
+
 ## 更新
 
 完整 bundle 安装可以原地更新到最新稳定 GitHub Release：
@@ -173,6 +185,7 @@ Capability 不可用应解释为未知，而不是测量值为零。比较结果
 | 函数名仍未解析 | 配置符号路径，并只重试已选进程或模块。参见[符号配置方法](docs/SYMBOL_RECIPES.zh-CN.md)。 |
 | 缓慢线程的 CPU 很低 | 分别检查 ready time 和 blocked time；仅靠 CPU sample 无法解释调度延迟。 |
 | 工具报告数据不可用 | 阅读 `capabilityEvidence`，使用所需 provider 重新采集，不要把缺失解释成零。 |
+| `trace_access_denied` | trace 不在已配置的根目录内，错误信息会列出这些根目录。重复使用 `--trace-root` 添加根目录，或在可信本机环境使用 `--allow-any-trace-path`。 |
 | 更新无法替换可执行文件 | 关闭 MCP 客户端及正在运行 wpa-mcp 的终端，然后重新执行更新。 |
 | 结果噪声过多 | 在解析符号或展开堆栈前缩小进程、线程和时间区间。 |
 

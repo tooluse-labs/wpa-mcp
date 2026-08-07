@@ -111,6 +111,18 @@ then show the top CPU processes. Do not resolve symbols yet.
 
 Start broad, select the relevant PID or TID, and then request stacks or symbols. This produces better evidence and smaller responses than asking for every stack in one call.
 
+## Trace access
+
+`load_trace` only opens traces inside the configured trace roots (default: your Documents folder). Grant additional directories by repeating `--trace-root`; each occurrence accepts exactly one value:
+
+```json
+"args": ["--trace-root", "C:\\Traces", "--trace-root", "D:\\Captures"]
+```
+
+Alternatively set `WPAMCP_TRACE_ROOTS` (`;`-separated on Windows). Providing any `--trace-root` replaces the default roots entirely. Arguments the server does not recognize fail at startup instead of being ignored.
+
+A `trace_access_denied` error names the rule that rejected the path and lists the configured roots. On a fully trusted, single-user machine, `--allow-any-trace-path` (or `WPAMCP_ALLOW_ANY_TRACE_PATH=true`) disables root confinement. **Use it only in a trusted local environment**: any tool invocation can then read every `.etl`/`.etlx` file the account can access.
+
 ## Update
 
 A bundle installation can update itself to the latest stable GitHub Release:
@@ -173,6 +185,7 @@ Treat unavailable capability evidence as unknown, not as a measured zero. Preser
 | Functions remain unresolved | Configure a symbol path and retry only the selected process or modules. See [Symbol recipes](docs/SYMBOL_RECIPES.md). |
 | A slow thread shows little CPU | Inspect ready time and blocked time. CPU samples alone cannot explain scheduler delay. |
 | A tool reports unavailable data | Read `capabilityEvidence`; recapture with the required providers rather than interpreting absence as zero. |
+| `trace_access_denied` | The trace is outside the configured trace roots; the error message lists them. Add roots by repeating `--trace-root`, or use `--allow-any-trace-path` on a trusted local machine. |
 | Update cannot replace the executable | Close MCP clients and any terminal currently running wpa-mcp, then retry the update. |
 | Results are noisy | Narrow the process, thread, and interval before resolving symbols or expanding stacks. |
 
