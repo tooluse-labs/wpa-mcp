@@ -154,6 +154,32 @@ public sealed class JsonRpcIngressTests
         Assert.Equal("2025-11-25", response?["result"]?["protocolVersion"]?.GetValue<string>());
     }
 
+    [Fact]
+    public async Task ProductionProgram_ExtraTraceRootValueFailsAtStartupWithActionableError()
+    {
+        // Reproduces the issue-18 configuration: one --trace-root followed by
+        // three paths used to register only C:\Temp and silently drop the rest.
+        var result = await RunProductionAsync(
+            [],
+            arguments: ["--trace-root", "C:\\Temp", "C:\\tmp", "c:\\unsynced"]);
+
+        Assert.Equal(Program.StartupConfigurationErrorExitCode, result.ExitCode);
+        Assert.Contains("Unrecognized argument 'C:\\tmp'", result.Stderr, StringComparison.Ordinal);
+        Assert.Contains("--trace-root", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProductionProgram_RepeatedTraceRootsStartCleanly()
+    {
+        var result = await RunProductionAsync(
+            InitializeFrame("init-1"),
+            arguments: ["--trace-root", "C:\\Temp", "--trace-root", "C:\\tmp"]);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        var response = JsonNode.Parse(result.Stdout.Trim());
+        Assert.Equal("2025-11-25", response?["result"]?["protocolVersion"]?.GetValue<string>());
+    }
+
     private static byte[] RequestFrame(string id) => Encoding.UTF8.GetBytes(
         new JsonObject
         {
@@ -215,7 +241,8 @@ public sealed class JsonRpcIngressTests
 
     private static async Task<ProcessResult> RunProductionAsync(
         byte[] input,
-        IReadOnlyDictionary<string, string?>? environment = null)
+        IReadOnlyDictionary<string, string?>? environment = null,
+        IReadOnlyList<string>? arguments = null)
     {
         var repoRoot = LocateRepoRoot();
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
@@ -241,6 +268,11 @@ public sealed class JsonRpcIngressTests
             CreateNoWindow = true,
         };
         startInfo.ArgumentList.Add(assembly);
+        if (arguments is not null)
+        {
+            foreach (var argument in arguments)
+                startInfo.ArgumentList.Add(argument);
+        }
         startInfo.Environment["WPAMCP_TELEMETRY"] = "0";
         if (environment is not null)
         {
