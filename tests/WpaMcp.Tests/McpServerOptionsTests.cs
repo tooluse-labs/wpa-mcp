@@ -183,20 +183,21 @@ public class McpServerOptionsTests
     }
 
     [Fact]
-    public void AllowAnyTracePathPermitsEmptyRootList()
+    public void EmptyRootsDefaultToUnconfinedAccess()
     {
-        var runtime = new TraceRuntimeOptions(
+        var unconfined = new TraceRuntimeOptions(
             TraceAccessMode.IdOnly,
             [],
             Path.Combine(Path.GetTempPath(), "wpa-mcp-test-artifacts"),
             1024,
             1024,
             8,
-            TimeSpan.FromDays(1),
-            AllowAnyTracePath: true);
-        runtime.ValidatePure();
+            TimeSpan.FromDays(1));
+        unconfined.ValidatePure();
+        Assert.False(unconfined.EnforceTraceRoots);
 
-        Assert.Throws<ArgumentException>(() =>
-            (runtime with { AllowAnyTracePath = false }).ValidatePure());
+        var confined = unconfined with { AllowedRoots = new[] { Path.GetTempPath() } };
+        Assert.True(confined.EnforceTraceRoots);
+        Assert.False((confined with { AllowAnyTracePath = true }).EnforceTraceRoots);
     }
 }

@@ -126,7 +126,7 @@ internal sealed class TraceAccessPolicy : IDisposable
 
         _options = options.ValidatePure();
         var roots = new List<RootHandle>(_options.AllowedRoots.Count);
-        if (!_options.AllowAnyTracePath)
+        if (_options.EnforceTraceRoots)
         try
         {
             foreach (var configuredRoot in _options.AllowedRoots)
@@ -163,10 +163,10 @@ internal sealed class TraceAccessPolicy : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(rawPath);
 
-        if (_options.AllowAnyTracePath)
-            RejectDeviceNamespace(rawPath);
-        else
+        if (_options.EnforceTraceRoots)
             RejectRawNamespace(rawPath);
+        else
+            RejectDeviceNamespace(rawPath);
         if (!Path.IsPathFullyQualified(rawPath))
             throw Denied("trace_path_not_absolute");
         RejectTraversalSegments(rawPath);
@@ -179,7 +179,7 @@ internal sealed class TraceAccessPolicy : IDisposable
         }
 
         // This bounded metadata walk is deliberately before any artifact-root write.
-        if (!_options.AllowAnyTracePath)
+        if (_options.EnforceTraceRoots)
             RejectReparseAncestry(rawPath, includeLeaf: true);
 
         SafeFileHandle? handle = null;
@@ -195,7 +195,7 @@ internal sealed class TraceAccessPolicy : IDisposable
                 throw Denied("trace_source_not_disk_file");
 
             var finalPath = NormalizeFinalPath(WindowsTraceFile.GetFinalPath(handle));
-            if (_options.AllowAnyTracePath)
+            if (!_options.EnforceTraceRoots)
             {
                 if (IsDeviceNamespace(finalPath))
                     throw Denied("trace_path_namespace_denied");

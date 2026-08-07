@@ -113,15 +113,13 @@ Start broad, select the relevant PID or TID, and then request stacks or symbols.
 
 ## Trace access
 
-`load_trace` only opens traces inside the configured trace roots (default: your Documents folder). Grant additional directories by repeating `--trace-root`; each occurrence accepts exactly one value:
+By default, `load_trace` opens any readable local `.etl`/`.etlx` path. To confine traces to specific directories, configure one or more roots by repeating `--trace-root`; each occurrence accepts exactly one value:
 
 ```json
 "args": ["--trace-root", "C:\\Traces", "--trace-root", "D:\\Captures"]
 ```
 
-Alternatively set `WPAMCP_TRACE_ROOTS` (`;`-separated on Windows). Providing any `--trace-root` replaces the default roots entirely. Arguments the server does not recognize fail at startup instead of being ignored.
-
-A `trace_access_denied` error names the rule that rejected the path and lists the configured roots. On a fully trusted, single-user machine, `--allow-any-trace-path` (or `WPAMCP_ALLOW_ANY_TRACE_PATH=true`) disables root confinement. **Use it only in a trusted local environment**: any tool invocation can then read every `.etl`/`.etlx` file the account can access.
+Alternatively set `WPAMCP_TRACE_ROOTS` (`;`-separated on Windows). Once any root is configured, only those directories load, and a `trace_access_denied` error names the rule that rejected the path plus the configured roots. `--allow-any-trace-path` (or `WPAMCP_ALLOW_ANY_TRACE_PATH=true`) forces confinement off even when roots are configured. Arguments the server does not recognize fail at startup instead of being ignored.
 
 ## Update
 

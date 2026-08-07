@@ -28,6 +28,9 @@ internal sealed record TraceRuntimeOptions(
     internal static readonly TimeSpan MinimumArtifactRetentionTtl = TimeSpan.FromMinutes(1);
     internal static readonly TimeSpan MaximumArtifactRetentionTtl = TimeSpan.FromDays(365);
 
+    // Confinement is opt-in: with no roots configured, any local path loads.
+    internal bool EnforceTraceRoots => !AllowAnyTracePath && AllowedRoots.Count > 0;
+
     internal static TraceRuntimeOptions Defaults(
         TraceAccessMode accessMode,
         Func<string, string?>? getEnvironmentVariable = null)
@@ -35,17 +38,6 @@ internal sealed record TraceRuntimeOptions(
         getEnvironmentVariable ??= Environment.GetEnvironmentVariable;
         var roots = ParseEnvironmentRoots(
             getEnvironmentVariable(AllowedRootsEnvironmentVariable));
-        if (roots.Count == 0)
-        {
-            var documents = Environment.GetFolderPath(
-                Environment.SpecialFolder.MyDocuments);
-            if (string.IsNullOrWhiteSpace(documents))
-            {
-                throw new ArgumentException(
-                    $"No default trace root is available. Configure --trace-root or {AllowedRootsEnvironmentVariable}.");
-            }
-            roots.Add(documents);
-        }
 
         var artifactRoot = getEnvironmentVariable(ArtifactRootEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(artifactRoot))
@@ -81,13 +73,8 @@ internal sealed record TraceRuntimeOptions(
 
     internal TraceRuntimeOptions ValidatePure()
     {
-        if (!AllowAnyTracePath)
-        {
-            if (AllowedRoots.Count == 0)
-                throw new ArgumentException("At least one local trace root is required.");
-            foreach (var root in AllowedRoots)
-                ValidateLocalAbsolutePath(root, "trace root");
-        }
+        foreach (var root in AllowedRoots)
+            ValidateLocalAbsolutePath(root, "trace root");
         ValidateLocalAbsolutePath(ArtifactRoot, "trace artifact root");
         if (MaxInputTraceBytes <= 0 || MaxInputTraceBytes > DefaultMaxInputTraceBytes)
         {

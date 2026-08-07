@@ -77,6 +77,13 @@ public static class Program
                 $"wpa-mcp: startup configuration failed: {ex.Message}");
             return StartupConfigurationErrorExitCode;
         }
+        if (!serverOptions.TraceRuntime.EnforceTraceRoots && !Console.IsErrorRedirected)
+        {
+            // Only humans on a terminal see this; MCP clients get a clean stderr.
+            Console.Error.WriteLine(
+                "wpa-mcp: trace root confinement is off; any readable .etl/.etlx path can be loaded. " +
+                "Configure --trace-root to restrict trace access.");
+        }
         if (!OperatingSystem.IsWindows())
         {
             Console.Error.WriteLine("wpa-mcp: secure trace artifacts require Windows.");

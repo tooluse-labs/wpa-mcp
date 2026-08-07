@@ -113,15 +113,13 @@ Codex、Claude Code 和 Claude Desktop 的配置位置不同，请使用[客户�
 
 ## Trace 访问
 
-`load_trace` 只能打开位于已配置 trace 根目录内的文件（默认为"文档"文件夹）。需要更多目录时请重复使用 `--trace-root`——每个该选项只接受一个值：
+默认情况下 `load_trace` 可以打开任何可读的本地 `.etl`/`.etlx` 路径。如需把 trace 限定在指定目录，请重复使用 `--trace-root` 配置一个或多个根目录——每个该选项只接受一个值：
 
 ```json
 "args": ["--trace-root", "C:\\Traces", "--trace-root", "D:\\Captures"]
 ```
 
-也可以设置 `WPAMCP_TRACE_ROOTS`（Windows 下用 `;` 分隔）。只要在命令行提供了 `--trace-root`，就会整体替换默认根目录。服务器无法识别的参数会在启动时直接报错，而不再被静默忽略。
-
-`trace_access_denied` 错误会指明拒绝该路径的具体规则并列出已配置的根目录。在完全可信的单人本机环境中，可以用 `--allow-any-trace-path`（或 `WPAMCP_ALLOW_ANY_TRACE_PATH=true`）关闭根目录限制。**仅限本机可信环境使用**：开启后任何工具调用都能读取该账户可访问的所有 `.etl`/`.etlx` 文件。
+也可以设置 `WPAMCP_TRACE_ROOTS`（Windows 下用 `;` 分隔）。一旦配置了任何根目录，就只有这些目录（及其子目录）可以加载；`trace_access_denied` 错误会指明拒绝该路径的具体规则并列出已配置的根目录。`--allow-any-trace-path`（或 `WPAMCP_ALLOW_ANY_TRACE_PATH=true`）可在已配置根目录的情况下仍强制关闭限制。服务器无法识别的参数会在启动时直接报错，而不再被静默忽略。
 
 ## 更新
 

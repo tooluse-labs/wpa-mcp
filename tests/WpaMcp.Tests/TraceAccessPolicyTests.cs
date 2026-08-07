@@ -35,6 +35,35 @@ public sealed class TraceAccessPolicyTests
     }
 
     [Fact]
+    public async Task DefaultPolicyWithoutRootsLoadsAnyLocalPath()
+    {
+        var directory = CreateTempDirectory();
+        try
+        {
+            var tracePath = Path.Combine(directory, "sample.etl");
+            await File.WriteAllTextAsync(tracePath, "policy test payload");
+            var options = new TraceRuntimeOptions(
+                TraceAccessMode.IdOnly,
+                [],
+                Path.Combine(directory, "artifacts"),
+                64L * 1024 * 1024,
+                64L * 1024 * 1024,
+                128,
+                TimeSpan.FromDays(7));
+            using var policy = new TraceAccessPolicy(options);
+
+            await using var source = await policy.OpenAsync(tracePath);
+
+            Assert.EndsWith(
+                "sample.etl", source.Identity.FinalPath, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task OutsideRootsDenialNamesRulePathAndConfiguredRoots()
     {
         var rootDirectory = CreateTempDirectory();
