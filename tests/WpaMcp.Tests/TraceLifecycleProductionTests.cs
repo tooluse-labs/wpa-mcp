@@ -10,6 +10,34 @@ namespace WpaMcp.Tests;
 public sealed class TraceLifecycleProductionTests
 {
     [Fact]
+    public async Task Materialization_PublishesWhileConvertedOutputHasAReadOnlyHandle()
+    {
+        FileStream? retainedReader = null;
+        using var runtime = TestRuntime.Create(convertTrace: path =>
+        {
+            var converted = Microsoft.Diagnostics.Tracing.Etlx.TraceLog.CreateFromEventTraceLogFile(path);
+            retainedReader = new FileStream(
+                converted, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        });
+        var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
+
+        try
+        {
+            var loaded = await runtime.Loader.LoadAsync(source, forceRefresh: false);
+
+            Assert.NotNull(retainedReader);
+            Assert.True(retainedReader.CanRead);
+            using var trace = Microsoft.Diagnostics.Tracing.Etlx.TraceLog.OpenOrConvert(loaded.Artifact.TracePath);
+            Assert.True(trace.EventCount > 0);
+            Assert.False(File.Exists(Path.ChangeExtension(source, ".etlx")));
+        }
+        finally
+        {
+            retainedReader?.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task LoadQueryUnloadReload_UsesOpaqueLifecycleAndRetainsArtifact()
     {
         using var runtime = TestRuntime.Create();
@@ -91,7 +119,7 @@ public sealed class TraceLifecycleProductionTests
             {
                 conversionStarted.Set();
                 Assert.True(releaseConversion.Wait(TimeSpan.FromSeconds(30)));
-                return Microsoft.Diagnostics.Tracing.Etlx.TraceLog.OpenOrConvert(path);
+                Microsoft.Diagnostics.Tracing.Etlx.TraceLog.CreateFromEventTraceLogFile(path);
             });
         var source = runtime.CopyFixture("small_cpu.etl", "trace.etl");
         using var leaderCancellation = new CancellationTokenSource();
@@ -238,7 +266,7 @@ public sealed class TraceLifecycleProductionTests
                         firstConversionStarted.Set();
                         Assert.True(releaseFirstConversion.Wait(TimeSpan.FromSeconds(30)));
                     }
-                    return Microsoft.Diagnostics.Tracing.Etlx.TraceLog.OpenOrConvert(path);
+                    Microsoft.Diagnostics.Tracing.Etlx.TraceLog.CreateFromEventTraceLogFile(path);
                 }
                 finally
                 {
@@ -559,7 +587,7 @@ public sealed class TraceLifecycleProductionTests
             int maxObjects = 128,
             long maxStoreBytes = TraceRuntimeOptions.DefaultMaxArtifactStoreBytes,
             Func<string, Microsoft.Diagnostics.Tracing.Etlx.TraceLog>? openTrace = null,
-            Func<string, Microsoft.Diagnostics.Tracing.Etlx.TraceLog>? convertTrace = null,
+            Action<string>? convertTrace = null,
             Func<CancellationToken, ValueTask>? beforeSnapshot = null,
             Func<Microsoft.Diagnostics.Tracing.Etlx.TraceLog, long, CancellationToken,
                 TraceFactsSnapshot>? factsBuilder = null,
