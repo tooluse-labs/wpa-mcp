@@ -46,7 +46,7 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
     private readonly int _maxObjects;
     private readonly TimeSpan _retentionTtl;
     private readonly Func<DateTimeOffset> _utcNow;
-    private readonly Func<string, TraceLog> _openOrConvert;
+    private readonly Action<string> _convertTrace;
     private readonly Func<CancellationToken, ValueTask>? _beforeSnapshot;
     private readonly object _pinGate = new();
     private readonly Dictionary<string, int> _activePins = new(StringComparer.Ordinal);
@@ -58,7 +58,7 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
         long maxInputBytes,
         long maxStoreBytes,
         int maxObjects,
-        Func<string, TraceLog>? openOrConvert = null,
+        Action<string>? convertTrace = null,
         Func<CancellationToken, ValueTask>? beforeSnapshot = null,
         Func<string, TrustedTraceArtifactRoot>? createTrustedRoot = null,
         TimeSpan? retentionTtl = null,
@@ -98,7 +98,7 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
         _maxObjects = maxObjects;
         _retentionTtl = effectiveRetentionTtl;
         _utcNow = utcNow ?? (static () => DateTimeOffset.UtcNow);
-        _openOrConvert = openOrConvert ?? (static path => TraceLog.OpenOrConvert(path));
+        _convertTrace = convertTrace ?? (static path => TraceLog.CreateFromEventTraceLogFile(path));
         _beforeSnapshot = beforeSnapshot;
     }
 
@@ -248,31 +248,28 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
             var stagingObject = Path.Combine(operationRoot, "object");
             Directory.CreateDirectory(stagingObject);
             var stagingTrace = Path.Combine(stagingObject, "trace.etlx");
+            var convertedPath = snapshotPath;
             if (source.Extension.Equals(".etl", StringComparison.OrdinalIgnoreCase))
             {
                 Interlocked.Increment(ref _conversionCount);
-                using (var converted = _openOrConvert(snapshotPath))
-                {
-                    _ = converted.SessionDuration;
-                }
-                var derived = Path.ChangeExtension(snapshotPath, ".etlx");
-                if (!File.Exists(derived))
+                _convertTrace(snapshotPath);
+                convertedPath = Path.ChangeExtension(snapshotPath, ".etlx");
+                if (!File.Exists(convertedPath))
                 {
                     throw new TraceAccessException(
                         "trace_conversion_failed",
                         "Trace conversion did not produce a validated ETLX artifact.");
                 }
-                File.Move(derived, stagingTrace);
             }
             else
             {
-                File.Move(snapshotPath, stagingTrace);
-                using var validated = _openOrConvert(stagingTrace);
+                using var validated = TraceLog.OpenOrConvert(snapshotPath);
                 _ = validated.SessionDuration;
             }
             EnforceTemporaryQuota(operationRoot);
 
-            await FlushFileAsync(stagingTrace, cancellationToken).ConfigureAwait(false);
+            await CopyAndFlushFileAsync(convertedPath, stagingTrace, cancellationToken).ConfigureAwait(false);
+            EnforceTemporaryQuota(operationRoot);
             var etlxLength = new FileInfo(stagingTrace).Length;
             var etlxHash = await ComputeFileHashAsync(
                 stagingTrace,
@@ -655,17 +652,27 @@ internal sealed class OwnedTraceArtifactStore : IDisposable
         return Convert.ToHexStringLower(hash);
     }
 
-    private static async Task FlushFileAsync(
-        string path,
+    private static async Task CopyAndFlushFileAsync(
+        string sourcePath,
+        string destinationPath,
         CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(
-            path,
+        await using var source = new FileStream(
+            sourcePath,
             FileMode.Open,
-            FileAccess.ReadWrite,
+            FileAccess.Read,
+            FileShare.Read,
+            1024 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        // Keep the staging write handle through flush; converter readers may retain the original file.
+        await using var stream = new FileStream(
+            destinationPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
             FileShare.None,
-            4096,
-            FileOptions.Asynchronous);
+            1024 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await source.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         stream.Flush(flushToDisk: true);
     }
